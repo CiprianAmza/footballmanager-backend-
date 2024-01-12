@@ -241,12 +241,26 @@ public class CompetitionController {
             }
 
 
+            HashMap<PlayerTransferView, BuyPlanTransferView> playerTransfered = new HashMap<>();
             for (Map.Entry<PlayerTransferView, List<BuyPlanTransferView>> pair : buyPlan.entrySet()) {
 
+                if (pair.getValue().size() == 1) {
+                    // we have only 1 option, so we have a winner
+                    playerTransfered.put(pair.getKey(), pair.getValue().get(0));
+                } else {
+                    // TODO different task
+                    // we need to apply the logic based on the player personality
+                    // personalities:
+                    /*
+                    1. choosing a club by the bigger wage
+                    2. choosing the club with the bigger reputation
+                    3. choosing the club playing at a higher continental level
+                    4. choosing the club where he could have a higher chance to play / be in first eleven
+                     */
+                }
+
                 System.out.println(playersForTransferMarket);
-
             }
-
 
             // save historical values
             Set<Long> competitions = competitionRepository.findAll()
