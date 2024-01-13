@@ -258,8 +258,6 @@ public class CompetitionController {
                     4. choosing the club where he could have a higher chance to play / be in first eleven
                      */
                 }
-
-                System.out.println(playersForTransferMarket);
             }
 
             // save historical values
