@@ -147,13 +147,13 @@ public class CompetitionController {
     }
 
     @GetMapping("/play")
-    @Scheduled(fixedDelay = 300)
+    @Scheduled(fixedDelay = 3000)
     public void play() {
 
         List<Long> teamIds = getAllTeams();
 
 
-        if (round.getRound() > 5) {
+        if (round.getRound() > 50) {
 
             // GF
             List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
@@ -257,8 +257,16 @@ public class CompetitionController {
                     3. choosing the club playing at a higher continental level
                     4. choosing the club where he could have a higher chance to play / be in first eleven
                      */
+
+                    Collections.shuffle(pair.getValue());
+
+                    playerTransfered.put(pair.getKey(), pair.getValue().get(0));
                 }
+
+
             }
+
+
 
             // save historical values
             Set<Long> competitions = competitionRepository.findAll()
