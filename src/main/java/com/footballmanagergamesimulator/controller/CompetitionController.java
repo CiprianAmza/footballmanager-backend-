@@ -259,12 +259,16 @@ public class CompetitionController {
                      */
 
                     Collections.shuffle(pair.getValue());
-
                     playerTransfered.put(pair.getKey(), pair.getValue().get(0));
                 }
+                PlayerTransferView playerTransferView = pair.getKey();
+                BuyPlanTransferView buyPlanTransferView = playerTransfered.get(playerTransferView);
 
+                Team sellTeam = teamRepository.findById(playerTransferView.getTeamId()).get();
+                Team buyTeam = teamRepository.findById(buyPlanTransferView.getTeamId()).get();
 
             }
+
 
 
 
