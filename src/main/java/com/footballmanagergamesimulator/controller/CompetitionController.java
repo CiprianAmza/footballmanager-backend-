@@ -54,6 +54,8 @@ public class CompetitionController {
     TeamFacilitiesRepository _teamFacilitiesRepository;
     @Autowired
     CompositeTransferStrategy _compositeTransferStrategy;
+    @Autowired
+    TransferRepository transferRepository;
 
 
     @GetMapping("/getPlayers/{teamId}")
@@ -242,6 +244,7 @@ public class CompetitionController {
 
 
             HashMap<PlayerTransferView, BuyPlanTransferView> playerTransfered = new HashMap<>();
+            List<Transfer> transfers = new ArrayList<>();
             for (Map.Entry<PlayerTransferView, List<BuyPlanTransferView>> pair : buyPlan.entrySet()) {
 
                 if (pair.getValue().size() == 1) {
@@ -267,7 +270,29 @@ public class CompetitionController {
                 Team sellTeam = teamRepository.findById(playerTransferView.getTeamId()).get();
                 Team buyTeam = teamRepository.findById(buyPlanTransferView.getTeamId()).get();
 
+                Human human = humanRepository.findById(playerTransferView.getPlayerId()).get();
+                human.setTeamId(buyTeam.getId());
+
+                Transfer transfer = new Transfer();
+                transfer.setPlayerId(human.getId());
+                transfer.setSellTeamId(sellTeam.getId());
+                transfer.setSellTeamName(sellTeam.getName());
+                transfer.setBuyTeamId(buyTeam.getId());
+                transfer.setBuyTeamName(buyTeam.getName());
+                transfer.setRating(human.getRating());
+
+                transferRepository.save(transfer);
+                transfers.add(transfer);
             }
+
+            transfers.sort(new Comparator<Transfer>() {
+                @Override
+                public int compare(Transfer o1, Transfer o2) {
+                    if (o1.getRating() == o2.getRating())
+                        return 0;
+                    return o1.getRating() > o2.getRating() ? 1 : -1;
+                }
+            });
 
 
 
