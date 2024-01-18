@@ -741,9 +741,6 @@ public class CompetitionController {
             long teamId1 = match.getTeam1Id();
             long teamId2 = match.getTeam2Id();
 
-            long teamReputation1 = teamRepository.findById(teamId1).get().getReputation();
-            long teamReputation2 = teamRepository.findById(teamId2).get().getReputation();
-
             int teamScore1, teamScore2;
 
             List<Human> firstTeam = getBestEleven(teamId1);
