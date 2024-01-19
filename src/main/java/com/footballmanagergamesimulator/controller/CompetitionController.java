@@ -775,7 +775,6 @@ public class CompetitionController {
                 competitionTeamInfoRepository.save(competitionTeamInfo);
             }
 
-
             CompetitionTeamInfoDetail competitionTeamInfoDetail = new CompetitionTeamInfoDetail();
             competitionTeamInfoDetail.setCompetitionId(_competitionId);
             competitionTeamInfoDetail.setRoundId(_roundId);
@@ -858,9 +857,9 @@ public class CompetitionController {
         HashMap<String, Integer> minimumPositionNeeded = new HashMap<>();
         minimumPositionNeeded.put("GK", 1);
         minimumPositionNeeded.put("DL", 1);
-        minimumPositionNeeded.put("DC", 3);
+        minimumPositionNeeded.put("DC", 2);
         minimumPositionNeeded.put("DR", 1);
-        minimumPositionNeeded.put("MC", 3);
+        minimumPositionNeeded.put("MC", 2);
         minimumPositionNeeded.put("ML", 1);
         minimumPositionNeeded.put("MR", 1);
         minimumPositionNeeded.put("ST", 2);
