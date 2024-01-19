@@ -518,7 +518,7 @@ public class CompetitionController {
                 .filter(teamCompetitionRelation -> teamCompetitionRelation.getCompetitionId() == competitionId)
                 .mapToLong(TeamCompetitionRelation::getTeamId)
                 .boxed()
-                .collect(Collectors.toList());
+                .toList();
 
         List<TeamCompetitionView> teamCompetitionViews = new ArrayList<>();
 
