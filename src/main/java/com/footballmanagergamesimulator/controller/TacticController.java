@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class TacticController {
 
     @PostMapping("/firstEleven")
-    public void saveFirstEleven() {
+    public void saveFirstEleven(String tactic) { // tactic format: GK=1231&DC=1331&DL=123...
         // TODO
     }
 }
