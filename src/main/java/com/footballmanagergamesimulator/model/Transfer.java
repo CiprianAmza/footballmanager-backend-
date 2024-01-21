@@ -10,7 +10,6 @@ import lombok.Data;
 @Data
 public class Transfer {
 
-
     @Id
     @GeneratedValue(strategy= GenerationType.IDENTITY)
     private long id;
@@ -18,9 +17,13 @@ public class Transfer {
     private long sellTeamId;
     private long buyTeamId;
     private long playerId;
+    private long playerTransferValue;
     private double rating;
+    private long seasonNumber;
 
     private String sellTeamName;
     private String buyTeamName;
+    private String playerName;
+
 
 }
