@@ -276,7 +276,7 @@ public class CompetitionController {
                 Transfer transfer = new Transfer();
                 transfer.setPlayerId(human.getId());
                 transfer.setPlayerName(human.getName());
-                transfer.setPlayerTransferValue(1000000L);
+                transfer.setPlayerTransferValue((long) playerTransferView.getRating());
                 transfer.setSellTeamId(sellTeam.getId());
                 transfer.setSellTeamName(sellTeam.getName());
                 transfer.setBuyTeamId(buyTeam.getId());
@@ -289,17 +289,11 @@ public class CompetitionController {
                 transfers.add(transfer);
             }
 
-            transfers.sort(new Comparator<Transfer>() {
-                @Override
-                public int compare(Transfer o1, Transfer o2) {
-                    if (o1.getRating() == o2.getRating())
-                        return 0;
-                    return o1.getRating() > o2.getRating() ? 1 : -1;
-                }
+            transfers.sort((o1, o2) -> {
+                if (o1.getRating() == o2.getRating())
+                    return 0;
+                return o1.getRating() > o2.getRating() ? 1 : -1;
             });
-
-
-
 
             // save historical values
             Set<Long> competitions = competitionRepository.findAll()
