@@ -149,11 +149,10 @@ public class CompetitionController {
     }
 
     @GetMapping("/play")
-    @Scheduled(fixedDelay = 3000)
+    @Scheduled(fixedDelay = 300)
     public void play() {
 
         List<Long> teamIds = getAllTeams();
-
 
         if (round.getRound() > 50) {
 
@@ -229,7 +228,7 @@ public class CompetitionController {
                     if (playersInMarket == null) continue;
                     for (PlayerTransferView player : playersInMarket) {
 
-                        if (canBeBought(player, buyPlanTransferView, clubPlan)) {
+                        if (canBeTransfered(player, buyPlanTransferView, clubPlan)) {
                             if (buyPlan.containsKey(player))
                                 buyPlan.get(player).add(buyPlanTransferView);
                             else {
@@ -273,13 +272,18 @@ public class CompetitionController {
                 Human human = humanRepository.findById(playerTransferView.getPlayerId()).get();
                 human.setTeamId(buyTeam.getId());
 
+
                 Transfer transfer = new Transfer();
                 transfer.setPlayerId(human.getId());
+                transfer.setPlayerName(human.getName());
+                transfer.setPlayerTransferValue(1000000L);
                 transfer.setSellTeamId(sellTeam.getId());
                 transfer.setSellTeamName(sellTeam.getName());
                 transfer.setBuyTeamId(buyTeam.getId());
                 transfer.setBuyTeamName(buyTeam.getName());
                 transfer.setRating(human.getRating());
+                transfer.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+
 
                 transferRepository.save(transfer);
                 transfers.add(transfer);
@@ -928,15 +932,15 @@ public class CompetitionController {
         return List.of("GK", "DL", "DC", "DC", "DR", "ML", "MC", "MC", "MR", "ST", "ST");
     }
 
-    private boolean canBeBought(PlayerTransferView playerTransferView, BuyPlanTransferView clubPlan, TransferPlayer desiredPlayer) {
+    private boolean canBeTransfered(PlayerTransferView playerTransferView, BuyPlanTransferView clubPlan, TransferPlayer desiredPlayer) {
 
         if (playerTransferView.getAge() > clubPlan.getMaxAge())
             return false; // club does not want to buy player, too old
-        if (playerTransferView.getDesiredReputation() - 10000 > clubPlan.getTeamReputation())
+        if (playerTransferView.getDesiredReputation() - 1000 > clubPlan.getTeamReputation())
             return false; // club can't buy player, reputation too low
         if (!playerTransferView.getPosition().equals(desiredPlayer.getPosition()))
             return false; // not desired position
-        if (playerTransferView.getRating() < desiredPlayer.getMinRating() - 5)
+        if (playerTransferView.getRating() < desiredPlayer.getMinRating() - 50)
             return false; // player rating too low
         if (playerTransferView.getTeamId() == clubPlan.getTeamId())
             return false; // club already owns player
