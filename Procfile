@@ -1,1 +1,1 @@
-web:java -jar out/artifacts/footballmanagergamesimulator_jar/footballmanagergamesimulator.jar
+web: java -jar target/footballmanagergamesimulator.jar
