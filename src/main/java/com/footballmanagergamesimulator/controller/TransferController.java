@@ -9,7 +9,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/transfers")
-@CrossOrigin(origins = "http://localhost:4200")
+@CrossOrigin(origins = "*")
 public class TransferController {
 
     @Autowired
