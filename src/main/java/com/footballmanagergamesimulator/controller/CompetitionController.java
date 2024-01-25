@@ -299,7 +299,8 @@ public class CompetitionController {
             Set<Long> competitions = competitionRepository.findAll()
                     .stream()
                     .mapToLong(Competition::getId)
-                    .boxed().collect(Collectors.toSet());
+                    .boxed()
+                    .collect(Collectors.toSet());
 
             for (Long competitionId : competitions)
                 this.saveHistoricalValues(competitionId, round.getSeason());
@@ -530,8 +531,10 @@ public class CompetitionController {
                 teamCompetitionDetail.setCompetitionId(competitionId);
             }
 
-            TeamCompetitionView teamCompetitionView = adaptTeam(team, teamCompetitionDetail);
-            teamCompetitionViews.add(teamCompetitionView);
+            if (team != null) { // team should never be null
+                TeamCompetitionView teamCompetitionView = adaptTeam(team, teamCompetitionDetail);
+                teamCompetitionViews.add(teamCompetitionView);
+            }
         }
 
         return teamCompetitionViews;
@@ -566,6 +569,7 @@ public class CompetitionController {
         TeamCompetitionView teamCompetitionView = new TeamCompetitionView();
 
         // Team information
+        teamCompetitionView.setTeamId(team.getId());
         teamCompetitionView.setName(team.getName());
         teamCompetitionView.setColor1(team.getColor1());
         teamCompetitionView.setColor2(team.getColor2());

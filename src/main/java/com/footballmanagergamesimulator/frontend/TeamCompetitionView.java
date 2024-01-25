@@ -6,6 +6,7 @@ import lombok.Data;
 @Data
 public class TeamCompetitionView {
 
+  private long teamId;
   private String name;
   private String games;
   private String wins;

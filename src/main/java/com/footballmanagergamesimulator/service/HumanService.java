@@ -82,7 +82,7 @@ public class HumanService {
 
     public void addRegens(TeamFacilities teamFacilities, long teamId) {
 
-      int nrRegens = 3;
+      int nrRegens = 1;
       for (int i = 0; i < nrRegens; i++)
           humanRepository.save(generateHuman(teamId, teamFacilities.getYouthAcademyLevel()));
 
