@@ -149,7 +149,7 @@ public class CompetitionController {
     }
 
     @GetMapping("/play")
-    @Scheduled(fixedDelay = 300)
+    @Scheduled(fixedDelay = 300000)
     public void play() {
 
         List<Long> teamIds = getAllTeams();
