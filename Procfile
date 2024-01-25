@@ -1,1 +1,1 @@
-web: java -jar target/footballmanagergamesimulator.jar
+java -jar target/footballmanager-backend.jar
