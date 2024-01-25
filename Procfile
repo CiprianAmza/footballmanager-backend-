@@ -1,1 +1,1 @@
-java -jar target/footballmanager-backend.jar
+java -jar target/footballmanager-backend-.jar
