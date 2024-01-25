@@ -1,1 +1,1 @@
-java -jar target/footballmanager-backend-.jar
+java -jar out\artifacts\footballmanagergamesimulator_jar\footballmanagergamesimulator.jar

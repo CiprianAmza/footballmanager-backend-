@@ -6,7 +6,6 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
-@Repository
 public interface TransferRepository extends JpaRepository<Transfer, Long> {
 
     List<Transfer> findAllByBuyTeamIdAndSeasonNumber(long teamId, long seasonNumber);
