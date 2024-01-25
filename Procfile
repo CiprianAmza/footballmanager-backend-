@@ -1,1 +1,1 @@
-web: java -jar target/footballmanagergamesimulator.jar
+web: java -jar target/football-manager-simulator-0.0.1-SNAPSHOT.jar
