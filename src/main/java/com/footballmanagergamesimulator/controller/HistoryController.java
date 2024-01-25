@@ -13,7 +13,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/history")
-@CrossOrigin(origins = "http://localhost:4200")
+@CrossOrigin(origins = "*")
 public class HistoryController {
 
     @Autowired
@@ -56,5 +56,10 @@ public class HistoryController {
         }
 
         return top3FinishersList;
+    }
+
+    @GetMapping("/check")
+    public String hi() {
+        return "Works...";
     }
 }
