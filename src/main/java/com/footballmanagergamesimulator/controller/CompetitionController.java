@@ -87,7 +87,6 @@ public class CompetitionController {
             throw new RuntimeException("Team not found.");
 
         List<Human> getBest11 = getBestElevenPlayers(team);
-
         List<PlayerView> bestEleven = getBest11
                 .stream()
                 .map(player -> adaptPlayer(player, team))
