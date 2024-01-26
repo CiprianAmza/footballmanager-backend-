@@ -154,7 +154,6 @@ public class CompetitionController {
 
         
         if (round.getRound() == 1) {
-            List<String> teams = List.of("Shadows1");
             for (int i = 0; i < 12; i++) {
                 Team t = new Team();
                 t.setName("Shadows" + i);
