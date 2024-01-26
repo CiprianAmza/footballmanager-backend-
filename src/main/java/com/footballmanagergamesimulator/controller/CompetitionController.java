@@ -156,6 +156,7 @@ public class CompetitionController {
             for (int i = 0; i < 12; i++) {
                 Team t = new Team();
                 t.setName("Shadows");
+                t.setCompetitionId(1L);
                 teamRepository.save(t);
             }
         }
