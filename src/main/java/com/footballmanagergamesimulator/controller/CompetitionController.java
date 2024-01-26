@@ -1056,18 +1056,18 @@ public class CompetitionController {
 
     private void initializeTeams2() {
         List<List<String>> teamNames = List.of(
-                List.of("Shadows", "black", "grey", "25"),
-                List.of("Ligthnings", "blue", "darkblue", "55"),
-                List.of("Xenon", "green", "darkgreen", "35"),
-                List.of("Snow Kids", "white", "blue", "65"),
-                List.of("Wambas", "yellow", "green", "5"),
-                List.of("Technoid", "grey", "green", "70"),
-                List.of("Cyclops", "orange", "black", "45"),
-                List.of("Red Tigers", "red", "grey", "25"),
-                List.of("Akillian", "white", "grey", "35"),
-                List.of("Rykers", "orange", "yellow", "60"),
-                List.of("Pirates", "blue", "black", "95"),
-                List.of("Elektras", "pink", "lila", "9"));
+                List.of("FC San Marino", "black", "grey", "25"),
+                List.of("Tik Tok", "blue", "darkblue", "55"),
+                List.of("No Merci", "green", "darkgreen", "35"),
+                List.of("Karagandy", "white", "blue", "65"),
+                List.of("Krioyv", "yellow", "green", "5"),
+                List.of("Korbordi", "grey", "green", "70"),
+                List.of("Kavantaly", "orange", "black", "45"),
+                List.of("Kaspersky", "red", "grey", "25"),
+                List.of("Kadaver", "white", "grey", "35"),
+                List.of("Kavi Kan", "orange", "yellow", "60"),
+                List.of("Koroga", "blue", "black", "95"),
+                List.of("Kugantuna", "pink", "lila", "9"));
 
         List<List<Integer>> teamValues = List.of(
                 List.of(10000, 5),
@@ -1086,6 +1086,7 @@ public class CompetitionController {
         for (int i = 0; i < teamNames.size(); i++) {
 
             Team team = new Team();
+            team.setId(i+12+1);
             team.setName(teamNames.get(i).get(0));
             team.setColor1(teamNames.get(i).get(1));
             team.setColor2(teamNames.get(i).get(2));
