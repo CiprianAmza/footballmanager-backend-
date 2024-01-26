@@ -1,19 +1,16 @@
--- human_type values
-
-DROP TABLE IF EXISTS human_type;
 DROP TABLE IF EXISTS humantype;
 CREATE TABLE humantype (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255)
 );
 
-INSERT INTO humantype (name) VALUES ("Player");
-INSERT INTO humantype (name) VALUES ("Manager");
-INSERT INTO humantype (name) VALUES ("Chairman");
-INSERT INTO humantype (name) VALUES ("Referee");
-INSERT INTO humantype (name) VALUES ("Staff");
-INSERT INTO humantype (name) VALUES ("Scout");
-INSERT INTO humantype (name) VALUES ("Agent");
+INSERT INTO humantype (name) VALUES ('Player');
+INSERT INTO humantype (name) VALUES ('Manager');
+INSERT INTO humantype (name) VALUES ('Chairman');
+INSERT INTO humantype (name) VALUES ('Referee');
+INSERT INTO humantype (name) VALUES ('Staff');
+INSERT INTO humantype (name) VALUES ('Scout');
+INSERT INTO humantype (name) VALUES ('Agent');
 
 
 DROP TABLE IF EXISTS competitiontype;
@@ -34,10 +31,10 @@ CREATE TABLE competition(
   typeId BIGINT
 );
 
-INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (1, 1, "Gallactick Football First League", 1);
-INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (1, 2, "Gallactick Football Cup", 2);
-INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (3, 1, "Khess First League", 1);
-INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (4, 2, "Khess Cup", 2);
+INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (1, 1, 'Gallactick Football First League', 1);
+INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (1, 2, 'Gallactick Football Cup', 2);
+INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (3, 1, 'Khess First League', 1);
+INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (4, 2, 'Khess Cup', 2);
 INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (5, 3, 'Gallactick Football Super Cup', 3);
 INSERT INTO competition (nationId, prizesId, name, typeId) VALUES (6, 3, 'Khess Super Cup', 3);
 
@@ -65,53 +62,53 @@ CREATE TABLE team (
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
 VALUES (1, 1, 1, 'Shadows', 10000000, 10000000, 500000, 10000, 'black', 'grey', '25', 5);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Lightnings", 10000000, 10000000, 500000, 9000, "blue", "darkblue", "55", 5);
+VALUES (1, 1, 1, 'Lightnings', 10000000, 10000000, 500000, 9000, 'blue', 'darkblue', '55', 5);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Xenon", 10000000, 10000000, 500000, 9000, "green", "darkgreen", "35", 5);
+VALUES (1, 1, 1, 'Xenon', 10000000, 10000000, 500000, 9000, 'green', 'darkgreen', '35', 5);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Snow Kids", 10000000, 10000000, 500000, 8600, "white", "blue", "65", 2);
+VALUES (1, 1, 1, 'Snow Kids', 10000000, 10000000, 500000, 8600, 'white', 'blue', '65', 2);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Wambas", 10000000, 10000000, 500000, 8000, "yellow", "green", "5", 4);
+VALUES (1, 1, 1, 'Wambas', 10000000, 10000000, 500000, 8000, 'yellow', 'green', '5', 4);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Technoid", 10000000, 10000000, 500000, 7900, "grey", "green", "70", 3);
+VALUES (1, 1, 1, 'Technoid', 10000000, 10000000, 500000, 7900, 'grey', 'green', '70', 3);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Cyclops", 10000000, 10000000, 500000, 7000, "orange", "black", "45", 2);
+VALUES (1, 1, 1, 'Cyclops', 10000000, 10000000, 500000, 7000, 'orange', 'black', '45', 2);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Red Tigers", 10000000, 10000000, 500000, 6900, "red", "grey", "25", 1);
+VALUES (1, 1, 1, 'Red Tigers', 10000000, 10000000, 500000, 6900, 'red', 'grey', '25', 1);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Akillian", 10000000, 10000000, 500000, 6000, "white", "grey", "35", 1);
+VALUES (1, 1, 1, 'Akillian', 10000000, 10000000, 500000, 6000, 'white', 'grey', '35', 1);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Rykers", 10000000, 10000000, 500000, 7000, "orange", "yellow", "60", 2);
+VALUES (1, 1, 1, 'Rykers', 10000000, 10000000, 500000, 7000, 'orange', 'yellow', '60', 2);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Pirates", 10000000, 10000000, 500000, 6700, "blue", "black", "95", 1);
+VALUES (1, 1, 1, 'Pirates', 10000000, 10000000, 500000, 6700, 'blue', 'black', '95', 1);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (1, 1, 1, "Elektras", 10000000, 10000000, 500000, 6500, "pink", "lila", "9", 3);
+VALUES (1, 1, 1, 'Elektras', 10000000, 10000000, 500000, 6500, 'pink', 'lila', '9', 3);
 
 
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
 VALUES (3, 1, 1, 'FC San Marino', 10000000, 10000000, 500000, 10000, 'yellow', 'orange', '25', 5);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Tik Tok", 10000000, 10000000, 500000, 10000, "brown", "yellow", "55", 5);
+VALUES (3, 1, 1, 'Tik Tok', 10000000, 10000000, 500000, 10000, 'brown', 'yellow', '55', 5);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "No Merci", 10000000, 10000000, 500000, 8300, "green", "darkgreen", "35", 4);
+VALUES (3, 1, 1, 'No Merci', 10000000, 10000000, 500000, 8300, 'green', 'darkgreen', '35', 4);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Karygandy", 10000000, 10000000, 500000, 7500, "white", "blue", "65", 2);
+VALUES (3, 1, 1, 'Karygandy', 10000000, 10000000, 500000, 7500, 'white', 'blue', '65', 2);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Kaspersky", 10000000, 10000000, 500000, 7500, "yellow", "green", "5", 2);
+VALUES (3, 1, 1, 'Kaspersky', 10000000, 10000000, 500000, 7500, 'yellow', 'green', '5', 2);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Kiov", 10000000, 10000000, 500000, 6000, "grey", "green", "70", 2);
+VALUES (3, 1, 1, 'Kiov', 10000000, 10000000, 500000, 6000, 'grey', 'green', '70', 2);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Kravetsky", 10000000, 10000000, 500000, 6000, "orange", "black", "45", 3);
+VALUES (3, 1, 1, 'Kravetsky', 10000000, 10000000, 500000, 6000, 'orange', 'black', '45', 3);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Kivorandy", 10000000, 10000000, 500000, 5900, "red", "grey", "25", 1);
+VALUES (3, 1, 1, 'Kivorandy', 10000000, 10000000, 500000, 5900, 'red', 'grey', '25', 1);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Krogardinya", 10000000, 10000000, 500000, 5800, "white", "grey", "35", 1);
+VALUES (3, 1, 1, 'Krogardinya', 10000000, 10000000, 500000, 5800, 'white', 'grey', '35', 1);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Raskorsya", 10000000, 10000000, 500000, 5700, "orange", "yellow", "60", 3);
+VALUES (3, 1, 1, 'Raskorsya', 10000000, 10000000, 500000, 5700, 'orange', 'yellow', '60', 3);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Rygardy", 10000000, 10000000, 500000, 5650, "blue", "black", "95", 1);
+VALUES (3, 1, 1, 'Rygardy', 10000000, 10000000, 500000, 5650, 'blue', 'black', '95', 1);
 INSERT INTO team (competitionId, stadiumId, historyId, name, totalFinances, transferBudget, salaryBudget, reputation, color1, color2, border, strategy)
-VALUES (3, 1, 1, "Kudivordy", 10000000, 10000000, 500000, 5600, "pink", "lila", "9", 2);
+VALUES (3, 1, 1, 'Kudivordy', 10000000, 10000000, 500000, 5600, 'pink', 'lila', '9', 2);
 
 
 -- team_competition_relation values
@@ -194,58 +191,8 @@ CREATE TABLE teamcompetitiondetail (
   teamId BIGINT,
   form VARCHAR(255),
   last10positions VARCHAR(255)
-);
---
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 1, "", "1, 1, 1, 1, 1, 1, 1, 1, 1, 1");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 2, "", "5, 3, 5, 6, 7, 4, 4, 3, 2, 2");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 3, "", "2, 2, 2, 2, 2, 2, 2, 2, 3, 3");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 4, "", "3, 4, 4, 4, 4, 4, 3, 3, 4, 4");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 5, "", "6, 5, 7, 5, 5, 6, 5, 5, 6, 5");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 6, "", "8, 7, 5, 6, 4, 5, 6, 7, 7, 6");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 7, "", "7, 10, 10, 11, 11, 10, 9, 8, 10, 7");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 8, "", "11, 10, 10, 11, 11, 10, 9, 8, 10, 8");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 9, "", "6, 10, 5, 8, 12, 9, 9, 12, 10, 9");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 10, "", "8, 10, 10, 11, 11, 10, 9, 8, 10, 10");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 11, "", "7, 10, 10, 11, 11, 10, 9, 8, 10, 11");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 1, 12, "", "12, 12, 12, 12, 12, 12, 12, 12, 12, 12");
---
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 1, "", "1, 1, 1, 1, 1, 1, 1, 1, 1, 1");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 2, "", "5, 3, 5, 6, 7, 4, 4, 3, 2, 2");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 3, "", "2, 2, 2, 2, 2, 2, 2, 2, 3, 3");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 4, "", "3, 4, 4, 4, 4, 4, 3, 3, 4, 4");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 5, "", "6, 5, 7, 5, 5, 6, 5, 5, 6, 5");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 6, "", "8, 7, 5, 6, 4, 5, 6, 7, 7, 6");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 7, "", "7, 10, 10, 11, 11, 10, 9, 8, 10, 7");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 8, "", "11, 10, 10, 11, 11, 10, 9, 8, 10, 8");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 9, "", "6, 10, 5, 8, 12, 9, 9, 12, 10, 9");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 10, "", "8, 10, 10, 11, 11, 10, 9, 8, 10, 10");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 11, "", "7, 10, 10, 11, 11, 10, 9, 8, 10, 11");
---INSERT INTO teamcompetitiondetail (games, wins, draws, loses, goalsFor, goalsAgainst, goalDifference, points, competitionId, teamId, form, last10positions)
---VALUES (0, 0, 0, 0, 0, 0, 0, 0, 2, 12, "", "12, 12, 12, 12, 12, 12, 12, 12, 12, 12");
---
+)
+
 
 -- competitionteaminfo values
 DROP TABLE IF EXISTS competitionteaminfo;
