@@ -1046,7 +1046,7 @@ public class CompetitionController {
 
 
             TeamFacilities teamFacilities = new TeamFacilities();
-            teamFacilities.setTeamId(i+12+1);
+            teamFacilities.setTeamId(i+1);
             teamFacilities.setSeniorTrainingLevel(20);
             teamFacilities.setYouthAcademyLevel(20);
             teamFacilities.setYouthTrainingLevel(20);
