@@ -155,9 +155,8 @@ public class CompetitionController {
         if (round.getRound() == 1) {
             for (int i = 0; i < 12; i++) {
                 Team t = new Team();
-                t.setName("Shadows" + i);
-                t.setReputation(10000L);
-                t.setCompetitionId(1L);
+                t.setName("Shadows");
+                teamRepository.save(t);
             }
         }
         List<Long> teamIds = getAllTeams();
