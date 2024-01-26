@@ -157,9 +157,8 @@ public class CompetitionController {
             for (int i = 0; i < 12; i++) {
                 Team t = new Team();
                 t.setName("Shadows" + i);
-                t.setReputation(10000-i*400);
+                t.setReputation(10000L);
                 t.setCompetitionId(1L);
-                t.setStrategy(5);
                 teamRepository.save(t);
             }
         }
