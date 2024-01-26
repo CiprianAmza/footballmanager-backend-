@@ -152,6 +152,18 @@ public class CompetitionController {
     @Scheduled(fixedDelay = 300000)
     public void play() {
 
+        
+        if (round.getRound() == 1) {
+            List<String> teams = List.of("Shadows1");
+            for (int i = 0; i < 12; i++) {
+                Team t = new Team();
+                t.setName("Shadows" + i);
+                t.setReputation(10000-i*400);
+                t.setCompetitionId(1L);
+                t.setStrategy(5);
+                teamRepository.save(t);
+            }
+        }
         List<Long> teamIds = getAllTeams();
 
         if (round.getRound() > 50) {
