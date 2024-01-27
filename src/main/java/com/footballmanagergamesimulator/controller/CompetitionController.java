@@ -1008,6 +1008,21 @@ public class CompetitionController {
                 List.of(6700, 1),
                 List.of(6500, 3));
 
+        List<List<Integer>> facilities = List.of(
+                List.of(16, 20, 20),
+                List.of(15, 20, 18),
+                List.of(15, 20, 18),
+                List.of(10, 18, 16),
+                List.of(10, 16, 16),
+                List.of(10, 15, 15),
+                List.of(10, 12, 14),
+                List.of(10, 14, 13),
+                List.of(10, 12, 12),
+                List.of(8, 12, 10),
+                List.of(7, 11, 9),
+                List.of(6, 10, 9)
+        );
+
         for (int i = 0; i < teamNames.size(); i++) {
 
             Team team = new Team();
@@ -1047,9 +1062,9 @@ public class CompetitionController {
 
             TeamFacilities teamFacilities = new TeamFacilities();
             teamFacilities.setTeamId(i+1);
-            teamFacilities.setSeniorTrainingLevel(20);
-            teamFacilities.setYouthAcademyLevel(20);
-            teamFacilities.setYouthTrainingLevel(20);
+            teamFacilities.setYouthAcademyLevel(facilities.get(i).get(0));
+            teamFacilities.setYouthTrainingLevel(facilities.get(i).get(1));
+            teamFacilities.setSeniorTrainingLevel(facilities.get(i).get(2));
             _teamFacilitiesRepository.save(teamFacilities);
         }
     }
@@ -1082,6 +1097,21 @@ public class CompetitionController {
                 List.of(7000, 2),
                 List.of(6700, 1),
                 List.of(6500, 3));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(20, 20, 20),
+                List.of(20, 20, 18),
+                List.of(15, 20, 18),
+                List.of(10, 18, 16),
+                List.of(10, 16, 16),
+                List.of(10, 15, 15),
+                List.of(10, 12, 14),
+                List.of(10, 14, 13),
+                List.of(10, 12, 12),
+                List.of(8, 12, 10),
+                List.of(7, 11, 9),
+                List.of(6, 10, 9)
+        );
 
         for (int i = 0; i < teamNames.size(); i++) {
 
@@ -1122,9 +1152,9 @@ public class CompetitionController {
 
             TeamFacilities teamFacilities = new TeamFacilities();
             teamFacilities.setTeamId(i+12+1);
-            teamFacilities.setSeniorTrainingLevel(20);
-            teamFacilities.setYouthAcademyLevel(20);
-            teamFacilities.setYouthTrainingLevel(20);
+            teamFacilities.setYouthAcademyLevel(facilities.get(i).get(0));
+            teamFacilities.setYouthTrainingLevel(facilities.get(i).get(1));
+            teamFacilities.setSeniorTrainingLevel(facilities.get(i).get(2));
             _teamFacilitiesRepository.save(teamFacilities);
         }
     }
