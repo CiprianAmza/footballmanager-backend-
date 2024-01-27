@@ -1100,7 +1100,7 @@ public class CompetitionController {
 
         List<List<Integer>> facilities = List.of(
                 List.of(20, 20, 20),
-                List.of(20, 20, 18),
+                List.of(20, 20, 20),
                 List.of(15, 20, 18),
                 List.of(10, 18, 16),
                 List.of(10, 16, 16),
