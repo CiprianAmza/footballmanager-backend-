@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html layout:decorate=~{layout.html}
+      xmlns:th="https://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout">
+<head>
+  <style>
+        .form-label {
+            font-size: 120%;
+        }
+    </style>
+</head>
+<body>
+<div layout:fragment="content" class="text-center" style="
+            background: url(/photos/signup-background.jpeg)
+                        no-repeat center center fixed;
+            background-size: contain;
+            margin-left: 0;
+            width: 100vw;
+            height: 853px;
+            font-family: 'Mali'">
+  <div class="container-fluid" style="padding-top: 6%; padding-bottom: 10%; padding-left: 8%; padding-right: 53%;">
+    <div class="row" style="padding-top: 5%; padding-left: 5%;">
+      <div class="col-md-12" style="text-align: center;">
+        <h1 style="font-size: 500%">Welcome!</h1>
+      </div>
+    </div>
+    <div class="row d-flex justify-content-center align-items-center" style="padding-top: 3%;">
+      <div class="col-md-10">
+        <form th:action="@{/register}" th:object="${user}"
+              method="post" style="max-width: 600px; margin: 0 auto;">
+          <div class="m-3">
+            <div class="form-group row">
+              <label class="col-4 col-form-label form-label">Username: </label>
+              <div class="col-8">
+                <input th:field="*{username}" class="form-control" required />
+              </div>
+            </div>
+
+            <div class="form-group row">
+              <label class="col-4 col-form-label form-label">Password: </label>
+              <div class="col-8">
+                <input type="password" th:field="*{password}" class="form-control"
+                       required minlength="6" maxlength="10"/>
+              </div>
+            </div>
+
+            <div class="form-group row">
+              <label class="col-4 col-form-label form-label">Email: </label>
+              <div class="col-8">
+                <input type="email" th:field="*{email}" class="form-control" required />
+              </div>
+            </div>
+
+            <div class="form-group row">
+              <label class="col-4 col-form-label form-label">First name: </label>
+              <div class="col-8">
+                <input type="text" th:field="*{firstName}" class="form-control" required />
+              </div>
+            </div>
+
+            <div class="form-group row">
+              <label class="col-4 col-form-label form-label">Last Name: </label>
+              <div class="col-8">
+                <input type="text" th:field="*{lastName}" class="form-control" required />
+              </div>
+            </div>
+
+            <div class="form-group row">
+              <div class="col-4"></div>
+              <div class="col-8">
+                <button type="submit" class="btn btn-primary btn-block" style="background-color: #AEB0B7;">Sign Up</button>
+              </div>
+            </div>
+          </div>
+        </form>
+        <div class="alert alert-danger" role="alert" th:text="${error}" th:if="${error}"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
