@@ -1,0 +1,14 @@
+spring:
+  sql:
+    init:
+      mode: always
+  datasource:
+    url: jdbc:mysql://sql11.freemysqlhosting.net:3306/sql11679739
+    driverClassName: com.mysql.jdbc.Driver
+    username: sql11679739
+    password: 5uiiMzENGV
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    defer-datasource-initialization: true
+    hibernate:
+      ddl-auto: create-drop
