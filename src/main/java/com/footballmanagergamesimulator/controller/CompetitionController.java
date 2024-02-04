@@ -372,7 +372,7 @@ public class CompetitionController {
                             player.setPosition("MR");
                         else if (i < 18)
                             player.setPosition("MC");
-                        else if (i < 22)
+                        else
                             player.setPosition("ST");
                         player.setAge(random.nextInt(23, 30));
                         player.setSeasonCreated(1L);
