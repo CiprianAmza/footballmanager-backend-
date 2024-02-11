@@ -57,9 +57,4 @@ public class HistoryController {
 
         return top3FinishersList;
     }
-
-    @GetMapping("/check")
-    public String hi() {
-        return "Works...";
-    }
 }
