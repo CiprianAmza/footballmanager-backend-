@@ -50,34 +50,6 @@ import java.util.concurrent.TimeoutException;
     @GetMapping("/messages")
     public ResponseEntity<String> sendMessage(@RequestParam(name="ok") String message) throws IOException, ExecutionException, InterruptedException, FileNotFoundException {
 
-
-//        Properties prop = new Properties();
-//        prop.put("bootstrap.servers", "localhost:39092");
-//        prop.put("group.id", "my-group");
-//        prop.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-//        prop.put("value.deserializer", JsonDeserializer.class);
-//        prop.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-//        prop.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-//        prop.put("trusted.packages", "com.footballmanagergamesimulator.model");
-//
-//
-//        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(prop);
-//        consumer.subscribe(Arrays.asList("TestTopic"));
-//
-//        int x = 10;
-//        while (x > 0) {
-//            x--;
-//            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
-//            System.out.println(x + " " + records);
-//            for (ConsumerRecord<String, String> record : records) {
-//                System.out.println("Received message: key=" + record.key() + ", value=" + record.value());
-//            }
-//        }
-
-
-
-
-
         Map<String, Object> props = new HashMap();
         props.put("bootstrap.servers", "localhost:39092");
         props.put("group.id", "my-group");
