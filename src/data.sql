@@ -1,29 +1,29 @@
 -- -- no longer used
 
--- -- human_type values
+-- human_type values
 
--- DROP TABLE IF EXISTS human_type;
--- DROP TABLE IF EXISTS humantype;
--- CREATE TABLE humantype (
---     id BIGINT AUTO_INCREMENT PRIMARY KEY,
---     name VARCHAR(255)
--- );
+DROP TABLE IF EXISTS human_type;
+DROP TABLE IF EXISTS humantype;
+CREATE TABLE humantype (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255)
+);
 
--- INSERT INTO humantype (name) VALUES ("Player");
--- INSERT INTO humantype (name) VALUES ("Manager");
--- INSERT INTO humantype (name) VALUES ("Chairman");
--- INSERT INTO humantype (name) VALUES ("Referee");
--- INSERT INTO humantype (name) VALUES ("Staff");
--- INSERT INTO humantype (name) VALUES ("Scout");
--- INSERT INTO humantype (name) VALUES ("Agent");
+INSERT INTO humantype (name) VALUES ("Player");
+INSERT INTO humantype (name) VALUES ("Manager");
+INSERT INTO humantype (name) VALUES ("Chairman");
+INSERT INTO humantype (name) VALUES ("Referee");
+INSERT INTO humantype (name) VALUES ("Staff");
+INSERT INTO humantype (name) VALUES ("Scout");
+INSERT INTO humantype (name) VALUES ("Agent");
 
 
--- DROP TABLE IF EXISTS competitiontype;
--- CREATE TABLE competitiontype(
---   id BIGINT AUTO_INCREMENT PRIMARY KEY,
---   typeId BIGINT,
---   typeName VARCHAR(255)
--- );
+DROP TABLE IF EXISTS competitiontype;
+CREATE TABLE competitiontype(
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  typeId BIGINT,
+  typeName VARCHAR(255)
+);
 
 -- -- competition values
 
