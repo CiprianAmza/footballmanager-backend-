@@ -3,10 +3,10 @@ spring:
     init:
       mode: always
   datasource:
-    url: jdbc:mysql://sql11.freemysqlhosting.net:3306/sql11679739
+    url: jdbc:mysql://sql11.freemysqlhosting.net:3306/sql11696180
     driverClassName: com.mysql.jdbc.Driver
-    username: sql11679739
-    password: 5uiiMzENGV
+    username: sql11696180
+    password: GfLszNhvqg
   jpa:
     database-platform: org.hibernate.dialect.MySQLDialect
     defer-datasource-initialization: true
