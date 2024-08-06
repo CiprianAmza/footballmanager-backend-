@@ -3,7 +3,7 @@ spring:
     init:
       mode: always
   datasource:
-    url: jdbc:mysql://sql11.freemysqlhosting.net:3306/sql7724407
+    url: jdbc:mysql://sql7.freemysqlhosting.net:3306/sql7724407
     driverClassName: com.mysql.jdbc.Driver
     username: sql7724407
     password: JFVk7Ue2iF
