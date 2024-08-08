@@ -5,6 +5,7 @@ import lombok.Data;
 
 @Entity
 @Data
+@Table(name="humanType")
 public class HumanType {
 
     @Id

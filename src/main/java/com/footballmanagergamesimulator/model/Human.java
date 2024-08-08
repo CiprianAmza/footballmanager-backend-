@@ -1,15 +1,13 @@
 package com.footballmanagergamesimulator.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.Data;
 
 import java.sql.Date;
 
 @Entity
 @Data
+@Table(name="human")
 public class Human {
 
     @Id
