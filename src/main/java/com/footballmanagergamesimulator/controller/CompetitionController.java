@@ -161,7 +161,7 @@ public class CompetitionController {
 
             // GF
             List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
-            for (int id = 1; id <= 3; id += 2) {
+            for (int id = 1; id <= 5; id += 2) {
                 int finalId = id;
                 List<TeamCompetitionDetail> teamCompetitionDetailList = teamCompetitionDetails.stream()
                         .filter(detail -> detail.getCompetitionId() == finalId)
