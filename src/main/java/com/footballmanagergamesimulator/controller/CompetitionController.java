@@ -151,7 +151,7 @@ public class CompetitionController {
     @Scheduled(fixedDelay = 15000)
     public void play() {
 
-        if (round.getRound() == 1) {
+        if (round.getRound() == 1 && round.getSeason() == 1) {
             initialization();
         }
 
