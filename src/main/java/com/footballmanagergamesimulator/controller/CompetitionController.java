@@ -180,7 +180,13 @@ public class CompetitionController {
                 for (TeamCompetitionDetail teamCompetitionDetail : teamCompetitionDetailList) {
 
                     CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
-                    competitionTeamInfo.setCompetitionId(id);
+                    if (id == 3L && (index + 1) >= 11)
+                        competitionTeamInfo.setCompetitionId(5L);
+                    else if (id == 5L && (index + 1) <= 2)
+                        competitionTeamInfo.setCompetitionId(3L);
+                    else
+                        competitionTeamInfo.setCompetitionId(id);
+
                     competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()) + 1);
                     competitionTeamInfo.setRound(1L);
                     competitionTeamInfo.setTeamId(teamCompetitionDetail.getTeamId());
@@ -343,7 +349,7 @@ public class CompetitionController {
 
         if (round.getRound() == 1) {
 
-            for (String competitionId : List.of("1", "3"))
+            for (String competitionId : List.of("1", "3", "5"))
                 this.getFixturesForRound(competitionId, "1");
 
             if (round.getSeason() == 1) {
@@ -401,10 +407,11 @@ public class CompetitionController {
             }
         }
 
-        for (String competitionId : List.of("1", "3"))
+        for (String competitionId : List.of("1", "3", "5"))
             this.simulateRound(competitionId, round.getRound() - 1 + "");
 
         for (String competitionId : List.of("2", "4")) {
+            if (1 > 0) continue; // todo removing cup for moment
 
             if (round.getRound() == 5) {
                 this.getFixturesForRound(competitionId, "1");
@@ -551,6 +558,7 @@ public class CompetitionController {
         TeamCompetitionView teamCompetitionView = new TeamCompetitionView();
 
         // Team information
+        teamCompetitionView.setTeamId(team.getId());
         teamCompetitionView.setName(team.getName());
         teamCompetitionView.setColor1(team.getColor1());
         teamCompetitionView.setColor2(team.getColor2());
@@ -958,16 +966,17 @@ public class CompetitionController {
         initializeCompetitions();
         initializeTeams1();
         initializeTeams2();
+        initializeTeams3();
 
     }
 
     private void initializeCompetitions() {
 
         List<List<Integer>> values = List.of(List.of(1, 1, 1), List.of(1, 2, 2), List.of(3, 1, 1),
-                List.of(4, 2, 2), List.of(5, 3, 3), List.of(6, 3, 3));
+                List.of(4, 2, 2), List.of(1, 3, 1));
 
         List<String> names = List.of("Gallactick Football First League", "Gallactick Football Cup",
-                "Khess First League", "Khess Cup", "Gallactick Football Super Cup", "Khess Super Cup");
+                "Khess First League", "Khess Cup", "Khess Second League");
 
         for (int i = 0; i < values.size(); i++) {
             Competition competition = new Competition();
@@ -1024,50 +1033,11 @@ public class CompetitionController {
                 List.of(6, 10, 9)
         );
 
-        for (int i = 0; i < teamNames.size(); i++) {
+        int addedModulo = 0;
+        long leagueId = 1L;
+        long cupId = 2L;
 
-            Team team = new Team();
-            team.setName(teamNames.get(i).get(0));
-            team.setColor1(teamNames.get(i).get(1));
-            team.setColor2(teamNames.get(i).get(2));
-            team.setBorder(teamNames.get(i).get(3));
-            team.setReputation(teamValues.get(i).get(0));
-            team.setStrategy((long) teamValues.get(i).get(1));
-            team.setCompetitionId(1L);
-            teamRepository.save(team);
-
-            TeamCompetitionRelation teamCompetitionRelation = new TeamCompetitionRelation();
-            teamCompetitionRelation.setTeamId(i+1);
-            teamCompetitionRelation.setCompetitionId(1L);
-            teamCompetitionRelationRepository.save(teamCompetitionRelation);
-
-            teamCompetitionRelation = new TeamCompetitionRelation();
-            teamCompetitionRelation.setTeamId(i+1);
-            teamCompetitionRelation.setCompetitionId(2L);
-            teamCompetitionRelationRepository.save(teamCompetitionRelation);
-
-            CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
-            competitionTeamInfo.setSeasonNumber(1);
-            competitionTeamInfo.setRound(1);
-            competitionTeamInfo.setCompetitionId(1L);
-            competitionTeamInfo.setTeamId(i+1);
-            competitionTeamInfoRepository.save(competitionTeamInfo);
-
-            competitionTeamInfo = new CompetitionTeamInfo();
-            competitionTeamInfo.setSeasonNumber(1);
-            competitionTeamInfo.setRound(i <= 3 ? 2 : 1);
-            competitionTeamInfo.setCompetitionId(2L);
-            competitionTeamInfo.setTeamId(i+1);
-            competitionTeamInfoRepository.save(competitionTeamInfo);
-
-
-            TeamFacilities teamFacilities = new TeamFacilities();
-            teamFacilities.setTeamId(i+1);
-            teamFacilities.setYouthAcademyLevel(facilities.get(i).get(0));
-            teamFacilities.setYouthTrainingLevel(facilities.get(i).get(1));
-            teamFacilities.setSeniorTrainingLevel(facilities.get(i).get(2));
-            _teamFacilitiesRepository.save(teamFacilities);
-        }
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
     }
 
     private void initializeTeams2() {
@@ -1114,45 +1084,105 @@ public class CompetitionController {
                 List.of(6, 10, 9)
         );
 
+        int addedModulo = 12;
+        long leagueId = 3L;
+        long cupId = 4L;
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
+    }
+
+    private void initializeTeams3() {
+        List<List<String>> teamNames = List.of(
+                List.of("Karyo", "black", "grey", "25"),
+                List.of("Korny", "blue", "darkblue", "55"),
+                List.of("La Kavardi", "green", "darkgreen", "35"),
+                List.of("Kadaveriki", "white", "blue", "65"),
+                List.of("Konstenti", "yellow", "green", "5"),
+                List.of("Kirokiri", "grey", "green", "70"),
+                List.of("Kusparsky", "orange", "black", "45"),
+                List.of("Kindonersky", "red", "grey", "25"),
+                List.of("Kor Kory", "white", "grey", "35"),
+                List.of("Kuvertini", "orange", "yellow", "60"),
+                List.of("Kora", "blue", "black", "95"),
+                List.of("Kuntuna", "pink", "lila", "9"));
+
+        List<List<Integer>> teamValues = List.of(
+                List.of(6000, 5),
+                List.of(5500, 5),
+                List.of(5500, 5),
+                List.of(5400, 2),
+                List.of(5300, 4),
+                List.of(5200, 3),
+                List.of(5000, 2),
+                List.of(4900, 1),
+                List.of(4800, 1),
+                List.of(4300, 2),
+                List.of(4200, 1),
+                List.of(4100, 3));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(7, 4, 1),
+                List.of(6, 3, 4),
+                List.of(5, 5, 5),
+                List.of(10, 3, 4),
+                List.of(5, 6, 16),
+                List.of(4, 3, 1),
+                List.of(5, 4, 3),
+                List.of(6, 8, 3),
+                List.of(7, 9, 1),
+                List.of(8, 7, 4),
+                List.of(7, 5, 5),
+                List.of(6, 4, 3)
+        );
+
+        int addedModulo = 24;
+        long leagueId = 5L;
+        long cupId = 6L;
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
+    }
+
+    private void createTeamsAndCompetitions(List<List<String>> teamNames, List<List<Integer>> teamValues, List<List<Integer>> facilities, int addedModulo, long leagueId, long cupId) {
+
         for (int i = 0; i < teamNames.size(); i++) {
 
             Team team = new Team();
-            team.setId(i+12+1);
+            team.setId(i + addedModulo + 1);
             team.setName(teamNames.get(i).get(0));
             team.setColor1(teamNames.get(i).get(1));
             team.setColor2(teamNames.get(i).get(2));
             team.setBorder(teamNames.get(i).get(3));
             team.setReputation(teamValues.get(i).get(0));
             team.setStrategy((long) teamValues.get(i).get(1));
-            team.setCompetitionId(3L);
+            team.setCompetitionId(leagueId);
             teamRepository.save(team);
 
             TeamCompetitionRelation teamCompetitionRelation = new TeamCompetitionRelation();
-            teamCompetitionRelation.setTeamId(i+12+1);
-            teamCompetitionRelation.setCompetitionId(3L);
+            teamCompetitionRelation.setTeamId(i + addedModulo + 1);
+            teamCompetitionRelation.setCompetitionId(leagueId);
             teamCompetitionRelationRepository.save(teamCompetitionRelation);
 
             teamCompetitionRelation = new TeamCompetitionRelation();
-            teamCompetitionRelation.setTeamId(i+12+1);
-            teamCompetitionRelation.setCompetitionId(4L);
+            teamCompetitionRelation.setTeamId(i + addedModulo + 1);
+            teamCompetitionRelation.setCompetitionId(cupId);
             teamCompetitionRelationRepository.save(teamCompetitionRelation);
 
             CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
             competitionTeamInfo.setSeasonNumber(1);
             competitionTeamInfo.setRound(1);
-            competitionTeamInfo.setCompetitionId(3L);
-            competitionTeamInfo.setTeamId(i+12+1);
+            competitionTeamInfo.setCompetitionId(leagueId);
+            competitionTeamInfo.setTeamId(i + addedModulo + 1);
             competitionTeamInfoRepository.save(competitionTeamInfo);
 
             competitionTeamInfo = new CompetitionTeamInfo();
             competitionTeamInfo.setSeasonNumber(1);
             competitionTeamInfo.setRound(i <= 3 ? 2 : 1);
-            competitionTeamInfo.setCompetitionId(4L);
-            competitionTeamInfo.setTeamId(i+12+1);
+            competitionTeamInfo.setCompetitionId(cupId);
+            competitionTeamInfo.setTeamId(i + addedModulo + 1);
             competitionTeamInfoRepository.save(competitionTeamInfo);
 
             TeamFacilities teamFacilities = new TeamFacilities();
-            teamFacilities.setTeamId(i+12+1);
+            teamFacilities.setTeamId(i + addedModulo + 1);
             teamFacilities.setYouthAcademyLevel(facilities.get(i).get(0));
             teamFacilities.setYouthTrainingLevel(facilities.get(i).get(1));
             teamFacilities.setSeniorTrainingLevel(facilities.get(i).get(2));
