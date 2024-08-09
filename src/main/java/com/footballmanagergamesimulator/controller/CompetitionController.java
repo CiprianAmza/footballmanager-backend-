@@ -31,8 +31,6 @@ public class CompetitionController {
     @Autowired
     private HumanRepository humanRepository;
     @Autowired
-    private TeamCompetitionRelationRepository teamCompetitionRelationRepository;
-    @Autowired
     private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired
     private CompetitionTeamInfoRepository competitionTeamInfoRepository;
@@ -526,11 +524,11 @@ public class CompetitionController {
     @GetMapping("/getTeams/{competitionId}")
     public List<TeamCompetitionView> getTeamDetails(@PathVariable(name = "competitionId") long competitionId) {
 
-        List<Long> teamParticipantIds = teamCompetitionRelationRepository
+        List<Long> teamParticipantIds = competitionTeamInfoRepository
                 .findAll()
                 .stream()
-                .filter(teamCompetitionRelation -> teamCompetitionRelation.getCompetitionId() == competitionId)
-                .mapToLong(TeamCompetitionRelation::getTeamId)
+                .filter(competitionTeamInfo -> competitionTeamInfo.getCompetitionId() == competitionId && competitionTeamInfo.getSeasonNumber() == Long.valueOf(getCurrentSeason()))
+                .mapToLong(CompetitionTeamInfo::getTeamId)
                 .boxed()
                 .toList();
 
@@ -1158,16 +1156,6 @@ public class CompetitionController {
             team.setStrategy((long) teamValues.get(i).get(1));
             team.setCompetitionId(leagueId);
             teamRepository.save(team);
-
-            TeamCompetitionRelation teamCompetitionRelation = new TeamCompetitionRelation();
-            teamCompetitionRelation.setTeamId(i + addedModulo + 1);
-            teamCompetitionRelation.setCompetitionId(leagueId);
-            teamCompetitionRelationRepository.save(teamCompetitionRelation);
-
-            teamCompetitionRelation = new TeamCompetitionRelation();
-            teamCompetitionRelation.setTeamId(i + addedModulo + 1);
-            teamCompetitionRelation.setCompetitionId(cupId);
-            teamCompetitionRelationRepository.save(teamCompetitionRelation);
 
             CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
             competitionTeamInfo.setSeasonNumber(1);
