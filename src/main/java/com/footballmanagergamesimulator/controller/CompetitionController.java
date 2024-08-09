@@ -152,6 +152,7 @@ public class CompetitionController {
     public void play() {
 
         if (round.getRound() == 1 && round.getSeason() == 1) {
+
             competitionTeamInfoRepository.deleteAll();
             initialization();
         }
