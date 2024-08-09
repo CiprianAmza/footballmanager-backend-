@@ -148,7 +148,7 @@ public class CompetitionController {
     }
 
     @GetMapping("/play")
-    @Scheduled(fixedDelay = 15000000L)
+    @Scheduled(fixedDelay = 15000L)
     public void play() {
 
         if (round.getRound() == 1 && round.getSeason() == 1) {
