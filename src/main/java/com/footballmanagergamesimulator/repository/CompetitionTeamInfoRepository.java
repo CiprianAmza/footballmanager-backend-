@@ -10,5 +10,6 @@ public interface CompetitionTeamInfoRepository extends JpaRepository<Competition
   List<CompetitionTeamInfo> findAllByRound(long round);
 
   List<CompetitionTeamInfo> findAllByRoundAndCompetitionIdAndSeasonNumber(long round, long competitionId, long seasonNumber);
+  List<CompetitionTeamInfo> findAllBySeasonNumber(long seasonNumber);
 
 }

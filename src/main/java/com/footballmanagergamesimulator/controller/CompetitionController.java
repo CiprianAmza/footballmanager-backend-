@@ -313,8 +313,8 @@ public class CompetitionController {
 
             // reset values
             this.resetCompetitionData();
-            for (Long competitionId : competitions)
-                this.removeCompetitionData(competitionId, round.getSeason());
+            this.removeCompetitionData(round.getSeason() + 1);
+
             round.setRound(1);
             round.setSeason(round.getSeason() + 1);
 
@@ -431,11 +431,11 @@ public class CompetitionController {
         round.setRound(round.getRound() + 1);
     }
 
-    public void removeCompetitionData(Long competitionId, Long seasonNumber) {
+    public void removeCompetitionData(Long seasonNumber) {
 
         teamCompetitionDetailRepository.deleteAll();
 
-        List<CompetitionTeamInfo> competitionTeamInfos = competitionTeamInfoRepository.findAll();
+        List<CompetitionTeamInfo> competitionTeamInfos = competitionTeamInfoRepository.findAllBySeasonNumber(seasonNumber);
 
         for (CompetitionTeamInfo team : competitionTeamInfos) {
 
