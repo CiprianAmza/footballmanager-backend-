@@ -688,7 +688,7 @@ public class CompetitionController {
         List<Long> participants = this.getParticipants(competitionId, roundId);
 
         // we need to get matches and to add them into CompetitionTeamInfoMatch
-        if (_competitionId == 1L || _competitionId == 3L) {
+        if (_competitionId == 1L || _competitionId == 3L || _competitionId == 5L) {
             // todo it should work for any competition of type Championship
             List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
             int currentRound = 1;
