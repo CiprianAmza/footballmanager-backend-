@@ -250,7 +250,6 @@ public class CompetitionController {
                 }
             }
 
-
             HashMap<PlayerTransferView, BuyPlanTransferView> playerTransfered = new HashMap<>();
             List<Transfer> transfers = new ArrayList<>();
             for (Map.Entry<PlayerTransferView, List<BuyPlanTransferView>> pair : buyPlan.entrySet()) {
@@ -281,7 +280,6 @@ public class CompetitionController {
                 Human human = humanRepository.findById(playerTransferView.getPlayerId()).get();
                 human.setTeamId(buyTeam.getId());
 
-
                 Transfer transfer = new Transfer();
                 transfer.setPlayerId(human.getId());
                 transfer.setPlayerName(human.getName());
@@ -292,7 +290,6 @@ public class CompetitionController {
                 transfer.setBuyTeamName(buyTeam.getName());
                 transfer.setRating(human.getRating());
                 transfer.setSeasonNumber(Long.parseLong(getCurrentSeason()));
-
 
                 transferRepository.save(transfer);
                 transfers.add(transfer);
@@ -436,14 +433,16 @@ public class CompetitionController {
 
     public void removeCompetitionData(Long competitionId, Long seasonNumber) {
 
-        List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
+        teamCompetitionDetailRepository.deleteAll();
 
-        for (TeamCompetitionDetail team : teamCompetitionDetails) {
+        List<CompetitionTeamInfo> competitionTeamInfos = competitionTeamInfoRepository.findAll();
+
+        for (CompetitionTeamInfo team : competitionTeamInfos) {
 
             TeamCompetitionDetail newTeam = new TeamCompetitionDetail();
             newTeam.setTeamId(team.getTeamId());
             newTeam.setCompetitionId(team.getCompetitionId());
-            teamCompetitionDetailRepository.delete(team);
+            newTeam.setForm("");
             teamCompetitionDetailRepository.save(newTeam);
         }
     }
