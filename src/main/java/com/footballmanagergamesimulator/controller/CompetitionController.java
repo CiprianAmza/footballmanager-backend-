@@ -551,6 +551,7 @@ public class CompetitionController {
         TeamCompetitionView teamCompetitionView = new TeamCompetitionView();
 
         // Team information
+        teamCompetitionView.setTeamId(team.getId());
         teamCompetitionView.setName(team.getName());
         teamCompetitionView.setColor1(team.getColor1());
         teamCompetitionView.setColor2(team.getColor2());
