@@ -180,9 +180,9 @@ public class CompetitionController {
                 for (TeamCompetitionDetail teamCompetitionDetail : teamCompetitionDetailList) {
 
                     CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
-                    if (id == 3L && (index + 1) >= 11)
+                    if (id == 3L && index >= 11)
                         competitionTeamInfo.setCompetitionId(5L);
-                    else if (id == 5L && (index + 1) <= 2)
+                    else if (id == 5L && index <= 2)
                         competitionTeamInfo.setCompetitionId(3L);
                     else
                         competitionTeamInfo.setCompetitionId(id);
