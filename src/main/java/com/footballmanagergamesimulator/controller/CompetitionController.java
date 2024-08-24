@@ -1,5 +1,4 @@
 package com.footballmanagergamesimulator.controller;
-
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
