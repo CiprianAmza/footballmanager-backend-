@@ -278,6 +278,7 @@ public class CompetitionController {
 
                 Human human = humanRepository.findById(playerTransferView.getPlayerId()).get();
                 human.setTeamId(buyTeam.getId());
+                humanRepository.save(human);
 
                 Transfer transfer = new Transfer();
                 transfer.setPlayerId(human.getId());
