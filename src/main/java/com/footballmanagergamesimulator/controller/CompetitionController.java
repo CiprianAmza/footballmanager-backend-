@@ -75,7 +75,6 @@ public class CompetitionController {
         }
     }
 
-
     @GetMapping("/getPlayers/{teamId}")
     private List<PlayerView> getPlayers(@PathVariable(name = "teamId") String teamId) {
 
@@ -232,13 +231,13 @@ public class CompetitionController {
     @GetMapping("/getCurrentSeason")
     public String getCurrentSeason() {
 
-        return String.valueOf(roundRepository.findById(1L).get().season);
+        return String.valueOf(round.getSeason());
     }
 
     @GetMapping("/getCurrentRound")
     public String getCurrentRound() {
 
-        return String.valueOf(roundRepository.findById(1L).get().round - 1);
+        return String.valueOf(round.getRound());
     }
 
     @GetMapping("/play")
@@ -1295,5 +1294,11 @@ public class CompetitionController {
             teamFacilities.setSeniorTrainingLevel(facilities.get(i).get(2));
             _teamFacilitiesRepository.save(teamFacilities);
         }
+    }
+
+
+    public Round getRound() {
+
+        return round;
     }
 }
