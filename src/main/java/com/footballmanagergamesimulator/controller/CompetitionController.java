@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.HumanService;
+import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
@@ -53,6 +54,8 @@ public class CompetitionController {
     CompositeTransferStrategy _compositeTransferStrategy;
     @Autowired
     TransferRepository transferRepository;
+    @Autowired
+    TacticService tacticService;
 
 
     @GetMapping("/getPlayers/{teamId}")
@@ -74,8 +77,8 @@ public class CompetitionController {
         return allPlayers;
     }
 
-    @GetMapping("/getBestEleven/{teamId}")
-    private List<PlayerView> getBestEleven(@PathVariable(name = "teamId") String teamId) {
+    @GetMapping("/getBestEleven/{teamId}/{tactic}")
+    private List<PlayerView> getBestEleven(@PathVariable(name = "teamId") String teamId, @PathVariable(name = "tactic", required = false) String tactic) {
 
         long _teamId = Long.parseLong(teamId);
 
@@ -83,23 +86,53 @@ public class CompetitionController {
         if (team == null)
             throw new RuntimeException("Team not found.");
 
-        List<Human> getBest11 = getBestElevenPlayers(team);
-        List<PlayerView> bestEleven = getBest11
-                .stream()
-                .map(player -> adaptPlayer(player, team))
-                .toList();
+        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(tactic);
 
-        return bestEleven;
+        return getBestElevenPlayers(team, tacticFormat);
     }
 
-    private List<Human> getBestElevenPlayers(Team team) {
+    private List<PlayerView> getBestElevenPlayers(Team team, Map<String, Integer> tacticFormat) {
 
-        return humanRepository
-                .findAllByTeamIdAndTypeId(team.getId(), 1L)
-                .stream()
-                .sorted((x, y) -> Double.compare(y.getRating(), x.getRating()))
-                .limit(11)
-                .toList();
+        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.HUMAN_TYPE);
+        List<PlayerView> players = allPlayers.stream().map(player -> adaptPlayer(player, team)).toList();
+        Map<String, List<PlayerView>> positionToPlayers = new HashMap<>();
+
+        for (PlayerView playerView: players) {
+            if (!positionToPlayers.containsKey(playerView.getPosition()))
+                positionToPlayers.put(playerView.getPosition(), new ArrayList<>());
+            positionToPlayers.get(playerView.getPosition()).add(playerView);
+        }
+
+        Map<String, List<PlayerView>> bestEleven = new HashMap<>();
+        int available = 11;
+        List<PlayerView> restPlayers = new ArrayList<>();
+
+        for (Map.Entry<String, Integer> entry: tacticFormat.entrySet()) {
+            String position = entry.getKey();
+            Integer needed = entry.getValue();
+            bestEleven.put(position, new ArrayList<>());
+
+            List<PlayerView> playersForThisPosition = positionToPlayers.getOrDefault(position, new ArrayList<>()).stream()
+                    .sorted((x, y) -> Double.compare(y.getRating(), x.getRating()))
+                    .toList();
+            for (int i = 0; i < needed; i++) {
+                bestEleven.get(position).add(playersForThisPosition.get(i));
+                available -= 1;
+            }
+            for (int i = needed; i < playersForThisPosition.size(); i++) {
+                restPlayers.add(playersForThisPosition.get(i));
+            }
+        }
+
+        List<PlayerView> firstEleven = new ArrayList<>();
+        for (List<PlayerView> playerViews: bestEleven.values())
+            firstEleven.addAll(playerViews);
+
+        for (int i = 0; i < available; i++) {
+            firstEleven.add(restPlayers.get(i));
+        }
+
+        return firstEleven;
     }
 
     private PlayerView adaptPlayer(Human human, Team team) {
