@@ -158,8 +158,19 @@ public class CompetitionController {
         for (List<PlayerView> playerViews: bestEleven.values())
             firstEleven.addAll(playerViews);
 
+        firstEleven.sort((p1, p2) -> Double.compare(p2.getRating(), p1.getRating()));
         for (int i = 0; i < Math.min(available, restPlayers.size()); i++) { // todo handle case where team does not have at least 11 players...
             firstEleven.add(restPlayers.get(i));
+        }
+
+        for (int i = firstEleven.size(); i <= 11; i++) {
+            PlayerView playerView = new PlayerView();
+            playerView.setAge(16);
+            playerView.setName("Generated");
+            playerView.setPosition("MC");
+            playerView.setRating(10);
+
+            firstEleven.add(playerView);
         }
 
         return firstEleven
