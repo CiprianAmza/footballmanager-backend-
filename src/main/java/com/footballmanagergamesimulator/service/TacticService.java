@@ -17,7 +17,8 @@ public class TacticService {
         Map<String, Integer> _352 = Map.of("GK", 1, "DL", 1, "DC", 1, "DR", 1, "ML", 1, "MC", 3, "MR", 1, "ST", 2);
 
 
-        Map<String, Map<String, Integer>> tacticToTacticFormat = Map.of("442", _442,
+        Map<String, Map<String, Integer>> tacticToTacticFormat = Map.of(
+                "442", _442,
                 "433", _433,
                 "343", _343,
                 "451", _451,
@@ -31,5 +32,10 @@ public class TacticService {
         List<String> positions = List.of("GK", "DL", "DC", "DR", "ML", "MC", "MR", "ST");
 
         return positions.indexOf(position);
+    }
+
+    public List<String> getAllExistingTactics() {
+
+        return List.of("442", "433", "343", "451", "352");
     }
 }

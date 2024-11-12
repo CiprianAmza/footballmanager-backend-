@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
 import com.footballmanagergamesimulator.frontend.PlayerView;
+import com.footballmanagergamesimulator.frontend.TacticView;
 import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
 import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.*;
@@ -75,6 +76,33 @@ public class CompetitionController {
                 .toList();
 
         return allPlayers;
+    }
+
+    @GetMapping("/getAllPossibleTactics/{teamId}")
+    private List<TacticView> getAllPossibleTactics(@PathVariable(name = "teamId") String teamId) {
+
+        long _teamId = Long.parseLong(teamId);
+
+        Team team = teamRepository.findById(_teamId).orElse(null);
+        if (team == null)
+            throw new RuntimeException("Team not found.");
+
+        List<TacticView> tacticViews = new ArrayList<>();
+        List<String> allTactics = tacticService.getAllExistingTactics();
+        for (String tactic: allTactics) {
+            List<PlayerView> bestEleven = getBestElevenPlayers(team, tacticService.getRoomInTeamByTactic(tactic));
+
+            TacticView tacticView = new TacticView();
+            tacticView.setTacticName(tactic);
+            tacticView.setTotalRating(bestEleven.stream().mapToDouble(PlayerView::getRating).sum());
+
+            tacticViews.add(tacticView);
+        }
+
+        return tacticViews
+                .stream()
+                .sorted((x, y) -> Double.compare(y.getTotalRating(), x.getTotalRating()))
+                .toList();
     }
 
     @GetMapping("/getBestEleven/{teamId}/{tactic}")
