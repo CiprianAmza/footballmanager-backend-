@@ -226,7 +226,7 @@ public class TacticController {
 
         for (Long teamId: teamIds) {
             Team team = teamRepository.findById(teamId).get();
-            Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MATCH_TYPE).get(0); // todo check later
+            Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).get(0); // todo check later
 
             ManagerTeamTacticView managerTeamTacticView = new ManagerTeamTacticView();
             managerTeamTacticView.setManagerName(manager.getName());
