@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/tactic")
@@ -229,13 +230,13 @@ public class TacticController {
 
     private List<ManagerTeamTacticView> getCurrentTeamSkillsAccordingToManagerFavoriteTactic(long competitionId) {
 
-        List<Long> teamIds = competitionTeamInfoRepository
+        Set<Long> teamIds = competitionTeamInfoRepository
                 .findAll()
                 .stream()
-                .filter(competitionTeamInfo -> competitionTeamInfo.getCompetitionId() == competitionId)
+                .filter(competitionTeamInfo -> competitionId == 0 || competitionTeamInfo.getCompetitionId() == competitionId)
                 .filter(competitionTeamInfo -> competitionTeamInfo.getSeasonNumber() == round.getSeason())
                 .map(CompetitionTeamInfo::getTeamId)
-                .toList();
+                .collect(Collectors.toSet());
 
         List<ManagerTeamTacticView> managerTeamTacticViews = new ArrayList<>();
 
