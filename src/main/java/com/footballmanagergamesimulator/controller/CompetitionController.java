@@ -336,6 +336,7 @@ public class CompetitionController {
                     Human manager = new Human();
                     manager.setAge(random.nextInt(35, 70));
                     manager.setName(NameGenerator.generateName());
+                    manager.setTeamId(team.getId());
 
                     int reputation = 100;
                     if (teamFacilities != null)
