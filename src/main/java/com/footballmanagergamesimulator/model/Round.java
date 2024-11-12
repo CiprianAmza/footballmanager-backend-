@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class Round {
+
   public long round = 1L;
   public long season = 1L;
 

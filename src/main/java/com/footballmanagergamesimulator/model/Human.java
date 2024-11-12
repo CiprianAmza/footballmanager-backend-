@@ -47,4 +47,9 @@ public class Human {
     private String currentStatus;
     private long seasonCreated;
 
+    /**
+     * Manager information
+     */
+    private String tacticStyle;
+
 }

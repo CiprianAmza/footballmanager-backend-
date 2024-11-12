@@ -14,6 +14,7 @@ import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
 import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.util.TypeNames;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,8 +41,6 @@ public class CompetitionController {
     @Autowired
     private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired
-    Round round;
-    @Autowired
     RoundRobin roundRobin;
     @Autowired
     CompetitionHistoryRepository competitionHistoryRepository;
@@ -56,7 +55,25 @@ public class CompetitionController {
     @Autowired
     TransferRepository transferRepository;
     @Autowired
+    RoundRepository roundRepository;
+    @Autowired
     TacticService tacticService;
+
+    Round round;
+
+    @PostConstruct
+    public void initializeRound() {
+
+        Optional<Round> possibleRound = roundRepository.findById(1L);
+        if (possibleRound.isEmpty()) {
+            round = new Round();
+            round.setSeason(1);
+            round.setRound(1);
+            roundRepository.save(round);
+        } else {
+            round = possibleRound.get();
+        }
+    }
 
 
     @GetMapping("/getPlayers/{teamId}")
@@ -215,13 +232,13 @@ public class CompetitionController {
     @GetMapping("/getCurrentSeason")
     public String getCurrentSeason() {
 
-        return String.valueOf(round.getSeason());
+        return String.valueOf(roundRepository.findById(1L).get().season);
     }
 
     @GetMapping("/getCurrentRound")
     public String getCurrentRound() {
 
-        return String.valueOf(round.getRound() - 1);
+        return String.valueOf(roundRepository.findById(1L).get().round - 1);
     }
 
     @GetMapping("/play")
@@ -398,6 +415,7 @@ public class CompetitionController {
 
             round.setRound(1);
             round.setSeason(round.getSeason() + 1);
+            roundRepository.save(round);
 
             // add 1 year for each player
             _humanService.addOneYearToAge();
@@ -441,7 +459,7 @@ public class CompetitionController {
                         Human player = new Human();
                         player.setTeamId(team.getId());
                         player.setName(name);
-                        player.setTypeId(1L);
+                        player.setTypeId(TypeNames.HUMAN_TYPE);
                         if (i < 2)
                             player.setPosition("GK");
                         else if (i < 4)
@@ -470,6 +488,24 @@ public class CompetitionController {
 
                         humanRepository.save(player);
                     }
+
+                    // create manager for each team
+                    Human manager = new Human();
+                    manager.setAge(random.nextInt(35, 70));
+                    manager.setName(NameGenerator.generateName());
+
+                    int reputation = 100;
+                    if (teamFacilities != null)
+                        reputation = (int) teamFacilities.getSeniorTrainingLevel() * 10;
+                    manager.setRating(random.nextInt(reputation - 20, reputation + 20));
+
+                    manager.setPosition("Manager");
+                    manager.setSeasonCreated(1L);
+                    manager.setTypeId(TypeNames.MANAGER_TYPE);
+                    List<String> tactics = List.of("442", "433", "343", "352", "451");
+
+                    manager.setTacticStyle(tactics.get(random.nextInt(0, tactics.size())));
+                    humanRepository.save(manager);
                 }
             }
         }
@@ -510,6 +546,7 @@ public class CompetitionController {
 
         }
         round.setRound(round.getRound() + 1);
+        roundRepository.save(round);
     }
 
     public void removeCompetitionData(Long seasonNumber) {
