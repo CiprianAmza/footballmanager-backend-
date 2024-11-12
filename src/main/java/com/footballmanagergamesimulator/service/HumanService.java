@@ -6,14 +6,13 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamFacilities;
 import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -22,9 +21,25 @@ public class HumanService {
     @Autowired
     HumanRepository humanRepository;
     @Autowired
-    TeamRepository _teamRepository;
+    TeamRepository teamRepository;
     @Autowired
-    Round _round;
+    RoundRepository roundRepository;
+
+    Round round;
+
+    @PostConstruct
+    public void initializeRound() {
+
+        Optional<Round> possibleRound = roundRepository.findById(1L);
+        if (possibleRound.isEmpty()) {
+            round = new Round();
+            round.setSeason(1);
+            round.setRound(1);
+            roundRepository.save(round);
+        } else {
+            round = possibleRound.get();
+        }
+    }
 
 
     public Human trainPlayer(Human human, TeamFacilities teamFacilities) {
@@ -101,7 +116,7 @@ public class HumanService {
       human.setPotentialAbility((int) (human.getRating() + random.nextInt(30)));
       human.setTeamId(teamId);
       human.setTypeId(1);
-      human.setSeasonCreated(_round.getSeason());
+      human.setSeasonCreated(round.getSeason());
 
       return human;
     }

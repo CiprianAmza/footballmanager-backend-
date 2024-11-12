@@ -55,9 +55,9 @@ public class CompetitionController {
     @Autowired
     TransferRepository transferRepository;
     @Autowired
-    RoundRepository roundRepository;
-    @Autowired
     TacticService tacticService;
+    @Autowired
+    RoundRepository roundRepository;
 
     Round round;
 

@@ -1,30 +1,20 @@
 package com.footballmanagergamesimulator.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Data;
 
 @Entity
 @Data
-@Table(name="round")
+@Table(name = "round")
 public class Round {
 
-  public long round = 1L;
-  public long season = 1L;
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private long id;
 
-  public long getRound() {
-    return round;
-  }
+  @Column(name = "round")
+  private long round;
 
-  public void setRound(long round) {
-    this.round = round;
-  }
-
-  public long getSeason() {
-    return season;
-  }
-
-  public void setSeason(long season) {
-    this.season = season;
-  }
+  @Column(name = "season")
+  private long season;
 }
