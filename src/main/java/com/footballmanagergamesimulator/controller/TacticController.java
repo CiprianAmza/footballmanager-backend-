@@ -3,23 +3,19 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.frontend.ManagerTeamTacticView;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.TacticView;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.model.TeamCompetitionRelation;
-import com.footballmanagergamesimulator.repository.CompetitionRepository;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.repository.TeamCompetitionRelationRepository;
-import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.util.TypeNames;
+import jakarta.annotation.PostConstruct;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/tactic")
@@ -33,9 +29,27 @@ public class TacticController {
     @Autowired
     CompetitionRepository competitionRepository;
     @Autowired
-    TeamCompetitionRelationRepository teamCompetitionRelationRepository;
+    CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired
     TacticService tacticService;
+    @Autowired
+    RoundRepository roundRepository;
+
+    Round round;
+
+    @PostConstruct
+    public void initializeRound() {
+
+        Optional<Round> possibleRound = roundRepository.findById(1L);
+        if (possibleRound.isEmpty()) {
+            round = new Round();
+            round.setSeason(1);
+            round.setRound(1);
+            roundRepository.save(round);
+        } else {
+            round = possibleRound.get();
+        }
+    }
 
     @PostMapping("/firstEleven")
     public void saveFirstEleven(String tactic) { // tactic format: GK=1231&DC=1331&DL=123...
@@ -215,18 +229,19 @@ public class TacticController {
 
     private List<ManagerTeamTacticView> getCurrentTeamSkillsAccordingToManagerFavoriteTactic(long competitionId) {
 
-        List<Long> teamIds = teamCompetitionRelationRepository
+        List<Long> teamIds = competitionTeamInfoRepository
                 .findAll()
                 .stream()
-                .filter(teamCompetitionRelation -> teamCompetitionRelation.getCompetitionId() == competitionId)
-                .map(TeamCompetitionRelation::getTeamId)
+                .filter(competitionTeamInfo -> competitionTeamInfo.getCompetitionId() == competitionId)
+                .filter(competitionTeamInfo -> competitionTeamInfo.getSeasonNumber() == round.getSeason())
+                .map(CompetitionTeamInfo::getTeamId)
                 .toList();
 
         List<ManagerTeamTacticView> managerTeamTacticViews = new ArrayList<>();
 
         for (Long teamId: teamIds) {
             Team team = teamRepository.findById(teamId).get();
-            Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).get(0); // todo check later
+            Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).get(0); // todo check later, what if the team has no manager?
 
             ManagerTeamTacticView managerTeamTacticView = new ManagerTeamTacticView();
             managerTeamTacticView.setManagerName(manager.getName());
@@ -235,7 +250,7 @@ public class TacticController {
 
             double rating = getBestEleven(String.valueOf(teamId), manager.getTacticStyle())
                     .stream()
-                    .mapToDouble(playerView -> playerView.getRating())
+                    .mapToDouble(PlayerView::getRating)
                     .sum();
 
             managerTeamTacticView.setTacticRating(rating);

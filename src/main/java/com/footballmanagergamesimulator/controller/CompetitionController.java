@@ -1,7 +1,5 @@
 package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
-import com.footballmanagergamesimulator.frontend.PlayerView;
-import com.footballmanagergamesimulator.frontend.TacticView;
 import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
 import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.*;
@@ -16,7 +14,6 @@ import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.*;
 
