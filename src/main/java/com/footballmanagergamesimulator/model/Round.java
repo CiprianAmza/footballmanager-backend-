@@ -1,8 +1,12 @@
 package com.footballmanagergamesimulator.model;
 
-import org.springframework.stereotype.Component;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+import lombok.Data;
 
-@Component
+@Entity
+@Data
+@Table(name="round")
 public class Round {
 
   public long round = 1L;
