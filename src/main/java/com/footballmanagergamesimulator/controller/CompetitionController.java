@@ -128,7 +128,7 @@ public class CompetitionController {
         for (List<PlayerView> playerViews: bestEleven.values())
             firstEleven.addAll(playerViews);
 
-        for (int i = 0; i < available; i++) {
+        for (int i = 0; i < Math.min(available, restPlayers.size()); i++) {
             firstEleven.add(restPlayers.get(i));
         }
 
