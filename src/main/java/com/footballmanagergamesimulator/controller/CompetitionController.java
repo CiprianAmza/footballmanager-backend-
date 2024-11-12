@@ -163,7 +163,7 @@ public class CompetitionController {
             firstEleven.add(restPlayers.get(i));
         }
 
-        for (int i = firstEleven.size(); i <= 11; i++) {
+        for (int i = firstEleven.size(); i < 11; i++) {
             PlayerView playerView = new PlayerView();
             playerView.setAge(16);
             playerView.setName("Generated");
