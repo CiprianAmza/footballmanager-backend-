@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.service;
 import io.swagger.models.auth.In;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -23,5 +24,12 @@ public class TacticService {
                 "352", _352);
 
         return tacticToTacticFormat.getOrDefault(tactic, _442);
+    }
+
+    public Integer getValueForTacticDisplay(String position) {
+
+        List<String> positions = List.of("GK", "DL", "DC", "DR", "ML", "MC", "MR", "ST");
+
+        return position.indexOf(position);
     }
 }

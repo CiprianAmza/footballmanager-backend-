@@ -128,11 +128,17 @@ public class CompetitionController {
         for (List<PlayerView> playerViews: bestEleven.values())
             firstEleven.addAll(playerViews);
 
-        for (int i = 0; i < Math.min(available, restPlayers.size()); i++) {
+        for (int i = 0; i < Math.min(available, restPlayers.size()); i++) { // todo handle case where team does not have at least 11 players...
             firstEleven.add(restPlayers.get(i));
         }
 
-        return firstEleven;
+        return firstEleven
+                .stream()
+                .sorted((p1, p2) ->
+                    Integer.compare(
+                        tacticService.getValueForTacticDisplay(p1.getPosition()),
+                        tacticService.getValueForTacticDisplay(p2.getPosition())))
+                .toList();
     }
 
     private PlayerView adaptPlayer(Human human, Team team) {
