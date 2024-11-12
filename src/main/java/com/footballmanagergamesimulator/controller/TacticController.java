@@ -1,10 +1,14 @@
 package com.footballmanagergamesimulator.controller;
 
+import com.footballmanagergamesimulator.frontend.ManagerTeamTacticView;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.TacticView;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.model.TeamCompetitionRelation;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.TeamCompetitionRelationRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -26,6 +30,10 @@ public class TacticController {
     TeamRepository teamRepository;
     @Autowired
     HumanRepository humanRepository;
+    @Autowired
+    CompetitionRepository competitionRepository;
+    @Autowired
+    TeamCompetitionRelationRepository teamCompetitionRelationRepository;
     @Autowired
     TacticService tacticService;
 
@@ -197,5 +205,47 @@ public class TacticController {
                 .sorted((a, b) -> Double.compare(b, a))
                 .limit(11)
                 .reduce(Double::sum).orElse(0D);
+    }
+
+    @GetMapping("/getTeamRatingByManagerTacticForCompetitionId/{competitionId}")
+    public List<ManagerTeamTacticView> getTeamRatingByManagerTacticForCompetitionId(long competitionId) {
+
+        return getCurrentTeamSkillsAccordingToManagerFavoriteTactic(competitionId);
+    }
+
+    private List<ManagerTeamTacticView> getCurrentTeamSkillsAccordingToManagerFavoriteTactic(long competitionId) {
+
+        List<Long> teamIds = teamCompetitionRelationRepository
+                .findAll()
+                .stream()
+                .filter(teamCompetitionRelation -> teamCompetitionRelation.getCompetitionId() == competitionId)
+                .map(TeamCompetitionRelation::getTeamId)
+                .toList();
+
+        List<ManagerTeamTacticView> managerTeamTacticViews = new ArrayList<>();
+
+        for (Long teamId: teamIds) {
+            Team team = teamRepository.findById(teamId).get();
+            Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MATCH_TYPE).get(0); // todo check later
+
+            ManagerTeamTacticView managerTeamTacticView = new ManagerTeamTacticView();
+            managerTeamTacticView.setManagerName(manager.getName());
+            managerTeamTacticView.setTeamName(team.getName());
+            managerTeamTacticView.setTactic(manager.getTacticStyle());
+
+            double rating = getBestEleven(String.valueOf(teamId), manager.getTacticStyle())
+                    .stream()
+                    .mapToDouble(playerView -> playerView.getRating())
+                    .sum();
+
+            managerTeamTacticView.setTacticRating(rating);
+
+            managerTeamTacticViews.add(managerTeamTacticView);
+        }
+
+        return managerTeamTacticViews
+                .stream()
+                .sorted((mttv1, mttv2) -> Double.compare(mttv2.getTacticRating(), mttv1.getTacticRating()))
+                .toList();
     }
 }
