@@ -30,6 +30,6 @@ public class TacticService {
 
         List<String> positions = List.of("GK", "DL", "DC", "DR", "ML", "MC", "MR", "ST");
 
-        return position.indexOf(position);
+        return positions.indexOf(position);
     }
 }
