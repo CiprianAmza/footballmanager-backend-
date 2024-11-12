@@ -228,6 +228,7 @@ public class TacticController {
         return getCurrentTeamSkillsAccordingToManagerFavoriteTactic(competitionId);
     }
 
+    // competitionId = 0 for all teams all over the game
     private List<ManagerTeamTacticView> getCurrentTeamSkillsAccordingToManagerFavoriteTactic(long competitionId) {
 
         Set<Long> teamIds = competitionTeamInfoRepository

@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -73,10 +74,11 @@ public class HumanService {
 
       Random random = new Random();
       List<Human> humans = humanRepository
-          .findAll()
-          .stream()
-          .filter(human -> human.getAge() > 34)
-          .toList();
+              .findAll()
+              .stream()
+              .filter(human -> human.getAge() > 34)
+              .filter(human -> human.getTypeId() == TypeNames.HUMAN_TYPE)
+              .toList();
 
       for (Human human: humans) {
         int chance = random.nextInt(0, 2);
