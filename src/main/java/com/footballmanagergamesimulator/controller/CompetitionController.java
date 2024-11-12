@@ -115,7 +115,7 @@ public class CompetitionController {
             List<PlayerView> playersForThisPosition = positionToPlayers.getOrDefault(position, new ArrayList<>()).stream()
                     .sorted((x, y) -> Double.compare(y.getRating(), x.getRating()))
                     .toList();
-            for (int i = 0; i < needed; i++) {
+            for (int i = 0; i < Math.min(needed, playersForThisPosition.size()); i++) {
                 bestEleven.get(position).add(playersForThisPosition.get(i));
                 available -= 1;
             }
