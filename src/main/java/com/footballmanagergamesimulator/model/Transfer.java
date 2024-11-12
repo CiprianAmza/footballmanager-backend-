@@ -15,6 +15,7 @@ public class Transfer {
     private long sellTeamId;
     private long buyTeamId;
     private long playerId;
+    private long playerAge;
     private long playerTransferValue;
     private double rating;
     private long seasonNumber;

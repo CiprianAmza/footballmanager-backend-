@@ -290,6 +290,7 @@ public class CompetitionController {
                 transfer.setBuyTeamName(buyTeam.getName());
                 transfer.setRating(human.getRating());
                 transfer.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+                transfer.setPlayerAge(human.getAge());
 
                 transferRepository.save(transfer);
                 transfers.add(transfer);
