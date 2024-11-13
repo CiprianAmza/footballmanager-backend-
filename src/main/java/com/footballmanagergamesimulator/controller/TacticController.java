@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.controller;
 
+import com.footballmanagergamesimulator.frontend.ManagerBestTeamTacticView;
 import com.footballmanagergamesimulator.frontend.ManagerTeamTacticView;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.TacticView;
@@ -228,6 +229,27 @@ public class TacticController {
         return getCurrentTeamSkillsAccordingToManagerFavoriteTactic(competitionId);
     }
 
+    @GetMapping("/getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic/{competitionId}")
+    public List<ManagerBestTeamTacticView> getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic(long competitionId) {
+
+        List<ManagerBestTeamTacticView> managerBestTeamTacticViews = new ArrayList<>();
+        List<ManagerTeamTacticView> currentTeamSkills = getCurrentTeamSkillsAccordingToManagerFavoriteTactic(competitionId);
+
+        for (ManagerTeamTacticView managerTeamTacticView: currentTeamSkills) {
+
+            List<TacticView> allTactics = getAllPossibleTactics(String.valueOf(managerTeamTacticView.getTeamId()));
+
+            ManagerBestTeamTacticView managerBestTeamTacticView = new ManagerBestTeamTacticView();
+            managerBestTeamTacticView.setManagerTeamTacticView(managerTeamTacticView);
+            managerBestTeamTacticView.setBestPossibleTacticName(allTactics.get(0).getTacticName());
+            managerBestTeamTacticView.setBestPossibleTacticRating(allTactics.get(0).getTotalRating());
+
+            managerBestTeamTacticViews.add(managerBestTeamTacticView);
+        }
+
+        return managerBestTeamTacticViews;
+    }
+
     // competitionId = 0 for all teams all over the game
     private List<ManagerTeamTacticView> getCurrentTeamSkillsAccordingToManagerFavoriteTactic(long competitionId) {
 
@@ -247,7 +269,9 @@ public class TacticController {
 
             ManagerTeamTacticView managerTeamTacticView = new ManagerTeamTacticView();
             managerTeamTacticView.setManagerName(manager.getName());
+            managerTeamTacticView.setManagerId(manager.getId());
             managerTeamTacticView.setTeamName(team.getName());
+            managerTeamTacticView.setTeamId(team.getId());
             managerTeamTacticView.setTactic(manager.getTacticStyle());
 
             double rating = getBestEleven(String.valueOf(teamId), manager.getTacticStyle())
