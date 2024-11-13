@@ -229,8 +229,17 @@ public class TacticController {
         return getCurrentTeamSkillsAccordingToManagerFavoriteTactic(competitionId);
     }
 
+    /**
+     *
+     * @param competitionId -> If competitionId is 0, then it will display all the teams from all the competitions. If competitionId is not 0, it will display the teams
+     *                      only for that particular competition
+     * @param flag -> If flag is false (default), it will sort the entities by the rating of the used tactics. That is, the tactics that the current managers
+     *             will use in a game. If the flag is set to true, the entities will be sorted by the best possible tactic available, so kind of a "what would
+     *             be the leaderboard if each team would use the best available tactic".
+     * @return
+     */
     @GetMapping("/getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic/{competitionId}")
-    public List<ManagerBestTeamTacticView> getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic(long competitionId) {
+    public List<ManagerBestTeamTacticView> getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic(@PathVariable(name = "competitionId") long competitionId, @PathVariable(name = "flag", required = false) Boolean flag) {
 
         List<ManagerBestTeamTacticView> managerBestTeamTacticViews = new ArrayList<>();
         List<ManagerTeamTacticView> currentTeamSkills = getCurrentTeamSkillsAccordingToManagerFavoriteTactic(competitionId);
@@ -246,6 +255,9 @@ public class TacticController {
 
             managerBestTeamTacticViews.add(managerBestTeamTacticView);
         }
+
+        if (flag)
+            managerBestTeamTacticViews.sort((mbttv1, mbttv2) -> Double.compare(mbttv2.getBestPossibleTacticRating(), mbttv1.getBestPossibleTacticRating()));
 
         return managerBestTeamTacticViews;
     }
