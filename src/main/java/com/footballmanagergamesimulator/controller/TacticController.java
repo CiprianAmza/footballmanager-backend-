@@ -238,7 +238,7 @@ public class TacticController {
      *             be the leaderboard if each team would use the best available tactic".
      * @return
      */
-    @GetMapping("/getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic/{competitionId}")
+    @GetMapping("/getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic/{competitionId}/{flag}")
     public List<ManagerBestTeamTacticView> getTeamRatingByManagerTacticForCompetitionIdAndBestPossibleTactic(@PathVariable(name = "competitionId") long competitionId, @PathVariable(name = "flag", required = false) Boolean flag) {
 
         List<ManagerBestTeamTacticView> managerBestTeamTacticViews = new ArrayList<>();
