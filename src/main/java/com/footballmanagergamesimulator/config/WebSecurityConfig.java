@@ -50,18 +50,5 @@ public class WebSecurityConfig {
 
         return http.build();
     }
-    @Bean
-    public WebMvcConfigurer corsConfigurer() {
-        return new WebMvcConfigurer() {
-            @Override
-            public void addCorsMappings(CorsRegistry registry) {
-                // Allow specific origins (local and production)
-                registry.addMapping("/**")  // Allow all routes
-                        .allowedOrigins("*") // Allow local dev and Heroku
-                        .allowedMethods("GET", "POST", "PUT", "DELETE") // Allow necessary HTTP methods
-                        .allowedHeaders("*")  // Allow all headers
-                        .allowCredentials(true);  // Allow credentials (cookies, authentication)
-            }
-        };
-    }
+   
 }
