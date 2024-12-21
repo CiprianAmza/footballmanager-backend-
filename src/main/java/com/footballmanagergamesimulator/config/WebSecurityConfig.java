@@ -40,7 +40,7 @@ public class WebSecurityConfig {
                 .and()
                 .authorizeHttpRequests((requests) -> requests
                         .requestMatchers("/", "/home", "/register").permitAll()
-                        .anyRequest().authenticated()
+                        .anyRequest().permitAll()
                 )
                 .formLogin((form) -> form
                         .loginPage("/login")
