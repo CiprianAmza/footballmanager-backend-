@@ -21,20 +21,20 @@ public class FlightController {
     @Autowired
     FlightService flightService;
 
-    @GetMapping("/allFlights")
-    public List<Flight> getAllFlights() {
+    @GetMapping("/allFlights/{limit}")
+    public List<Flight> getAllFlights(@PathVariable(name = "limit") Integer limit) {
 
-        return flightRepository.findAll().stream().limit(100).collect(Collectors.toList());
+        return flightRepository.findAll().stream().limit(limit).collect(Collectors.toList());
     }
 
-    @GetMapping("/allFlightsTo/{city}")
-    public List<Flight> getAllFlightsToCity(@PathVariable(name = "city") String city) {
+    @GetMapping("/allFlightsTo/{city}/{limit}")
+    public List<Flight> getAllFlightsToCity(@PathVariable(name = "city") String city, @PathVariable(name = "limit") Integer limit) {
 
         List<Flight> allFlightsToCity = flightRepository
                 .findAll()
                 .stream()
                 .filter(flight -> flight.getArrivalCity().equals(city))
-                .limit(200)
+                .limit(limit)
                 .collect(Collectors.toList());
 
         return allFlightsToCity;
