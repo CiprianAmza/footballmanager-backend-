@@ -61,15 +61,11 @@ public class CompetitionController {
     @PostConstruct
     public void initializeRound() {
 
-        Optional<Round> possibleRound = roundRepository.findById(1L);
-        if (possibleRound.isEmpty()) {
-            round = new Round();
-            round.setSeason(1);
-            round.setRound(1);
-            roundRepository.save(round);
-        } else {
-            round = possibleRound.get();
-        }
+        round = new Round();
+        round.setId(1L);
+        round.setSeason(1);
+        round.setRound(1);
+        roundRepository.save(round);
     }
 
     @GetMapping("/getCurrentSeason")
@@ -85,7 +81,7 @@ public class CompetitionController {
     }
 
     @GetMapping("/play")
-    @Scheduled(fixedDelay = 3000L)
+    @Scheduled(fixedDelay = 30000L)
     public void play() {
 
         if (round.getRound() == 1 && round.getSeason() == 1) {

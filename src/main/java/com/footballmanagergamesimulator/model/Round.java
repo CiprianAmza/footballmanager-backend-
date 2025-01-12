@@ -13,8 +13,8 @@ public class Round {
   private long id;
 
   @Column(name = "round")
-  private long round;
+  private long round = 1;
 
   @Column(name = "season")
-  private long season;
+  private long season = 1;
 }

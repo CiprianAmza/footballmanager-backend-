@@ -26,23 +26,6 @@ public class HumanService {
     @Autowired
     RoundRepository roundRepository;
 
-    Round round;
-
-    @PostConstruct
-    public void initializeRound() {
-
-        Optional<Round> possibleRound = roundRepository.findById(1L);
-        if (possibleRound.isEmpty()) {
-            round = new Round();
-            round.setSeason(1);
-            round.setRound(1);
-            roundRepository.save(round);
-        } else {
-            round = possibleRound.get();
-        }
-    }
-
-
     public Human trainPlayer(Human human, TeamFacilities teamFacilities) {
 
       Random random = new Random();
@@ -118,7 +101,7 @@ public class HumanService {
       human.setPotentialAbility((int) (human.getRating() + random.nextInt(30)));
       human.setTeamId(teamId);
       human.setTypeId(1);
-      human.setSeasonCreated(round.getSeason());
+      human.setSeasonCreated(roundRepository.findById(1L).get().getSeason());
 
       return human;
     }

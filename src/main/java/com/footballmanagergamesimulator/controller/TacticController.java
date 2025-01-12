@@ -37,22 +37,6 @@ public class TacticController {
     @Autowired
     RoundRepository roundRepository;
 
-    Round round;
-
-    @PostConstruct
-    public void initializeRound() {
-
-        Optional<Round> possibleRound = roundRepository.findById(1L);
-        if (possibleRound.isEmpty()) {
-            round = new Round();
-            round.setSeason(1);
-            round.setRound(1);
-            roundRepository.save(round);
-        } else {
-            round = possibleRound.get();
-        }
-    }
-
     @PostMapping("/firstEleven")
     public void saveFirstEleven(String tactic) { // tactic format: GK=1231&DC=1331&DL=123...
         // TODO
@@ -262,14 +246,14 @@ public class TacticController {
         return managerBestTeamTacticViews;
     }
 
-    // competitionId = 0 for all teams all over the game
+    // competitionId = 0 => for all teams all over the game
     private List<ManagerTeamTacticView> getCurrentTeamSkillsAccordingToManagerFavoriteTactic(long competitionId) {
 
         Set<Long> teamIds = competitionTeamInfoRepository
                 .findAll()
                 .stream()
                 .filter(competitionTeamInfo -> competitionId == 0 || competitionTeamInfo.getCompetitionId() == competitionId)
-                .filter(competitionTeamInfo -> competitionTeamInfo.getSeasonNumber() == round.getSeason())
+                .filter(competitionTeamInfo -> competitionTeamInfo.getSeasonNumber() == roundRepository.findById(1L).get().getSeason())
                 .map(CompetitionTeamInfo::getTeamId)
                 .collect(Collectors.toSet());
 
