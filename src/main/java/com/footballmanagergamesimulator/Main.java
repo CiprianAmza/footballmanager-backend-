@@ -16,7 +16,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 public class Main {
 
     public static void main(String[] args) {
-        throw;
+
         SpringApplication.run(Main.class, args);
     }
 
