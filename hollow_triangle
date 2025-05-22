@@ -1,0 +1,19 @@
+def hollow_triangle(n):
+    
+    element = ["_"] * (n-1) + ["#"] + ["_"] * (n-1)
+    answer = ["".join(element)]
+    
+    for _ in range(n):
+        for i in range(len(element)-1):
+            if element[i] == "#":
+                if i == n-1:
+                    element[i-1], element[i], element[i+1] = "#", "_", "#"
+                    break
+                elif i < n-1:
+                    element[i-1], element[i] = "#", "_"
+                elif i > n-1:
+                    element[i], element[i+1] = "_", "#"
+                    break
+        answer += ["".join(element)]
+    
+    return answer[:-2] + ["#" * (2*n-1)]
