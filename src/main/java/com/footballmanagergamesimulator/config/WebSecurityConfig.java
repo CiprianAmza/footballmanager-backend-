@@ -38,8 +38,9 @@ public class WebSecurityConfig {
         http
                 .cors()
                 .and()
+                .csrf().disable()
                 .authorizeHttpRequests((requests) -> requests
-                        .requestMatchers("/", "/home", "/register").permitAll()
+                        .requestMatchers("/", "/home", "/register", "/tactic/**").permitAll()
                         .anyRequest().permitAll()
                 )
                 .formLogin((form) -> form

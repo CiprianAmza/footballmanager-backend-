@@ -16,7 +16,7 @@ public class AcademyTransferStrategy extends AbstractTransferStrategy {
       HashMap<String, Integer> currentPositionAllocated = new HashMap<>();
 
       List<Human> players = humanRepository
-        .findAllByTeamIdAndTypeId(team.getId(), TypeNames.HUMAN_TYPE)
+        .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
         .stream()
         .sorted(Comparator.comparing(Human::getRating).reversed())
         .toList();

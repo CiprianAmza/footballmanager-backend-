@@ -1,11 +1,10 @@
 package com.footballmanagergamesimulator.service;
 
-import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.model.Round;
-import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.model.TeamFacilities;
+import com.footballmanagergamesimulator.model.*;
+import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -25,8 +24,14 @@ public class HumanService {
     TeamRepository teamRepository;
     @Autowired
     RoundRepository roundRepository;
+    @Autowired
+    CompetitionService competitionService;
+    @Autowired
+    PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    CompositeNameGenerator compositeNameGenerator;
 
-    public Human trainPlayer(Human human, TeamFacilities teamFacilities) {
+    public Human trainPlayer(Human human, TeamFacilities teamFacilities, int currentSeason) {
 
       Random random = new Random();
       long increaseLevel = 0L;
@@ -36,23 +41,37 @@ public class HumanService {
         increaseLevel = teamFacilities.getYouthTrainingLevel();
         double chance = random.nextDouble(0, 21);
         if (chance <= increaseLevel)
-          ratingChange = 1D;
+          ratingChange = random.nextDouble(0D, 1D);
       } else if (human.getCurrentStatus().equals("Intermediate")) {
+
         increaseLevel = teamFacilities.getSeniorTrainingLevel();
         double chance = random.nextDouble(0, 21);
-        if (chance <= increaseLevel)
-          ratingChange = 0.5;
+        if (chance <= increaseLevel) {
+            ratingChange = random.nextDouble(0D, 0.5D);
+        } else
+            ratingChange = - random.nextDouble(0D, 0.3D);
+
       } else if (human.getCurrentStatus().equals("Senior")) {
+
         increaseLevel = teamFacilities.getSeniorTrainingLevel();
         double chance = random.nextDouble(0, 21);
-        if (chance <= increaseLevel)
-          ratingChange = 0.25;
+
+        if (chance <= increaseLevel) {
+            ratingChange = random.nextDouble(0D, 0.25D);
+        } else {
+            ratingChange = - random.nextDouble(0D, 0.25D);
+        }
       }
 
       human.setRating(human.getRating() + ratingChange);
+        if (human.getRating() > human.getBestEverRating()) {
+            human.setBestEverRating(human.getRating());
+            human.setSeasonOfBestEverRating(currentSeason);
+        }
 
       return human;
     }
+
     public void retirePlayers() {
 
       Random random = new Random();
@@ -60,13 +79,18 @@ public class HumanService {
               .findAll()
               .stream()
               .filter(human -> human.getAge() > 34)
-              .filter(human -> human.getTypeId() == TypeNames.HUMAN_TYPE)
+              .filter(human -> human.getTypeId() == TypeNames.PLAYER_TYPE)
               .toList();
 
       for (Human human: humans) {
         int chance = random.nextInt(0, 2);
-        if (chance == 1)
-          humanRepository.delete(human);
+        if (chance == 1) {
+            human.setTeamId(null);
+            human.setRetired(true);
+            human.setTeamId(null);
+            humanRepository.save(human);
+        }
+          //humanRepository.delete(human); // todo not sure we should delete them... maybe keep them in a different way
       }
     }
 
@@ -83,8 +107,17 @@ public class HumanService {
     public void addRegens(TeamFacilities teamFacilities, long teamId) {
 
       int nrRegens = 1;
-      for (int i = 0; i < nrRegens; i++)
-          humanRepository.save(generateHuman(teamId, teamFacilities.getYouthAcademyLevel()));
+      for (int i = 0; i < nrRegens; i++) {
+          Human player = generateHuman(teamId, teamFacilities.getYouthAcademyLevel());
+          humanRepository.save(player);
+
+          PlayerSkills playerSkills = new PlayerSkills();
+          playerSkills.setPlayerId(player.getId());
+          playerSkills.setPosition(player.getPosition());
+          competitionService.generateSkills(playerSkills, player.getRating());
+
+          playerSkillsRepository.save(playerSkills);
+      }
 
     }
 

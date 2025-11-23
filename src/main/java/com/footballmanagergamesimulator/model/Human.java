@@ -17,7 +17,7 @@ public class Human {
     /**
      *  Relation ids
      */
-    private long teamId;
+    private Long teamId;
     private long agentId;
     private long skillsId;
     private long typeId;
@@ -43,13 +43,18 @@ public class Human {
     private long transferValue;
     private double rating;
     private double fitness;
-    private String morale;
+    private double morale;
     private String currentStatus;
     private long seasonCreated;
+
+    private double bestEverRating;
+    private int seasonOfBestEverRating;
 
     /**
      * Manager information
      */
     private String tacticStyle;
+
+    private boolean isRetired;
 
 }

@@ -8,4 +8,5 @@ import java.util.List;
 public interface CompetitionHistoryRepository extends JpaRepository<CompetitionHistory, Long> {
 
     List<CompetitionHistory> findByCompetitionId(long competitionId);
+    List<CompetitionHistory> findByTeamIdAndSeasonNumber(long teamId, long seasonNumber);
 }

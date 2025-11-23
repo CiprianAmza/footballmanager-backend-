@@ -30,7 +30,7 @@ public class RoundRobin {
     return scheduleFirstLeg;
   }
 
-  private void swapList(List<Long> teams) {
+  public void swapList(List<Long> teams) {
 
     for (int i = 1; i < teams.size(); i++) {
       long currentElement = teams.get(i);

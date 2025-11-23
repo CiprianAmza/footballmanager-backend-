@@ -17,7 +17,7 @@ public class BuyYoungSellHighTransferStrategy implements TransferStrategy {
     HashMap<String, Integer> currentPositionAllocated = new HashMap<>();
 
     List<Human> players = humanRepository
-      .findAllByTeamIdAndTypeId(team.getId(), TypeNames.HUMAN_TYPE)
+      .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
       .stream()
       .sorted(Comparator.comparing(Human::getTransferValue).reversed())
       .toList();
@@ -52,7 +52,7 @@ public class BuyYoungSellHighTransferStrategy implements TransferStrategy {
     List<TransferPlayer> positions = new ArrayList<>();
 
     List<Human> allPlayers = humanRepository
-      .findAllByTeamIdAndTypeId(team.getId(), TypeNames.HUMAN_TYPE);
+      .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
     Map<String, Integer> positionsDisplay =
       new HashMap<>(Map.of("GK", 0, "DL", 0, "DC", 0, "DR", 0, "ML", 0, "MC", 0, "MR", 0, "ST", 0));
     for (Human player : allPlayers)

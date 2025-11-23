@@ -1,18 +1,25 @@
 package com.footballmanagergamesimulator.controller;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
+import com.footballmanagergamesimulator.frontend.FormationData;
+import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
 import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.*;
-import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
+import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.service.CompetitionService;
 import com.footballmanagergamesimulator.service.HumanService;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
 import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
-import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.util.*;
 import jakarta.annotation.PostConstruct;
+import org.apache.commons.math3.distribution.EnumeratedDistribution;
+import org.apache.commons.math3.util.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.*;
@@ -55,6 +62,25 @@ public class CompetitionController {
     TacticService tacticService;
     @Autowired
     RoundRepository roundRepository;
+    @Autowired
+    PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    TacticController tacticController;
+    @Autowired
+    PersonalizedTacticRepository personalizedTacticRepository;
+    @Autowired
+    ScorerRepository scorerRepository;
+    @Autowired
+    ScorerLeaderboardRepository scorerLeaderboardRepository;
+    @Autowired
+    CompetitionService competitionService;
+    @Autowired
+    CompositeNameGenerator compositeNameGenerator;
+    @Autowired
+    TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
+
+    private final ObjectMapper objectMapper = new ObjectMapper(); // <--- Ai nevoie de asta
+
 
     Round round;
 
@@ -81,7 +107,7 @@ public class CompetitionController {
     }
 
     @GetMapping("/play")
-    @Scheduled(fixedDelay = 30000L)
+    @Scheduled(fixedDelay = 3000L)
     public void play() {
 
         if (round.getRound() == 1 && round.getSeason() == 1) {
@@ -129,7 +155,7 @@ public class CompetitionController {
                     competitionTeamInfoRepository.save(competitionTeamInfo);
 
                     CompetitionTeamInfo competitionTeamInfoCup = new CompetitionTeamInfo();
-                    competitionTeamInfoCup.setCompetitionId(id + 1);
+                    competitionTeamInfoCup.setCompetitionId(Math.min(id + 1, 4));
                     competitionTeamInfoCup.setSeasonNumber(Long.parseLong(getCurrentSeason()) + 1);
                     competitionTeamInfoCup.setRound(index <= 4 ? 2L : 1L);
                     competitionTeamInfoCup.setTeamId(teamCompetitionDetail.getTeamId());
@@ -247,10 +273,12 @@ public class CompetitionController {
 
             for (Long competitionId : competitions)
                 this.saveHistoricalValues(competitionId, round.getSeason());
+            this.saveAllPlayerTeamHistoricalRelations(round.getSeason());
 
             // reset values
             this.resetCompetitionData();
             this.removeCompetitionData(round.getSeason() + 1);
+            this.addImprovementToOverachievers();
 
             round.setRound(1);
             round.setSeason(round.getSeason() + 1);
@@ -260,6 +288,8 @@ public class CompetitionController {
             _humanService.addOneYearToAge();
             _humanService.retirePlayers();
 
+            personalizedTacticRepository.deleteAll(); // remove old tactics, as some player may retire
+
             for (Long teamId : teamIds) {
                 TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(teamId);
                 if (teamFacilities != null)
@@ -267,7 +297,7 @@ public class CompetitionController {
             }
 
             for (long teamId : teamIds) {
-                List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.HUMAN_TYPE);
+                List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
                 for (Human human : players) {
                     long seasonCreated = human.getSeasonCreated();
                     if (round.getSeason() - seasonCreated <= 2 && seasonCreated != 1L)
@@ -294,11 +324,11 @@ public class CompetitionController {
                     TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(team.getId());
                     int nrPlayers = 22;
                     for (int i = 0; i < nrPlayers; i++) {
-                        String name = NameGenerator.generateName();
+                        String name = compositeNameGenerator.generateName(team.getCompetitionId());
                         Human player = new Human();
                         player.setTeamId(team.getId());
                         player.setName(name);
-                        player.setTypeId(TypeNames.HUMAN_TYPE);
+                        player.setTypeId(TypeNames.PLAYER_TYPE);
                         if (i < 2)
                             player.setPosition("GK");
                         else if (i < 4)
@@ -318,20 +348,36 @@ public class CompetitionController {
                         player.setAge(random.nextInt(23, 30));
                         player.setSeasonCreated(1L);
                         player.setCurrentStatus("Senior");
+                        player.setMorale(100);
 
                         int reputation = 100;
                         if (teamFacilities != null)
                             reputation = (int) teamFacilities.getSeniorTrainingLevel() * 10;
-                        player.setRating(random.nextInt(reputation - 20, reputation + 20));
+                        player.setRating(random.nextInt(Math.max(10, reputation - 20), Math.max(11, reputation + 20)));
                         player.setTransferValue(calculateTransferValue(player.getAge(), player.getPosition(), player.getRating()));
 
-                        humanRepository.save(player);
+                        player = humanRepository.save(player);
+
+                        // save TeamPlayerHistoricalRelation for season 1
+                        TeamPlayerHistoricalRelation teamPlayerHistoricalRelation = new TeamPlayerHistoricalRelation();
+                        teamPlayerHistoricalRelation.setPlayerId(player.getId());
+                        teamPlayerHistoricalRelation.setTeamId(team.getId());
+                        teamPlayerHistoricalRelation.setSeasonNumber(1);
+                        teamPlayerHistoricalRelation.setRating(player.getRating());
+                        teamPlayerHistoricalRelationRepository.save(teamPlayerHistoricalRelation);
+
+                        PlayerSkills playerSkills = new PlayerSkills();
+                        playerSkills.setPlayerId(player.getId());
+                        playerSkills.setPosition(player.getPosition());
+                        competitionService.generateSkills(playerSkills, player.getRating());
+
+                        playerSkillsRepository.save(playerSkills);
                     }
 
                     // create manager for each team
                     Human manager = new Human();
                     manager.setAge(random.nextInt(35, 70));
-                    manager.setName(NameGenerator.generateName());
+                    manager.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
                     manager.setTeamId(team.getId());
 
                     int reputation = 100;
@@ -348,6 +394,59 @@ public class CompetitionController {
                     humanRepository.save(manager);
                 }
             }
+
+            // initiate all Scorers
+            List<Team> allTeams = teamRepository.findAll();
+            for (Team team: allTeams) {
+                List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+                List<CompetitionTeamInfo> competitions = competitionTeamInfoRepository.findAllByTeamIdAndSeasonNumber(team.getId(), round.getSeason());
+
+                for (Human human: allPlayers) {
+
+                    for (CompetitionTeamInfo competitionTeamInfo: competitions) {
+                        Scorer scorer = new Scorer();
+                        scorer.setPlayerId(human.getId());
+                        scorer.setSeasonNumber((int) round.getSeason());
+                        scorer.setTeamId(team.getId());
+                        scorer.setOpponentTeamId(-1);
+                        scorer.setPosition(human.getPosition());
+                        scorer.setTeamScore(-1);
+                        scorer.setOpponentScore(-1);
+                        scorer.setCompetitionId(competitionTeamInfo.getCompetitionId());
+                        scorer.setCompetitionTypeId((int) competitionRepository.findTypeIdById(competitionTeamInfo.getCompetitionId()));
+                        scorer.setTeamName(team.getName());
+                        scorer.setOpponentTeamName(null);
+                        scorer.setCompetitionName(competitionRepository.findNameById(competitionTeamInfo.getCompetitionId()));
+                        scorer.setRating(human.getRating());
+                        scorer.setGoals(0);
+
+                        scorerRepository.save(scorer);
+                    }
+
+                    if (scorerLeaderboardRepository.findByPlayerId(human.getId()).isEmpty()) {
+
+                        ScorerLeaderboardEntry scorerLeaderboardEntry = new ScorerLeaderboardEntry();
+                        scorerLeaderboardEntry.setPlayerId(human.getId());
+                        scorerLeaderboardEntry.setAge(human.getAge());
+                        scorerLeaderboardEntry.setName(human.getName());
+                        scorerLeaderboardEntry.setGoals(0);
+                        scorerLeaderboardEntry.setMatches(0);
+                        scorerLeaderboardEntry.setCurrentRating(human.getRating());
+                        scorerLeaderboardEntry.setBestEverRating(human.getRating());
+                        scorerLeaderboardEntry.setSeasonOfBestEverRating((int) round.getSeason());
+                        scorerLeaderboardEntry.setPosition(human.getPosition());
+                        scorerLeaderboardEntry.setTeamId(human.getTeamId());
+                        scorerLeaderboardEntry.setTeamName(team.getName());
+
+                        scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+                    }
+
+                    // reset stats for current season, as it just started
+                    Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
+                    ScorerLeaderboardEntry scorerLeaderboardEntry = resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
+                    scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+                }
+            }
         }
 
         if (round.getRound() % 3 == 0) {
@@ -355,7 +454,7 @@ public class CompetitionController {
                 TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(teamId);
                 List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L);
                 for (Human player : players) {
-                    player = _humanService.trainPlayer(player, teamFacilities);
+                    player = _humanService.trainPlayer(player, teamFacilities, Integer.parseInt(getCurrentSeason()));
                     humanRepository.save(player);
                 }
             }
@@ -365,7 +464,6 @@ public class CompetitionController {
             this.simulateRound(competitionId, round.getRound() - 1 + "");
 
         for (String competitionId : List.of("2", "4")) {
-            if (1 > 0) continue; // todo removing cup for moment
 
             if (round.getRound() == 5) {
                 this.getFixturesForRound(competitionId, "1");
@@ -387,6 +485,95 @@ public class CompetitionController {
         }
         round.setRound(round.getRound() + 1);
         roundRepository.save(round);
+    }
+
+    private static ScorerLeaderboardEntry resetCurrentSeasonStats(Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry) {
+
+        ScorerLeaderboardEntry scorerLeaderboardEntry = optionalScorerLeaderboardEntry.get();
+        scorerLeaderboardEntry.setCurrentSeasonGames(0);
+        scorerLeaderboardEntry.setCurrentSeasonGoals(0);
+        scorerLeaderboardEntry.setCurrentSeasonLeagueGames(0);
+        scorerLeaderboardEntry.setCurrentSeasonLeagueGoals(0);
+        scorerLeaderboardEntry.setCurrentSeasonCupGames(0);
+        scorerLeaderboardEntry.setCurrentSeasonCupGoals(0);
+        scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGames(0);
+        scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGoals(0);
+        return scorerLeaderboardEntry;
+    }
+
+    private void addImprovementToOverachievers() { // todo aici
+
+        System.out.println("Starting rating adjusting for season " + getCurrentSeason());
+        Random random = new Random();
+        List<ScorerLeaderboardEntry> allEntries = scorerLeaderboardRepository.findAll();
+
+        for (ScorerLeaderboardEntry entry: allEntries) {
+
+            if (entry.getCurrentSeasonGames() < 20) continue; // play at least half of the games
+
+            double ratio = 0D;
+            if (entry.getCurrentSeasonLeagueGames() > 0 && entry.getCurrentSeasonLeagueGoals() > 0) {
+                ratio = (double) entry.getCurrentSeasonLeagueGoals() / entry.getCurrentSeasonLeagueGames();
+            } else if (entry.getCurrentSeasonSecondLeagueGames() > 0 && entry.getCurrentSeasonSecondLeagueGoals() > 0){
+                ratio = (double) entry.getCurrentSeasonSecondLeagueGoals() / entry.getCurrentSeasonSecondLeagueGames();
+            }
+
+            int ratingIncrease = 0;
+            if (ratio >= 1.0D) { // amazing ratio, should increase rating by far
+                ratingIncrease = random.nextInt(50, 70);
+            } else if (ratio >= 0.75) {
+                ratingIncrease = random.nextInt(35, 55);
+            } else if (ratio >= 0.5) {
+                ratingIncrease = random.nextInt(15, 35);
+            } else if (ratio >= 0.4) {
+                ratingIncrease = random.nextInt(5, 15);
+            } else {
+                continue;
+            }
+            if (entry.getLeagueGoals() < entry.getSecondLeagueGoals()) { // this means that the goals were mainly scored in the second league, currently players can not be transferred during a season
+                ratingIncrease /= 2; // decrease rating, as overachieving in the second league is not that impressive
+            }
+
+            Optional<Human> human = humanRepository.findById(entry.getPlayerId());
+            if (human.isPresent()){
+                Human player = human.get();
+                System.out.println("Player " + player.getName() + " from team " + entry.getTeamName() + " had rating increased from " + player.getRating() + " to " + (player.getRating() + ratingIncrease) + " because of ratio of " + ratio);
+                player.setRating(player.getRating() + ratingIncrease);
+                humanRepository.save(player);
+
+                entry.setCurrentRating(player.getRating());
+                if (entry.getCurrentRating() > entry.getBestEverRating()) {
+                    entry.setBestEverRating(entry.getCurrentRating());
+                    entry.setSeasonOfBestEverRating((int) round.getSeason());
+                }
+                scorerLeaderboardRepository.save(entry);
+            }
+        }
+    }
+
+    private void saveAllPlayerTeamHistoricalRelations(long seasonNumber) {
+
+        Set<Long> teamIds = new HashSet<>();
+        List<TeamCompetitionDetail> teams = teamCompetitionDetailRepository.findAll();
+
+        for (TeamCompetitionDetail teamCompetitionDetail: teams) {
+
+            teamIds.add(teamCompetitionDetail.getTeamId());
+        }
+
+        for (Long teamId: teamIds) {
+
+            List<Human> allTeamPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+            for (Human player: allTeamPlayers) {
+                TeamPlayerHistoricalRelation teamPlayerHistoricalRelation = new TeamPlayerHistoricalRelation();
+                teamPlayerHistoricalRelation.setPlayerId(player.getId());
+                teamPlayerHistoricalRelation.setTeamId(teamId);
+                teamPlayerHistoricalRelation.setSeasonNumber(seasonNumber + 1);
+                teamPlayerHistoricalRelation.setRating(player.getRating());
+
+                teamPlayerHistoricalRelationRepository.save(teamPlayerHistoricalRelation);
+            }
+        }
     }
 
     public void removeCompetitionData(Long seasonNumber) {
@@ -508,6 +695,23 @@ public class CompetitionController {
         }
 
         return teamCompetitionViews;
+    }
+
+    @GetMapping("/getAllCompetitions")
+    public List<Competition> getAllCompetitions() {
+
+        return competitionRepository
+                .findAll();
+    }
+
+    @GetMapping("/getAllCompetitions/{typeId}")
+    public List<Competition> getAllCompetitionsByTypeId(@PathVariable(name = "typeId") long typeId) {
+
+        return competitionRepository
+                .findAll()
+                .stream()
+                .filter(competition -> competition.getTypeId() == typeId)
+                .collect(Collectors.toList());
     }
 
     private TeamCompetitionView adaptTeam(Team team, CompetitionHistory teamCompetitionHistory) {
@@ -658,10 +862,13 @@ public class CompetitionController {
             List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
             int currentRound = 1;
 
+            boolean reverse = true;
+
             for (int i = 0; i < 2; i++) {
 
                 for (List<List<Long>> round : schedule) {
 
+                    reverse = !reverse;
                     for (List<Long> match : round) {
                         long teamHomeId = match.get(0);
                         long teamAwayId = match.get(1);
@@ -669,8 +876,13 @@ public class CompetitionController {
                         CompetitionTeamInfoMatch competitionTeamInfoMatch = new CompetitionTeamInfoMatch();
                         competitionTeamInfoMatch.setCompetitionId(_competitionId);
                         competitionTeamInfoMatch.setRound(currentRound);
-                        competitionTeamInfoMatch.setTeam1Id(teamHomeId);
-                        competitionTeamInfoMatch.setTeam2Id(teamAwayId);
+                        if (reverse) {
+                            competitionTeamInfoMatch.setTeam1Id(teamHomeId);
+                            competitionTeamInfoMatch.setTeam2Id(teamAwayId);
+                        } else {
+                            competitionTeamInfoMatch.setTeam1Id(teamAwayId);
+                            competitionTeamInfoMatch.setTeam2Id(teamHomeId);
+                        }
                         competitionTeamInfoMatch.setSeasonNumber(getCurrentSeason());
                         competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
                     }
@@ -717,11 +929,20 @@ public class CompetitionController {
 
             int teamScore1, teamScore2;
 
-            List<Human> firstTeam = getBestEleven(teamId1);
-            List<Human> secondTeam = getBestEleven(teamId2);
+            String tactic1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE).get(0).getTacticStyle();
+            String tactic2 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE).get(0).getTacticStyle();
 
-            double teamPower1 = getBestElevenRating(firstTeam);
-            double teamPower2 = getBestElevenRating(secondTeam);
+            double teamPower1 = getBestElevenRatingByTactic(teamId1, tactic1);
+            double teamPower2 = getBestElevenRatingByTactic(teamId2, tactic2);
+
+            Optional<PersonalizedTactic> personalizedTactic1 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
+            Optional<PersonalizedTactic> personalizedTactic2 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
+
+            if (personalizedTactic1.isPresent())
+                teamPower1 = adjustTeamPowerByTacticalProperties(teamPower1, teamPower2, personalizedTactic1.get());
+
+            if (personalizedTactic2.isPresent())
+                teamPower2 = adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
 
             List<Integer> limits = calculateLimits(teamPower1, teamPower2);
             int limitA = limits.get(0);
@@ -735,9 +956,11 @@ public class CompetitionController {
                     teamScore2 = random.nextInt(5);
             }
 
-            updateTeam(teamId1, _competitionId, teamScore1, teamScore2);
-            updateTeam(teamId2, _competitionId, teamScore2, teamScore1);
+            getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, Long.valueOf(competitionId));
+            getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, Long.valueOf(competitionId));
 
+            updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2);
+            updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1);
 
             if (nextRound != -1 && (_competitionId == 2L || _competitionId == 4L)) {
                 CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
@@ -763,7 +986,135 @@ public class CompetitionController {
 
     }
 
-    private void updateTeam(long teamId, long competitionId, int scoreHome, int scoreAway) {
+    private double adjustTeamPowerByTacticalProperties(double teamRating, double opponentRating, PersonalizedTactic teamTactic) {
+
+        double difference = teamRating - opponentRating;
+        int percentage = 0;
+
+        // 1. SAFETY FIRST: Setăm valori default (scăpăm de NullPointerException)
+        // Aceste string-uri trebuie să fie identice cu ce trimite Frontend-ul
+        String mentality = teamTactic.getMentality() != null ? teamTactic.getMentality() : "Balanced";
+        String timeWasting = teamTactic.getTimeWasting() != null ? teamTactic.getTimeWasting() : "Sometimes";
+        String inPossession = teamTactic.getInPossession() != null ? teamTactic.getInPossession() : "Standard";
+        String passingType = teamTactic.getPassingType() != null ? teamTactic.getPassingType() : "Normal";
+        String tempo = teamTactic.getTempo() != null ? teamTactic.getTempo() : "Standard";
+
+        // --- LOGICA PENTRU MENTALITY VS DIFFERENCE ---
+
+        if (difference > 500) { // Suntem mult mai buni
+            if ("Very Attacking".equals(mentality)) percentage += 25;
+            else if ("Attacking".equals(mentality)) percentage += 10;
+            else if ("Defensive".equals(mentality)) percentage -= 10;
+            else if ("Very Defensive".equals(mentality)) percentage -= 25;
+
+        } else if (difference > 200) { // Suntem puțin mai buni
+            if ("Very Attacking".equals(mentality)) percentage += 15;
+            else if ("Attacking".equals(mentality)) percentage += 5;
+            else if ("Defensive".equals(mentality)) percentage -= 5;
+            else if ("Very Defensive".equals(mentality)) percentage -= 15;
+
+        } else if (difference >= -200 && difference <= 200) { // Meci echilibrat
+            if ("Very Attacking".equals(mentality)) percentage -= 15; // Prea riscant
+            else if ("Attacking".equals(mentality)) percentage += 5;
+            else if ("Defensive".equals(mentality)) percentage += 5;
+            else if ("Very Defensive".equals(mentality)) percentage -= 15; // Prea pasiv
+
+        } else if (difference < -200 && difference > -500) { // Suntem mai slabi
+            if ("Very Attacking".equals(mentality)) percentage -= 15;
+            else if ("Attacking".equals(mentality)) percentage -= 5;
+            else if ("Defensive".equals(mentality)) percentage += 5;
+            else if ("Very Defensive".equals(mentality)) percentage += 15;
+
+        } else if (difference < -500) { // Suntem mult mai slabi
+            if ("Very Attacking".equals(mentality)) percentage -= 25;
+            else if ("Attacking".equals(mentality)) percentage -= 10;
+            else if ("Defensive".equals(mentality)) percentage += 10;
+            else if ("Very Defensive".equals(mentality)) percentage += 25;
+        }
+
+        // --- LOGICA PENTRU TIME WASTING ---
+        // Frontend trimite: 'Never', 'Sometimes', 'Frequently', 'Always'
+        // Mapăm 'Frequently' și 'Always' ca fiind YES (trag de timp)
+
+        if ("Frequently".equals(timeWasting) || "Always".equals(timeWasting)) {
+            if ("Attacking".equals(mentality)) percentage -= 5;
+            else if ("Very Attacking".equals(mentality)) percentage -= 10;
+            else if ("Defensive".equals(mentality)) percentage += 5;
+            else if ("Very Defensive".equals(mentality)) percentage += 10;
+
+        } else if ("Never".equals(timeWasting) || "Sometimes".equals(timeWasting)) {
+            if ("Attacking".equals(mentality)) percentage += 5;
+            else if ("Very Attacking".equals(mentality)) percentage += 10;
+            else if ("Defensive".equals(mentality)) percentage -= 5;
+            else if ("Very Defensive".equals(mentality)) percentage -= 10;
+        }
+
+        // --- LOGICA PENTRU POSSESSION ---
+        // Frontend trimite: 'Keep Ball', 'Free Ball Early' (sau Standard)
+
+        if ("Keep Ball".equals(inPossession)) {
+            if ("Attacking".equals(mentality)) percentage += 10;
+            else if ("Very Attacking".equals(mentality)) percentage -= 15; // Prea lent pentru very attacking
+            else if ("Defensive".equals(mentality)) percentage += 5;
+            else if ("Very Defensive".equals(mentality)) percentage -= 15; // Periculos sa tii mingea in aparare
+
+        } else if ("Free Ball Early".equals(inPossession)) { // Sau 'Direct Passing'
+            if ("Attacking".equals(mentality)) percentage += 5;
+            else if ("Very Attacking".equals(mentality)) percentage += 10;
+            else if ("Defensive".equals(mentality)) percentage -= 5;
+            else if ("Very Defensive".equals(mentality)) percentage += 15; // Degajari lungi
+        }
+
+        // --- LOGICA PENTRU PASSING & TEMPO ---
+        // Aici trebuie mare atenție la string-uri. Presupunem valorile standard.
+        // Frontend Tempo: 'Much Lower', 'Lower', 'Standard', 'Higher', 'Much Higher'
+
+        if ("Short".equals(passingType)) {
+            if ("Much Lower".equals(tempo)) percentage += 5;
+            else if ("Lower".equals(tempo)) percentage += 10;
+            else if ("Standard".equals(tempo)) percentage += 15;
+            else if ("Higher".equals(tempo)) percentage += 20;
+            else if ("Much Higher".equals(tempo)) percentage += 25; // Tiki Taka rapid
+
+        } else if ("Normal".equals(passingType) || "Standard".equals(passingType)) {
+            if ("Much Lower".equals(tempo)) percentage -= 10;
+            else if ("Lower".equals(tempo)) percentage -= 5;
+            else if ("Standard".equals(tempo)) percentage += 0;
+            else if ("Higher".equals(tempo)) percentage += 5;
+            else if ("Much Higher".equals(tempo)) percentage += 10;
+
+        } else if ("Long".equals(passingType) || "Direct".equals(passingType)) {
+            if ("Much Lower".equals(tempo)) percentage -= 30; // Pase lungi lent = pierzi mingea
+            else if ("Lower".equals(tempo)) percentage -= 25;
+            else if ("Standard".equals(tempo)) percentage += 0;
+            else if ("Higher".equals(tempo)) percentage += 25; // Contraatac rapid
+            else if ("Much Higher".equals(tempo)) percentage += 30;
+        }
+
+        // Calcul final
+        return teamRating + (teamRating * percentage / 100D);
+    }
+    @GetMapping("/getAllCompetitionTypes")
+    public List<CompetitionType> getAllCompetitionTypes() {
+
+        List<CompetitionType> competitionTypes = new ArrayList<>();
+
+        CompetitionType championship = new CompetitionType();
+        championship.setId(1);
+        championship.setTypeName("Championship");
+        championship.setTypeId(1);
+        competitionTypes.add(championship);
+
+        CompetitionType cup = new CompetitionType();
+        cup.setId(2);
+        cup.setTypeName("Cup");
+        cup.setTypeId(2);
+        competitionTypes.add(cup);
+
+        return competitionTypes;
+    }
+
+    private void updateTeam(long teamId, long competitionId, int scoreHome, int scoreAway, double teamPowerDifference) {
 
         TeamCompetitionDetail team = teamCompetitionDetailRepository.findTeamCompetitionDetailByTeamIdAndCompetitionId(teamId, competitionId);
         if (team == null) {
@@ -779,13 +1130,17 @@ public class CompetitionController {
             team.setForm(team.getForm() + "W");
             team.setWins(team.getWins() + 1);
             team.setPoints(team.getPoints() + 3);
+
+            updatePlayersMorale(teamId, calculateMoraleChangeForTeamDifference("W", teamPowerDifference));
         } else if (scoreHome == scoreAway) {
             team.setForm(team.getForm() + "D");
             team.setDraws(team.getDraws() + 1);
             team.setPoints(team.getPoints() + 1);
+            updatePlayersMorale(teamId, calculateMoraleChangeForTeamDifference("D", teamPowerDifference));
         } else {
             team.setForm(team.getForm() + "L");
             team.setLoses(team.getLoses() + 1);
+            updatePlayersMorale(teamId, calculateMoraleChangeForTeamDifference("L", teamPowerDifference));
         }
         team.setGames(team.getGames() + 1);
 
@@ -793,6 +1148,68 @@ public class CompetitionController {
             team.setForm(team.getForm().substring(team.getForm().length() - 5));
 
         teamCompetitionDetailRepository.save(team);
+    }
+
+    private void updatePlayersMorale(long teamId, double morale) {
+
+        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+        allPlayers
+                .stream()
+                .forEach(player -> {
+                    player.setMorale(player.getMorale() + morale);
+                    player.setMorale(Math.min(player.getMorale(), 120D));
+                    player.setMorale(Math.max(player.getMorale(), 30D));
+                    humanRepository.save(player);
+                });
+    }
+
+    private double calculateMoraleChangeForTeamDifference(String result, double teamPowerDifference) {
+
+        Random random = new Random();
+
+        if (result.equals("W")) {
+            if (teamPowerDifference > 500) {
+                return random.nextDouble(0, 2);
+            } else if (teamPowerDifference > 200) {
+                return random.nextDouble(1, 2);
+            } else if (teamPowerDifference > 0) {
+                return random.nextDouble(1, 4);
+            } else if (teamPowerDifference > -200) {
+                return random.nextDouble(2, 6);
+            } else if (teamPowerDifference > -500) {
+                return random.nextDouble(5, 10);
+            } else {
+                return random.nextDouble(7, 15);
+            }
+        } else if (result.equals("D")) {
+            if (teamPowerDifference > 500) {
+                return random.nextDouble(-8, -2);
+            } else if (teamPowerDifference > 200) {
+                return random.nextDouble(-5, 0);
+            } else if (teamPowerDifference > 0) {
+                return random.nextDouble(-2, 1);
+            } else if (teamPowerDifference > -200) {
+                return random.nextDouble(1, 3);
+            } else if (teamPowerDifference > -500) {
+                return random.nextDouble(2, 7);
+            } else {
+                return random.nextDouble(5, 10);
+            }
+        } else {
+            if (teamPowerDifference > 500) {
+                return random.nextDouble(-20, -5);
+            } else if (teamPowerDifference > 200) {
+                return random.nextDouble(-10, -3);
+            } else if (teamPowerDifference > 0) {
+                return random.nextDouble(-5, -2);
+            } else if (teamPowerDifference > -200) {
+                return random.nextDouble(-3, -1);
+            } else if (teamPowerDifference > -500) {
+                return random.nextDouble(-2, 0);
+            } else {
+                return random.nextDouble(-1, 0);
+            }
+        }
     }
 
     private List<Integer> calculateLimits(double power1, double power2) {
@@ -853,6 +1270,7 @@ public class CompetitionController {
 
     private double getBestElevenRating(List<Human> players) {
 
+
         double bestElevenRating = 0;
 
         for (Human player : players)
@@ -861,10 +1279,291 @@ public class CompetitionController {
         return bestElevenRating;
     }
 
+    private double getBestElevenRatingByTactic(long teamId, String tactic) {
+
+        Optional<PersonalizedTactic> personalizedTacticOpt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
+
+        if (personalizedTacticOpt.isPresent()) {
+            PersonalizedTactic personalized = personalizedTacticOpt.get();
+            double rating = 0;
+
+            try {
+                // 1. Convertim JSON-ul salvat în List<FormationData>
+                List<FormationData> formationDataList = objectMapper.readValue(
+                        personalized.getFirst11(),
+                        new TypeReference<List<FormationData>>() {}
+                );
+
+                // 2. Iterăm prin listă
+                for (FormationData data : formationDataList) {
+
+                    // Ignorăm rezervele (indecșii >= 30 sunt pe bancă)
+                    if (data.getPositionIndex() >= 30) continue;
+
+                    // Găsim jucătorul
+                    Optional<Human> playerOpt = humanRepository.findById(data.getPlayerId());
+                    if (playerOpt.isEmpty()) continue;
+
+                    Human player = playerOpt.get();
+
+                    // 3. Aflăm ce poziție reprezintă indexul de pe grilă (ex: 27 -> "GK")
+                    String tacticPosition = tacticService.getPositionFromIndex(data.getPositionIndex());
+
+                    // 4. Calculăm rating-ul (logica ta originală)
+                    if (player.getPosition().equals(tacticPosition)) {
+                        // Joacă pe poziția lui naturală
+                        rating += player.getRating() * player.getMorale() / 100D;
+                    } else {
+                        // Joacă pe altă poziție (penalizare)
+                        // TODO: Poți rafina aici (ex: dacă e DC și joacă DR e mai ok decât dacă e ST și joacă GK)
+                        rating += player.getRating() / 2 * player.getMorale() / 100D;
+                    }
+                }
+
+                // add extra bonus logic here if needed
+
+                return rating;
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                // Dacă parsarea eșuează, continuăm execuția spre fallback-ul de mai jos
+            }
+        }
+
+        // --- FALLBACK (Dacă nu are tactică salvată sau a crăpat parsarea) ---
+        // Folosește algoritmul automat pentru a determina cel mai bun 11
+        List<PlayerView> playerViews = tacticController.getBestEleven(String.valueOf(teamId), tactic);
+
+        return playerViews
+                .stream()
+                .mapToDouble(playerView -> playerView.getRating() * playerView.getMorale() / 100D)
+                .sum();
+    }
+
+    private void getScorersForTeam(long teamId, long opponentTeamId, int teamScore, int opponentScore, String tactic, long competitionId) {
+
+        long competitionTypeId = competitionRepository.findTypeIdById(competitionId);
+        String teamName = teamRepository.findNameById(teamId);
+        String opponentName = teamRepository.findNameById(opponentTeamId);
+        String competitionName = competitionRepository.findNameById(competitionId);
+
+        Optional<PersonalizedTactic> personalizedTacticOpt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
+        List<Scorer> possibleScorers = new ArrayList<>();
+        List<Scorer> substitutions = new ArrayList<>();
+
+        boolean loadedSuccessfully = false;
+
+        // 1. ÎNCERCĂM SĂ ÎNCĂRCĂM TACTICA PERSONALIZATĂ (JSON)
+        if (personalizedTacticOpt.isPresent()) {
+            try {
+                PersonalizedTactic personalized = personalizedTacticOpt.get();
+
+                // Citim JSON-ul salvat
+                List<FormationData> formationList = objectMapper.readValue(
+                        personalized.getFirst11(),
+                        new TypeReference<List<FormationData>>() {}
+                );
+
+                for (FormationData data : formationList) {
+                    Optional<Human> playerOpt = humanRepository.findById(data.getPlayerId());
+                    if (playerOpt.isEmpty()) continue;
+
+                    Human player = playerOpt.get();
+
+                    Scorer scorer = new Scorer();
+                    scorer.setPlayerId(player.getId());
+                    scorer.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
+                    scorer.setTeamId(teamId);
+                    scorer.setOpponentTeamId(opponentTeamId);
+                    scorer.setPosition(player.getPosition());
+                    scorer.setTeamScore(teamScore);
+                    scorer.setOpponentScore(opponentScore);
+                    scorer.setCompetitionId(competitionId);
+                    scorer.setCompetitionTypeId((int) competitionTypeId);
+                    scorer.setTeamName(teamName);
+                    scorer.setOpponentTeamName(opponentName);
+                    scorer.setCompetitionName(competitionName);
+                    scorer.setRating(player.getRating());
+
+                    // 🔹 LOGICA NOUĂ: Index >= 30 înseamnă Rezervă
+                    if (data.getPositionIndex() >= 30) {
+                        scorer.setSubstitute(true);
+                        substitutions.add(scorer);
+                    } else {
+                        scorer.setSubstitute(false);
+                        possibleScorers.add(scorer);
+                    }
+                }
+
+                if (!possibleScorers.isEmpty()) {
+                    loadedSuccessfully = true;
+                }
+
+            } catch (Exception e) {
+                System.err.println("Error parsing tactic JSON for team " + teamId + ": " + e.getMessage());
+                // Nu dăm throw, ci lăsăm loadedSuccessfully = false ca să intre pe fallback
+            }
+        }
+
+        // 2. FALLBACK: LOGICA STANDARD (Dacă nu are tactică sau a crăpat JSON-ul)
+        if (!loadedSuccessfully) {
+            // Aici e codul tău vechi din blocul "else", neatins
+            List<PlayerView> playerViews = tacticController.getBestEleven(String.valueOf(teamId), tactic);
+            playerViews.stream().map(playerView -> {
+                Scorer scorer = new Scorer();
+                scorer.setPlayerId(playerView.getId());
+                scorer.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
+                scorer.setTeamId(teamId);
+                scorer.setOpponentTeamId(opponentTeamId);
+                scorer.setPosition(playerView.getPosition());
+                scorer.setTeamScore(teamScore);
+                scorer.setOpponentScore(opponentScore);
+                scorer.setCompetitionId(competitionId);
+                scorer.setCompetitionTypeId((int) competitionTypeId);
+                scorer.setTeamName(teamName);
+                scorer.setOpponentTeamName(opponentName);
+                scorer.setCompetitionName(competitionName);
+                scorer.setRating(playerView.getRating());
+                scorer.setSubstitute(false);
+                return scorer;
+            }).forEach(possibleScorers::add);
+
+            List<PlayerView> substitutionViews = tacticController.getSubstitutions(String.valueOf(teamId), tactic);
+            substitutionViews.stream().map(playerView -> {
+                Scorer scorer = new Scorer();
+                scorer.setPlayerId(playerView.getId());
+                scorer.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
+                scorer.setTeamId(teamId);
+                scorer.setOpponentTeamId(opponentTeamId);
+                scorer.setPosition(playerView.getPosition());
+                scorer.setTeamScore(teamScore);
+                scorer.setOpponentScore(opponentScore);
+                scorer.setCompetitionId(competitionId);
+                scorer.setCompetitionTypeId((int) competitionTypeId);
+                scorer.setTeamName(teamName);
+                scorer.setOpponentTeamName(opponentName);
+                scorer.setCompetitionName(competitionName);
+                scorer.setRating(playerView.getRating());
+                scorer.setSubstitute(true);
+                return scorer;
+            }).forEach(substitutions::add);
+        }
+
+        // 3. SIMULARE SCHIMBĂRI ȘI GOLURI (Rămâne la fel)
+        Random random = new Random();
+        int substitutesDone = random.nextInt(0, Math.min(6, substitutions.size() + 1)); // fix bounds check
+        if (!substitutions.isEmpty()) {
+            Collections.shuffle(substitutions);
+            // Asigură-te că nu ceri mai mulți decât ai
+            for (int i = 0; i < Math.min(substitutesDone, substitutions.size()); i++) {
+                possibleScorers.add(substitutions.get(i));
+            }
+        }
+
+        List<Pair<Scorer, Double>> weightedPlayers = new ArrayList<>();
+        for (Scorer scorer: possibleScorers) {
+            if ("GK".equals(scorer.getPosition())) continue;
+            weightedPlayers.add(new Pair<>(scorer, competitionService.getDifferentValueForScoringBasedOnPosition(scorer)));
+        }
+
+        if (!weightedPlayers.isEmpty()) {
+            for (int i = 0; i < teamScore; i++) {
+                try {
+                    EnumeratedDistribution<Scorer> distribution = new EnumeratedDistribution<>(weightedPlayers);
+                    Scorer selected = distribution.sample();
+                    selected.setGoals(selected.getGoals() + 1);
+                } catch (Exception e) {
+                    System.err.println("Distribution error (negative weights?): " + e.getMessage());
+                }
+            }
+        }
+
+        for (Scorer scorer: possibleScorers) {
+
+            scorerRepository.save(scorer);
+
+            Optional<Human> possiblePlayer = humanRepository.findById(scorer.getPlayerId());
+            if (possiblePlayer.isPresent()) {
+                Human player = possiblePlayer.get();
+
+                ScorerLeaderboardEntry scorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(player.getId()).get();
+                scorerLeaderboardEntry.setAge(player.getAge());
+                scorerLeaderboardEntry.setName(player.getName());
+
+                scorerLeaderboardEntry.setName(player.getName());
+                if (player.getTeamId() != null) {
+                    scorerLeaderboardEntry.setTeamName(teamRepository.findNameById(player.getTeamId()));
+                } else {
+                    scorerLeaderboardEntry.setTeamName("Free Agent");
+                }
+                if (player.isRetired()) {
+                    scorerLeaderboardEntry.setTeamName("Retired");
+                }
+                scorerLeaderboardEntry.setPosition(player.getPosition());
+                scorerLeaderboardEntry.setActive(!player.isRetired());
+                if (player.getRating() > scorerLeaderboardEntry.getBestEverRating()) {
+                    scorerLeaderboardEntry.setBestEverRating(player.getRating());
+                    scorerLeaderboardEntry.setSeasonOfBestEverRating(Integer.parseInt(getCurrentSeason()));
+                }
+                scorerLeaderboardEntry.setAge(player.getAge());
+                scorerLeaderboardEntry.setCurrentRating(player.getRating());
+
+                scorerLeaderboardEntry.setMatches(scorerLeaderboardEntry.getMatches() + 1);
+                scorerLeaderboardEntry.setGoals(scorerLeaderboardEntry.getGoals() + scorer.getGoals());
+                scorerLeaderboardEntry.setCurrentSeasonGoals(scorerLeaderboardEntry.getCurrentSeasonGoals() + scorer.getGoals());
+                scorerLeaderboardEntry.setCurrentSeasonGames(scorerLeaderboardEntry.getCurrentSeasonGames() + 1);
+
+                if (competitionId == 1 || competitionId == 3) {
+
+                    scorerLeaderboardEntry.setLeagueGoals(scorerLeaderboardEntry.getLeagueGoals() + scorer.getGoals());
+                    scorerLeaderboardEntry.setLeagueMatches(scorerLeaderboardEntry.getLeagueMatches() + 1);
+                    scorerLeaderboardEntry.setCurrentSeasonLeagueGoals(scorerLeaderboardEntry.getCurrentSeasonLeagueGoals() + scorer.getGoals());
+                    scorerLeaderboardEntry.setCurrentSeasonLeagueGames(scorerLeaderboardEntry.getCurrentSeasonLeagueGames() + 1);
+
+                } else if (competitionId == 2 || competitionId == 4) {
+
+                    scorerLeaderboardEntry.setCupGoals(scorerLeaderboardEntry.getCupGoals() + scorer.getGoals());
+                    scorerLeaderboardEntry.setCupMatches(scorerLeaderboardEntry.getCupMatches() + 1);
+                    scorerLeaderboardEntry.setCurrentSeasonCupGoals(scorerLeaderboardEntry.getCurrentSeasonCupGoals() + scorer.getGoals());
+                    scorerLeaderboardEntry.setCurrentSeasonCupGames(scorerLeaderboardEntry.getCurrentSeasonCupGames() + 1);
+
+                } else {
+
+                    scorerLeaderboardEntry.setSecondLeagueGoals(scorerLeaderboardEntry.getSecondLeagueGoals() + scorer.getGoals());
+                    scorerLeaderboardEntry.setSecondLeagueMatches(scorerLeaderboardEntry.getSecondLeagueMatches() + 1);
+                    scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGoals(scorerLeaderboardEntry.getCurrentSeasonSecondLeagueGoals() + scorer.getGoals());
+                    scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGames(scorerLeaderboardEntry.getCurrentSeasonSecondLeagueGames() + 1);
+
+                }
+                scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+            }
+        }
+
+    }
+
+    @GetMapping("/getCompetitionInfo/{id}")
+    public Map<String, Object> getCompetitionInfo(@PathVariable Long id) {
+
+        Competition comp = competitionRepository.findById(id).orElse(null);
+        Map<String, Object> info = new HashMap<>();
+        if (comp != null) {
+            info.put("typeId", comp.getTypeId());
+            info.put("name", comp.getName());
+        }
+
+        return info;
+    }
+
+    @GetMapping("/getCompetitionNameById/{competitionId}")
+    public String getTeamNameByTeamId(@PathVariable(name = "competitionId") long competitionId) {
+
+        return competitionRepository.findNameById(competitionId);
+    }
+
     private List<Human> getBestEleven(long teamId) {
 
         List<Human> players = humanRepository
-                .findAllByTeamIdAndTypeId(teamId, TypeNames.HUMAN_TYPE)
+                .findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
                 .stream()
                 .sorted(Comparator.comparing(Human::getRating))
                 .toList();
@@ -897,7 +1596,7 @@ public class CompetitionController {
             return false; // club can't buy player, reputation too low
         if (!playerTransferView.getPosition().equals(desiredPlayer.getPosition()))
             return false; // not desired position
-        if (playerTransferView.getRating() < desiredPlayer.getMinRating() - 50)
+        if (playerTransferView.getRating() < desiredPlayer.getMinRating() - 10)
             return false; // player rating too low
         if (playerTransferView.getTeamId() == clubPlan.getTeamId())
             return false; // club already owns player
@@ -934,6 +1633,7 @@ public class CompetitionController {
     }
 
     private void initializeTeams1() {
+
         List<List<String>> teamNames = List.of(
                 List.of("Shadows", "black", "grey", "25"),
                 List.of("Ligthnings", "blue", "darkblue", "55"),
@@ -985,6 +1685,7 @@ public class CompetitionController {
     }
 
     private void initializeTeams2() {
+
         List<List<String>> teamNames = List.of(
                 List.of("FC San Marino", "black", "grey", "25"),
                 List.of("Tik Tok", "blue", "darkblue", "55"),
@@ -1036,6 +1737,7 @@ public class CompetitionController {
     }
 
     private void initializeTeams3() {
+
         List<List<String>> teamNames = List.of(
                 List.of("Karyo", "black", "grey", "25"),
                 List.of("Korny", "blue", "darkblue", "55"),
@@ -1046,6 +1748,58 @@ public class CompetitionController {
                 List.of("Kusparsky", "orange", "black", "45"),
                 List.of("Kindonersky", "red", "grey", "25"),
                 List.of("Kor Kory", "white", "grey", "35"),
+                List.of("Kuvertini", "orange", "yellow", "60"),
+                List.of("Kora", "blue", "black", "95"),
+                List.of("Kuntuna", "pink", "lila", "9"));
+
+        List<List<Integer>> teamValues = List.of(
+                List.of(6000, 5),
+                List.of(5500, 5),
+                List.of(5500, 5),
+                List.of(5400, 2),
+                List.of(5300, 4),
+                List.of(5200, 3),
+                List.of(5000, 2),
+                List.of(4900, 1),
+                List.of(4800, 1),
+                List.of(4300, 2),
+                List.of(4200, 1),
+                List.of(4100, 3));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(7, 4, 1),
+                List.of(6, 3, 4),
+                List.of(5, 5, 5),
+                List.of(10, 3, 4),
+                List.of(5, 6, 16),
+                List.of(4, 3, 1),
+                List.of(5, 4, 3),
+                List.of(6, 8, 3),
+                List.of(7, 9, 1),
+                List.of(8, 7, 4),
+                List.of(7, 5, 5),
+                List.of(6, 4, 3)
+        );
+
+        int addedModulo = 24;
+        long leagueId = 5L;
+        long cupId = 4L;
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
+    }
+
+    private void initializeTeams4() {
+
+        List<List<String>> teamNames = List.of(
+                List.of("Ding Dong", "black", "grey", "25"),
+                List.of("Dinamo Kanibali", "blue", "darkblue", "55"),
+                List.of("Grobienii", "green", "darkgreen", "35"),
+                List.of("Grodienii", "white", "blue", "65"),
+                List.of("Artistii", "yellow", "green", "5"),
+                List.of("Mumiile", "grey", "green", "70"),
+                List.of("Vikingii", "orange", "black", "45"),
+                List.of("Vanatorii", "red", "grey", "25"),
+                List.of("Faraonii", "white", "grey", "35"),
                 List.of("Kuvertini", "orange", "yellow", "60"),
                 List.of("Kora", "blue", "black", "95"),
                 List.of("Kuntuna", "pink", "lila", "9"));
