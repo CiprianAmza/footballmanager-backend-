@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/history")
@@ -100,6 +99,12 @@ public class HistoryController {
         return playerCompetitionWinnerViews;
     }
 
+    @GetMapping("/teamCompetitionWins/{teamId}")
+    public List<CompetitionHistory> getTeamCompetitionWinsByTeamId(@PathVariable(name = "teamId") long teamId) {
+
+        return competitionHistoryRepository.findByTeamId(teamId);
+    }
+
     @GetMapping("/playerCompetitionWins/leaderboard")
     public Map<Long, PlayerCompetitionWinnerLeaderboardView> getPlayerCompetitionWinsByAllPlayers() {
 
@@ -120,16 +125,9 @@ public class HistoryController {
 
             PlayerCompetitionWinnerLeaderboardView leaderboardView = leaderboardViewMap.getOrDefault(playerId, new PlayerCompetitionWinnerLeaderboardView());
 
-            // varianta 1, dar trebuie verificat daca acel isRetired de pe human e suficient ca sa nu mai fie folosit in alte TeamPlayerRelation
             Optional<Human> player = humanRepository.findById(playerId);
             player.ifPresent(human -> leaderboardView.setActive(!human.isRetired()));
 
-            // varianta 2
-//            List<TeamPlayerHistoricalRelation> relationList = teamPlayerHistoricalRelationRepository.findByPlayerIdAndSeasonNumber(playerId, currentSeason);
-//            relationList = new HashSet<>(relationList).stream().toList();
-//            if (!relationList.isEmpty()) {
-//                leaderboardView.setActive(true);
-//            }
 
             for (TeamPlayerHistoricalRelation relation : relations) {
 

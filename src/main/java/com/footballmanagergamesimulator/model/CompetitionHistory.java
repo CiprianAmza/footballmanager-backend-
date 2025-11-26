@@ -18,6 +18,9 @@ public class CompetitionHistory {
   private long teamId;
   private long competitionId;
   private long seasonNumber;
+  private long competitionTypeId;
+  private String competitionName;
+
   /**
    * TeamStats in competition
    */

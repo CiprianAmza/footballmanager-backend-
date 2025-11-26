@@ -121,8 +121,13 @@ public class StatsController {
 
         for (Human player: allPlayers) {
             Optional<ScorerLeaderboardEntry> scorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(player.getId());
-            if (scorerLeaderboardEntry.isPresent())
-                playerToScorerLeaderboard.put(player.getId(), scorerLeaderboardEntry.get());
+
+            if (scorerLeaderboardEntry.isPresent()) {
+                ScorerLeaderboardEntry entry = scorerLeaderboardEntry.get();
+                entry.setActive(!player.isRetired());
+                playerToScorerLeaderboard.put(player.getId(), entry);
+
+            }
         }
 
         return playerToScorerLeaderboard;

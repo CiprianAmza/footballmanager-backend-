@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -55,6 +56,8 @@ public class Human {
      */
     private String tacticStyle;
 
-    private boolean isRetired;
+    @Column(name = "retired")
+    @JsonProperty("isRetired")
+    private boolean retired;
 
 }

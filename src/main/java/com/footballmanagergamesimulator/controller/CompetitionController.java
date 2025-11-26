@@ -121,9 +121,13 @@ public class CompetitionController {
         if (round.getRound() > 50) {
 
             // GF
+            Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1); // leagues
+            Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3); // second league
+            leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
+
             List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
-            for (int id = 1; id <= 5; id += 2) {
-                int finalId = id;
+            for (Long id: leagueCompetitionIds) {
+                int finalId = Math.toIntExact(id);
                 List<TeamCompetitionDetail> teamCompetitionDetailList = teamCompetitionDetails.stream()
                         .filter(detail -> detail.getCompetitionId() == finalId)
                         .sorted((o1, o2) -> {
@@ -141,7 +145,7 @@ public class CompetitionController {
                 for (TeamCompetitionDetail teamCompetitionDetail : teamCompetitionDetailList) {
 
                     CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
-                    if (id == 3L && index >= 11)
+                    if (id == 3L && index >= 11) // relegation from First League to Second League for Kess
                         competitionTeamInfo.setCompetitionId(5L);
                     else if (id == 5L && index <= 2)
                         competitionTeamInfo.setCompetitionId(3L);
@@ -314,8 +318,12 @@ public class CompetitionController {
 
         if (round.getRound() == 1) {
 
-            for (String competitionId : List.of("1", "3", "5"))
-                this.getFixturesForRound(competitionId, "1");
+            Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1); // leagues
+            Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3); // second leagues
+            leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
+
+            for (Long competitionId : leagueCompetitionIds)
+                this.getFixturesForRound(String.valueOf(competitionId), "1");
 
             if (round.getSeason() == 1) {
                 List<Team> teams = teamRepository.findAll();
@@ -460,10 +468,20 @@ public class CompetitionController {
             }
         }
 
-        for (String competitionId : List.of("1", "3", "5"))
-            this.simulateRound(competitionId, round.getRound() - 1 + "");
+        Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1); // leagues
+        Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3); // second leagues
+        Set<Long> cupCompetitionIds = getCompetitionIdsByCompetitionType(2); // cup
 
-        for (String competitionId : List.of("2", "4")) {
+
+
+        for (Long competitionId : leagueCompetitionIds)
+            this.simulateRound(String.valueOf(competitionId), round.getRound() - 1 + "");
+        for (Long competitionId : secondLeagueCompetitionIds)
+            this.simulateRound(String.valueOf(competitionId), round.getRound() - 1 + "");
+
+        for (Long id : cupCompetitionIds) {
+
+            String competitionId = String.valueOf(id);
 
             if (round.getRound() == 5) {
                 this.getFixturesForRound(competitionId, "1");
@@ -520,13 +538,13 @@ public class CompetitionController {
 
             int ratingIncrease = 0;
             if (ratio >= 1.0D) { // amazing ratio, should increase rating by far
-                ratingIncrease = random.nextInt(50, 70);
+                ratingIncrease = random.nextInt(15, 20);
             } else if (ratio >= 0.75) {
-                ratingIncrease = random.nextInt(35, 55);
+                ratingIncrease = random.nextInt(10, 15);
             } else if (ratio >= 0.5) {
-                ratingIncrease = random.nextInt(15, 35);
+                ratingIncrease = random.nextInt(7, 10);
             } else if (ratio >= 0.4) {
-                ratingIncrease = random.nextInt(5, 15);
+                ratingIncrease = random.nextInt(3, 7);
             } else {
                 continue;
             }
@@ -631,8 +649,12 @@ public class CompetitionController {
 
         CompetitionHistory competitionHistory = new CompetitionHistory();
 
+        Competition competition = competitionRepository.findById(team.getCompetitionId()).get();
+
         competitionHistory.setSeasonNumber(seasonNumber);
         competitionHistory.setLastPosition(position);
+        competitionHistory.setCompetitionTypeId(competition.getTypeId());
+        competitionHistory.setCompetitionName(competition.getName());
         competitionHistory.setCompetitionId(team.getCompetitionId());
         competitionHistory.setTeamId(team.getTeamId());
         competitionHistory.setGames(team.getGames());
@@ -857,8 +879,10 @@ public class CompetitionController {
         List<Long> participants = this.getParticipants(competitionId, roundId);
 
         // we need to get matches and to add them into CompetitionTeamInfoMatch
-        if (_competitionId == 1L || _competitionId == 3L || _competitionId == 5L) {
-            // todo it should work for any competition of type Championship
+        Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1);
+        Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3);
+
+        if (leagueCompetitionIds.contains(_competitionId) || secondLeagueCompetitionIds.contains(_competitionId)) {
             List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
             int currentRound = 1;
 
@@ -951,7 +975,8 @@ public class CompetitionController {
             teamScore1 = random.nextInt(limitA);
             teamScore2 = random.nextInt(limitB);
 
-            if (_competitionId == 2L || _competitionId == 4L) {
+            Set<Long> cupCompetitionIds = getCompetitionIdsByCompetitionType(2); // cup
+            if (cupCompetitionIds.contains(_competitionId)) {
                 while (teamScore2 == teamScore1)
                     teamScore2 = random.nextInt(5);
             }
@@ -962,7 +987,7 @@ public class CompetitionController {
             updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2);
             updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1);
 
-            if (nextRound != -1 && (_competitionId == 2L || _competitionId == 4L)) {
+            if (nextRound != -1 && cupCompetitionIds.contains(_competitionId)) {
                 CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
                 competitionTeamInfo.setCompetitionId(_competitionId);
                 competitionTeamInfo.setRound(nextRound);
@@ -1513,21 +1538,26 @@ public class CompetitionController {
                 scorerLeaderboardEntry.setCurrentSeasonGoals(scorerLeaderboardEntry.getCurrentSeasonGoals() + scorer.getGoals());
                 scorerLeaderboardEntry.setCurrentSeasonGames(scorerLeaderboardEntry.getCurrentSeasonGames() + 1);
 
-                if (competitionId == 1 || competitionId == 3) {
+                Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1); // leagues
+                Set<Long> cupCompetitionIds = getCompetitionIdsByCompetitionType(2); // cup
+                Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3); // second leagues
+
+
+                if (leagueCompetitionIds.contains(competitionId)) {
 
                     scorerLeaderboardEntry.setLeagueGoals(scorerLeaderboardEntry.getLeagueGoals() + scorer.getGoals());
                     scorerLeaderboardEntry.setLeagueMatches(scorerLeaderboardEntry.getLeagueMatches() + 1);
                     scorerLeaderboardEntry.setCurrentSeasonLeagueGoals(scorerLeaderboardEntry.getCurrentSeasonLeagueGoals() + scorer.getGoals());
                     scorerLeaderboardEntry.setCurrentSeasonLeagueGames(scorerLeaderboardEntry.getCurrentSeasonLeagueGames() + 1);
 
-                } else if (competitionId == 2 || competitionId == 4) {
+                } else if (cupCompetitionIds.contains(competitionId)) {
 
                     scorerLeaderboardEntry.setCupGoals(scorerLeaderboardEntry.getCupGoals() + scorer.getGoals());
                     scorerLeaderboardEntry.setCupMatches(scorerLeaderboardEntry.getCupMatches() + 1);
                     scorerLeaderboardEntry.setCurrentSeasonCupGoals(scorerLeaderboardEntry.getCurrentSeasonCupGoals() + scorer.getGoals());
                     scorerLeaderboardEntry.setCurrentSeasonCupGames(scorerLeaderboardEntry.getCurrentSeasonCupGames() + 1);
 
-                } else {
+                } else if (secondLeagueCompetitionIds.contains(competitionId)){
 
                     scorerLeaderboardEntry.setSecondLeagueGoals(scorerLeaderboardEntry.getSecondLeagueGoals() + scorer.getGoals());
                     scorerLeaderboardEntry.setSecondLeagueMatches(scorerLeaderboardEntry.getSecondLeagueMatches() + 1);
@@ -1610,16 +1640,20 @@ public class CompetitionController {
         initializeTeams1();
         initializeTeams2();
         initializeTeams3();
+        initializeTeams4();
+        initializeTeams5();
 
+        initializeSpecialPlayers();
     }
 
     private void initializeCompetitions() {
 
         List<List<Integer>> values = List.of(List.of(1, 1, 1), List.of(1, 2, 2), List.of(3, 1, 1),
-                List.of(4, 2, 2), List.of(1, 3, 1));
+                List.of(3, 2, 2), List.of(1, 3, 3), List.of(3, 2, 1), List.of(3, 3, 2), List.of(4, 2, 1), List.of(4, 3, 2));
 
         List<String> names = List.of("Gallactick Football First League", "Gallactick Football Cup",
-                "Khess First League", "Khess Cup", "Khess Second League");
+                "Khess First League", "Khess Cup", "Khess Second League", "Dong Championship", "Dong Cup", "FootieCup League",
+                "FootieCup Cup");
 
         for (int i = 0; i < values.size(); i++) {
             Competition competition = new Competition();
@@ -1771,7 +1805,7 @@ public class CompetitionController {
                 List.of(6, 3, 4),
                 List.of(5, 5, 5),
                 List.of(10, 3, 4),
-                List.of(5, 6, 16),
+                List.of(5, 6, 10),
                 List.of(4, 3, 1),
                 List.of(5, 4, 3),
                 List.of(6, 8, 3),
@@ -1819,11 +1853,11 @@ public class CompetitionController {
                 List.of(4100, 3));
 
         List<List<Integer>> facilities = List.of(
-                List.of(7, 4, 1),
-                List.of(6, 3, 4),
+                List.of(15, 10, 15),
+                List.of(13, 8, 14),
                 List.of(5, 5, 5),
                 List.of(10, 3, 4),
-                List.of(5, 6, 16),
+                List.of(5, 6, 10),
                 List.of(4, 3, 1),
                 List.of(5, 4, 3),
                 List.of(6, 8, 3),
@@ -1833,11 +1867,79 @@ public class CompetitionController {
                 List.of(6, 4, 3)
         );
 
-        int addedModulo = 24;
-        long leagueId = 5L;
-        long cupId = 6L;
+        int addedModulo = 36;
+        long leagueId = 6L;
+        long cupId = 7L;
 
         createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
+    }
+
+    private void initializeTeams5() {
+
+        List<List<String>> teamNames = List.of(
+                List.of("EuroFlava", "red", "white", "25"),
+                List.of("Kossack Team", "green", "darkgreen", "55"),
+                List.of("Pro Lapad Sport", "red", "darkred", "35"),
+                List.of("FC Blue", "white", "blue", "65"),
+                List.of("Athletic Sohatu", "yellow", "green", "5"),
+                List.of("Tutucea Team", "grey", "green", "70"),
+                List.of("FC Arges IV", "orange", "black", "45"),
+                List.of("ManCester Sibiu", "red", "grey", "25"),
+                List.of("FC Angells", "white", "grey", "35"),
+                List.of("Club 16", "orange", "yellow", "60"),
+                List.of("FC Spicul Tamaseni", "blue", "black", "95"),
+                List.of("Chris Team", "pink", "lila", "9"));
+
+        List<List<Integer>> teamValues = List.of(
+                List.of(6000, 5),
+                List.of(5500, 5),
+                List.of(5500, 5),
+                List.of(5400, 2),
+                List.of(5300, 4),
+                List.of(5200, 3),
+                List.of(5000, 2),
+                List.of(4900, 1),
+                List.of(4800, 1),
+                List.of(4300, 2),
+                List.of(4200, 1),
+                List.of(4100, 3));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(15, 10, 15),
+                List.of(13, 8, 14),
+                List.of(5, 5, 5),
+                List.of(10, 3, 4),
+                List.of(5, 6, 10),
+                List.of(4, 3, 1),
+                List.of(5, 4, 3),
+                List.of(6, 8, 3),
+                List.of(7, 9, 1),
+                List.of(8, 7, 4),
+                List.of(7, 5, 5),
+                List.of(6, 4, 3)
+        );
+
+        int addedModulo = 48;
+        long leagueId = 8L;
+        long cupId = 9L;
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
+    }
+
+    private void initializeSpecialPlayers() {
+
+        Human Kvekrpur = new Human();
+        Kvekrpur.setRating(300);
+        Kvekrpur.setName("Kvekrpur");
+        Kvekrpur.setTeamId(14L); // Tik Tok
+        Kvekrpur.setAge(20);
+        Kvekrpur.setMorale(100D);
+        Kvekrpur.setSeasonCreated(1);
+        Kvekrpur.setTypeId(1);
+        Kvekrpur.setPosition("ST");
+        Kvekrpur.setCurrentStatus("Junior");
+
+        humanRepository.save(Kvekrpur);
     }
 
     private void createTeamsAndCompetitions(List<List<String>> teamNames, List<List<Integer>> teamValues, List<List<Integer>> facilities, int addedModulo, long leagueId, long cupId) {
@@ -1878,6 +1980,15 @@ public class CompetitionController {
         }
     }
 
+    public Set<Long> getCompetitionIdsByCompetitionType(int competitionTypeId) {
+
+        return competitionRepository
+                .findAll()
+                .stream()
+                .filter(competition -> competition.getTypeId() == competitionTypeId)
+                .map(Competition::getId)
+                .collect(Collectors.toSet());
+    }
 
     public Round getRound() {
 

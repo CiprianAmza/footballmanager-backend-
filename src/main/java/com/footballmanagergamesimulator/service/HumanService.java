@@ -3,10 +3,7 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
-import com.footballmanagergamesimulator.repository.RoundRepository;
-import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +25,8 @@ public class HumanService {
     CompetitionService competitionService;
     @Autowired
     PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    ScorerLeaderboardRepository scorerLeaderboardRepository;
     @Autowired
     CompositeNameGenerator compositeNameGenerator;
 
@@ -53,13 +52,32 @@ public class HumanService {
 
       } else if (human.getCurrentStatus().equals("Senior")) {
 
-        increaseLevel = teamFacilities.getSeniorTrainingLevel();
-        double chance = random.nextDouble(0, 21);
+        //increaseLevel = teamFacilities.getSeniorTrainingLevel() / 4;
+          //
+
+        double chance;
+        double maxBound = 0.25D;
+        if (human.getAge() <= 25) {
+            increaseLevel = 15;
+            chance = random.nextDouble(0, human.getAge());
+        } else if (human.getAge() <= 30) {
+            increaseLevel = 10;
+            chance = random.nextDouble(0, human.getAge());
+            maxBound = 0.4D;
+        } else if (human.getAge() < 35) {
+            increaseLevel = 5;
+            chance = random.nextDouble(0, human.getAge());
+            maxBound = 0.6D;
+        } else {
+            increaseLevel = 4;
+            chance = random.nextDouble(0, human.getAge());
+            maxBound = 0.8D;
+        }
 
         if (chance <= increaseLevel) {
-            ratingChange = random.nextDouble(0D, 0.25D);
+            ratingChange = random.nextDouble(0D, maxBound);
         } else {
-            ratingChange = - random.nextDouble(0D, 0.25D);
+            ratingChange = - random.nextDouble(0D, maxBound);
         }
       }
 
@@ -87,11 +105,32 @@ public class HumanService {
         if (chance == 1) {
             human.setTeamId(null);
             human.setRetired(true);
-            human.setTeamId(null);
             humanRepository.save(human);
+
+            // remove stats of current season as well from ScorerLeaderboardEntry
+            removeCurrentSeasonStatsFromScorerLeaderboardEntry(human);
         }
-          //humanRepository.delete(human); // todo not sure we should delete them... maybe keep them in a different way
+          //humanRepository.delete(human); // todo not sure we should delete them... maybe keep them in a different way or transform them in managers?
       }
+    }
+
+    private void removeCurrentSeasonStatsFromScorerLeaderboardEntry(Human human) {
+
+        Optional<ScorerLeaderboardEntry> scorerLeaderboardEntryOptional = scorerLeaderboardRepository.findByPlayerId(human.getId());
+        if (scorerLeaderboardEntryOptional.isPresent()) {
+            ScorerLeaderboardEntry scorerLeaderboardEntry = scorerLeaderboardEntryOptional.get();
+            scorerLeaderboardEntry.setCurrentSeasonGames(0);
+            scorerLeaderboardEntry.setCurrentSeasonGoals(0);
+            scorerLeaderboardEntry.setCurrentSeasonLeagueGames(0);
+            scorerLeaderboardEntry.setCurrentSeasonLeagueGoals(0);
+            scorerLeaderboardEntry.setCurrentSeasonCupGames(0);
+            scorerLeaderboardEntry.setCurrentSeasonCupGoals(0);
+            scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGames(0);
+            scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGoals(0);
+            scorerLeaderboardEntry.setActive(false);
+
+            scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+        }
     }
 
     public void addOneYearToAge() {
