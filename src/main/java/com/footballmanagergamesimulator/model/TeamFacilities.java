@@ -23,5 +23,6 @@ public class TeamFacilities {
   private long youthAcademyLevel;
   private long youthTrainingLevel;
   private long seniorTrainingLevel;
+  private int scoutingLevel;
 
 }

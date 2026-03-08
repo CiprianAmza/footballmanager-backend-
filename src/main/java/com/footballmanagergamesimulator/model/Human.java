@@ -37,6 +37,13 @@ public class Human {
     private Date contractStartDate;
 
     /**
+     * Contract information
+     */
+    private int contractEndSeason;
+    private long wage;
+    private long releaseClause;
+
+    /**
      * Stats information
      */
     private int currentAbility;
@@ -55,6 +62,7 @@ public class Human {
      * Manager information
      */
     private String tacticStyle;
+    private int managerReputation = 500;
 
     @Column(name = "retired")
     @JsonProperty("isRetired")

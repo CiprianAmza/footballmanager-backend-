@@ -38,10 +38,12 @@ public class WebSecurityConfig {
         http
                 .cors()
                 .and()
-                .csrf().disable()
+                .csrf().disable() // TODO: re-enable CSRF when frontend supports CSRF tokens
                 .authorizeHttpRequests((requests) -> requests
-                        .requestMatchers("/", "/home", "/register", "/tactic/**").permitAll()
-                        .anyRequest().permitAll()
+                        .requestMatchers("/", "/home", "/register", "/login").permitAll()
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        .requestMatchers("/h2-console/**").permitAll()
+                        .anyRequest().permitAll() // TODO: change to .authenticated() once user-team ownership is implemented
                 )
                 .formLogin((form) -> form
                         .loginPage("/login")

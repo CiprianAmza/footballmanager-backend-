@@ -1,0 +1,166 @@
+package com.footballmanagergamesimulator.controller;
+
+import com.footballmanagergamesimulator.model.*;
+import com.footballmanagergamesimulator.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/loans")
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
+public class LoanController {
+
+    private static final long HUMAN_TEAM_ID = 1L;
+
+    @Autowired
+    HumanRepository humanRepository;
+
+    @Autowired
+    TeamRepository teamRepository;
+
+    @Autowired
+    LoanRepository loanRepository;
+
+    @Autowired
+    RoundRepository roundRepository;
+
+    @Autowired
+    ManagerInboxRepository managerInboxRepository;
+
+    /**
+     * Get active loans where team is either parent or loan team
+     */
+    @GetMapping("/active/{teamId}")
+    public Map<String, List<Loan>> getActiveLoans(@PathVariable long teamId) {
+        List<Loan> loansIn = loanRepository.findAllByLoanTeamIdAndStatus(teamId, "active");
+        List<Loan> loansOut = loanRepository.findAllByParentTeamIdAndStatus(teamId, "active");
+
+        Map<String, List<Loan>> result = new HashMap<>();
+        result.put("loansIn", loansIn);
+        result.put("loansOut", loansOut);
+        return result;
+    }
+
+    /**
+     * Get loan history for a team in a given season
+     */
+    @GetMapping("/history/{teamId}/{season}")
+    public Map<String, List<Loan>> getLoanHistory(@PathVariable long teamId, @PathVariable int season) {
+        List<Loan> loansIn = loanRepository.findAllByLoanTeamIdAndSeasonNumber(teamId, season);
+        List<Loan> loansOut = loanRepository.findAllByParentTeamIdAndSeasonNumber(teamId, season);
+
+        Map<String, List<Loan>> result = new HashMap<>();
+        result.put("loansIn", loansIn);
+        result.put("loansOut", loansOut);
+        return result;
+    }
+
+    /**
+     * Human makes a loan offer for a player
+     */
+    @PostMapping("/offer")
+    public ResponseEntity<?> makeLoanOffer(@RequestBody Map<String, Object> body) {
+        long playerId = ((Number) body.get("playerId")).longValue();
+        long loanFee = ((Number) body.get("loanFee")).longValue();
+
+        // Check transfer window is open (round > 50)
+        Round round = roundRepository.findById(1L).orElse(null);
+        if (round == null || round.getRound() <= 50) {
+            return ResponseEntity.badRequest().body("Loan offers can only be made during the transfer window.");
+        }
+
+        // Get the player
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player == null) {
+            return ResponseEntity.badRequest().body("Player not found.");
+        }
+
+        // Cannot loan your own player
+        if (player.getTeamId() == HUMAN_TEAM_ID) {
+            return ResponseEntity.badRequest().body("You cannot loan your own player.");
+        }
+
+        // Check player is not already on loan
+        List<Loan> existingLoans = loanRepository.findAllByPlayerIdAndStatus(playerId, "active");
+        if (!existingLoans.isEmpty()) {
+            return ResponseEntity.badRequest().body("Player is already on loan.");
+        }
+
+        // Get teams
+        Team parentTeam = teamRepository.findById(player.getTeamId()).orElse(null);
+        Team humanTeam = teamRepository.findById(HUMAN_TEAM_ID).orElse(null);
+        if (parentTeam == null || humanTeam == null) {
+            return ResponseEntity.badRequest().body("Team not found.");
+        }
+
+        // AI decision: accept if loanFee >= 10% of transfer value AND player rating < team average
+        long minFee = (long) (player.getTransferValue() * 0.10);
+        boolean feeAcceptable = loanFee >= minFee;
+
+        // Check if player is not in team's best 11 (rating below team average)
+        List<Human> teamPlayers = humanRepository.findAllByTeamIdAndTypeId(player.getTeamId(), 1L);
+        double teamAvgRating = teamPlayers.stream()
+                .mapToDouble(Human::getRating)
+                .average()
+                .orElse(0);
+        boolean notBest11 = player.getRating() < teamAvgRating;
+
+        if (feeAcceptable && notBest11) {
+            // Accept the loan
+            player.setTeamId(HUMAN_TEAM_ID);
+            humanRepository.save(player);
+
+            // Update finances
+            humanTeam.setTransferBudget(humanTeam.getTransferBudget() - loanFee);
+            parentTeam.setTransferBudget(parentTeam.getTransferBudget() + loanFee);
+            teamRepository.save(humanTeam);
+            teamRepository.save(parentTeam);
+
+            Loan loan = new Loan();
+            loan.setPlayerId(playerId);
+            loan.setPlayerName(player.getName());
+            loan.setParentTeamId(parentTeam.getId());
+            loan.setParentTeamName(parentTeam.getName());
+            loan.setLoanTeamId(HUMAN_TEAM_ID);
+            loan.setLoanTeamName(humanTeam.getName());
+            loan.setSeasonNumber((int) round.getSeason());
+            loan.setStatus("active");
+            loan.setLoanFee(loanFee);
+            loanRepository.save(loan);
+
+            // Send inbox message
+            ManagerInbox inbox = new ManagerInbox();
+            inbox.setTeamId(HUMAN_TEAM_ID);
+            inbox.setSeasonNumber((int) round.getSeason());
+            inbox.setRoundNumber((int) round.getRound());
+            inbox.setTitle("Loan Deal Completed");
+            inbox.setContent(player.getName() + " has joined on loan from " + parentTeam.getName() +
+                    " for a fee of " + loanFee + ".");
+            inbox.setCategory("transfer");
+            inbox.setRead(false);
+            inbox.setCreatedAt(System.currentTimeMillis());
+            managerInboxRepository.save(inbox);
+
+            return ResponseEntity.ok(loan);
+        } else {
+            // Reject
+            String reason = !feeAcceptable
+                    ? "Loan fee too low. Minimum required: " + minFee
+                    : "The club considers this player too important to loan out.";
+            return ResponseEntity.badRequest().body("Loan offer rejected. " + reason);
+        }
+    }
+
+    /**
+     * Recall a player from loan early (not implemented)
+     */
+    @PostMapping("/recall/{loanId}")
+    public ResponseEntity<?> recallPlayer(@PathVariable long loanId) {
+        return ResponseEntity.badRequest().body("Cannot recall during season");
+    }
+
+}

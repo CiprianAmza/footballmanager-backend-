@@ -139,8 +139,8 @@ public class HumanService {
 
       for (Human human: humans) {
         human.setAge(human.getAge() + 1);
-        humanRepository.save(human);
       }
+      humanRepository.saveAll(humans);
     }
 
     public void addRegens(TeamFacilities teamFacilities, long teamId) {
@@ -170,10 +170,21 @@ public class HumanService {
       human.setAge(random.nextInt(15, 19));
       human.setRating(random.nextInt(ratingAround - 20, ratingAround + 20));
       human.setPosition(generatePosition());
+      human.setCurrentAbility((int) human.getRating());
       human.setPotentialAbility((int) (human.getRating() + random.nextInt(30)));
+      human.setBestEverRating(human.getRating());
+      human.setMorale(100);
+      human.setFitness(100);
+      human.setCurrentStatus("Senior");
       human.setTeamId(teamId);
       human.setTypeId(1);
-      human.setSeasonCreated(roundRepository.findById(1L).get().getSeason());
+      long currentSeason = roundRepository.findById(1L).get().getSeason();
+      human.setSeasonCreated(currentSeason);
+
+      // Initialize contract
+      human.setContractEndSeason((int) currentSeason + random.nextInt(2, 6));
+      human.setWage((long) (human.getRating() * 50));
+      human.setReleaseClause(random.nextInt(10) < 3 ? 0 : (long) (human.getRating() * 10000 * 2));
 
       return human;
     }

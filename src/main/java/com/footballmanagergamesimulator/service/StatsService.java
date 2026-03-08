@@ -49,7 +49,15 @@ public class StatsService {
                 else
                     competitionEntry.setGames(competitionEntry.getGames() + 1);
             }
-            competitionEntry.setGoals(competitionEntry.getGoals() + scorer.getGoals()); // why not inside the if?
+            competitionEntry.setGoals(competitionEntry.getGoals() + scorer.getGoals());
+            competitionEntry.setAssists(competitionEntry.getAssists() + scorer.getAssists());
+            if (scorer.getTeamScore() >= 0) {
+                competitionEntry.setTotalRating(competitionEntry.getTotalRating() + scorer.getRating());
+                int totalApps = competitionEntry.getGames() + competitionEntry.getGamesAsSubstitute();
+                if (totalApps > 0) {
+                    competitionEntry.setAvgRating(Math.round(competitionEntry.getTotalRating() / totalApps * 10.0) / 10.0);
+                }
+            }
 
             if (isNew) {
                 scorerEntry.getCompetitionEntries().add(competitionEntry);
@@ -62,6 +70,15 @@ public class StatsService {
                     scorerEntry.setTotalGames(scorerEntry.getTotalGames() + 1);
             }
             scorerEntry.setTotalGoals(scorerEntry.getTotalGoals() + scorer.getGoals());
+            scorerEntry.setTotalAssists(scorerEntry.getTotalAssists() + scorer.getAssists());
+
+            // Calculate overall avg rating
+            int totalApps = scorerEntry.getTotalGames() + scorerEntry.getTotalGamesAsSubstitute();
+            double totalRating = scorerEntry.getCompetitionEntries().stream()
+                    .mapToDouble(CompetitionEntry::getTotalRating).sum();
+            if (totalApps > 0) {
+                scorerEntry.setAvgRating(Math.round(totalRating / totalApps * 10.0) / 10.0);
+            }
 
             scorerEntryMap.put(scorerEntry.getSeasonNumber(), scorerEntry);
         }

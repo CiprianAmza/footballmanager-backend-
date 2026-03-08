@@ -25,4 +25,6 @@ public class ScorerEntry {
     private int totalGames;
     private int totalGamesAsSubstitute;
     private int totalGoals;
+    private int totalAssists;
+    private double avgRating;
 }

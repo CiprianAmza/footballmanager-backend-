@@ -13,4 +13,7 @@ public class CompetitionEntry {
     private int games;
     private int gamesAsSubstitute;
     private int goals;
+    private int assists;
+    private double totalRating;
+    private double avgRating;
 }

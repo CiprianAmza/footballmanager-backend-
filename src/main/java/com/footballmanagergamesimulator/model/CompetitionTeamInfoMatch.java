@@ -23,5 +23,7 @@ public class CompetitionTeamInfoMatch {
    * CompetitionTeam information
    */
   private long round;
+  @Column(name = "match_day")
+  private int day;
   private String seasonNumber;
 }

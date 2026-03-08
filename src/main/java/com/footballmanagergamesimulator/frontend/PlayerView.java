@@ -23,6 +23,11 @@ public class PlayerView {
   private Date contractEndDate;
   private Date contractStartDate;
 
+  private int contractEndSeason;
+  private long wage;
+  private long releaseClause;
+  private long transferValue;
+
   private double fitness;
   private double morale;
   private String currentStatus;

@@ -3,12 +3,12 @@ spring:
     init:
       mode: always
   datasource:
-    url: jdbc:mysql://sql7.freemysqlhosting.net:3306/sql7724407
-    driverClassName: com.mysql.jdbc.Driver
-    username: sql7724407
-    password: JFVk7Ue2iF
+    url: ${DB_URL:jdbc:h2:mem:JavaSeminar}
+    driverClassName: ${DB_DRIVER:org.h2.Driver}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
   jpa:
-    database-platform: org.hibernate.dialect.MySQLDialect
+    database-platform: ${DB_DIALECT:org.hibernate.dialect.H2Dialect}
     defer-datasource-initialization: true
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: ${DDL_AUTO:update}

@@ -11,7 +11,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/media")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class MediaController {
 
     @Autowired

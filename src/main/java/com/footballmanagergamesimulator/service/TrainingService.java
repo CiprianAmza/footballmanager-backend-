@@ -1,0 +1,147 @@
+package com.footballmanagergamesimulator.service;
+
+import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.Injury;
+import com.footballmanagergamesimulator.model.TrainingSchedule;
+import com.footballmanagergamesimulator.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+public class TrainingService {
+
+    @Autowired
+    HumanRepository humanRepository;
+    @Autowired
+    PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    InjuryRepository injuryRepository;
+    @Autowired
+    TrainingScheduleRepository trainingScheduleRepository;
+    @Autowired
+    TeamRepository teamRepository;
+
+    private static final String[] TRAINING_INJURY_TYPES = {
+            "Muscle Strain", "Twisted Ankle", "Minor Knock", "Hamstring Tweak", "Bruised Shin"
+    };
+
+    public void processTrainingSession(long teamId, int season) {
+
+        Random random = new Random();
+
+        // Get all players for team (typeId=1, not retired)
+        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L)
+                .stream()
+                .filter(h -> !h.isRetired())
+                .collect(Collectors.toList());
+
+        // Get currently injured player IDs
+        Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
+                .stream()
+                .map(Injury::getPlayerId)
+                .collect(Collectors.toSet());
+
+        List<Human> modifiedPlayers = new ArrayList<>();
+
+        for (Human player : players) {
+            // Skip injured players
+            if (injuredPlayerIds.contains(player.getId())) {
+                continue;
+            }
+
+            // Increase fitness by random(0.5, 1.5), cap at 100
+            double fitnessGain = random.nextDouble(0.5, 1.5);
+            player.setFitness(Math.min(100.0, player.getFitness() + fitnessGain));
+
+            // Small chance (5%) to gain +0.1 to +0.3 rating (younger players more likely)
+            double ratingChance = random.nextDouble();
+            double ageBonus = player.getAge() <= 23 ? 0.07 : 0.05; // younger players slightly more likely
+            if (ratingChance < ageBonus) {
+                double ratingGain = random.nextDouble(0.1, 0.3);
+                player.setRating(player.getRating() + ratingGain);
+                if (player.getRating() > player.getBestEverRating()) {
+                    player.setBestEverRating(player.getRating());
+                }
+            }
+
+            // Very small chance (1%) of training injury
+            if (random.nextDouble() < 0.01) {
+                Injury injury = new Injury();
+                injury.setPlayerId(player.getId());
+                injury.setTeamId(teamId);
+                injury.setInjuryType(TRAINING_INJURY_TYPES[random.nextInt(TRAINING_INJURY_TYPES.length)]);
+                injury.setSeverity("Minor");
+                injury.setDaysRemaining(random.nextInt(3, 15)); // 3-14 days
+                injury.setSeasonNumber(season);
+                injuryRepository.save(injury);
+
+                player.setCurrentStatus("Injured");
+            }
+
+            modifiedPlayers.add(player);
+        }
+
+        humanRepository.saveAll(modifiedPlayers);
+    }
+
+    public void setTrainingFocus(long teamId, String focus) {
+
+        // Map focus to session types
+        String sessionType;
+        switch (focus) {
+            case "Attacking" -> sessionType = "Tactical";
+            case "Defensive" -> sessionType = "Tactical";
+            case "Fitness" -> sessionType = "Physical";
+            case "Tactical" -> sessionType = "Tactical";
+            default -> sessionType = "General";
+        }
+
+        List<TrainingSchedule> existing = trainingScheduleRepository.findAllByTeamId(teamId);
+
+        if (existing.isEmpty()) {
+            // Create a default weekly schedule with the given focus
+            for (int day = 0; day < 5; day++) { // Monday to Friday
+                TrainingSchedule schedule = new TrainingSchedule();
+                schedule.setTeamId(teamId);
+                schedule.setDayOfWeek(day);
+                schedule.setSessionSlot(0);
+                schedule.setSessionType(sessionType);
+                schedule.setSessionName(focus);
+                schedule.setIntensity(70);
+                trainingScheduleRepository.save(schedule);
+            }
+        } else {
+            // Update existing schedule to reflect the new focus
+            for (TrainingSchedule schedule : existing) {
+                schedule.setSessionType(sessionType);
+                schedule.setSessionName(focus);
+            }
+            trainingScheduleRepository.saveAll(existing);
+        }
+    }
+
+    public List<TrainingSchedule> getTrainingSchedule(long teamId) {
+        return trainingScheduleRepository.findAllByTeamId(teamId);
+    }
+
+    public void processMatchDayFitness(long teamId) {
+
+        Random random = new Random();
+
+        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L)
+                .stream()
+                .filter(h -> !h.isRetired())
+                .collect(Collectors.toList());
+
+        for (Human player : players) {
+            // Reduce fitness by 10-20 for players who played
+            double fitnessLoss = random.nextDouble(10.0, 20.0);
+            player.setFitness(Math.max(0.0, player.getFitness() - fitnessLoss));
+        }
+
+        humanRepository.saveAll(players);
+    }
+}

@@ -15,7 +15,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/history")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class HistoryController {
 
     @Autowired

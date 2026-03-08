@@ -11,4 +11,13 @@ public interface CompetitionTeamInfoMatchRepository extends JpaRepository<Compet
 
     @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE c.seasonNumber = :seasonNumber AND ((c.team1Id = :teamId) OR (c.team2Id = :teamId))")
     List<CompetitionTeamInfoMatch> findAllBySeasonNumberAndTeamId(@Param("seasonNumber") String seasonNumber, @Param("teamId") long teamId);
+
+    @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE ((c.team1Id = :teamA AND c.team2Id = :teamB) OR (c.team1Id = :teamB AND c.team2Id = :teamA))")
+    List<CompetitionTeamInfoMatch> findAllHeadToHead(@Param("teamA") long teamA, @Param("teamB") long teamB);
+
+    @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE c.competitionId = :competitionId AND c.round = :round AND c.seasonNumber = :seasonNumber")
+    List<CompetitionTeamInfoMatch> findAllByCompetitionIdAndRoundAndSeasonNumber(
+            @Param("competitionId") long competitionId,
+            @Param("round") long round,
+            @Param("seasonNumber") String seasonNumber);
 }

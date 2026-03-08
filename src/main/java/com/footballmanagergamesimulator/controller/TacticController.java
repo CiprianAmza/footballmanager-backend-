@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/tactic")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class TacticController {
 
     @Autowired
@@ -37,6 +37,8 @@ public class TacticController {
     RoundRepository roundRepository;
     @Autowired
     PersonalizedTacticRepository personalizedTacticRepository;
+    @Autowired
+    InjuryRepository injuryRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -239,7 +241,12 @@ public class TacticController {
 
     private List<PlayerView> getBestElevenPlayers(Team team, Map<String, Integer> tacticFormat) {
 
-        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+        Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(team.getId(), 0)
+                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
+                .stream()
+                .filter(player -> !injuredIds.contains(player.getId()))
+                .toList();
         List<PlayerView> players = allPlayers.stream().map(player -> adaptPlayer(player, team)).toList();
         Map<String, List<PlayerView>> positionToPlayers = new HashMap<>();
 
@@ -302,7 +309,12 @@ public class TacticController {
 
     private List<PlayerView> getBestSubstitutions(Team team, Map<String, Integer> substitutionFormat, List<PlayerView> playersInFirstEleven) {
 
-        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+        Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(team.getId(), 0)
+                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
+                .stream()
+                .filter(player -> !injuredIds.contains(player.getId()))
+                .toList();
         List<PlayerView> players = allPlayers.stream().map(player -> adaptPlayer(player, team)).toList();
         Map<String, List<PlayerView>> positionToPlayers = new HashMap<>();
 
@@ -364,6 +376,14 @@ public class TacticController {
         playerView.setName(human.getName());
         playerView.setTeamName(team.getName());
         playerView.setMorale(human.getMorale());
+        playerView.setFitness(human.getFitness());
+        playerView.setSalary(human.getSalary());
+        playerView.setCurrentStatus(human.getCurrentStatus());
+        playerView.setContractEndSeason(human.getContractEndSeason());
+        playerView.setWage(human.getWage());
+        playerView.setReleaseClause(human.getReleaseClause());
+        playerView.setTransferValue(human.getTransferValue());
+        playerView.setWealth(human.getWealth());
 
         return playerView;
     }

@@ -12,4 +12,6 @@ public interface TransferRepository extends JpaRepository<Transfer, Long> {
 
     List<Transfer> findAllBySellTeamIdAndSeasonNumber(long teamId, long seasonNumber);
 
+    List<Transfer> findAllBySeasonNumber(long seasonNumber);
+
 }

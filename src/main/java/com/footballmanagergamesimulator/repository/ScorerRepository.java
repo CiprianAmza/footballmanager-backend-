@@ -12,6 +12,10 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
     List<Scorer> findAllByPlayerId(long scorerId);
     List<Scorer> findAllByCompetitionId(long competitionId);
     List<Scorer> findAllByTeamId(long teamId);
+    List<Scorer> findAllByTeamIdAndSeasonNumber(long teamId, int seasonNumber);
     List<Scorer> findAllBySeasonNumber(int seasonNumber);
+
+    List<Scorer> findAllByCompetitionIdAndSeasonNumberAndTeamIdAndOpponentTeamId(
+            long competitionId, int seasonNumber, long teamId, long opponentTeamId);
 
 }

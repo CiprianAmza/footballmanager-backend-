@@ -19,7 +19,7 @@ import java.util.Random;
 
 @RestController
 @RequestMapping("/humans")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class HumanController {
 
     HumanRepository humanRepository;
@@ -87,6 +87,11 @@ public class HumanController {
         playerView.setAgreedPlayingTime(player.getAgreedPlayingTime());
         playerView.setContractStartDate(player.getContractStartDate());
         playerView.setContractEndDate(player.getContractEndDate());
+
+        playerView.setContractEndSeason(player.getContractEndSeason());
+        playerView.setWage(player.getWage());
+        playerView.setReleaseClause(player.getReleaseClause());
+        playerView.setTransferValue(player.getTransferValue());
 
         playerView.setWealth(player.getWealth());
         playerView.setSeasonCreated(player.getSeasonCreated());

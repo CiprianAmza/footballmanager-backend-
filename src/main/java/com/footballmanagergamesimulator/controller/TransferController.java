@@ -9,7 +9,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/transfers")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class TransferController {
 
     @Autowired

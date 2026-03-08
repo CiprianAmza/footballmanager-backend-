@@ -11,5 +11,7 @@ public interface HumanRepository extends JpaRepository<Human, Long> {
 
     List<Human> findAllByTeamId(long teamId);
     List<Human> findAllByTeamIdAndTypeId(long teamId, long typeId);
+    List<Human> findAllByTypeId(long typeId);
+    List<Human> findAllByTeamIdAndTypeIdAndContractEndSeasonLessThanEqual(long teamId, long typeId, int season);
 
 }
