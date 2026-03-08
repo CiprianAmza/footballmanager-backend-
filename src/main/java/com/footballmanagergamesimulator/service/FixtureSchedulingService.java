@@ -10,10 +10,8 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class FixtureSchedulingService {
@@ -56,11 +54,14 @@ public class FixtureSchedulingService {
 
             switch ((int) comp.getTypeId()) {
                 case 1: // League (first division)
-                    matchDays = generateLeagueMatchDays(38);
-                    eventType = "MATCH_LEAGUE";
-                    break;
                 case 3: // Second league
-                    matchDays = generateLeagueMatchDays(38);
+                    int numMatchdays = getActualRoundCount(comp.getId(), season);
+                    if (numMatchdays == 0) {
+                        // Fallback: estimate from team count (4x round-robin)
+                        int numTeams = getTeamCountForCompetition(comp.getId(), season);
+                        numMatchdays = Math.max(2, 4 * (numTeams - 1));
+                    }
+                    matchDays = generateLeagueMatchDays(numMatchdays);
                     eventType = "MATCH_LEAGUE";
                     break;
                 case 2: // Cup
@@ -172,6 +173,29 @@ public class FixtureSchedulingService {
 
         // Save all events in bulk
         calendarEventRepository.saveAll(allEvents);
+    }
+
+    /**
+     * Counts the actual number of distinct rounds that exist in CompetitionTeamInfoMatch
+     * for a given competition and season. This is the most reliable way to know
+     * how many matchdays the league actually has.
+     */
+    private int getActualRoundCount(long competitionId, int season) {
+        List<Long> rounds = competitionTeamInfoMatchRepository
+                .findDistinctRoundsByCompetitionIdAndSeasonNumber(competitionId, String.valueOf(season));
+        return rounds.size();
+    }
+
+    /**
+     * Gets the number of teams in a competition for a given season.
+     */
+    private int getTeamCountForCompetition(long competitionId, int season) {
+        return (int) competitionTeamInfoRepository
+                .findAllBySeasonNumber(season).stream()
+                .filter(cti -> cti.getCompetitionId() == competitionId)
+                .map(cti -> cti.getTeamId())
+                .distinct()
+                .count();
     }
 
     /**

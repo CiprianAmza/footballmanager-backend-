@@ -99,9 +99,10 @@ public class MatchController {
                 .toList()) {
 
             CompetitionTeamInfoDetail detail = competitionTeamInfoDetailRepository
-                    .findCompetitionTeamInfoDetailByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
+                    .findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
                             match.getCompetitionId(), match.getRound(),
-                            match.getTeam1Id(), match.getTeam2Id(), currentSeason);
+                            match.getTeam1Id(), match.getTeam2Id(), currentSeason)
+                    .stream().findFirst().orElse(null);
 
             if (detail == null) {
                 nextMatch = match;
@@ -162,10 +163,11 @@ public class MatchController {
         int homeWins = 0, awayWins = 0, draws = 0;
         for (CompetitionTeamInfoMatch h2h : h2hMatches) {
             CompetitionTeamInfoDetail h2hDetail = competitionTeamInfoDetailRepository
-                    .findCompetitionTeamInfoDetailByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
+                    .findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
                             h2h.getCompetitionId(), h2h.getRound(),
                             h2h.getTeam1Id(), h2h.getTeam2Id(),
-                            Long.parseLong(h2h.getSeasonNumber()));
+                            Long.parseLong(h2h.getSeasonNumber()))
+                    .stream().findFirst().orElse(null);
             if (h2hDetail != null && h2hDetail.getScore() != null) {
                 String[] parts = h2hDetail.getScore().split("-");
                 if (parts.length == 2) {
@@ -231,8 +233,9 @@ public class MatchController {
 
         // Get the score
         CompetitionTeamInfoDetail detail = competitionTeamInfoDetailRepository
-                .findCompetitionTeamInfoDetailByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
-                        competitionId, round, teamId1, teamId2, season);
+                .findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
+                        competitionId, round, teamId1, teamId2, season)
+                .stream().findFirst().orElse(null);
         if (detail != null) {
             summary.setScore(detail.getScore());
         }

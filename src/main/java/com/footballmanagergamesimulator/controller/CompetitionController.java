@@ -10,6 +10,7 @@ import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.CompetitionService;
+import org.springframework.transaction.annotation.Transactional;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.HumanService;
 import com.footballmanagergamesimulator.service.TacticService;
@@ -99,6 +100,8 @@ public class CompetitionController {
     ManagerHistoryRepository managerHistoryRepository;
     @Autowired
     FixtureSchedulingService fixtureSchedulingService;
+    @Autowired
+    GameCalendarRepository gameCalendarRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper(); // <--- Ai nevoie de asta
 
@@ -322,6 +325,31 @@ public class CompetitionController {
             jobs.add(job);
         }
 
+        // Fallback: if no jobs available (reputation too low), offer the weakest teams
+        if (jobs.isEmpty()) {
+            List<Team> sortedByRep = allTeams.stream()
+                    .sorted(Comparator.comparingInt(Team::getReputation))
+                    .limit(5)
+                    .toList();
+
+            for (Team team : sortedByRep) {
+                Human currentMgr = allManagers.stream()
+                        .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
+                        .findFirst().orElse(null);
+
+                Map<String, Object> job = new LinkedHashMap<>();
+                job.put("teamId", team.getId());
+                job.put("teamName", team.getName());
+                job.put("reputation", team.getReputation());
+                job.put("league", getLeagueNameForTeam(team.getId()));
+                job.put("status", currentMgr == null ? "Vacant" : "Available");
+                if (currentMgr != null) {
+                    job.put("currentManager", currentMgr.getName());
+                }
+                jobs.add(job);
+            }
+        }
+
         jobs.sort((a, b) -> Integer.compare((int) b.get("reputation"), (int) a.get("reputation")));
         return jobs;
     }
@@ -391,6 +419,15 @@ public class CompetitionController {
         humanRepository.save(humanManager);
 
         managerFired = false;
+
+        // Also clear managerFired on GameCalendar so GameAdvanceService resumes
+        List<GameCalendar> calendars = gameCalendarRepository.findAll();
+        for (GameCalendar cal : calendars) {
+            if (cal.isManagerFired()) {
+                cal.setManagerFired(false);
+                gameCalendarRepository.save(cal);
+            }
+        }
 
         ManagerInbox inbox = new ManagerInbox();
         inbox.setTeamId(newTeamId);
@@ -496,6 +533,317 @@ public class CompetitionController {
         System.out.println("=== NEW SEASON " + round.getSeason() + " STARTED ===");
 
         return "Transfer window closed. Season " + round.getSeason() + " started.";
+    }
+
+    /**
+     * Called by GameAdvanceService when SEASON_END event fires.
+     * Runs all end-of-season processing AND starts the new season in one step.
+     */
+    public void processEndOfSeasonAndStartNew(int season) {
+        System.out.println("=== processEndOfSeasonAndStartNew: season " + season + " ===");
+
+        List<Long> teamIds = getAllTeams();
+
+        // ---- End-of-season processing (from play() round > 50 block) ----
+
+        // Final standings, relegation/promotion
+        Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1);
+        Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3);
+        leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
+
+        Map<Long, Long> leagueToCupMap = new HashMap<>();
+        List<Competition> allComps = competitionRepository.findAll();
+        for (Competition league : allComps) {
+            if (league.getTypeId() == 1 || league.getTypeId() == 3) {
+                allComps.stream()
+                        .filter(c -> c.getTypeId() == 2 && c.getNationId() == league.getNationId())
+                        .findFirst()
+                        .ifPresent(cup -> leagueToCupMap.put(league.getId(), cup.getId()));
+            }
+        }
+
+        List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
+        for (Long id : leagueCompetitionIds) {
+            int finalId = Math.toIntExact(id);
+            List<TeamCompetitionDetail> teamCompetitionDetailList = teamCompetitionDetails.stream()
+                    .filter(detail -> detail.getCompetitionId() == finalId)
+                    .sorted((o1, o2) -> {
+                        if (o1.getPoints() != o2.getPoints())
+                            return o1.getPoints() < o2.getPoints() ? 1 : -1;
+                        if (o1.getGoalDifference() != o2.getGoalDifference())
+                            return o1.getGoalDifference() < o2.getGoalDifference() ? 1 : -1;
+                        if (o1.getGoalsFor() != o2.getGoalsFor())
+                            return o1.getGoalsFor() < o2.getGoalsFor() ? 1 : -1;
+                        return 0;
+                    }).toList();
+
+            int index = 1;
+            int numTeams = teamCompetitionDetailList.size();
+            int numCupRounds = numTeams > 0 ? (int) Math.ceil(Math.log(numTeams) / Math.log(2)) : 3;
+            int numByes = (int) Math.pow(2, numCupRounds) - numTeams;
+
+            for (TeamCompetitionDetail teamCompetitionDetail : teamCompetitionDetailList) {
+                CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
+                if (id == 3L && index >= 11)
+                    competitionTeamInfo.setCompetitionId(5L);
+                else if (id == 5L && index <= 2)
+                    competitionTeamInfo.setCompetitionId(3L);
+                else
+                    competitionTeamInfo.setCompetitionId(id);
+
+                competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()) + 1);
+                competitionTeamInfo.setRound(1L);
+                competitionTeamInfo.setTeamId(teamCompetitionDetail.getTeamId());
+                competitionTeamInfoRepository.save(competitionTeamInfo);
+
+                Long cupId = leagueToCupMap.get(id);
+                if (cupId != null) {
+                    CompetitionTeamInfo competitionTeamInfoCup = new CompetitionTeamInfo();
+                    competitionTeamInfoCup.setCompetitionId(cupId);
+                    competitionTeamInfoCup.setSeasonNumber(Long.parseLong(getCurrentSeason()) + 1);
+                    competitionTeamInfoCup.setRound(index <= numByes ? 2L : 1L);
+                    competitionTeamInfoCup.setTeamId(teamCompetitionDetail.getTeamId());
+                    competitionTeamInfoRepository.save(competitionTeamInfoCup);
+                }
+                index++;
+            }
+        }
+
+        qualifyTeamsForEuropeanCompetitions();
+
+        // AI transfer market
+        List<PlayerTransferView> playersForTransferMarket = new ArrayList<>();
+        for (Long teamId : teamIds) {
+            if (teamId == HUMAN_TEAM_ID) continue;
+            Team team = teamRepository.findById(teamId).orElse(new Team());
+            playersForTransferMarket.addAll(_compositeTransferStrategy.playersToSell(team, humanRepository, getMinimumPositionNeeded()));
+        }
+
+        HashMap<String, List<PlayerTransferView>> transferMarket = new HashMap<>();
+        for (PlayerTransferView playerTransferView : playersForTransferMarket) {
+            if (transferMarket.containsKey(playerTransferView.getPosition()))
+                transferMarket.get(playerTransferView.getPosition()).add(playerTransferView);
+            else
+                transferMarket.put(playerTransferView.getPosition(), new ArrayList<>(List.of(playerTransferView)));
+        }
+
+        Map<PlayerTransferView, List<BuyPlanTransferView>> buyPlan = new HashMap<>();
+        for (Long teamId : teamIds) {
+            if (teamId == HUMAN_TEAM_ID) continue;
+            Team team = teamRepository.findById(teamId).orElse(new Team());
+            BuyPlanTransferView buyPlanTransferView = _compositeTransferStrategy.playersToBuy(team, humanRepository, getMaximumPositionAllowed());
+            if (buyPlanTransferView == null) continue;
+
+            for (TransferPlayer clubPlan : buyPlanTransferView.getPositions()) {
+                List<PlayerTransferView> playersInMarket = transferMarket.get(clubPlan.getPosition());
+                if (playersInMarket == null) continue;
+                for (PlayerTransferView player : playersInMarket) {
+                    if (canBeTransfered(player, buyPlanTransferView, clubPlan)) {
+                        if (buyPlan.containsKey(player))
+                            buyPlan.get(player).add(buyPlanTransferView);
+                        else {
+                            List<BuyPlanTransferView> buyPlanTransferViews = new ArrayList<>();
+                            buyPlanTransferViews.add(buyPlanTransferView);
+                            buyPlan.put(player, buyPlanTransferViews);
+                        }
+                    }
+                }
+            }
+            generateAiOffersForHumanPlayers(team, buyPlanTransferView);
+        }
+
+        HashMap<PlayerTransferView, BuyPlanTransferView> playerTransfered = new HashMap<>();
+        List<Transfer> transfers = new ArrayList<>();
+        for (Map.Entry<PlayerTransferView, List<BuyPlanTransferView>> pair : buyPlan.entrySet()) {
+            if (pair.getValue().size() == 1) {
+                playerTransfered.put(pair.getKey(), pair.getValue().get(0));
+            } else {
+                Collections.shuffle(pair.getValue());
+                playerTransfered.put(pair.getKey(), pair.getValue().get(0));
+            }
+            PlayerTransferView playerTransferView = pair.getKey();
+            BuyPlanTransferView buyPlanTransferView = playerTransfered.get(playerTransferView);
+
+            Team sellTeam = teamRepository.findById(playerTransferView.getTeamId()).get();
+            Team buyTeam = teamRepository.findById(buyPlanTransferView.getTeamId()).get();
+
+            long transferFee = calculateTransferValue(playerTransferView.getAge(), playerTransferView.getPosition(), playerTransferView.getRating());
+            if (transferFee > buyTeam.getTransferBudget()) continue;
+
+            Human human = humanRepository.findById(playerTransferView.getPlayerId()).get();
+            human.setTeamId(buyTeam.getId());
+            humanRepository.save(human);
+
+            buyTeam.setTransferBudget(buyTeam.getTransferBudget() - transferFee);
+            sellTeam.setTransferBudget(sellTeam.getTransferBudget() + transferFee);
+            teamRepository.save(buyTeam);
+            teamRepository.save(sellTeam);
+
+            Transfer transfer = new Transfer();
+            transfer.setPlayerId(human.getId());
+            transfer.setPlayerName(human.getName());
+            transfer.setPlayerTransferValue(transferFee);
+            transfer.setSellTeamId(sellTeam.getId());
+            transfer.setSellTeamName(sellTeam.getName());
+            transfer.setBuyTeamId(buyTeam.getId());
+            transfer.setBuyTeamName(buyTeam.getName());
+            transfer.setRating(human.getRating());
+            transfer.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+            transfer.setPlayerAge(human.getAge());
+            transferRepository.save(transfer);
+            transfers.add(transfer);
+        }
+
+        // AI Loan Logic
+        Random loanRandom = new Random();
+        List<Team> allTeams = teamRepository.findAll();
+        for (Long teamId : teamIds) {
+            if (teamId == HUMAN_TEAM_ID) continue;
+            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L);
+            if (players.size() <= 18) continue;
+            double avgRating = players.stream().mapToDouble(Human::getRating).average().orElse(0);
+            List<Human> loanCandidates = players.stream()
+                    .filter(p -> p.getAge() <= 22 && p.getRating() < avgRating && !p.isRetired())
+                    .collect(Collectors.toList());
+            Collections.shuffle(loanCandidates);
+            int loansToMake = Math.min(loanCandidates.size(), 2);
+            for (int i = 0; i < loansToMake; i++) {
+                Human loanPlayer = loanCandidates.get(i);
+                List<Team> potentialTeams = allTeams.stream()
+                        .filter(t -> t.getId() != teamId && t.getId() != HUMAN_TEAM_ID)
+                        .collect(Collectors.toList());
+                if (potentialTeams.isEmpty()) continue;
+                Team loanTeam = potentialTeams.get(loanRandom.nextInt(potentialTeams.size()));
+                Team parentTeam = teamRepository.findById(teamId).orElse(null);
+                if (parentTeam == null) continue;
+                long loanFee = (long) (loanPlayer.getTransferValue() * 0.05);
+                loanPlayer.setTeamId(loanTeam.getId());
+                humanRepository.save(loanPlayer);
+                com.footballmanagergamesimulator.model.Loan loan = new com.footballmanagergamesimulator.model.Loan();
+                loan.setPlayerId(loanPlayer.getId());
+                loan.setPlayerName(loanPlayer.getName());
+                loan.setParentTeamId(parentTeam.getId());
+                loan.setParentTeamName(parentTeam.getName());
+                loan.setLoanTeamId(loanTeam.getId());
+                loan.setLoanTeamName(loanTeam.getName());
+                loan.setSeasonNumber((int) round.getSeason());
+                loan.setStatus("active");
+                loan.setLoanFee(loanFee);
+                loanRepository.save(loan);
+            }
+        }
+
+        evaluateSeasonObjectives((int) round.getSeason());
+
+        // ---- New season setup (from closeTransferWindow) ----
+
+        refreshTeamBudgets((int) round.getSeason());
+
+        List<Long> allTeamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
+        applyTrainingEffect(allTeamIds);
+
+        Set<Long> competitions = competitionRepository.findAll()
+                .stream()
+                .mapToLong(Competition::getId)
+                .boxed()
+                .collect(Collectors.toSet());
+        for (Long competitionId : competitions)
+            this.saveHistoricalValues(competitionId, round.getSeason());
+        this.saveAllPlayerTeamHistoricalRelations(round.getSeason());
+
+        // Return loaned players
+        List<com.footballmanagergamesimulator.model.Loan> activeLoans = loanRepository.findAllByStatus("active");
+        for (com.footballmanagergamesimulator.model.Loan loan : activeLoans) {
+            Human loanedPlayer = humanRepository.findById(loan.getPlayerId()).orElse(null);
+            if (loanedPlayer != null) {
+                loanedPlayer.setTeamId(loan.getParentTeamId());
+                humanRepository.save(loanedPlayer);
+            }
+            loan.setStatus("completed");
+            loanRepository.save(loan);
+        }
+
+        this.resetCompetitionData();
+        this.removeCompetitionData(round.getSeason() + 1);
+        this.addImprovementToOverachievers();
+
+        round.setRound(1);
+        round.setSeason(round.getSeason() + 1);
+        roundRepository.save(round);
+
+        _humanService.addOneYearToAge();
+        _humanService.retirePlayers();
+        personalizedTacticRepository.deleteAll();
+
+        for (Long teamId : teamIds) {
+            TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(teamId);
+            if (teamFacilities != null)
+                _humanService.addRegens(teamFacilities, teamId);
+        }
+
+        for (long teamId : teamIds) {
+            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+            for (Human human : players) {
+                long seasonCreated = human.getSeasonCreated();
+                if (round.getSeason() - seasonCreated <= 2 && seasonCreated != 1L)
+                    human.setCurrentStatus("Junior");
+                else if (round.getSeason() - seasonCreated <= 6 && seasonCreated != 1L)
+                    human.setCurrentStatus("Intermediate");
+                else
+                    human.setCurrentStatus("Senior");
+                human.setTransferValue(calculateTransferValue(human.getAge(), human.getPosition(), human.getRating()));
+            }
+            humanRepository.saveAll(players);
+        }
+
+        handleContractExpiries((int) round.getSeason());
+        generateSeasonObjectives((int) round.getSeason());
+
+        // Generate league fixtures for new season (must happen BEFORE calendar generation
+        // so that CompetitionTeamInfoMatch rows exist for getActualRoundCount)
+        Set<Long> newLeagueCompIds = getCompetitionIdsByCompetitionType(1);
+        Set<Long> newSecondLeagueCompIds = getCompetitionIdsByCompetitionType(3);
+        newLeagueCompIds.addAll(newSecondLeagueCompIds);
+        for (Long competitionId : newLeagueCompIds)
+            this.getFixturesForRound(String.valueOf(competitionId), "1");
+
+        // Initialize scorers for all players in the new season
+        List<Team> allNewTeams = teamRepository.findAll();
+        for (Team team : allNewTeams) {
+            List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+            List<CompetitionTeamInfo> newCompetitions = competitionTeamInfoRepository
+                    .findAllByTeamIdAndSeasonNumber(team.getId(), round.getSeason());
+
+            for (Human human : allPlayers) {
+                for (CompetitionTeamInfo competitionTeamInfo : newCompetitions) {
+                    Scorer scorer = new Scorer();
+                    scorer.setPlayerId(human.getId());
+                    scorer.setSeasonNumber((int) round.getSeason());
+                    scorer.setTeamId(team.getId());
+                    scorer.setOpponentTeamId(-1);
+                    scorer.setPosition(human.getPosition());
+                    scorer.setTeamScore(-1);
+                    scorer.setOpponentScore(-1);
+                    scorer.setCompetitionId(competitionTeamInfo.getCompetitionId());
+                    scorer.setCompetitionTypeId((int) competitionRepository.findTypeIdById(competitionTeamInfo.getCompetitionId()));
+                    scorer.setTeamName(team.getName());
+                    scorer.setOpponentTeamName(null);
+                    scorer.setCompetitionName(competitionRepository.findNameById(competitionTeamInfo.getCompetitionId()));
+                    scorer.setRating(human.getRating());
+                    scorer.setGoals(0);
+                    scorerRepository.save(scorer);
+                }
+
+                // Reset leaderboard stats for the new season
+                Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
+                if (optionalScorerLeaderboardEntry.isPresent()) {
+                    ScorerLeaderboardEntry scorerLeaderboardEntry = resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
+                    scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+                }
+            }
+        }
+
+        System.out.println("=== NEW SEASON " + round.getSeason() + " STARTED ===");
     }
 
     @GetMapping("/play")
@@ -1638,7 +1986,7 @@ public class CompetitionController {
         teamMatchView.setTeamName1(teamRepository.findById(match.getTeam1Id()).get().getName());
         teamMatchView.setTeamName2(teamRepository.findById(match.getTeam2Id()).get().getName());
 
-        CompetitionTeamInfoDetail matchDetail = competitionTeamInfoDetailRepository.findCompetitionTeamInfoDetailByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(competitionId, roundId, match.getTeam1Id(), match.getTeam2Id(), Long.parseLong(getCurrentSeason()));
+        CompetitionTeamInfoDetail matchDetail = competitionTeamInfoDetailRepository.findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(competitionId, roundId, match.getTeam1Id(), match.getTeam2Id(), Long.parseLong(getCurrentSeason())).stream().findFirst().orElse(null);
         if (matchDetail != null)
             teamMatchView.setScore(matchDetail.getScore());
         else
@@ -1725,6 +2073,7 @@ public class CompetitionController {
     }
 
     @GetMapping("simulateRound/{competitionId}/{roundId}")
+    @Transactional
     public void simulateRound(@PathVariable(name = "competitionId") String competitionId, @PathVariable(name = "roundId") String roundId) {
 
         long _competitionId = Long.parseLong(competitionId);
@@ -1736,6 +2085,18 @@ public class CompetitionController {
                 .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, getCurrentSeason());
 
         boolean knockout = isKnockoutRound(_competitionId, _roundId);
+
+        // Batch collections for AI matches - saved once at end of round
+        List<Injury> batchedInjuries = new ArrayList<>();
+        List<Human> batchedInjuredPlayers = new ArrayList<>();
+        List<Human> batchedManagers = new ArrayList<>();
+
+        // Pre-cache competition type IDs (avoids repeated findAll per match)
+        if (cachedLeagueCompIds == null) {
+            cachedLeagueCompIds = getCompetitionIdsByCompetitionType(1);
+            cachedCupCompIds = getCompetitionIdsByCompetitionType(2);
+            cachedSecondLeagueCompIds = getCompetitionIdsByCompetitionType(3);
+        }
 
         for (CompetitionTeamInfoMatch match : matches) {
             long teamId1 = match.getTeam1Id();
@@ -1797,8 +2158,8 @@ public class CompetitionController {
                 updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
 
             } else {
-                // --- FAST SIMULATION for AI vs AI matches ---
-                // Matches original speed: cached rating, Poisson score, simple standings update
+                // --- OPTIMIZED SIMULATION for AI vs AI matches ---
+                // Same features as human but: cached ratings, simplified morale, batch saves
                 teamPower1 = getSimpleTeamRating(teamId1);
                 teamPower2 = getSimpleTeamRating(teamId2);
 
@@ -1816,9 +2177,23 @@ public class CompetitionController {
                     }
                 }
 
-                // Simple standings update (no morale calculation)
-                updateTeamSimple(teamId1, _competitionId, teamScore1, teamScore2);
-                updateTeamSimple(teamId2, _competitionId, teamScore2, teamScore1);
+                // Scorer tracking (lightweight: random goal assignment, batch leaderboard)
+                getScorersForTeamSimplified(teamId1, teamId2, teamScore1, teamScore2, Long.valueOf(competitionId));
+                getScorersForTeamSimplified(teamId2, teamId1, teamScore2, teamScore1, Long.valueOf(competitionId));
+
+                // Injuries (same logic, batched saves)
+                processInjuriesForTeamBatched(teamId1, random, batchedInjuries, batchedInjuredPlayers);
+                processInjuriesForTeamBatched(teamId2, random, batchedInjuries, batchedInjuredPlayers);
+
+                // Standings + simplified morale (no season scorer query)
+                updateTeamWithSimpleMorale(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, random);
+                updateTeamWithSimpleMorale(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, random);
+
+                // Coefficient points (competition type IDs already cached)
+                awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+
+                // Manager reputation (batched)
+                batchUpdateManagerReputation(teamId1, teamId2, teamScore1, teamScore2, batchedManagers);
             }
 
             // Knockout progression (needed for both human and AI matches)
@@ -1845,6 +2220,10 @@ public class CompetitionController {
             competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
         }
 
+        // Batch save all collected AI match data at once
+        if (!batchedInjuries.isEmpty()) injuryRepository.saveAll(batchedInjuries);
+        if (!batchedInjuredPlayers.isEmpty()) humanRepository.saveAll(batchedInjuredPlayers);
+        if (!batchedManagers.isEmpty()) humanRepository.saveAll(batchedManagers);
     }
 
     private double adjustTeamPowerByTacticalProperties(double teamRating, double opponentRating, PersonalizedTactic teamTactic) {
@@ -1990,17 +2369,17 @@ public class CompetitionController {
         team.setGoalDifference(team.getGoalsFor() - team.getGoalsAgainst());
         if (scoreHome > scoreAway) {
             result = "W";
-            team.setForm(team.getForm() + "W");
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "W");
             team.setWins(team.getWins() + 1);
             team.setPoints(team.getPoints() + 3);
         } else if (scoreHome == scoreAway) {
             result = "D";
-            team.setForm(team.getForm() + "D");
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "D");
             team.setDraws(team.getDraws() + 1);
             team.setPoints(team.getPoints() + 1);
         } else {
             result = "L";
-            team.setForm(team.getForm() + "L");
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "L");
             team.setLoses(team.getLoses() + 1);
         }
 
@@ -2013,6 +2392,133 @@ public class CompetitionController {
             team.setForm(team.getForm().substring(team.getForm().length() - 5));
 
         teamCompetitionDetailRepository.save(team);
+    }
+
+    /**
+     * Standings + simplified morale for AI teams.
+     * Instead of loading all season scorers to identify who played (expensive),
+     * applies a uniform morale change to all players based on W/D/L result.
+     * Cost: 1 query standings + 1 query players + 1 batch save players.
+     */
+    private void updateTeamWithSimpleMorale(long teamId, long competitionId, int scoreHome, int scoreAway,
+                                             double teamPowerDifference, Random random) {
+        // 1. Update standings (same as updateTeamSimple)
+        TeamCompetitionDetail team = teamCompetitionDetailRepository.findTeamCompetitionDetailByTeamIdAndCompetitionId(teamId, competitionId);
+        if (team == null) {
+            team = new TeamCompetitionDetail();
+            team.setTeamId(teamId);
+        }
+
+        String result;
+        team.setCompetitionId(competitionId);
+        team.setGoalsFor(team.getGoalsFor() + scoreHome);
+        team.setGoalsAgainst(team.getGoalsAgainst() + scoreAway);
+        team.setGoalDifference(team.getGoalsFor() - team.getGoalsAgainst());
+        if (scoreHome > scoreAway) {
+            result = "W";
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "W");
+            team.setWins(team.getWins() + 1);
+            team.setPoints(team.getPoints() + 3);
+        } else if (scoreHome == scoreAway) {
+            result = "D";
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "D");
+            team.setDraws(team.getDraws() + 1);
+            team.setPoints(team.getPoints() + 1);
+        } else {
+            result = "L";
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "L");
+            team.setLoses(team.getLoses() + 1);
+        }
+        team.setGames(team.getGames() + 1);
+        if (team.getForm().length() > 5)
+            team.setForm(team.getForm().substring(team.getForm().length() - 5));
+        teamCompetitionDetailRepository.save(team);
+
+        // 2. Simplified morale: uniform change for all players (no scorer query needed)
+        double baseMoraleChange = calculateMoraleChangeForTeamDifference(result, teamPowerDifference);
+        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+        for (Human player : allPlayers) {
+            if (player.isRetired()) continue;
+            // All players get the base morale change (no individual played/benched distinction for AI)
+            double moraleChange = baseMoraleChange + random.nextDouble(-1, 1);
+            player.setMorale(Math.min(120D, Math.max(30D, player.getMorale() + moraleChange)));
+        }
+        humanRepository.saveAll(allPlayers);
+    }
+
+    /**
+     * Batched injury processing for AI teams.
+     * Same logic as processInjuriesForTeam but collects injuries into lists
+     * for a single batch save at the end of the round.
+     */
+    private void processInjuriesForTeamBatched(long teamId, Random random,
+                                                List<Injury> batchedInjuries, List<Human> batchedInjuredPlayers) {
+        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+        Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
+                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+
+        String[] injuryTypes = {"Hamstring Strain", "Knee Ligament", "Ankle Sprain", "Muscle Fatigue", "Broken Bone", "Concussion"};
+
+        for (Human player : players) {
+            if (player.isRetired()) continue;
+            if (injuredPlayerIds.contains(player.getId())) continue;
+
+            double injuryChance = 0.002;
+            if (player.getFitness() < 50) injuryChance += 0.001;
+
+            if (random.nextDouble() < injuryChance) {
+                Injury injury = new Injury();
+                injury.setPlayerId(player.getId());
+                injury.setTeamId(teamId);
+                injury.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
+
+                String injuryType = injuryTypes[random.nextInt(injuryTypes.length)];
+                injury.setInjuryType(injuryType);
+
+                double severityRoll = random.nextDouble();
+                if (severityRoll < 0.55) {
+                    injury.setSeverity("Minor");
+                    injury.setDaysRemaining(random.nextInt(1, 4));
+                } else if (severityRoll < 0.85) {
+                    injury.setSeverity("Moderate");
+                    injury.setDaysRemaining(random.nextInt(4, 9));
+                } else {
+                    injury.setSeverity("Serious");
+                    injury.setDaysRemaining(random.nextInt(10, 21));
+                }
+
+                batchedInjuries.add(injury);
+                player.setCurrentStatus("Injured - " + injuryType);
+                batchedInjuredPlayers.add(player);
+            }
+        }
+    }
+
+    /**
+     * Batched manager reputation update for AI matches.
+     * Collects manager changes into a list for a single batch save at end of round.
+     */
+    private void batchUpdateManagerReputation(long teamId1, long teamId2, int score1, int score2,
+                                               List<Human> batchedManagers) {
+        Team team1 = teamRepository.findById(teamId1).orElse(null);
+        Team team2 = teamRepository.findById(teamId2).orElse(null);
+        if (team1 == null || team2 == null) return;
+
+        List<Human> managers1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
+        List<Human> managers2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
+
+        if (!managers1.isEmpty()) {
+            double change = calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
+            Human mgr = managers1.get(0);
+            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
+            batchedManagers.add(mgr);
+        }
+        if (!managers2.isEmpty()) {
+            double change = calculateMatchRepChange(score2, score1, team2.getReputation(), team1.getReputation());
+            Human mgr = managers2.get(0);
+            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
+            batchedManagers.add(mgr);
+        }
     }
 
     /**
@@ -2031,15 +2537,15 @@ public class CompetitionController {
         team.setGoalsAgainst(team.getGoalsAgainst() + scoreAway);
         team.setGoalDifference(team.getGoalsFor() - team.getGoalsAgainst());
         if (scoreHome > scoreAway) {
-            team.setForm(team.getForm() + "W");
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "W");
             team.setWins(team.getWins() + 1);
             team.setPoints(team.getPoints() + 3);
         } else if (scoreHome == scoreAway) {
-            team.setForm(team.getForm() + "D");
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "D");
             team.setDraws(team.getDraws() + 1);
             team.setPoints(team.getPoints() + 1);
         } else {
-            team.setForm(team.getForm() + "L");
+            team.setForm((team.getForm() != null ? team.getForm() : "") + "L");
             team.setLoses(team.getLoses() + 1);
         }
         team.setGames(team.getGames() + 1);
@@ -2360,103 +2866,177 @@ public class CompetitionController {
     }
 
     /**
-     * Fast team rating for AI teams: sum of top 11 player ratings, no tactic parsing.
+     * Fast team rating for AI teams: selects best 11 by manager's tactic, cached per round.
+     * Uses the same position-based selection as the original getBestEleven but without
+     * morale/fitness multipliers or JSON tactic parsing.
      */
     private Map<Long, Double> simpleRatingCache = new HashMap<>();
+    private Map<Long, String> managerTacticCache = new HashMap<>();
+    private Map<Long, List<PlayerView>> bestElevenCache = new HashMap<>();
+    private Map<Long, List<PlayerView>> substitutionsCache = new HashMap<>();
 
     private double getSimpleTeamRating(long teamId) {
         if (simpleRatingCache.containsKey(teamId)) return simpleRatingCache.get(teamId);
 
-        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-        double rating = players.stream()
-                .filter(p -> !p.isRetired())
-                .mapToDouble(Human::getRating)
-                .sorted()
-                .skip(Math.max(0, players.size() - 11))
+        // Get and cache manager's preferred tactic
+        String tactic = getManagerTacticCached(teamId);
+
+        // Select and cache best 11 by tactic positions
+        List<PlayerView> bestEleven = tacticController.getBestEleven(String.valueOf(teamId), tactic);
+        bestElevenCache.put(teamId, bestEleven);
+
+        // Also pre-cache substitutions (will be needed by getScorersForTeamSimplified)
+        List<PlayerView> subs = tacticController.getSubstitutions(String.valueOf(teamId), tactic);
+        substitutionsCache.put(teamId, subs);
+
+        double rating = bestEleven.stream()
+                .mapToDouble(PlayerView::getRating)
                 .sum();
+
         simpleRatingCache.put(teamId, rating);
         return rating;
     }
 
+    private String getManagerTacticCached(long teamId) {
+        if (managerTacticCache.containsKey(teamId)) return managerTacticCache.get(teamId);
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        String tactic = (!managers.isEmpty() && managers.get(0).getTacticStyle() != null)
+                ? managers.get(0).getTacticStyle() : "442";
+        managerTacticCache.put(teamId, tactic);
+        return tactic;
+    }
+
     /**
-     * Simplified scorer processing for AI vs AI matches.
-     * Only creates Scorer records for goal scorers and batch-updates leaderboard.
+     * Optimized scorer tracking for AI vs AI matches.
+     * Uses cached bestEleven/substitutions from getSimpleTeamRating() (0 extra DB queries for lineup).
+     * Uses batch findAllByPlayerIdIn for leaderboard (1 query instead of N).
+     * Creates Scorer entries for ALL players who played (appearances).
+     * Weighted goal distribution by position. Batch saves.
      */
     private void getScorersForTeamSimplified(long teamId1, long teamId2, int teamScore, int opponentScore, long competitionId) {
-        if (teamScore == 0) return; // No goals = nothing to track for simplified mode
 
-        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.PLAYER_TYPE);
-        if (players.isEmpty()) return;
+        // 1. Reuse cached best 11 + substitutions (already loaded by getSimpleTeamRating)
+        List<PlayerView> playerViews = bestElevenCache.getOrDefault(teamId1, List.of());
+        List<PlayerView> substitutionViews = substitutionsCache.getOrDefault(teamId1, List.of());
 
-        List<Human> outfield = players.stream()
-                .filter(p -> !p.isRetired() && !"GK".equals(p.getPosition()))
-                .sorted((a, b) -> Double.compare(b.getRating(), a.getRating()))
-                .limit(10)
-                .collect(java.util.stream.Collectors.toList());
-
-        if (outfield.isEmpty()) return;
-
-        Random random = new Random();
-
-        // Only track players who actually scored
-        Map<Long, Integer> goalsByPlayer = new HashMap<>();
-        for (int g = 0; g < teamScore; g++) {
-            Human scorer = outfield.get(random.nextInt(outfield.size()));
-            goalsByPlayer.merge(scorer.getId(), 1, Integer::sum);
-        }
-
-        if (cachedLeagueCompIds == null) {
-            cachedLeagueCompIds = getCompetitionIdsByCompetitionType(1);
-            cachedCupCompIds = getCompetitionIdsByCompetitionType(2);
-            cachedSecondLeagueCompIds = getCompetitionIdsByCompetitionType(3);
-        }
+        if (playerViews.isEmpty()) return;
 
         String currentSeason = getCurrentSeason();
-        List<Scorer> scorersToSave = new ArrayList<>();
-        List<ScorerLeaderboardEntry> leaderboardToSave = new ArrayList<>();
+        long competitionTypeId = competitionRepository.findTypeIdById(competitionId);
+        String teamName = teamRepository.findNameById(teamId1);
+        String opponentName = teamRepository.findNameById(teamId2);
+        String competitionName = competitionRepository.findNameById(competitionId);
 
-        // Only create records for players who scored
-        for (Map.Entry<Long, Integer> entry : goalsByPlayer.entrySet()) {
-            long playerId = entry.getKey();
-            int goals = entry.getValue();
+        List<Scorer> possibleScorers = new ArrayList<>();
 
-            Human player = players.stream().filter(p -> p.getId() == playerId).findFirst().orElse(null);
-            if (player == null) continue;
-
+        for (PlayerView pv : playerViews) {
             Scorer scorer = new Scorer();
-            scorer.setPlayerId(playerId);
+            scorer.setPlayerId(pv.getId());
             scorer.setSeasonNumber(Integer.parseInt(currentSeason));
             scorer.setTeamId(teamId1);
             scorer.setOpponentTeamId(teamId2);
-            scorer.setPosition(player.getPosition());
+            scorer.setPosition(pv.getPosition());
             scorer.setTeamScore(teamScore);
             scorer.setOpponentScore(opponentScore);
             scorer.setCompetitionId(competitionId);
-            scorer.setGoals(goals);
+            scorer.setCompetitionTypeId((int) competitionTypeId);
+            scorer.setTeamName(teamName);
+            scorer.setOpponentTeamName(opponentName);
+            scorer.setCompetitionName(competitionName);
+            scorer.setRating(pv.getRating());
             scorer.setSubstitute(false);
-            scorersToSave.add(scorer);
+            possibleScorers.add(scorer);
+        }
 
-            // Update leaderboard only for scorers
-            Optional<ScorerLeaderboardEntry> optLeaderboard = scorerLeaderboardRepository.findByPlayerId(playerId);
-            if (optLeaderboard.isPresent()) {
-                ScorerLeaderboardEntry lb = optLeaderboard.get();
-                lb.setGoals(lb.getGoals() + goals);
-                lb.setCurrentSeasonGoals(lb.getCurrentSeasonGoals() + goals);
+        List<Scorer> substitutions = new ArrayList<>();
+        for (PlayerView pv : substitutionViews) {
+            Scorer scorer = new Scorer();
+            scorer.setPlayerId(pv.getId());
+            scorer.setSeasonNumber(Integer.parseInt(currentSeason));
+            scorer.setTeamId(teamId1);
+            scorer.setOpponentTeamId(teamId2);
+            scorer.setPosition(pv.getPosition());
+            scorer.setTeamScore(teamScore);
+            scorer.setOpponentScore(opponentScore);
+            scorer.setCompetitionId(competitionId);
+            scorer.setCompetitionTypeId((int) competitionTypeId);
+            scorer.setTeamName(teamName);
+            scorer.setOpponentTeamName(opponentName);
+            scorer.setCompetitionName(competitionName);
+            scorer.setRating(pv.getRating());
+            scorer.setSubstitute(true);
+            substitutions.add(scorer);
+        }
+
+        // 2. Simulate substitutions (0-5 subs enter the match)
+        Random random = new Random();
+        int substitutesDone = random.nextInt(0, Math.min(6, substitutions.size() + 1));
+        if (!substitutions.isEmpty()) {
+            Collections.shuffle(substitutions);
+            for (int i = 0; i < Math.min(substitutesDone, substitutions.size()); i++) {
+                possibleScorers.add(substitutions.get(i));
+            }
+        }
+
+        // 3. Weighted goal distribution by position
+        List<Pair<Scorer, Double>> weightedPlayers = new ArrayList<>();
+        for (Scorer scorer : possibleScorers) {
+            if ("GK".equals(scorer.getPosition())) continue;
+            double weight = competitionService.getDifferentValueForScoringBasedOnPosition(scorer);
+            if (weight <= 0) weight = 0.1;
+            weightedPlayers.add(new Pair<>(scorer, weight));
+        }
+
+        if (!weightedPlayers.isEmpty()) {
+            for (int i = 0; i < teamScore; i++) {
+                try {
+                    EnumeratedDistribution<Scorer> distribution = new EnumeratedDistribution<>(weightedPlayers);
+                    Scorer selected = distribution.sample();
+                    selected.setGoals(selected.getGoals() + 1);
+                } catch (Exception e) {
+                    System.err.println("Distribution error: " + e.getMessage());
+                }
+            }
+        }
+
+        // 4. Batch leaderboard lookup (1 query instead of N individual findByPlayerId calls)
+        List<Long> playerIds = possibleScorers.stream().map(Scorer::getPlayerId).toList();
+        List<ScorerLeaderboardEntry> leaderboardEntries = scorerLeaderboardRepository.findAllByPlayerIdIn(playerIds);
+        Map<Long, ScorerLeaderboardEntry> leaderboardMap = new HashMap<>();
+        for (ScorerLeaderboardEntry lb : leaderboardEntries) {
+            leaderboardMap.put(lb.getPlayerId(), lb);
+        }
+
+        List<ScorerLeaderboardEntry> leaderboardToSave = new ArrayList<>();
+        for (Scorer scorer : possibleScorers) {
+            ScorerLeaderboardEntry lb = leaderboardMap.get(scorer.getPlayerId());
+            if (lb != null) {
+                lb.setMatches(lb.getMatches() + 1);
+                lb.setGoals(lb.getGoals() + scorer.getGoals());
+                lb.setCurrentSeasonGoals(lb.getCurrentSeasonGoals() + scorer.getGoals());
+                lb.setCurrentSeasonGames(lb.getCurrentSeasonGames() + 1);
+
                 if (cachedLeagueCompIds.contains(competitionId)) {
-                    lb.setLeagueGoals(lb.getLeagueGoals() + goals);
-                    lb.setCurrentSeasonLeagueGoals(lb.getCurrentSeasonLeagueGoals() + goals);
+                    lb.setLeagueGoals(lb.getLeagueGoals() + scorer.getGoals());
+                    lb.setLeagueMatches(lb.getLeagueMatches() + 1);
+                    lb.setCurrentSeasonLeagueGoals(lb.getCurrentSeasonLeagueGoals() + scorer.getGoals());
+                    lb.setCurrentSeasonLeagueGames(lb.getCurrentSeasonLeagueGames() + 1);
                 } else if (cachedCupCompIds.contains(competitionId)) {
-                    lb.setCupGoals(lb.getCupGoals() + goals);
-                    lb.setCurrentSeasonCupGoals(lb.getCurrentSeasonCupGoals() + goals);
+                    lb.setCupGoals(lb.getCupGoals() + scorer.getGoals());
+                    lb.setCupMatches(lb.getCupMatches() + 1);
+                    lb.setCurrentSeasonCupGoals(lb.getCurrentSeasonCupGoals() + scorer.getGoals());
+                    lb.setCurrentSeasonCupGames(lb.getCurrentSeasonCupGames() + 1);
                 } else if (cachedSecondLeagueCompIds.contains(competitionId)) {
-                    lb.setSecondLeagueGoals(lb.getSecondLeagueGoals() + goals);
-                    lb.setCurrentSeasonSecondLeagueGoals(lb.getCurrentSeasonSecondLeagueGoals() + goals);
+                    lb.setSecondLeagueGoals(lb.getSecondLeagueGoals() + scorer.getGoals());
+                    lb.setSecondLeagueMatches(lb.getSecondLeagueMatches() + 1);
+                    lb.setCurrentSeasonSecondLeagueGoals(lb.getCurrentSeasonSecondLeagueGoals() + scorer.getGoals());
+                    lb.setCurrentSeasonSecondLeagueGames(lb.getCurrentSeasonSecondLeagueGames() + 1);
                 }
                 leaderboardToSave.add(lb);
             }
         }
 
-        if (!scorersToSave.isEmpty()) scorerRepository.saveAll(scorersToSave);
+        scorerRepository.saveAll(possibleScorers);
         if (!leaderboardToSave.isEmpty()) scorerLeaderboardRepository.saveAll(leaderboardToSave);
     }
 
@@ -2611,7 +3191,20 @@ public class CompetitionController {
             if (possiblePlayer.isPresent()) {
                 Human player = possiblePlayer.get();
 
-                ScorerLeaderboardEntry scorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(player.getId()).get();
+                ScorerLeaderboardEntry scorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(player.getId()).orElseGet(() -> {
+                    ScorerLeaderboardEntry newEntry = new ScorerLeaderboardEntry();
+                    newEntry.setPlayerId(player.getId());
+                    newEntry.setName(player.getName());
+                    newEntry.setPosition(player.getPosition());
+                    newEntry.setTeamId(player.getTeamId() != null ? player.getTeamId() : 0);
+                    newEntry.setTeamName(player.getTeamId() != null ? teamRepository.findNameById(player.getTeamId()) : "Free Agent");
+                    newEntry.setActive(true);
+                    newEntry.setCurrentRating(player.getRating());
+                    newEntry.setBestEverRating(player.getRating());
+                    newEntry.setSeasonOfBestEverRating(Integer.parseInt(getCurrentSeason()));
+                    newEntry.setAge(player.getAge());
+                    return scorerLeaderboardRepository.save(newEntry);
+                });
                 scorerLeaderboardEntry.setAge(player.getAge());
                 scorerLeaderboardEntry.setName(player.getName());
 
@@ -4293,6 +4886,10 @@ public class CompetitionController {
 
     // ==================== TEAM TALK ====================
 
+    public void resetTeamTalkUsed() {
+        teamTalkUsedThisRound = false;
+    }
+
     @GetMapping("/teamTalkStatus")
     public Map<String, Object> getTeamTalkStatus() {
         Map<String, Object> status = new HashMap<>();
@@ -4782,6 +5379,14 @@ public class CompetitionController {
                     + "Check the available jobs to find a new position.";
             managerFired = true;
 
+            // Also set managerFired on GameCalendar so GameAdvanceService pauses
+            List<GameCalendar> calendars = gameCalendarRepository.findBySeason(season);
+            if (!calendars.isEmpty()) {
+                GameCalendar cal = calendars.get(0);
+                cal.setManagerFired(true);
+                gameCalendarRepository.save(cal);
+            }
+
             // Remove human manager from team
             Human humanManager = humanRepository.findAllByTeamIdAndTypeId(HUMAN_TEAM_ID, TypeNames.MANAGER_TYPE)
                     .stream().findFirst().orElse(null);
@@ -4925,9 +5530,18 @@ public class CompetitionController {
     /**
      * Simulates a matchday: just calls simulateRound (same as old play() logic).
      */
+    @Transactional
     public void simulateMatchday(long competitionId, int matchday, int season) {
         System.out.println("=== simulateMatchday: competitionId=" + competitionId
                 + ", matchday=" + matchday + ", season=" + season + " ===");
+
+        // Guard: skip if this round was already simulated (prevents duplicate detail records)
+        List<CompetitionTeamInfoDetail> existing = competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, matchday, season);
+        if (!existing.isEmpty()) {
+            System.out.println("Round already simulated, skipping");
+            return;
+        }
 
         Competition competition = competitionRepository.findById(competitionId).orElse(null);
         if (competition == null) return;

@@ -10,6 +10,8 @@ public class ScheduleView {
     private String competitionName;
     private String score;
     private String date;
+    private String homeTeamAbbr;   // first 3 letters of home team
+    private String awayTeamAbbr;   // first 3 letters of away team
 
     // Fields needed for match event lookup
     private long competitionId;

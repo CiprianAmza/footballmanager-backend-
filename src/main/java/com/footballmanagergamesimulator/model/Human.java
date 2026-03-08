@@ -64,6 +64,10 @@ public class Human {
     private String tacticStyle;
     private int managerReputation = 500;
 
+    // Manager responsibilities
+    @Column(columnDefinition = "boolean default true")
+    private boolean attendPressConferences = true;
+
     @Column(name = "retired")
     @JsonProperty("isRetired")
     private boolean retired;

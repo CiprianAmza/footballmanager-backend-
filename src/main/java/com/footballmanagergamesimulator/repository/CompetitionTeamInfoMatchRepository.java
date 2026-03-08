@@ -20,4 +20,9 @@ public interface CompetitionTeamInfoMatchRepository extends JpaRepository<Compet
             @Param("competitionId") long competitionId,
             @Param("round") long round,
             @Param("seasonNumber") String seasonNumber);
+
+    @Query("SELECT DISTINCT c.round FROM CompetitionTeamInfoMatch c WHERE c.competitionId = :competitionId AND c.seasonNumber = :seasonNumber")
+    List<Long> findDistinctRoundsByCompetitionIdAndSeasonNumber(
+            @Param("competitionId") long competitionId,
+            @Param("seasonNumber") String seasonNumber);
 }

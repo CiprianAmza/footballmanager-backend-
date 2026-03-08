@@ -165,6 +165,44 @@ public class ManagerController {
     }
 
     /**
+     * Get manager responsibilities/preferences for human team manager
+     */
+    @GetMapping("/responsibilities/{teamId}")
+    public Map<String, Object> getResponsibilities(@PathVariable long teamId) {
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        if (managers.isEmpty()) {
+            return Map.of("error", "No manager found");
+        }
+        Human manager = managers.get(0);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("attendPressConferences", manager.isAttendPressConferences());
+        return result;
+    }
+
+    /**
+     * Update manager responsibilities/preferences
+     */
+    @PostMapping("/responsibilities/{teamId}")
+    public Map<String, Object> updateResponsibilities(@PathVariable long teamId, @RequestBody Map<String, Object> body) {
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        if (managers.isEmpty()) {
+            return Map.of("error", "No manager found");
+        }
+        Human manager = managers.get(0);
+
+        if (body.containsKey("attendPressConferences")) {
+            manager.setAttendPressConferences((Boolean) body.get("attendPressConferences"));
+        }
+
+        humanRepository.save(manager);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("attendPressConferences", manager.isAttendPressConferences());
+        return result;
+    }
+
+    /**
      * All managers who have managed a specific team
      */
     @GetMapping("/teamHistory/{teamId}")

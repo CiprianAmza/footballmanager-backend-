@@ -24,6 +24,8 @@ public class MatchService {
     CompetitionRepository competitionRepository;
     @Autowired
     CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
+    @Autowired
+    CalendarService calendarService;
 
     public List<ScheduleView> getScheduleViewsFromCompetitionTeamInfoMatchesAndTeamId(List<CompetitionTeamInfoMatch> competitionTeamInfoMatches, long teamId, long seasonNumber) {
 
@@ -39,9 +41,20 @@ public class MatchService {
             String competitionName = competitionRepository.findNameById(competitionTeamInfoMatch.getCompetitionId());
             scheduleView.setCompetitionName(competitionName);
 
-            scheduleView.setHomeOrAway(competitionTeamInfoMatch.getTeam1Id() == teamId ? "H" : "A");
+            String ownTeamName = teamRepository.findNameById(teamId);
+            boolean isHome = competitionTeamInfoMatch.getTeam1Id() == teamId;
+            scheduleView.setHomeOrAway(isHome ? "H" : "A");
 
-            CompetitionTeamInfoDetail competitionTeamInfoDetail = competitionTeamInfoDetailRepository.findCompetitionTeamInfoDetailByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(competitionTeamInfoMatch.getCompetitionId(), competitionTeamInfoMatch.getRound(), competitionTeamInfoMatch.getTeam1Id(), competitionTeamInfoMatch.getTeam2Id(), seasonNumber);
+            // Set team abbreviations (first 3 letters) for display
+            if (isHome) {
+                scheduleView.setHomeTeamAbbr(abbreviateTeamName(ownTeamName));
+                scheduleView.setAwayTeamAbbr(abbreviateTeamName(opponentTeamName));
+            } else {
+                scheduleView.setHomeTeamAbbr(abbreviateTeamName(opponentTeamName));
+                scheduleView.setAwayTeamAbbr(abbreviateTeamName(ownTeamName));
+            }
+
+            CompetitionTeamInfoDetail competitionTeamInfoDetail = competitionTeamInfoDetailRepository.findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(competitionTeamInfoMatch.getCompetitionId(), competitionTeamInfoMatch.getRound(), competitionTeamInfoMatch.getTeam1Id(), competitionTeamInfoMatch.getTeam2Id(), seasonNumber).stream().findFirst().orElse(null);
             String score = "-";
             if (competitionTeamInfoDetail != null) {
                 score = competitionTeamInfoDetail.getScore();
@@ -54,7 +67,13 @@ public class MatchService {
             }
             scheduleView.setScore(score);
 
-            scheduleView.setDate(String.valueOf(competitionTeamInfoMatch.getRound()));
+            // Use calendar day for proper date display instead of round number
+            int matchDay = competitionTeamInfoMatch.getDay();
+            if (matchDay > 0) {
+                scheduleView.setDate(calendarService.getDateDisplay(matchDay));
+            } else {
+                scheduleView.setDate("Matchday " + competitionTeamInfoMatch.getRound());
+            }
 
             // Populate fields for match event lookup
             scheduleView.setCompetitionId(competitionTeamInfoMatch.getCompetitionId());
@@ -97,13 +116,30 @@ public class MatchService {
             entry.setOpponentTeamId(opponentTeamId);
 
             // Home/Away
-            entry.setHomeOrAway(match.getTeam1Id() == teamId ? "H" : "A");
+            boolean isHomeCalendar = match.getTeam1Id() == teamId;
+            entry.setHomeOrAway(isHomeCalendar ? "H" : "A");
+
+            // Team abbreviations
+            String ownTeamNameCal = teamRepository.findNameById(teamId);
+            if (isHomeCalendar) {
+                entry.setHomeTeamAbbr(abbreviateTeamName(ownTeamNameCal));
+                entry.setAwayTeamAbbr(abbreviateTeamName(opponentTeamName));
+            } else {
+                entry.setHomeTeamAbbr(abbreviateTeamName(opponentTeamName));
+                entry.setAwayTeamAbbr(abbreviateTeamName(ownTeamNameCal));
+            }
+
+            // Calendar date display
+            int matchDayCal = match.getDay();
+            if (matchDayCal > 0) {
+                entry.setDateDisplay(calendarService.getDateDisplay(matchDayCal));
+            }
 
             // Score and result
             CompetitionTeamInfoDetail detail = competitionTeamInfoDetailRepository
-                    .findCompetitionTeamInfoDetailByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
+                    .findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
                             match.getCompetitionId(), match.getRound(),
-                            match.getTeam1Id(), match.getTeam2Id(), seasonNumber);
+                            match.getTeam1Id(), match.getTeam2Id(), seasonNumber).stream().findFirst().orElse(null);
 
             if (detail != null && detail.getScore() != null && !detail.getScore().equals("-")) {
                 String score = detail.getScore();
@@ -139,6 +175,12 @@ public class MatchService {
         entries.sort(Comparator.comparingInt(CalendarEntryView::getRoundNumber));
 
         return entries;
+    }
+
+    private String abbreviateTeamName(String name) {
+        if (name == null || name.isEmpty()) return "???";
+        // Take first 3 characters, uppercase
+        return name.substring(0, Math.min(3, name.length())).toUpperCase();
     }
 
     private String mapCompetitionType(long typeId) {

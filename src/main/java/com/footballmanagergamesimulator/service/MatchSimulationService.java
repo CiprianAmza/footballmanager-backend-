@@ -188,8 +188,9 @@ public class MatchSimulationService {
 
         // Get score from CompetitionTeamInfoDetail
         CompetitionTeamInfoDetail detail = competitionTeamInfoDetailRepository
-                .findCompetitionTeamInfoDetailByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
-                        competitionId, roundNumber, team1Id, team2Id, season);
+                .findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(
+                        competitionId, roundNumber, team1Id, team2Id, season)
+                .stream().findFirst().orElse(null);
 
         if (detail != null) {
             result.put("score", detail.getScore());

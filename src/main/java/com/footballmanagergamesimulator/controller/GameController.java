@@ -74,7 +74,18 @@ public class GameController {
             @PathVariable long id,
             @RequestBody Map<String, String> body) {
         String responseType = body.get("responseType");
-        return pressConferenceService.respondToPressConference(id, responseType);
+        Map<String, Object> pressResult = pressConferenceService.respondToPressConference(id, responseType);
+
+        // Auto-unpause and continue advancing after press conference response
+        int season = getCurrentSeason();
+        GameCalendar cal = calendarService.getOrCreateCalendar(season);
+        cal.setPaused(false);
+        gameCalendarRepository.save(cal);
+
+        // Include updated game state so frontend can refresh
+        Map<String, Object> gameState = gameAdvanceService.getGameState(season);
+        pressResult.put("gameState", gameState);
+        return pressResult;
     }
 
     // ==================== YOUTH ACADEMY ====================
@@ -146,7 +157,12 @@ public class GameController {
 
     private int getCurrentSeason() {
         List<GameCalendar> calendars = gameCalendarRepository.findAll();
-        if (!calendars.isEmpty()) return calendars.get(0).getSeason();
+        if (!calendars.isEmpty()) {
+            return calendars.stream()
+                    .mapToInt(GameCalendar::getSeason)
+                    .max()
+                    .orElse(1);
+        }
         return 1;
     }
 }

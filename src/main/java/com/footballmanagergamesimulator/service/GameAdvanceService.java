@@ -2,11 +2,9 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.model.*;
-import com.footballmanagergamesimulator.repository.CalendarEventRepository;
-import com.footballmanagergamesimulator.repository.GameCalendarRepository;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.repository.InjuryRepository;
+import com.footballmanagergamesimulator.repository.*;;
 import com.footballmanagergamesimulator.util.TypeNames;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -38,6 +36,12 @@ public class GameAdvanceService {
 
     @Autowired
     HumanRepository humanRepository;
+
+    @Autowired
+    TeamRepository teamRepository;
+
+    @Autowired
+    TeamFacilitiesRepository teamFacilitiesRepository;
 
     @Autowired
     @Lazy
@@ -74,6 +78,29 @@ public class GameAdvanceService {
     @Autowired
     @Lazy
     SuspensionService suspensionService;
+
+    @Autowired
+    HumanService humanService;
+
+    @Autowired
+    CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
+
+    // Cache of competition IDs the human team participates in (per season)
+    private Set<Long> humanTeamCompetitionIds = null;
+    private int humanTeamCompetitionIdsSeason = -1;
+
+    private Set<Long> getHumanTeamCompetitionIds(int season) {
+        if (humanTeamCompetitionIds != null && humanTeamCompetitionIdsSeason == season) {
+            return humanTeamCompetitionIds;
+        }
+        List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
+                .findAllBySeasonNumberAndTeamId(String.valueOf(season), HUMAN_TEAM_ID);
+        humanTeamCompetitionIds = matches.stream()
+                .map(CompetitionTeamInfoMatch::getCompetitionId)
+                .collect(Collectors.toSet());
+        humanTeamCompetitionIdsSeason = season;
+        return humanTeamCompetitionIds;
+    }
 
     /**
      * Important event types that should stop auto-advancing and show to the user.
@@ -154,6 +181,9 @@ public class GameAdvanceService {
                 for (CalendarEvent me : matchEvents) {
                     calendarService.markEventCompleted(me.getId());
                 }
+
+                // Reset team talk so it can be used again before next match
+                competitionController.resetTeamTalkUsed();
             }
 
             // Advance to next phase (MORNING→AFTERNOON→EVENING→next day MORNING)
@@ -198,7 +228,8 @@ public class GameAdvanceService {
         switch (event.getEventType()) {
             case "TRAINING_SESSION":
                 trainingService.processTrainingSession(HUMAN_TEAM_ID, calendar.getSeason());
-                // Also process for AI teams (simplified)
+                // Train AI teams using the original trainPlayer logic
+                trainAllAITeams(calendar.getSeason());
                 result.put("details", "Training session completed");
                 break;
             case "YOUTH_ACADEMY_REPORT":
@@ -207,9 +238,37 @@ public class GameAdvanceService {
                 result.put("details", "Youth academy report generated");
                 break;
             case "PRESS_CONFERENCE":
+                // Check if manager has delegated press conferences to assistant
+                List<Human> humanManagers = humanRepository.findAllByTeamIdAndTypeId(HUMAN_TEAM_ID, TypeNames.MANAGER_TYPE);
+                if (!humanManagers.isEmpty() && !humanManagers.get(0).isAttendPressConferences()) {
+                    result.put("details", "Press conference handled by assistant manager");
+                    break;
+                }
+
+                // Only show press conference if human team actually plays in this competition
+                long pressCompId = event.getCompetitionId() != null ? event.getCompetitionId() : 0;
+                Set<Long> humanCompIds = getHumanTeamCompetitionIds(calendar.getSeason());
+
+                if (pressCompId > 0 && !humanCompIds.contains(pressCompId)) {
+                    // Human team doesn't play in this competition - skip silently
+                    result.put("details", "Press conference skipped (not in competition)");
+                    break;
+                }
+
+                // Check if human team actually plays in this round of this competition
+                if (pressCompId > 0 && event.getMatchday() > 0) {
+                    List<CompetitionTeamInfoMatch> roundMatches = competitionTeamInfoMatchRepository
+                            .findAllByCompetitionIdAndRoundAndSeasonNumber(pressCompId, event.getMatchday(), String.valueOf(calendar.getSeason()));
+                    boolean humanPlaysInRound = roundMatches.stream()
+                            .anyMatch(m -> m.getTeam1Id() == HUMAN_TEAM_ID || m.getTeam2Id() == HUMAN_TEAM_ID);
+                    if (!humanPlaysInRound) {
+                        result.put("details", "Press conference skipped (team not playing in this round)");
+                        break;
+                    }
+                }
+
                 PressConference pc = pressConferenceService.generatePreMatchPressConference(HUMAN_TEAM_ID,
-                        event.getCompetitionId() != null ? event.getCompetitionId() : 0,
-                        event.getMatchday(), calendar.getSeason());
+                        pressCompId, event.getMatchday(), calendar.getSeason());
                 result.put("details", "Press conference available");
                 result.put("pressConferenceId", pc.getId());
                 result.put("awaitingInput", true);
@@ -289,7 +348,9 @@ public class GameAdvanceService {
                 break;
             case "SEASON_END":
                 processSeasonEnd(event.getSeason());
-                result.put("details", "Season " + event.getSeason() + " has ended - end-of-season processing complete");
+                result.put("details", "Season " + event.getSeason() + " has ended. New season " + (event.getSeason() + 1) + " started!");
+                result.put("newSeason", event.getSeason() + 1);
+                result.put("awaitingInput", true);
                 break;
             default:
                 result.put("details", event.getDescription());
@@ -416,6 +477,54 @@ public class GameAdvanceService {
         return healed;
     }
 
+    private int aiTrainingCounter = 0;
+    // Original: ~11 trainings/season (every 3rd round of 34).
+    // Now: ~265 sessions/season, every 3rd = ~88 trainings/season.
+    // Scale factor = 11/88 ≈ 0.125 to keep same total rating change per season.
+    private static final int AI_TRAINING_FREQUENCY = 3; // every 3rd session (~88/season)
+    private static final double AI_TRAINING_SCALE = 11.0 / 88.0; // ~0.125
+
+    /**
+     * Trains all AI team players using the original trainPlayer logic.
+     * Runs every 5th training session (more frequent than before) but with scaled-down
+     * rating changes to compensate for the higher frequency.
+     * Single batch save for all players across all teams.
+     */
+    private void trainAllAITeams(int season) {
+        aiTrainingCounter++;
+        if (aiTrainingCounter % AI_TRAINING_FREQUENCY != 0) return;
+
+        List<Team> allTeams = teamRepository.findAll();
+        List<Human> allPlayersToSave = new ArrayList<>();
+
+        for (Team team : allTeams) {
+            if (team.getId() == HUMAN_TEAM_ID) continue;
+
+            TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(team.getId());
+            if (facilities == null) continue;
+
+            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+            for (Human player : players) {
+                if (player.isRetired()) continue;
+                double ratingBefore = player.getRating();
+                player = humanService.trainPlayer(player, facilities, season);
+                // Scale down the rating change to compensate for more frequent training
+                double ratingChange = player.getRating() - ratingBefore;
+                if (ratingChange != 0) {
+                    double scaledRating = ratingBefore + (ratingChange * AI_TRAINING_SCALE);
+                    player.setRating(scaledRating);
+                    if (scaledRating > player.getBestEverRating()) {
+                        player.setBestEverRating(scaledRating);
+                        player.setSeasonOfBestEverRating(season);
+                    }
+                }
+                allPlayersToSave.add(player);
+            }
+        }
+
+        if (!allPlayersToSave.isEmpty()) humanRepository.saveAll(allPlayersToSave);
+    }
+
     /**
      * Processes SEASON_START event: generates the full season calendar with all fixtures,
      * training sessions, injury updates, and other periodic events.
@@ -445,10 +554,32 @@ public class GameAdvanceService {
     private void processSeasonEnd(int season) {
         System.out.println("=== SEASON_END: Processing end of season " + season + " ===");
 
-        // Trigger the end-of-season flow via CompetitionController
-        // The existing play() method handles all end-of-season logic when round > 50
-        // For now, we log and let the existing flow handle the complex season transition
-        System.out.println("=== Season " + season + " ended. Transfer window and new season setup pending. ===");
+        // Trigger the full end-of-season + new season transition via CompetitionController
+        // This handles: final standings, relegation/promotion, transfers, budget refresh,
+        // historical data, player aging/retirement, regens, contract expiries, etc.
+        competitionController.processEndOfSeasonAndStartNew(season);
+
+        int newSeason = season + 1;
+
+        // Create a new GameCalendar for the new season
+        GameCalendar newCalendar = new GameCalendar();
+        newCalendar.setSeason(newSeason);
+        newCalendar.setCurrentDay(1);
+        newCalendar.setCurrentPhase("MORNING");
+        newCalendar.setSeasonPhase("PRE_SEASON");
+        newCalendar.setTransferWindowOpen(false);
+        newCalendar.setManagerFired(false);
+        newCalendar.setPaused(false);
+        gameCalendarRepository.save(newCalendar);
+
+        // Generate the calendar events for the new season
+        fixtureSchedulingService.generateSeasonCalendar(newSeason);
+
+        // Invalidate cached competition IDs since season changed
+        humanTeamCompetitionIds = null;
+        humanTeamCompetitionIdsSeason = -1;
+
+        System.out.println("=== Season transition complete. New season " + newSeason + " started. ===");
     }
 
     @SuppressWarnings("unchecked")
