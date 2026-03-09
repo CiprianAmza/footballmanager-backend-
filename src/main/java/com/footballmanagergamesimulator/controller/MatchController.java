@@ -125,9 +125,9 @@ public class MatchController {
 
         // Form from TeamCompetitionDetail
         TeamCompetitionDetail homeDetail = teamCompetitionDetailRepository
-                .findTeamCompetitionDetailByTeamIdAndCompetitionId(nextMatch.getTeam1Id(), nextMatch.getCompetitionId());
+                .findFirstByTeamIdAndCompetitionId(nextMatch.getTeam1Id(), nextMatch.getCompetitionId());
         TeamCompetitionDetail awayDetail = teamCompetitionDetailRepository
-                .findTeamCompetitionDetailByTeamIdAndCompetitionId(nextMatch.getTeam2Id(), nextMatch.getCompetitionId());
+                .findFirstByTeamIdAndCompetitionId(nextMatch.getTeam2Id(), nextMatch.getCompetitionId());
 
         if (homeDetail != null) {
             preview.setHomeForm(homeDetail.getForm() != null ? homeDetail.getForm() : "");

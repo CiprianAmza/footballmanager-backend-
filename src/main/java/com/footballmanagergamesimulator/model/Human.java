@@ -58,6 +58,16 @@ public class Human {
     private double bestEverRating;
     private int seasonOfBestEverRating;
 
+    // Playing time tracking (for player happiness system)
+    @Column(columnDefinition = "int default 0")
+    private int consecutiveBenched; // number of consecutive matches not played
+
+    @Column(columnDefinition = "boolean default false")
+    private boolean wantsTransfer; // player has requested a transfer
+
+    @Column(columnDefinition = "int default 0")
+    private int seasonMatchesPlayed; // matches played this season
+
     /**
      * Manager information
      */

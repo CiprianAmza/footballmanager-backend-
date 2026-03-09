@@ -8,11 +8,14 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.NationalTeamCallupRepository;
+import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
 
@@ -24,11 +27,13 @@ import java.util.stream.Collectors;
 @Service
 public class NationalTeamService {
 
-    private static final long HUMAN_TEAM_ID = 1L;
     private static final double MIN_RATING_FOR_CALLUP = 70.0;
     private static final double INJURY_CHANCE = 0.10; // 10%
     private static final double MORALE_BOOST_CHANCE = 0.05; // 5%
     private static final int INTERNATIONAL_BREAK_DURATION = 14; // days
+
+    @Autowired
+    private UserContext userContext;
 
     @Autowired
     private NationalTeamCallupRepository nationalTeamCallupRepository;
@@ -62,8 +67,9 @@ public class NationalTeamService {
                 .collect(Collectors.toList());
 
         List<NationalTeamCallup> callups = new ArrayList<>();
-        List<String> humanTeamCalledUp = new ArrayList<>();
-        List<String> humanTeamInjured = new ArrayList<>();
+        // Track callups and injuries per human team
+        Map<Long, List<String>> humanTeamCalledUpMap = new HashMap<>();
+        Map<Long, List<String>> humanTeamInjuredMap = new HashMap<>();
 
         for (Human player : eligiblePlayers) {
             // Check if player is already injured
@@ -86,8 +92,8 @@ public class NationalTeamService {
             callup.setInjuredDuringCallup(false);
 
             // Track human team callups
-            if (player.getTeamId() == HUMAN_TEAM_ID) {
-                humanTeamCalledUp.add(player.getName());
+            if (userContext.isHumanTeam(player.getTeamId())) {
+                humanTeamCalledUpMap.computeIfAbsent(player.getTeamId(), k -> new ArrayList<>()).add(player.getName());
             }
 
             // 10% chance of injury during international duty
@@ -104,8 +110,9 @@ public class NationalTeamService {
                 injury.setSeasonNumber(season);
                 injuryRepository.save(injury);
 
-                if (player.getTeamId() == HUMAN_TEAM_ID) {
-                    humanTeamInjured.add(player.getName() + " (" + injuryDays + " days)");
+                if (userContext.isHumanTeam(player.getTeamId())) {
+                    humanTeamInjuredMap.computeIfAbsent(player.getTeamId(), k -> new ArrayList<>())
+                            .add(player.getName() + " (" + injuryDays + " days)");
                 }
             }
 
@@ -120,9 +127,12 @@ public class NationalTeamService {
             callups.add(callup);
         }
 
-        // Send inbox message to human manager
-        if (!humanTeamCalledUp.isEmpty()) {
-            sendCallupNotification(season, humanTeamCalledUp, humanTeamInjured);
+        // Send inbox message to each human manager whose players were called up
+        for (Map.Entry<Long, List<String>> entry : humanTeamCalledUpMap.entrySet()) {
+            long htId = entry.getKey();
+            List<String> calledUp = entry.getValue();
+            List<String> injured = humanTeamInjuredMap.getOrDefault(htId, List.of());
+            sendCallupNotification(htId, season, calledUp, injured);
         }
 
         return callups;
@@ -163,7 +173,7 @@ public class NationalTeamService {
     /**
      * Send an inbox notification listing called-up players and any injuries.
      */
-    private void sendCallupNotification(int season, List<String> calledUp, List<String> injured) {
+    private void sendCallupNotification(long teamId, int season, List<String> calledUp, List<String> injured) {
         StringBuilder content = new StringBuilder("The following players have been called up for international duty:\n\n");
 
         for (String name : calledUp) {
@@ -180,7 +190,7 @@ public class NationalTeamService {
         content.append("\nPlayers will return after the international break.");
 
         ManagerInbox inbox = new ManagerInbox();
-        inbox.setTeamId(HUMAN_TEAM_ID);
+        inbox.setTeamId(teamId);
         inbox.setSeasonNumber(season);
         inbox.setRoundNumber(0);
         inbox.setTitle("International Break: Player Callups");

@@ -303,31 +303,31 @@ public class FixtureSchedulingService {
 
     /**
      * Generates transfer window open/close events.
-     * Summer window: days 1 (open) to 30 (close)
+     * End-of-season window: days 341 (open) to 355 (close) — after SEASON_END, before SEASON_TRANSITION
      * Winter window: days 201 (open) to 210 (close)
      */
     private List<CalendarEvent> generateTransferWindowEvents(int season) {
         List<CalendarEvent> events = new ArrayList<>();
 
-        // Summer transfer window open - day 1
+        // End-of-season transfer window open - day 341 (after SEASON_END at day 340)
         CalendarEvent summerOpen = new CalendarEvent();
         summerOpen.setSeason(season);
-        summerOpen.setDay(1);
+        summerOpen.setDay(341);
         summerOpen.setPhase("MORNING");
         summerOpen.setEventType("TRANSFER_WINDOW_OPEN");
         summerOpen.setStatus("PENDING");
-        summerOpen.setTitle("Summer Transfer Window Opens");
+        summerOpen.setTitle("Transfer Window Opens");
         summerOpen.setPriority(1);
         events.add(summerOpen);
 
-        // Summer transfer window close - day 30
+        // End-of-season transfer window close - day 355
         CalendarEvent summerClose = new CalendarEvent();
         summerClose.setSeason(season);
-        summerClose.setDay(30);
+        summerClose.setDay(355);
         summerClose.setPhase("MORNING");
         summerClose.setEventType("TRANSFER_WINDOW_CLOSE");
         summerClose.setStatus("PENDING");
-        summerClose.setTitle("Summer Transfer Window Closes");
+        summerClose.setTitle("Transfer Window Closes");
         summerClose.setPriority(1);
         events.add(summerClose);
 
@@ -358,7 +358,16 @@ public class FixtureSchedulingService {
 
     /**
      * Generates season boundary events: season start, season end,
-     * awards ceremony, and contract expiry check.
+     * awards ceremony, season transition, and contract expiry check.
+     *
+     * Timeline:
+     *   Day 1:   SEASON_START
+     *   Day 335: AWARDS_CEREMONY
+     *   Day 340: SEASON_END — final standings, AI transfers (game pauses)
+     *   Day 341: TRANSFER_WINDOW_OPEN — user can make transfers
+     *   Day 345: CONTRACT_EXPIRY_CHECK
+     *   Day 355: TRANSFER_WINDOW_CLOSE
+     *   Day 360: SEASON_TRANSITION — creates new season calendar
      */
     private List<CalendarEvent> generateSeasonBoundaryEvents(int season) {
         List<CalendarEvent> events = new ArrayList<>();
@@ -374,7 +383,7 @@ public class FixtureSchedulingService {
         seasonStart.setPriority(1);
         events.add(seasonStart);
 
-        // Season end - day 340
+        // Season end - day 340 (final standings + AI transfers)
         CalendarEvent seasonEnd = new CalendarEvent();
         seasonEnd.setSeason(season);
         seasonEnd.setDay(340);
@@ -406,6 +415,17 @@ public class FixtureSchedulingService {
         contractCheck.setTitle("Contract Expiry Check");
         contractCheck.setPriority(1);
         events.add(contractCheck);
+
+        // Season transition - day 360 (creates new season after transfer window)
+        CalendarEvent seasonTransition = new CalendarEvent();
+        seasonTransition.setSeason(season);
+        seasonTransition.setDay(360);
+        seasonTransition.setPhase("EVENING");
+        seasonTransition.setEventType("SEASON_TRANSITION");
+        seasonTransition.setStatus("PENDING");
+        seasonTransition.setTitle("New Season Preparation");
+        seasonTransition.setPriority(1);
+        events.add(seasonTransition);
 
         return events;
     }

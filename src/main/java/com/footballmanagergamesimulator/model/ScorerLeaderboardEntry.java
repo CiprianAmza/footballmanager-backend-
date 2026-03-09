@@ -13,9 +13,6 @@ public class ScorerLeaderboardEntry {
     @GeneratedValue(strategy= GenerationType.IDENTITY)
     private long id;
 
-    @Version
-    private Long version;
-
     private long playerId;
     private String name;
     private String position;

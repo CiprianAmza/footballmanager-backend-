@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.repository.FacilityUpgradeRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -26,9 +27,11 @@ import java.util.List;
 @Service
 public class FacilityUpgradeService {
 
-    private static final long HUMAN_TEAM_ID = 1L;
     private static final long BASE_UPGRADE_COST = 500000L;
     private static final int BASE_UPGRADE_DURATION_DAYS = 30;
+
+    @Autowired
+    private UserContext userContext;
 
     @Autowired
     private FacilityUpgradeRepository facilityUpgradeRepository;
@@ -131,7 +134,7 @@ public class FacilityUpgradeService {
                 teamFacilitiesRepository.save(facilities);
 
                 // Send inbox notification
-                if (teamId == HUMAN_TEAM_ID) {
+                if (userContext.isHumanTeam(teamId)) {
                     sendUpgradeCompleteNotification(upgrade);
                 }
             }
@@ -210,7 +213,7 @@ public class FacilityUpgradeService {
         String effectDescription = getEffectDescription(upgrade.getFacilityType(), upgrade.getTargetLevel());
 
         ManagerInbox inbox = new ManagerInbox();
-        inbox.setTeamId(HUMAN_TEAM_ID);
+        inbox.setTeamId(upgrade.getTeamId());
         inbox.setSeasonNumber(upgrade.getStartSeason());
         inbox.setRoundNumber(0);
         inbox.setTitle("Facility Upgrade Complete: " + facilityName);

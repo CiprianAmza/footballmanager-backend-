@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.SponsorshipRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -21,7 +22,8 @@ import java.util.Random;
 @Service
 public class SponsorshipService {
 
-    private static final long HUMAN_TEAM_ID = 1L;
+    @Autowired
+    private UserContext userContext;
 
     private static final String[] SPONSOR_NAMES = {
             "TechCorp", "SportsDrink Plus", "GlobalBank", "AirTravel Co",
@@ -83,7 +85,7 @@ public class SponsorshipService {
         }
 
         // Send inbox message to the human manager
-        if (teamId == HUMAN_TEAM_ID) {
+        if (userContext.isHumanTeam(teamId)) {
             StringBuilder content = new StringBuilder("New sponsorship offer(s) received:\n\n");
             for (Sponsorship offer : offers) {
                 content.append("- ").append(offer.getSponsorName())

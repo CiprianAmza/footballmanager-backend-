@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.Suspension;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.SuspensionRepository;
+import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -20,8 +21,10 @@ import java.util.stream.Collectors;
 @Service
 public class SuspensionService {
 
-    private static final long HUMAN_TEAM_ID = 1L;
     private static final int YELLOW_CARD_ACCUMULATION = 5; // 5 yellows = 1 match ban
+
+    @Autowired
+    private UserContext userContext;
 
     @Autowired
     private SuspensionRepository suspensionRepository;
@@ -58,7 +61,7 @@ public class SuspensionService {
 
                 if ("red_card".equals(event.getEventType())) {
                     Suspension suspension = createRedCardSuspension(event, competitionId, season);
-                    if (event.getTeamId() == HUMAN_TEAM_ID) {
+                    if (userContext.isHumanTeam(event.getTeamId())) {
                         sendSuspensionNotification(suspension);
                     }
                 }
@@ -67,7 +70,7 @@ public class SuspensionService {
                     long yellowCount = countYellowCards(event.getPlayerId(), competitionId, season);
                     if (yellowCount > 0 && yellowCount % YELLOW_CARD_ACCUMULATION == 0) {
                         Suspension suspension = createYellowAccumulationSuspension(event, competitionId, season);
-                        if (event.getTeamId() == HUMAN_TEAM_ID) {
+                        if (userContext.isHumanTeam(event.getTeamId())) {
                             sendSuspensionNotification(suspension);
                         }
                     }
@@ -100,7 +103,7 @@ public class SuspensionService {
                 Suspension suspension = createRedCardSuspension(event, competitionId, season);
                 newSuspensions.add(suspension);
 
-                if (event.getTeamId() == HUMAN_TEAM_ID) {
+                if (userContext.isHumanTeam(event.getTeamId())) {
                     sendSuspensionNotification(suspension);
                 }
             }
@@ -112,7 +115,7 @@ public class SuspensionService {
                     Suspension suspension = createYellowAccumulationSuspension(event, competitionId, season);
                     newSuspensions.add(suspension);
 
-                    if (event.getTeamId() == HUMAN_TEAM_ID) {
+                    if (userContext.isHumanTeam(event.getTeamId())) {
                         sendSuspensionNotification(suspension);
                     }
                 }
@@ -180,7 +183,7 @@ public class SuspensionService {
                 s.setActive(false);
 
                 // Notify human team when suspension is served
-                if (s.getTeamId() == HUMAN_TEAM_ID) {
+                if (userContext.isHumanTeam(s.getTeamId())) {
                     sendSuspensionServedNotification(s);
                 }
             }
@@ -286,7 +289,7 @@ public class SuspensionService {
         }
 
         ManagerInbox inbox = new ManagerInbox();
-        inbox.setTeamId(HUMAN_TEAM_ID);
+        inbox.setTeamId(suspension.getTeamId());
         inbox.setSeasonNumber(suspension.getSeasonNumber());
         inbox.setRoundNumber(0);
         inbox.setTitle("Player Suspended: " + suspension.getPlayerName());
@@ -303,7 +306,7 @@ public class SuspensionService {
      */
     private void sendSuspensionServedNotification(Suspension suspension) {
         ManagerInbox inbox = new ManagerInbox();
-        inbox.setTeamId(HUMAN_TEAM_ID);
+        inbox.setTeamId(suspension.getTeamId());
         inbox.setSeasonNumber(suspension.getSeasonNumber());
         inbox.setRoundNumber(0);
         inbox.setTitle("Suspension Served: " + suspension.getPlayerName());

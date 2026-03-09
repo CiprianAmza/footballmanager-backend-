@@ -106,8 +106,8 @@ public class MatchService {
             String competitionName = competitionRepository.findNameById(match.getCompetitionId());
             entry.setCompetitionName(competitionName);
 
-            long typeId = competitionRepository.findTypeIdById(match.getCompetitionId());
-            entry.setCompetitionType(mapCompetitionType(typeId));
+            Long typeId = competitionRepository.findTypeIdById(match.getCompetitionId());
+            entry.setCompetitionType(mapCompetitionType(typeId != null ? typeId : 0L));
 
             // Opponent
             long opponentTeamId = match.getTeam1Id() == teamId ? match.getTeam2Id() : match.getTeam1Id();

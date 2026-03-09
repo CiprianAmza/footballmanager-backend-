@@ -2,6 +2,8 @@ package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.user.UserContext;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,7 +16,8 @@ import java.util.stream.Collectors;
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class LoanController {
 
-    private static final long HUMAN_TEAM_ID = 1L;
+    @Autowired
+    UserContext userContext;
 
     @Autowired
     HumanRepository humanRepository;
@@ -30,6 +33,9 @@ public class LoanController {
 
     @Autowired
     ManagerInboxRepository managerInboxRepository;
+
+    @Autowired
+    CompetitionController competitionController;
 
     /**
      * Get active loans where team is either parent or loan team
@@ -63,13 +69,12 @@ public class LoanController {
      * Human makes a loan offer for a player
      */
     @PostMapping("/offer")
-    public ResponseEntity<?> makeLoanOffer(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<?> makeLoanOffer(HttpServletRequest request, @RequestBody Map<String, Object> body) {
         long playerId = ((Number) body.get("playerId")).longValue();
         long loanFee = ((Number) body.get("loanFee")).longValue();
 
-        // Check transfer window is open (round > 50)
-        Round round = roundRepository.findById(1L).orElse(null);
-        if (round == null || round.getRound() <= 50) {
+        // Check transfer window is open
+        if (!competitionController.isTransferWindowOpen()) {
             return ResponseEntity.badRequest().body("Loan offers can only be made during the transfer window.");
         }
 
@@ -80,7 +85,7 @@ public class LoanController {
         }
 
         // Cannot loan your own player
-        if (player.getTeamId() == HUMAN_TEAM_ID) {
+        if (player.getTeamId() == userContext.getTeamId(request)) {
             return ResponseEntity.badRequest().body("You cannot loan your own player.");
         }
 
@@ -92,26 +97,29 @@ public class LoanController {
 
         // Get teams
         Team parentTeam = teamRepository.findById(player.getTeamId()).orElse(null);
-        Team humanTeam = teamRepository.findById(HUMAN_TEAM_ID).orElse(null);
+        Team humanTeam = teamRepository.findById(userContext.getTeamId(request)).orElse(null);
         if (parentTeam == null || humanTeam == null) {
             return ResponseEntity.badRequest().body("Team not found.");
         }
 
-        // AI decision: accept if loanFee >= 10% of transfer value AND player rating < team average
-        long minFee = (long) (player.getTransferValue() * 0.10);
-        boolean feeAcceptable = loanFee >= minFee;
+        // AI decision: accept if loanFee >= 5% of transfer value AND player NOT in top 15 by rating
+        long minFee = Math.max(1, (long) (player.getTransferValue() * 0.05));
+        long maxFee = (long) (player.getTransferValue() * 0.10);
+        boolean feeAcceptable = loanFee >= minFee && loanFee <= maxFee;
 
-        // Check if player is not in team's best 11 (rating below team average)
+        // Check if player is NOT in the team's top 15 by rating
         List<Human> teamPlayers = humanRepository.findAllByTeamIdAndTypeId(player.getTeamId(), 1L);
-        double teamAvgRating = teamPlayers.stream()
-                .mapToDouble(Human::getRating)
-                .average()
-                .orElse(0);
-        boolean notBest11 = player.getRating() < teamAvgRating;
+        List<Human> top15 = teamPlayers.stream()
+                .sorted((a, b) -> Double.compare(b.getRating(), a.getRating()))
+                .limit(15)
+                .toList();
+        boolean notInTop15 = top15.stream().noneMatch(p -> p.getId() == player.getId());
 
-        if (feeAcceptable && notBest11) {
+        Round round = roundRepository.findById(1L).orElse(new Round());
+
+        if (feeAcceptable && notInTop15) {
             // Accept the loan
-            player.setTeamId(HUMAN_TEAM_ID);
+            player.setTeamId(userContext.getTeamId(request));
             humanRepository.save(player);
 
             // Update finances
@@ -125,7 +133,7 @@ public class LoanController {
             loan.setPlayerName(player.getName());
             loan.setParentTeamId(parentTeam.getId());
             loan.setParentTeamName(parentTeam.getName());
-            loan.setLoanTeamId(HUMAN_TEAM_ID);
+            loan.setLoanTeamId(userContext.getTeamId(request));
             loan.setLoanTeamName(humanTeam.getName());
             loan.setSeasonNumber((int) round.getSeason());
             loan.setStatus("active");
@@ -134,7 +142,7 @@ public class LoanController {
 
             // Send inbox message
             ManagerInbox inbox = new ManagerInbox();
-            inbox.setTeamId(HUMAN_TEAM_ID);
+            inbox.setTeamId(userContext.getTeamId(request));
             inbox.setSeasonNumber((int) round.getSeason());
             inbox.setRoundNumber((int) round.getRound());
             inbox.setTitle("Loan Deal Completed");
@@ -148,9 +156,14 @@ public class LoanController {
             return ResponseEntity.ok(loan);
         } else {
             // Reject
-            String reason = !feeAcceptable
-                    ? "Loan fee too low. Minimum required: " + minFee
-                    : "The club considers this player too important to loan out.";
+            String reason;
+            if (!notInTop15) {
+                reason = "The club considers this player too important to loan out (top 15 in squad).";
+            } else if (loanFee < minFee) {
+                reason = "Loan fee too low. Minimum required: " + minFee + " (5% of value).";
+            } else {
+                reason = "Loan fee too high. Maximum acceptable: " + maxFee + " (10% of value).";
+            }
             return ResponseEntity.badRequest().body("Loan offer rejected. " + reason);
         }
     }

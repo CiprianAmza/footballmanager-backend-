@@ -2,6 +2,8 @@ package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.user.UserContext;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,7 +15,8 @@ import java.util.*;
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class TransferOfferController {
 
-    private static final long HUMAN_TEAM_ID = 1L;
+    @Autowired
+    UserContext userContext;
 
     @Autowired
     TransferOfferRepository transferOfferRepository;
@@ -35,6 +38,9 @@ public class TransferOfferController {
 
     @Autowired
     TeamFacilitiesRepository teamFacilitiesRepository;
+
+    @Autowired
+    CompetitionController competitionController;
 
     private final Random random = new Random();
 
@@ -72,9 +78,8 @@ public class TransferOfferController {
     }
 
     @PostMapping("/makeOffer")
-    public ResponseEntity<?> makeOffer(@RequestBody Map<String, Object> body) {
-        Round round = roundRepository.findById(1L).orElse(new Round());
-        if (round.getRound() <= 50) {
+    public ResponseEntity<?> makeOffer(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        if (!competitionController.isTransferWindowOpen()) {
             return ResponseEntity.badRequest().body("Transfer window is not open. You can only make offers during the transfer window (end of season).");
         }
 
@@ -87,7 +92,9 @@ public class TransferOfferController {
         }
 
         Human player = playerOpt.get();
-        if (player.getTeamId() == null || player.getTeamId() == HUMAN_TEAM_ID) {
+        long humanTeamId = userContext.getTeamId(request);
+
+        if (player.getTeamId() == null || player.getTeamId() == humanTeamId) {
             return ResponseEntity.badRequest().body("Cannot buy a player from your own team");
         }
 
@@ -95,7 +102,7 @@ public class TransferOfferController {
             return ResponseEntity.badRequest().body("Player is retired");
         }
 
-        Team humanTeam = teamRepository.findById(HUMAN_TEAM_ID).orElse(null);
+        Team humanTeam = teamRepository.findById(humanTeamId).orElse(null);
         if (humanTeam == null) {
             return ResponseEntity.badRequest().body("Human team not found");
         }
@@ -110,12 +117,13 @@ public class TransferOfferController {
         }
 
         long askingPrice = calculateTransferValue(player.getAge(), player.getPosition(), player.getRating());
+        Round round = roundRepository.findById(1L).orElse(new Round());
         int season = (int) round.getSeason();
 
         TransferOffer offer = new TransferOffer();
         offer.setPlayerId(player.getId());
         offer.setPlayerName(player.getName());
-        offer.setFromTeamId(HUMAN_TEAM_ID);
+        offer.setFromTeamId(humanTeamId);
         offer.setFromTeamName(humanTeam.getName());
         offer.setToTeamId(sellingTeam.getId());
         offer.setToTeamName(sellingTeam.getName());
@@ -131,7 +139,7 @@ public class TransferOfferController {
             offer.setStatus("accepted");
             transferOfferRepository.save(offer);
             executeTransfer(player, sellingTeam, humanTeam, offerAmount, season);
-            sendInboxMessage(HUMAN_TEAM_ID, season, (int) round.getRound(), "Transfer Accepted",
+            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Accepted",
                     sellingTeam.getName() + " have accepted your offer of " + offerAmount +
                     " for " + player.getName() + ". The transfer is complete!",
                     "transfer");
@@ -139,7 +147,7 @@ public class TransferOfferController {
             // Counter with asking price
             offer.setStatus("counter");
             transferOfferRepository.save(offer);
-            sendInboxMessage(HUMAN_TEAM_ID, season, (int) round.getRound(), "Transfer Counter-Offer",
+            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Counter-Offer",
                     sellingTeam.getName() + " have rejected your offer of " + offerAmount +
                     " for " + player.getName() + " but are willing to negotiate. " +
                     "Their asking price is " + askingPrice + ".",
@@ -148,7 +156,7 @@ public class TransferOfferController {
             // Reject
             offer.setStatus("rejected");
             transferOfferRepository.save(offer);
-            sendInboxMessage(HUMAN_TEAM_ID, season, (int) round.getRound(), "Transfer Rejected",
+            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Rejected",
                     sellingTeam.getName() + " have rejected your offer of " + offerAmount +
                     " for " + player.getName() + ". The offer was too low.",
                     "transfer");
@@ -158,7 +166,8 @@ public class TransferOfferController {
     }
 
     @PostMapping("/respond/{offerId}")
-    public ResponseEntity<?> respondToOffer(@PathVariable(name = "offerId") long offerId,
+    public ResponseEntity<?> respondToOffer(HttpServletRequest request,
+                                            @PathVariable(name = "offerId") long offerId,
                                             @RequestBody Map<String, Object> body) {
         Optional<TransferOffer> offerOpt = transferOfferRepository.findById(offerId);
         if (offerOpt.isEmpty()) {
@@ -169,6 +178,7 @@ public class TransferOfferController {
         String action = (String) body.get("action");
         Round round = roundRepository.findById(1L).orElse(new Round());
         int season = (int) round.getSeason();
+        long humanTeamId = userContext.getTeamId(request);
 
         if ("accept".equals(action)) {
             offer.setStatus("accepted");
@@ -181,7 +191,7 @@ public class TransferOfferController {
             if (player != null && fromTeam != null && toTeam != null) {
                 // For incoming offers: fromTeam is the buyer (AI), toTeam is seller (human)
                 executeTransfer(player, toTeam, fromTeam, offer.getOfferAmount(), season);
-                sendInboxMessage(HUMAN_TEAM_ID, season, (int) round.getRound(), "Transfer Completed",
+                sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Completed",
                         "You have sold " + player.getName() + " to " + fromTeam.getName() +
                         " for " + offer.getOfferAmount() + ".",
                         "transfer");
@@ -199,7 +209,7 @@ public class TransferOfferController {
                 rejectedPlayer.setMorale(Math.max(rejectedPlayer.getMorale(), 30D));
                 humanRepository.save(rejectedPlayer);
 
-                sendInboxMessage(HUMAN_TEAM_ID, season, (int) round.getRound(), "Player Unhappy",
+                sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Player Unhappy",
                         rejectedPlayer.getName() + " is unhappy that their transfer to " +
                         offer.getFromTeamName() + " was rejected. Their morale has dropped.",
                         "morale");
@@ -227,7 +237,7 @@ public class TransferOfferController {
 
                 if (player != null && fromTeam != null && toTeam != null) {
                     executeTransfer(player, toTeam, fromTeam, counterAmount, season);
-                    sendInboxMessage(HUMAN_TEAM_ID, season, (int) round.getRound(), "Transfer Completed",
+                    sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Completed",
                             "Your counter-offer has been accepted! " + player.getName() +
                             " has been sold to " + fromTeam.getName() + " for " + counterAmount + ".",
                             "transfer");
@@ -235,7 +245,7 @@ public class TransferOfferController {
             } else {
                 offer.setStatus("rejected");
                 transferOfferRepository.save(offer);
-                sendInboxMessage(HUMAN_TEAM_ID, season, (int) round.getRound(), "Counter-Offer Rejected",
+                sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Counter-Offer Rejected",
                         offer.getFromTeamName() + " have rejected your counter-offer of " +
                         counterAmount + " for " + offer.getPlayerName() + ".",
                         "transfer");
@@ -306,6 +316,8 @@ public class TransferOfferController {
 
     private void executeTransfer(Human player, Team sellingTeam, Team buyingTeam, long fee, int season) {
         player.setTeamId(buyingTeam.getId());
+        player.setSeasonMatchesPlayed(0);
+        player.setConsecutiveBenched(0);
         humanRepository.save(player);
 
         buyingTeam.setTransferBudget(buyingTeam.getTransferBudget() - fee);
@@ -341,18 +353,17 @@ public class TransferOfferController {
     }
 
     public long calculateTransferValue(long age, String position, double rating) {
-        double baseValue = rating * 10000;
-
+        double baseValue = Math.pow(rating, 3) * 20;
         double ageMultiplier;
-        if (age <= 22) ageMultiplier = 0.7;
-        else if (age <= 24) ageMultiplier = 0.9;
-        else if (age <= 27) ageMultiplier = 1.0;
-        else if (age <= 29) ageMultiplier = 0.85;
-        else if (age <= 31) ageMultiplier = 0.6;
-        else if (age <= 33) ageMultiplier = 0.35;
-        else ageMultiplier = 0.15;
-
-        return (long) (baseValue * ageMultiplier);
+        if (age <= 21) ageMultiplier = 1.3;
+        else if (age <= 23) ageMultiplier = 1.1;
+        else if (age <= 25) ageMultiplier = 1.0;
+        else if (age <= 27) ageMultiplier = 0.95;
+        else if (age <= 29) ageMultiplier = 0.75;
+        else if (age <= 31) ageMultiplier = 0.45;
+        else if (age <= 33) ageMultiplier = 0.2;
+        else ageMultiplier = 0.08;
+        return Math.max(50_000L, (long) (baseValue * ageMultiplier));
     }
 
 }

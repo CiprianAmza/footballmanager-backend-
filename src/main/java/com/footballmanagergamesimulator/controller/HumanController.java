@@ -75,6 +75,7 @@ public class HumanController {
 
         playerView.setId(player.getId());
         playerView.setName(player.getName());
+        playerView.setTeamId(player.getTeamId() != null ? player.getTeamId() : 0);
         playerView.setPosition(player.getPosition());
         playerView.setRating(player.getRating());
         playerView.setAge(player.getAge());

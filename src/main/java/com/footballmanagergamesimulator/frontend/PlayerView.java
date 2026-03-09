@@ -10,6 +10,7 @@ public class PlayerView {
 
   private long id;
   private String name;
+  private long teamId;
   private String teamName;
   private String position;
   private double rating;

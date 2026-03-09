@@ -33,59 +33,64 @@ public class HumanService {
     public Human trainPlayer(Human human, TeamFacilities teamFacilities, int currentSeason) {
 
       Random random = new Random();
-      long increaseLevel = 0L;
       double ratingChange = 0D;
+      int age = human.getAge();
+      int matchesPlayed = human.getSeasonMatchesPlayed();
+      double matchBonus = Math.min(matchesPlayed * 0.002, 0.05);
 
-      if (human.getCurrentStatus().equals("Junior")) {
-        increaseLevel = teamFacilities.getYouthTrainingLevel();
-        double chance = random.nextDouble(0, 21);
-        if (chance <= increaseLevel)
-          ratingChange = random.nextDouble(0D, 1D);
-      } else if (human.getCurrentStatus().equals("Intermediate")) {
+      // Facility quality multiplier (1-20 scale -> 0.5x to 1.5x)
+      double facilityMultiplier = 0.5 + (teamFacilities.getSeniorTrainingLevel() / 20.0);
 
-        increaseLevel = teamFacilities.getSeniorTrainingLevel();
-        double chance = random.nextDouble(0, 21);
-        if (chance <= increaseLevel) {
-            ratingChange = random.nextDouble(0D, 0.5D);
-        } else
-            ratingChange = - random.nextDouble(0D, 0.3D);
-
-      } else if (human.getCurrentStatus().equals("Senior")) {
-
-        //increaseLevel = teamFacilities.getSeniorTrainingLevel() / 4;
-          //
-
-        double chance;
-        double maxBound = 0.25D;
-        if (human.getAge() <= 25) {
-            increaseLevel = 15;
-            chance = random.nextDouble(0, human.getAge());
-        } else if (human.getAge() <= 30) {
-            increaseLevel = 10;
-            chance = random.nextDouble(0, human.getAge());
-            maxBound = 0.4D;
-        } else if (human.getAge() < 35) {
-            increaseLevel = 5;
-            chance = random.nextDouble(0, human.getAge());
-            maxBound = 0.6D;
-        } else {
-            increaseLevel = 4;
-            chance = random.nextDouble(0, human.getAge());
-            maxBound = 0.8D;
-        }
-
-        if (chance <= increaseLevel) {
-            ratingChange = random.nextDouble(0D, maxBound);
-        } else {
-            ratingChange = - random.nextDouble(0D, maxBound);
-        }
+      if (age <= 20) {
+          // Young talent: high growth
+          double youthFacility = 0.5 + (teamFacilities.getYouthTrainingLevel() / 20.0);
+          if (random.nextDouble() < 0.12 + matchBonus) {
+              ratingChange = random.nextDouble(0.1, 0.5) * youthFacility;
+          }
+      } else if (age <= 23) {
+          if (random.nextDouble() < 0.08 + matchBonus) {
+              ratingChange = random.nextDouble(0.1, 0.35) * facilityMultiplier;
+          }
+      } else if (age <= 26) {
+          if (random.nextDouble() < 0.05 + matchBonus) {
+              ratingChange = random.nextDouble(0.05, 0.2) * facilityMultiplier;
+          }
+      } else if (age <= 29) {
+          double roll = random.nextDouble();
+          if (roll < 0.03 + matchBonus * 0.5) {
+              ratingChange = random.nextDouble(0.02, 0.1);
+          } else if (roll > 0.97) {
+              ratingChange = -random.nextDouble(0.02, 0.08);
+          }
+      } else if (age <= 31) {
+          double roll = random.nextDouble();
+          if (roll < 0.03) {
+              ratingChange = random.nextDouble(0.01, 0.05);
+          } else if (roll > 0.94) {
+              ratingChange = -random.nextDouble(0.05, 0.15);
+          }
+      } else if (age <= 33) {
+          if (random.nextDouble() > 0.92) {
+              ratingChange = -random.nextDouble(0.1, 0.25);
+          }
+      } else {
+          if (random.nextDouble() > 0.88) {
+              ratingChange = -random.nextDouble(0.15, 0.4);
+          }
       }
 
-      human.setRating(human.getRating() + ratingChange);
-        if (human.getRating() > human.getBestEverRating()) {
-            human.setBestEverRating(human.getRating());
-            human.setSeasonOfBestEverRating(currentSeason);
-        }
+      double newRating = human.getRating() + ratingChange;
+      // Cap at potential ability
+      if (ratingChange > 0 && human.getPotentialAbility() > 0) {
+          newRating = Math.min(newRating, human.getPotentialAbility());
+      }
+      newRating = Math.max(newRating, 1.0);
+      human.setRating(newRating);
+
+      if (newRating > human.getBestEverRating()) {
+          human.setBestEverRating(newRating);
+          human.setSeasonOfBestEverRating(currentSeason);
+      }
 
       return human;
     }

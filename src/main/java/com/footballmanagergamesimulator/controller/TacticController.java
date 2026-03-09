@@ -288,10 +288,13 @@ public class TacticController {
             firstEleven.add(restPlayers.get(i));
         }
 
+        if (firstEleven.size() < 11) {
+            System.out.println("WARNING: Team " + team.getName() + " only has " + firstEleven.size() + " available players! Filling with youth placeholders.");
+        }
         for (int i = firstEleven.size(); i < 11; i++) {
             PlayerView playerView = new PlayerView();
             playerView.setAge(16);
-            playerView.setName("Generated");
+            playerView.setName("Youth Player");
             playerView.setPosition("MC");
             playerView.setRating(10);
 

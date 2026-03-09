@@ -17,4 +17,13 @@ public class Round {
 
   @Column(name = "season")
   private long season = 1;
+
+  @Column(name = "human_team_id")
+  private long humanTeamId = 0; // 0 = not yet selected (game setup needed)
+
+  @Column(name = "manager_name")
+  private String managerName;
+
+  @Column(name = "manager_age")
+  private Integer managerAge;
 }

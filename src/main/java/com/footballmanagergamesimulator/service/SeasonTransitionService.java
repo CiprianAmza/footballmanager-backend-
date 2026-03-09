@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -19,7 +20,8 @@ import java.util.stream.Collectors;
 @Service
 public class SeasonTransitionService {
 
-    public static final long HUMAN_TEAM_ID = 1L;
+    @Autowired
+    private UserContext userContext;
 
     @Autowired
     private TeamRepository teamRepository;
@@ -121,58 +123,55 @@ public class SeasonTransitionService {
      * Compares actual results against targets and marks objectives as "achieved" or "failed".
      */
     private void evaluateSeasonObjectives(int season) {
-        List<SeasonObjective> objectives = seasonObjectiveRepository.findAllByTeamId(HUMAN_TEAM_ID).stream()
-                .filter(obj -> obj.getSeasonNumber() == season && "active".equals(obj.getStatus()))
-                .collect(Collectors.toList());
+        for (long htId : userContext.getAllHumanTeamIds()) {
+            List<SeasonObjective> objectives = seasonObjectiveRepository.findAllByTeamId(htId).stream()
+                    .filter(obj -> obj.getSeasonNumber() == season && "active".equals(obj.getStatus()))
+                    .collect(Collectors.toList());
 
-        for (SeasonObjective obj : objectives) {
-            if ("league_position".equals(obj.getObjectiveType())) {
-                // For league position objectives, lower is better (1st = best)
-                // actualValue is filled during season from standings
-                if (obj.getActualValue() > 0 && obj.getActualValue() <= obj.getTargetValue()) {
-                    obj.setStatus("achieved");
-                } else if (obj.getActualValue() > 0) {
-                    obj.setStatus("failed");
-                }
-            } else if ("cup_round".equals(obj.getObjectiveType())) {
-                // For cup objectives, higher round = better
-                if (obj.getActualValue() >= obj.getTargetValue()) {
-                    obj.setStatus("achieved");
-                } else {
-                    obj.setStatus("failed");
-                }
-            } else if ("european_qualification".equals(obj.getObjectiveType())) {
-                // Binary: qualified or not
-                if (obj.getActualValue() >= obj.getTargetValue()) {
-                    obj.setStatus("achieved");
-                } else {
-                    obj.setStatus("failed");
+            for (SeasonObjective obj : objectives) {
+                if ("league_position".equals(obj.getObjectiveType())) {
+                    if (obj.getActualValue() > 0 && obj.getActualValue() <= obj.getTargetValue()) {
+                        obj.setStatus("achieved");
+                    } else if (obj.getActualValue() > 0) {
+                        obj.setStatus("failed");
+                    }
+                } else if ("cup_round".equals(obj.getObjectiveType())) {
+                    if (obj.getActualValue() >= obj.getTargetValue()) {
+                        obj.setStatus("achieved");
+                    } else {
+                        obj.setStatus("failed");
+                    }
+                } else if ("european_qualification".equals(obj.getObjectiveType())) {
+                    if (obj.getActualValue() >= obj.getTargetValue()) {
+                        obj.setStatus("achieved");
+                    } else {
+                        obj.setStatus("failed");
+                    }
                 }
             }
-        }
 
-        if (!objectives.isEmpty()) {
-            seasonObjectiveRepository.saveAll(objectives);
-        }
+            if (!objectives.isEmpty()) {
+                seasonObjectiveRepository.saveAll(objectives);
+            }
 
-        // Send inbox summary to the human manager
-        long achieved = objectives.stream().filter(o -> "achieved".equals(o.getStatus())).count();
-        long failed = objectives.stream().filter(o -> "failed".equals(o.getStatus())).count();
+            long achieved = objectives.stream().filter(o -> "achieved".equals(o.getStatus())).count();
+            long failed = objectives.stream().filter(o -> "failed".equals(o.getStatus())).count();
 
-        if (!objectives.isEmpty()) {
-            ManagerInbox inbox = new ManagerInbox();
-            inbox.setTeamId(HUMAN_TEAM_ID);
-            inbox.setSeasonNumber(season);
-            inbox.setRoundNumber(0);
-            inbox.setTitle("Season " + season + " Objectives Review");
-            inbox.setContent("Season objectives review:\n"
-                    + "Achieved: " + achieved + "\n"
-                    + "Failed: " + failed + "\n"
-                    + "The board will take these results into consideration.");
-            inbox.setCategory("board");
-            inbox.setRead(false);
-            inbox.setCreatedAt(System.currentTimeMillis());
-            managerInboxRepository.save(inbox);
+            if (!objectives.isEmpty()) {
+                ManagerInbox inbox = new ManagerInbox();
+                inbox.setTeamId(htId);
+                inbox.setSeasonNumber(season);
+                inbox.setRoundNumber(0);
+                inbox.setTitle("Season " + season + " Objectives Review");
+                inbox.setContent("Season objectives review:\n"
+                        + "Achieved: " + achieved + "\n"
+                        + "Failed: " + failed + "\n"
+                        + "The board will take these results into consideration.");
+                inbox.setCategory("board");
+                inbox.setRead(false);
+                inbox.setCreatedAt(System.currentTimeMillis());
+                managerInboxRepository.save(inbox);
+            }
         }
     }
 
@@ -228,65 +227,66 @@ public class SeasonTransitionService {
      * @return true if the human manager is fired
      */
     private boolean checkManagerFiring(int season) {
-        List<SeasonObjective> humanObjectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(HUMAN_TEAM_ID, season);
-        if (humanObjectives.isEmpty()) return false;
+        boolean anyFired = false;
 
-        int firingScore = 0;
-        for (SeasonObjective obj : humanObjectives) {
-            if (!"failed".equals(obj.getStatus())) continue;
+        for (long htId : userContext.getAllHumanTeamIds()) {
+            List<SeasonObjective> humanObjectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(htId, season);
+            if (humanObjectives.isEmpty()) continue;
 
-            int weight = "critical".equals(obj.getImportance()) ? 3
-                    : "high".equals(obj.getImportance()) ? 2 : 1;
+            int firingScore = 0;
+            for (SeasonObjective obj : humanObjectives) {
+                if (!"failed".equals(obj.getStatus())) continue;
 
-            if ("league_position".equals(obj.getObjectiveType())) {
-                int miss = obj.getActualValue() - obj.getTargetValue();
-                firingScore += weight * Math.min(miss, 5);
-            } else {
-                int miss = obj.getTargetValue() - obj.getActualValue();
-                firingScore += weight * Math.min(miss, 3);
+                int weight = "critical".equals(obj.getImportance()) ? 3
+                        : "high".equals(obj.getImportance()) ? 2 : 1;
+
+                if ("league_position".equals(obj.getObjectiveType())) {
+                    int miss = obj.getActualValue() - obj.getTargetValue();
+                    firingScore += weight * Math.min(miss, 5);
+                } else {
+                    int miss = obj.getTargetValue() - obj.getActualValue();
+                    firingScore += weight * Math.min(miss, 3);
+                }
+            }
+
+            if (firingScore >= 12) {
+                ManagerInbox inbox = new ManagerInbox();
+                inbox.setTeamId(htId);
+                inbox.setSeasonNumber(season);
+                inbox.setRoundNumber(0);
+                inbox.setTitle("You Have Been Sacked!");
+                inbox.setContent("The board has lost all confidence in your ability to manage this club. "
+                        + "You have been relieved of your duties with immediate effect. "
+                        + "Check the available jobs to find a new position.");
+                inbox.setCategory("board");
+                inbox.setRead(false);
+                inbox.setCreatedAt(System.currentTimeMillis());
+                managerInboxRepository.save(inbox);
+
+                Human humanManager = humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.MANAGER_TYPE)
+                        .stream().findFirst().orElse(null);
+                if (humanManager != null) {
+                    humanManager.setManagerReputation(Math.max(0, humanManager.getManagerReputation() - 100));
+                    humanRepository.save(humanManager);
+                }
+
+                anyFired = true;
+            } else if (firingScore >= 6) {
+                ManagerInbox inbox = new ManagerInbox();
+                inbox.setTeamId(htId);
+                inbox.setSeasonNumber(season);
+                inbox.setRoundNumber(0);
+                inbox.setTitle("Board Warning");
+                inbox.setContent("The board is disappointed with this season's results. "
+                        + "Significant improvement is expected next season or your position will be reconsidered.");
+                inbox.setCategory("board");
+                inbox.setRead(false);
+                inbox.setCreatedAt(System.currentTimeMillis());
+                managerInboxRepository.save(inbox);
             }
         }
 
-        if (firingScore >= 12) {
-            // Fire the human manager
-            ManagerInbox inbox = new ManagerInbox();
-            inbox.setTeamId(HUMAN_TEAM_ID);
-            inbox.setSeasonNumber(season);
-            inbox.setRoundNumber(0);
-            inbox.setTitle("You Have Been Sacked!");
-            inbox.setContent("The board has lost all confidence in your ability to manage this club. "
-                    + "You have been relieved of your duties with immediate effect. "
-                    + "Check the available jobs to find a new position.");
-            inbox.setCategory("board");
-            inbox.setRead(false);
-            inbox.setCreatedAt(System.currentTimeMillis());
-            managerInboxRepository.save(inbox);
-
-            // Reduce manager reputation
-            Human humanManager = humanRepository.findAllByTeamIdAndTypeId(HUMAN_TEAM_ID, TypeNames.MANAGER_TYPE)
-                    .stream().findFirst().orElse(null);
-            if (humanManager != null) {
-                humanManager.setManagerReputation(Math.max(0, humanManager.getManagerReputation() - 100));
-                humanRepository.save(humanManager);
-            }
-
-            return true;
-        } else if (firingScore >= 6) {
-            // Warning from the board
-            ManagerInbox inbox = new ManagerInbox();
-            inbox.setTeamId(HUMAN_TEAM_ID);
-            inbox.setSeasonNumber(season);
-            inbox.setRoundNumber(0);
-            inbox.setTitle("Board Warning");
-            inbox.setContent("The board is disappointed with this season's results. "
-                    + "Significant improvement is expected next season or your position will be reconsidered.");
-            inbox.setCategory("board");
-            inbox.setRead(false);
-            inbox.setCreatedAt(System.currentTimeMillis());
-            managerInboxRepository.save(inbox);
-        }
-
-        return false;
+        return anyFired;
     }
 
     /**
@@ -295,7 +295,7 @@ public class SeasonTransitionService {
      */
     private void fireAIManagers(int season) {
         List<Human> aiManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE).stream()
-                .filter(m -> m.getTeamId() != null && m.getTeamId() != HUMAN_TEAM_ID)
+                .filter(m -> m.getTeamId() != null && !userContext.isHumanTeam(m.getTeamId()))
                 .collect(Collectors.toList());
 
         for (Human manager : aiManagers) {
@@ -334,9 +334,9 @@ public class SeasonTransitionService {
                 if (player.isRetired()) continue;
 
                 // For human team, send notification about expiring contracts
-                if (team.getId() == HUMAN_TEAM_ID) {
+                if (userContext.isHumanTeam(team.getId())) {
                     ManagerInbox inbox = new ManagerInbox();
-                    inbox.setTeamId(HUMAN_TEAM_ID);
+                    inbox.setTeamId(team.getId());
                     inbox.setSeasonNumber(newSeason - 1);
                     inbox.setRoundNumber(0);
                     inbox.setTitle("Contract Expired: " + player.getName());
@@ -385,9 +385,9 @@ public class SeasonTransitionService {
                 humanRepository.save(player);
 
                 // Notify human team if one of their players retired
-                if (player.getTeamId() != null && player.getTeamId() == HUMAN_TEAM_ID) {
+                if (player.getTeamId() != null && userContext.isHumanTeam(player.getTeamId())) {
                     ManagerInbox inbox = new ManagerInbox();
-                    inbox.setTeamId(HUMAN_TEAM_ID);
+                    inbox.setTeamId(player.getTeamId());
                     inbox.setSeasonNumber(season);
                     inbox.setRoundNumber(0);
                     inbox.setTitle("Player Retired: " + player.getName());
