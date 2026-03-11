@@ -19,4 +19,5 @@ public class ScheduleView {
     private int roundNumber;
     private long teamId1; // home team id
     private long teamId2; // away team id
+    private int day; // calendar day for sorting
 }

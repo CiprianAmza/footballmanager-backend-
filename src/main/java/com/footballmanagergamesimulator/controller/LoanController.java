@@ -122,9 +122,12 @@ public class LoanController {
             player.setTeamId(userContext.getTeamId(request));
             humanRepository.save(player);
 
-            // Update finances
+            // Update finances (transfer budget + salary budget moves with the player)
+            long playerWage = player.getWage();
             humanTeam.setTransferBudget(humanTeam.getTransferBudget() - loanFee);
+            humanTeam.setSalaryBudget(humanTeam.getSalaryBudget() + playerWage);
             parentTeam.setTransferBudget(parentTeam.getTransferBudget() + loanFee);
+            parentTeam.setSalaryBudget(parentTeam.getSalaryBudget() - playerWage);
             teamRepository.save(humanTeam);
             teamRepository.save(parentTeam);
 

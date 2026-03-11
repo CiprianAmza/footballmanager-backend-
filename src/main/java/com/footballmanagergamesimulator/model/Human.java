@@ -78,6 +78,9 @@ public class Human {
     @Column(columnDefinition = "boolean default true")
     private boolean attendPressConferences = true;
 
+    @Column(columnDefinition = "boolean default false")
+    private boolean viewFullMatch = false;
+
     @Column(name = "retired")
     @JsonProperty("isRetired")
     private boolean retired;

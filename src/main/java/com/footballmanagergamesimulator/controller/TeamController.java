@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("/teams")
@@ -16,6 +17,8 @@ public class TeamController {
     TeamRepository teamRepository;
     HumanRepository humanRepository;
     @Autowired
+    ScoutRepository scoutRepository;
+    @Autowired
     ClubCoefficientRepository clubCoefficientRepository;
     @Autowired
     TeamCompetitionDetailRepository teamCompetitionDetailRepository;
@@ -23,6 +26,10 @@ public class TeamController {
     CompetitionRepository competitionRepository;
     @Autowired
     RoundRepository roundRepository;
+    @Autowired
+    GameCalendarRepository gameCalendarRepository;
+
+    private static final int[] MONTH_START_DAYS = {1, 32, 62, 93, 123, 154, 185, 213, 244, 274, 305, 335};
 
     @Autowired
     public TeamController(TeamRepository teamRepository, HumanRepository humanRepository) {
@@ -103,6 +110,33 @@ public class TeamController {
         }
         europeanIncome = cc.map(c -> (long) (c.getPoints() * 200_000)).orElse(0L);
 
+        // Calculate total monthly wages (players + staff + scouts)
+        List<Human> teamMembers = humanRepository.findAllByTeamId(teamId);
+        long totalWages = teamMembers.stream()
+            .filter(h -> !h.isRetired())
+            .mapToLong(Human::getWage)
+            .sum();
+
+        // Add scout wages
+        List<Scout> scouts = scoutRepository.findAllByTeamId(teamId);
+        long scoutWages = scouts.stream().mapToLong(Scout::getWage).sum();
+        totalWages += scoutWages;
+
+        // Calculate how many months have passed this season
+        int monthsPassed = 0;
+        List<GameCalendar> calendars = gameCalendarRepository.findBySeason(currentSeason);
+        if (!calendars.isEmpty()) {
+            int currentDay = calendars.get(0).getCurrentDay();
+            for (int startDay : MONTH_START_DAYS) {
+                if (currentDay >= startDay) monthsPassed++;
+            }
+        }
+        long wagesPaidThisSeason = totalWages * monthsPassed;
+
+        finances.put("monthlyWages", totalWages);
+        finances.put("scoutWages", scoutWages);
+        finances.put("monthsPassed", monthsPassed);
+        finances.put("wagesPaidThisSeason", wagesPaidThisSeason);
         finances.put("leagueIncome", leagueIncome);
         finances.put("leagueName", leagueName);
         finances.put("leaguePosition", leaguePosition);

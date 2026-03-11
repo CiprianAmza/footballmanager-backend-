@@ -21,4 +21,5 @@ public class CalendarEntryView {
     private long teamId1;
     private long teamId2;
     private int seasonNumber;
+    private int day; // calendar day (1-365) for sorting
 }

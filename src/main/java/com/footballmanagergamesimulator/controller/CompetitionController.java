@@ -9,10 +9,13 @@ import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.service.CompetitionService;
+import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import org.springframework.transaction.annotation.Transactional;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.HumanService;
+import com.footballmanagergamesimulator.service.LeagueConfigService;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
@@ -52,6 +55,8 @@ public class CompetitionController {
     private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired
     RoundRobin roundRobin;
+    @Autowired
+    LeagueConfigService leagueConfigService;
     @Autowired
     CompetitionHistoryRepository competitionHistoryRepository;
     @Autowired
@@ -113,6 +118,8 @@ public class CompetitionController {
     UserContext userContext;
     @Autowired
     UserRepository userRepository;
+    @Autowired
+    LiveMatchSimulationService liveMatchSimulationService;
 
     private final ObjectMapper objectMapper = new ObjectMapper(); // <--- Ai nevoie de asta
 
@@ -148,7 +155,7 @@ public class CompetitionController {
         for (Long competitionId : leagueCompetitionIds)
             this.getFixturesForRound(String.valueOf(competitionId), "1");
 
-        // Generate calendar AFTER fixtures exist so updateMatchDays can set the day field
+        // Generate calendar AFTER league fixtures exist so updateMatchDays can set the day field
         fixtureSchedulingService.generateSeasonCalendar(1);
 
         generateSeasonObjectives((int) round.getSeason());
@@ -643,6 +650,27 @@ public class CompetitionController {
             }
         }
 
+        // Ensure every team in every league has a TeamCompetitionDetail entry
+        // (needed when encounters=0 and no matches were played)
+        long currentSeason = Long.parseLong(getCurrentSeason());
+        List<CompetitionTeamInfo> currentSeasonEntries = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason);
+        for (Long id : leagueCompetitionIds) {
+            List<Long> leagueTeamIds = currentSeasonEntries.stream()
+                    .filter(cti -> cti.getCompetitionId() == id)
+                    .map(CompetitionTeamInfo::getTeamId)
+                    .distinct().toList();
+            for (long tid : leagueTeamIds) {
+                TeamCompetitionDetail existing = teamCompetitionDetailRepository.findFirstByTeamIdAndCompetitionId(tid, id);
+                if (existing == null) {
+                    TeamCompetitionDetail tcd = new TeamCompetitionDetail();
+                    tcd.setTeamId(tid);
+                    tcd.setCompetitionId(id);
+                    tcd.setForm("");
+                    teamCompetitionDetailRepository.save(tcd);
+                }
+            }
+        }
+
         List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
         for (Long id : leagueCompetitionIds) {
             int finalId = Math.toIntExact(id);
@@ -655,7 +683,12 @@ public class CompetitionController {
                             return o1.getGoalDifference() < o2.getGoalDifference() ? 1 : -1;
                         if (o1.getGoalsFor() != o2.getGoalsFor())
                             return o1.getGoalsFor() < o2.getGoalsFor() ? 1 : -1;
-                        return 0;
+                        // Fallback: sort by team reputation (for when no matches were played)
+                        Team teamA = teamRepository.findById(o1.getTeamId()).orElse(null);
+                        Team teamB = teamRepository.findById(o2.getTeamId()).orElse(null);
+                        int repA = teamA != null ? teamA.getReputation() : 0;
+                        int repB = teamB != null ? teamB.getReputation() : 0;
+                        return Integer.compare(repB, repA);
                     }).toList();
 
             int index = 1;
@@ -863,6 +896,11 @@ public class CompetitionController {
      */
     @Transactional
     public synchronized void processNewSeasonSetup(int season) {
+        // Guard: if round.season already moved past this season, skip (prevents double transition)
+        if (round.getSeason() > season) {
+            System.out.println("=== processNewSeasonSetup: season " + season + " already transitioned (current=" + round.getSeason() + "), skipping ===");
+            return;
+        }
         System.out.println("=== processNewSeasonSetup: transitioning from season " + season + " ===");
 
         List<Long> teamIds = getAllTeams();
@@ -1481,12 +1519,14 @@ public class CompetitionController {
             }
         }
 
-        // European competitions - League of Champions group stage + knockout, Stars Cup knockout
+        // European competitions - League of Champions + Stars Cup (both with group stages)
         Set<Long> locIds = getCompetitionIdsByCompetitionType(4); // League of Champions
         Set<Long> starsCupIds = getCompetitionIdsByCompetitionType(5); // Stars Cup
 
         // LoC schedule:
-        // Game round 2: Qualifying round (competition round 1) - 6 teams, 3 matches, knockout
+        // Game round 1: Preliminary qualifying (round 0) - 4 teams from rank 7
+        // Game round 3: Qualifying round (round 1) - 6 existing + 2 preliminary winners = 8 teams
+        //   After qualifying: losers go to Stars Cup
         // Game rounds {5, 9, 14, 19, 24, 29}: Group stage matchdays 1-6 (competition rounds 2-7)
         // Game round 34: Quarter-Final (competition round 8)
         // Game round 40: Semi-Final (competition round 9)
@@ -1494,10 +1534,21 @@ public class CompetitionController {
         for (Long locId : locIds) {
             String competitionId = String.valueOf(locId);
 
-            // Qualifying round at game round 2
-            if (round.getRound() == 2) {
+            // Preliminary qualifying round at game round 1 (competition round 0)
+            if (round.getRound() == 1) {
+                this.getFixturesForRound(competitionId, "0");
+                this.simulateRound(competitionId, "0");
+                // Preliminary winners advance to round 1 (handled by getFixturesForRound knockout logic)
+                // Preliminary losers go to Stars Cup
+                assignLocLosersToStarsCup(locId, 0);
+            }
+
+            // Qualifying round at game round 3 (competition round 1)
+            if (round.getRound() == 3) {
                 this.getFixturesForRound(competitionId, "1");
                 this.simulateRound(competitionId, "1");
+                // Qualifying losers go to Stars Cup
+                assignLocLosersToStarsCup(locId, 1);
             }
 
             // Group stage matchdays at game rounds 5, 9, 14, 19, 24, 29
@@ -1505,7 +1556,7 @@ public class CompetitionController {
             for (int md = 0; md < groupMatchdays.length; md++) {
                 if (round.getRound() == groupMatchdays[md]) {
                     if (md == 0) {
-                        drawEuropeanGroups(locId);
+                        drawEuropeanGroups(locId, 2);
                         resetEuropeanStats(locId);
                         generateGroupStageFixtures(locId);
                     }
@@ -1518,36 +1569,65 @@ public class CompetitionController {
 
             // Quarter-Final at game round 34
             if (round.getRound() == 34) {
-                List<Long> qfParticipants = this.getParticipants(competitionId, "8");
-                System.out.println("=== LoC QF: " + qfParticipants.size() + " participants for round 8");
                 this.getFixturesForRound(competitionId, "8");
                 this.simulateRound(competitionId, "8");
             }
             // Semi-Final at game round 40
             if (round.getRound() == 40) {
-                List<Long> sfParticipants = this.getParticipants(competitionId, "9");
-                System.out.println("=== LoC SF: " + sfParticipants.size() + " participants for round 9");
                 this.getFixturesForRound(competitionId, "9");
                 this.simulateRound(competitionId, "9");
             }
             // Final at game round 46
             if (round.getRound() == 46) {
-                List<Long> fParticipants = this.getParticipants(competitionId, "10");
-                System.out.println("=== LoC Final: " + fParticipants.size() + " participants for round 10");
                 this.getFixturesForRound(competitionId, "10");
                 this.simulateRound(competitionId, "10");
             }
         }
 
-        // Stars Cup: 16 teams, 4 knockout rounds
+        // Stars Cup: group stage + playoff + knockout
+        // Game round 4: Group MD1 (draw groups from all Stars Cup teams)
+        // Game rounds {4, 7, 11, 16, 22, 27}: Group stage matchdays 1-6 (competition rounds 1-6)
+        // Game round 31: Playoff (round 7) - group runners-up vs LoC 3rd place
+        // Game round 36: QF (round 8) - group winners vs playoff winners
+        // Game round 42: SF (round 9)
+        // Game round 48: Final (round 10)
         for (Long starsCupId : starsCupIds) {
             String competitionId = String.valueOf(starsCupId);
-            int[] schedule = {8, 20, 32, 44};
-            for (int r = 0; r < schedule.length; r++) {
-                if (round.getRound() == schedule[r]) {
-                    this.getFixturesForRound(competitionId, String.valueOf(r + 1));
-                    this.simulateRound(competitionId, String.valueOf(r + 1));
+
+            int[] scGroupMatchdays = {4, 7, 11, 16, 22, 27};
+            for (int md = 0; md < scGroupMatchdays.length; md++) {
+                if (round.getRound() == scGroupMatchdays[md]) {
+                    if (md == 0) {
+                        drawEuropeanGroups(starsCupId, 1);
+                        resetEuropeanStats(starsCupId);
+                        generateGroupStageFixtures(starsCupId);
+                    }
+                    this.simulateRound(competitionId, String.valueOf(md + 1));
+                    if (md == scGroupMatchdays.length - 1) {
+                        qualifyFromStarsCupGroupStage(starsCupId);
+                    }
                 }
+            }
+
+            // Playoff at game round 31 (round 7)
+            if (round.getRound() == 31) {
+                this.getFixturesForRound(competitionId, "7");
+                this.simulateRound(competitionId, "7");
+            }
+            // QF at game round 36 (round 8)
+            if (round.getRound() == 36) {
+                this.getFixturesForRound(competitionId, "8");
+                this.simulateRound(competitionId, "8");
+            }
+            // SF at game round 42 (round 9)
+            if (round.getRound() == 42) {
+                this.getFixturesForRound(competitionId, "9");
+                this.simulateRound(competitionId, "9");
+            }
+            // Final at game round 48 (round 10)
+            if (round.getRound() == 48) {
+                this.getFixturesForRound(competitionId, "10");
+                this.simulateRound(competitionId, "10");
             }
         }
 
@@ -1910,25 +1990,49 @@ public class CompetitionController {
             entry.put("teamId", cti.getTeamId());
             entry.put("teamName", team != null ? team.getName() : "Unknown");
             entry.put("groupNumber", cti.getGroupNumber());
+            entry.put("potNumber", cti.getPotNumber());
 
             if (season == currentSeason) {
-                // Current season: use live TeamCompetitionDetail
-                TeamCompetitionDetail detail = teamCompetitionDetailRepository
-                        .findFirstByTeamIdAndCompetitionId(cti.getTeamId(), competitionId);
-                if (detail != null) {
-                    entry.put("games", detail.getGames());
-                    entry.put("wins", detail.getWins());
-                    entry.put("draws", detail.getDraws());
-                    entry.put("loses", detail.getLoses());
-                    entry.put("goalsFor", detail.getGoalsFor());
-                    entry.put("goalsAgainst", detail.getGoalsAgainst());
-                    entry.put("goalDifference", detail.getGoalDifference());
-                    entry.put("points", detail.getPoints());
-                } else {
-                    entry.put("games", 0); entry.put("wins", 0); entry.put("draws", 0);
-                    entry.put("loses", 0); entry.put("goalsFor", 0); entry.put("goalsAgainst", 0);
-                    entry.put("goalDifference", 0); entry.put("points", 0);
+                // Current season: compute group standings from match results only (exclude knockout rounds)
+                Competition comp = competitionRepository.findById(competitionId).orElse(null);
+                int groupRoundMin = 2, groupRoundMax = 7; // LoC defaults
+                if (comp != null && comp.getTypeId() == 5) {
+                    groupRoundMin = 1; groupRoundMax = 6; // Stars Cup
                 }
+                int games = 0, wins = 0, draws = 0, loses = 0, goalsFor = 0, goalsAgainst = 0;
+                long teamId = cti.getTeamId();
+                for (int r = groupRoundMin; r <= groupRoundMax; r++) {
+                    List<CompetitionTeamInfoDetail> matchesAsHome = competitionTeamInfoDetailRepository
+                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
+                            .stream().filter(d -> d.getTeam1Id() == teamId).toList();
+                    List<CompetitionTeamInfoDetail> matchesAsAway = competitionTeamInfoDetailRepository
+                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
+                            .stream().filter(d -> d.getTeam2Id() == teamId).toList();
+                    for (CompetitionTeamInfoDetail d : matchesAsHome) {
+                        if (d.getScore() == null) continue;
+                        String[] parts = d.getScore().split("-");
+                        if (parts.length != 2) continue;
+                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
+                        games++; goalsFor += g1; goalsAgainst += g2;
+                        if (g1 > g2) wins++; else if (g1 < g2) loses++; else draws++;
+                    }
+                    for (CompetitionTeamInfoDetail d : matchesAsAway) {
+                        if (d.getScore() == null) continue;
+                        String[] parts = d.getScore().split("-");
+                        if (parts.length != 2) continue;
+                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
+                        games++; goalsFor += g2; goalsAgainst += g1;
+                        if (g2 > g1) wins++; else if (g2 < g1) loses++; else draws++;
+                    }
+                }
+                entry.put("games", games);
+                entry.put("wins", wins);
+                entry.put("draws", draws);
+                entry.put("loses", loses);
+                entry.put("goalsFor", goalsFor);
+                entry.put("goalsAgainst", goalsAgainst);
+                entry.put("goalDifference", goalsFor - goalsAgainst);
+                entry.put("points", wins * 3 + draws);
             } else {
                 // Previous season: use CompetitionHistory
                 Optional<CompetitionHistory> histOpt = competitionHistoryRepository.findAll().stream()
@@ -2008,13 +2112,16 @@ public class CompetitionController {
                 result.put("totalRounds", numRounds);
             }
         } else if (comp.getTypeId() == 5) {
-            // Stars Cup: 16 teams, 4 knockout rounds
-            result.put("totalRounds", 4);
+            // Stars Cup: rounds 1-6 = group stage, round 7 = playoff, rounds 8-10 = knockout
+            result.put("totalRounds", 10);
+            result.put("groupRounds", 6);
+            result.put("playoffRound", 7);
         } else if (comp.getTypeId() == 4) {
-            // LoC: round 1 = qualifying, rounds 2-7 = group stage, rounds 8-10 = knockout
+            // LoC: round 0 = preliminary, round 1 = qualifying, rounds 2-7 = group stage, rounds 8-10 = knockout
             result.put("totalRounds", 10);
             result.put("groupRounds", 7);
             result.put("qualifyingRounds", 1);
+            result.put("preliminaryRounds", 1);
         } else {
             result.put("totalRounds", 0);
         }
@@ -2080,12 +2187,14 @@ public class CompetitionController {
         Set<Long> cupIds = getCompetitionIdsByCompetitionType(2);
         if (cupIds.contains(competitionId)) return true;
 
+        // Stars Cup: rounds 1-6 are group stage, round 7+ are knockout (playoff, QF, SF, Final)
         Set<Long> starsCupIds = getCompetitionIdsByCompetitionType(5);
-        if (starsCupIds.contains(competitionId)) return true;
+        if (starsCupIds.contains(competitionId) && roundId >= 7) return true;
 
-        // LoC: round 1 is qualifying (knockout), rounds 2-7 are group stage, rounds 8-9 are knockout
+        // LoC: round 0 is preliminary (knockout), round 1 is qualifying (knockout),
+        // rounds 2-7 are group stage, rounds 8-10 are knockout (QF, SF, Final)
         Set<Long> locIds = getCompetitionIdsByCompetitionType(4);
-        if (locIds.contains(competitionId) && (roundId == 1 || roundId >= 8)) return true;
+        if (locIds.contains(competitionId) && (roundId <= 1 || roundId >= 8)) return true;
 
         return false;
     }
@@ -2199,9 +2308,14 @@ public class CompetitionController {
             List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
             int currentRound = 1;
 
+            // Encounters from league-config.json (default: 2 for 18+ teams, 4 for smaller)
+            String compName = competitionRepository.findNameById(_competitionId);
+            int encounters = leagueConfigService.getEncounters(compName, participants.size());
+            int iterations = encounters / 2;
+
             boolean reverse = true;
 
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < iterations; i++) {
 
                 for (List<List<Long>> round : schedule) {
 
@@ -2230,7 +2344,32 @@ public class CompetitionController {
 
         } else {
 
+            // Guard: skip if fixtures for this knockout round already exist (prevents duplicates)
+            List<CompetitionTeamInfoMatch> existingKnockout = competitionTeamInfoMatchRepository
+                    .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, getCurrentSeason());
+            if (!existingKnockout.isEmpty()) {
+                System.out.println("=== getFixturesForRound knockout: comp=" + competitionId + " round=" + roundId + " already drawn, skipping");
+                return;
+            }
+
             System.out.println("=== getFixturesForRound knockout: comp=" + competitionId + " round=" + roundId + " participants=" + participants.size());
+
+            // European competitions: use seeded draws for specific rounds
+            Set<Long> locIdsForDraw = getCompetitionIdsByCompetitionType(4);
+            Set<Long> starsCupIdsForDraw = getCompetitionIdsByCompetitionType(5);
+
+            if (locIdsForDraw.contains(_competitionId) && (_roundId == 0 || _roundId == 1)) {
+                // LoC preliminary (round 0) or qualifying (round 1): seeded vs unseeded by coefficient
+                drawEuropeanKnockoutSeeded(_competitionId, _roundId, participants);
+                return;
+            }
+            if (starsCupIdsForDraw.contains(_competitionId) && _roundId == 7) {
+                // Stars Cup playoff: LoC 3rd place (seeded) vs SC runners-up (unseeded)
+                drawStarsCupPlayoffSeeded(_competitionId, _roundId, participants);
+                return;
+            }
+
+            // Default knockout draw (cups, European QF/SF/Final, etc.)
             Collections.shuffle(participants);
 
             // If odd number of participants, give the last team a bye to next round
@@ -2311,29 +2450,66 @@ public class CompetitionController {
                 if (personalizedTactic2.isPresent())
                     teamPower2 = adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
 
-                List<Integer> scores = calculateScores(teamPower1, teamPower2);
-                teamScore1 = scores.get(0);
-                teamScore2 = scores.get(1);
-
-                if (knockout && teamScore1 == teamScore2) {
-                    double total = teamPower1 + teamPower2;
-                    double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
-                    if (random.nextDouble() < winChance) {
-                        teamScore1++;
-                    } else {
-                        teamScore2++;
-                    }
+                // Check if any human manager has viewFullMatch enabled
+                boolean useFullMatchEngine = false;
+                long humanTeamIdForMatch = userContext.isHumanTeam(teamId1) ? teamId1 : teamId2;
+                Human humanManager = humanRepository.findAllByTeamIdAndTypeId(humanTeamIdForMatch, TypeNames.MANAGER_TYPE)
+                        .stream().findFirst().orElse(null);
+                if (humanManager != null && humanManager.isViewFullMatch()) {
+                    useFullMatchEngine = true;
                 }
 
-                // Full scorer tracking with weighted distribution
-                getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, Long.valueOf(competitionId));
-                getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, Long.valueOf(competitionId));
+                if (useFullMatchEngine) {
+                    // --- LIVE MATCH ENGINE: minute-by-minute simulation ---
+                    LiveMatchData liveData = liveMatchSimulationService.simulateLiveMatch(
+                            teamId1, teamId2, teamPower1, teamPower2,
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId);
 
-                // Detailed match events (goals, assists, cards, substitutions)
-                generateMatchEvents(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                        teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2);
+                    teamScore1 = liveData.getHomeScore();
+                    teamScore2 = liveData.getAwayScore();
 
-                // Full post-match processing for human matches
+                    if (knockout && teamScore1 == teamScore2) {
+                        double total = teamPower1 + teamPower2;
+                        double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
+                        if (random.nextDouble() < winChance) {
+                            teamScore1++;
+                        } else {
+                            teamScore2++;
+                        }
+                    }
+
+                    // Scorer tracking still needed for leaderboard/stats
+                    getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, Long.valueOf(competitionId));
+                    getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, Long.valueOf(competitionId));
+
+                    // MatchEvent records already created by live simulation - skip generateMatchEvents
+
+                } else {
+                    // --- INSTANT SIMULATION (original behavior) ---
+                    List<Integer> scores = calculateScores(teamPower1, teamPower2);
+                    teamScore1 = scores.get(0);
+                    teamScore2 = scores.get(1);
+
+                    if (knockout && teamScore1 == teamScore2) {
+                        double total = teamPower1 + teamPower2;
+                        double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
+                        if (random.nextDouble() < winChance) {
+                            teamScore1++;
+                        } else {
+                            teamScore2++;
+                        }
+                    }
+
+                    // Full scorer tracking with weighted distribution
+                    getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, Long.valueOf(competitionId));
+                    getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, Long.valueOf(competitionId));
+
+                    // Detailed match events (goals, assists, cards, substitutions)
+                    generateMatchEvents(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2);
+                }
+
+                // Full post-match processing for human matches (same for both modes)
                 processInjuriesForTeam(teamId1);
                 processInjuriesForTeam(teamId2);
 
@@ -3811,19 +3987,22 @@ public class CompetitionController {
             List<Long> sortedLeagueIds = getLeagueIdsSortedByCoefficient();
             int rank = sortedLeagueIds.indexOf(comp.getId()) + 1; // 1-based rank
 
-            if (rank >= 1 && rank <= 6) {
-                // LoC: direct spots + 1 qualifying spot
-                int[] directSpots = {4, 3, 2, 2, 1, 1};
-                locSpots = directSpots[rank - 1] + 1; // +1 for qualifying round
+            if (rank >= 1 && rank <= 7) {
+                // LoC: direct + qualifying + preliminary (non-increasing: 4,4,3,3,3,2,2)
+                int[] directSpotsDisplay =      {3, 3, 2, 2, 1, 1, 0};
+                int[] qualifyingSpotsDisplay =  {1, 1, 1, 1, 2, 1, 0};
+                int[] preliminarySpotsDisplay = {0, 0, 0, 0, 0, 0, 2};
+                locSpots = directSpotsDisplay[rank - 1] + qualifyingSpotsDisplay[rank - 1] + preliminarySpotsDisplay[rank - 1];
 
-                // Stars Cup positions (0-based arrays from qualification logic)
+                // Stars Cup positions (0-based): non-increasing (2,2,2,2,1,1,1)
                 int[][] starsCupPositions = {
-                    {5, 6, 7},  // Rank 1
-                    {4, 5, 6},  // Rank 2
-                    {3, 4},     // Rank 3
-                    {3, 4},     // Rank 4
-                    {2, 3, 4},  // Rank 5
-                    {2, 3, 4}   // Rank 6
+                    {4, 5},     // Rank 1: 5th-6th (1 league + 1 cup)
+                    {4, 5},     // Rank 2: 5th-6th
+                    {3, 4},     // Rank 3: 4th-5th (1 league + 1 cup)
+                    {3, 4},     // Rank 4: 4th-5th
+                    {3},        // Rank 5: cup spot only (shown at 4th)
+                    {3},        // Rank 6: cup spot only
+                    {2}         // Rank 7: cup spot only
                 };
                 int[] scPos = starsCupPositions[rank - 1];
                 starsCupStart = scPos[0] + 1; // convert to 1-based position
@@ -4077,6 +4256,7 @@ public class CompetitionController {
 
     private void qualifyTeamsForEuropeanCompetitions() {
         long nextSeason = Long.parseLong(getCurrentSeason()) + 1;
+        System.out.println("=== qualifyTeamsForEuropeanCompetitions: qualifying for season " + nextSeason + " ===");
 
         // Find European competition IDs dynamically
         Optional<Competition> locOpt = competitionRepository.findAll().stream()
@@ -4104,37 +4284,57 @@ public class CompetitionController {
                     .sorted((a, b) -> {
                         if (a.getPoints() != b.getPoints()) return b.getPoints() - a.getPoints();
                         if (a.getGoalDifference() != b.getGoalDifference()) return b.getGoalDifference() - a.getGoalDifference();
-                        return b.getGoalsFor() - a.getGoalsFor();
+                        if (a.getGoalsFor() != b.getGoalsFor()) return b.getGoalsFor() - a.getGoalsFor();
+                        // Fallback: sort by team reputation (for when no matches were played)
+                        Team teamA = teamRepository.findById(a.getTeamId()).orElse(null);
+                        Team teamB = teamRepository.findById(b.getTeamId()).orElse(null);
+                        int repA = teamA != null ? teamA.getReputation() : 0;
+                        int repB = teamB != null ? teamB.getReputation() : 0;
+                        return Integer.compare(repB, repA);
                     })
                     .toList();
             standingsByLeague.put(leagueId, standings);
         }
 
-        // LoC allocation (19 participants total, 16 group stage spots):
-        // Direct to group stage (round 2) — 13 teams:
-        // Rank 1: 1st-4th (4 spots), Rank 2: 1st-3rd (3), Rank 3: 1st-2nd (2),
-        // Rank 4: 1st-2nd (2), Rank 5: 1st (1), Rank 6: 1st (1)
-        // Qualifying round (round 1) — 6 teams:
-        // Rank 1: 5th, Rank 2: 4th, Rank 3: 3rd, Rank 4: 3rd, Rank 5: 2nd, Rank 6: 2nd
-        int[] directSpots = {4, 3, 2, 2, 1, 1};   // per rank, how many go direct to group stage
-        int[] qualifyingPos = {4, 3, 2, 2, 1, 1};  // per rank, 0-based position for qualifying
+        // LoC allocation — spots decrease with rank (non-increasing):
+        // Rank 1: 4 (3 direct + 1 qualifying)
+        // Rank 2: 4 (3 direct + 1 qualifying)
+        // Rank 3: 3 (2 direct + 1 qualifying)
+        // Rank 4: 3 (2 direct + 1 qualifying)
+        // Rank 5: 3 (1 direct + 2 qualifying)
+        // Rank 6: 2 (1 direct + 1 qualifying)
+        // Rank 7: 2 (2 preliminary)
+        // Flow: 2 preliminary → 1 winner joins qualifying (7+1=8) → 4 winners → groups (12+4=16)
+        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
+        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
+        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
 
-        for (int rank = 1; rank <= Math.min(numLeagues, 6); rank++) {
+        for (int rank = 1; rank <= Math.min(numLeagues, 7); rank++) {
             List<TeamCompetitionDetail> standings = standingsByLeague.get(sortedLeagueIds.get(rank - 1));
-            if (standings.isEmpty()) continue;
+            if (standings == null || standings.isEmpty()) continue;
+            int idx = rank - 1;
 
             // Direct to group stage (round 2)
-            int direct = directSpots[rank - 1];
-            for (int i = 0; i < direct; i++) {
+            for (int i = 0; i < directSpots[idx]; i++) {
                 if (standings.size() > i) {
                     saveLocQualifier(standings.get(i).getTeamId(), locCompetitionId, nextSeason, 2);
                 }
             }
 
             // Qualifying round (round 1)
-            int qPos = qualifyingPos[rank - 1];
-            if (standings.size() > qPos) {
-                saveLocQualifier(standings.get(qPos).getTeamId(), locCompetitionId, nextSeason, 1);
+            int qStart = directSpots[idx];
+            for (int i = 0; i < qualifyingSpots[idx]; i++) {
+                int pos = qStart + i;
+                if (standings.size() > pos) {
+                    saveLocQualifier(standings.get(pos).getTeamId(), locCompetitionId, nextSeason, 1);
+                }
+            }
+
+            // Preliminary qualifying (round 0)
+            for (int i = 0; i < preliminarySpots[idx]; i++) {
+                if (standings.size() > i) {
+                    saveLocQualifier(standings.get(i).getTeamId(), locCompetitionId, nextSeason, 0);
+                }
             }
         }
 
@@ -4147,25 +4347,27 @@ public class CompetitionController {
             }
         }
 
-        // Stars Cup allocation (16 participants, all at round 1):
-        // League-based spots (1 fewer per nation to make room for cup winner):
-        // Rank 1: 7th, 8th (2 spots) + cup winner
-        // Rank 2: 6th, 7th (2 spots) + cup winner
-        // Rank 3: 5th (1 spot) + cup winner
-        // Rank 4: 5th (1 spot) + cup winner
-        // Rank 5: 4th, 5th (2 spots) + cup winner
-        // Rank 6: 4th, 5th (2 spots) + cup winner
-        // Total: 10 from league + 6 from cups = 16
+        // Stars Cup allocation — spots decrease with rank (non-increasing):
+        // 1 spot per nation is ALWAYS reserved for cup winner.
+        // League-based spots:
+        // Rank 1: 5th (1 spot) + 1 cup = 2
+        // Rank 2: 5th (1 spot) + 1 cup = 2
+        // Rank 3: 4th (1 spot) + 1 cup = 2
+        // Rank 4: 4th (1 spot) + 1 cup = 2
+        // Rank 5: (0 spots) + 1 cup = 1
+        // Rank 6: (0 spots) + 1 cup = 1
+        // Rank 7: (0 spots) + 1 cup = 1 (LoC losers add extra spots)
         int[][] starsCupPositions = {
-            {6, 7},     // Rank 1: 7th, 8th (0-based: 6, 7)
-            {5, 6},     // Rank 2: 6th, 7th
-            {4},        // Rank 3: 5th
-            {4},        // Rank 4: 5th
-            {3, 4},     // Rank 5: 4th, 5th
-            {3, 4}      // Rank 6: 4th, 5th
+            {4},        // Rank 1: 5th (0-based: 4)
+            {4},        // Rank 2: 5th
+            {3},        // Rank 3: 4th
+            {3},        // Rank 4: 4th
+            {},         // Rank 5: none (cup spot only)
+            {},         // Rank 6: none (cup spot only)
+            {}          // Rank 7: none (cup + LoC losers cover spots)
         };
 
-        for (int rank = 1; rank <= Math.min(numLeagues, 6); rank++) {
+        for (int rank = 1; rank <= Math.min(numLeagues, 7); rank++) {
             List<TeamCompetitionDetail> standings = standingsByLeague.get(sortedLeagueIds.get(rank - 1));
             int[] positions = starsCupPositions[rank - 1];
             for (int pos : positions) {
@@ -4176,18 +4378,13 @@ public class CompetitionController {
             }
         }
 
-        // Cup winner qualification for Stars Cup (1 spot per nation)
-        // If the cup winner is already qualified for LoC or Stars Cup,
-        // the spot goes to the next highest league-placed team not already qualified
+        // Cup winner qualification for Stars Cup (1 reserved spot per nation)
+        // The spot is always reserved. Rules:
+        // 1. Cup winner already in LoC or Stars Cup → reserved spot goes to first non-qualified league team
+        // 2. Cup winner NOT qualified → cup winner gets the reserved spot directly (no one removed)
         List<Competition> allComps = competitionRepository.findAll();
-        Map<Long, Long> nationToFirstLeagueMap = new HashMap<>();
-        for (Competition comp : allComps) {
-            if (comp.getTypeId() == 1) {
-                nationToFirstLeagueMap.put(comp.getNationId(), comp.getId());
-            }
-        }
 
-        for (int rank = 1; rank <= Math.min(numLeagues, 6); rank++) {
+        for (int rank = 1; rank <= Math.min(numLeagues, 7); rank++) {
             long leagueId = sortedLeagueIds.get(rank - 1);
             Competition league = competitionRepository.findById(leagueId).orElse(null);
             if (league == null) continue;
@@ -4202,7 +4399,6 @@ public class CompetitionController {
             long cupCompId = cupOpt.get().getId();
 
             // Find cup winner from TeamCompetitionDetail (sorted by points, the winner has most wins)
-            long currentSeason = Long.parseLong(getCurrentSeason());
             List<TeamCompetitionDetail> cupStandings = allDetails.stream()
                     .filter(d -> d.getCompetitionId() == cupCompId)
                     .sorted((a, b) -> {
@@ -4217,29 +4413,29 @@ public class CompetitionController {
             long cupWinnerTeamId = cupStandings.get(0).getTeamId();
             System.out.println("=== Cup winner for nation " + nationId + ": team " + cupWinnerTeamId + " ===");
 
-            if (!alreadyQualified.contains(cupWinnerTeamId)) {
-                // Cup winner gets the Stars Cup spot
-                saveStarsCupQualifier(cupWinnerTeamId, starsCupCompetitionId, nextSeason);
-                alreadyQualified.add(cupWinnerTeamId);
-                System.out.println("=== Cup winner team " + cupWinnerTeamId + " qualified for Stars Cup ===");
-            } else {
-                // Cup winner already qualified — give spot to next best league team not qualified
-                List<TeamCompetitionDetail> leagueStandings = standingsByLeague.get(leagueId);
-                boolean spotGiven = false;
+            // Check if cup winner is already qualified for European competition
+            boolean alreadyInEurope = alreadyQualified.contains(cupWinnerTeamId);
+
+            List<TeamCompetitionDetail> leagueStandings = standingsByLeague.get(leagueId);
+
+            if (alreadyInEurope) {
+                // Cup winner already qualified (LoC or Stars Cup from league)
+                // Reserved cup spot goes to first non-qualified league team
                 if (leagueStandings != null) {
                     for (TeamCompetitionDetail tcd : leagueStandings) {
                         if (!alreadyQualified.contains(tcd.getTeamId())) {
                             saveStarsCupQualifier(tcd.getTeamId(), starsCupCompetitionId, nextSeason);
                             alreadyQualified.add(tcd.getTeamId());
-                            System.out.println("=== Cup winner already qualified. Spot goes to league team " + tcd.getTeamId() + " ===");
-                            spotGiven = true;
+                            System.out.println("=== Cup winner already in Europe. Reserved spot to team " + tcd.getTeamId() + " ===");
                             break;
                         }
                     }
                 }
-                if (!spotGiven) {
-                    System.out.println("=== No available team for cup winner Stars Cup spot in nation " + nationId + " ===");
-                }
+            } else {
+                // Cup winner NOT qualified — gets the reserved Stars Cup spot directly
+                saveStarsCupQualifier(cupWinnerTeamId, starsCupCompetitionId, nextSeason);
+                alreadyQualified.add(cupWinnerTeamId);
+                System.out.println("=== Cup winner team " + cupWinnerTeamId + " qualified for Stars Cup (reserved cup spot) ===");
             }
         }
     }
@@ -4251,6 +4447,8 @@ public class CompetitionController {
         cti.setSeasonNumber(season);
         cti.setRound(round);
         competitionTeamInfoRepository.save(cti);
+        String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
+        System.out.println("=== LoC qualifier: " + teamName + " (team " + teamId + ") → round " + round + " season " + season + " ===");
     }
 
     private void saveStarsCupQualifier(long teamId, long starsCupCompetitionId, long season) {
@@ -4296,16 +4494,17 @@ public class CompetitionController {
         double drawPoints;
 
         if (isLoC) {
-            if (roundId == 1) { winPoints = 1.0; drawPoints = 0; }           // QR (knockout)
+            if (roundId <= 1) { winPoints = 1.0; drawPoints = 0; }           // Preliminary/QR (knockout)
             else if (roundId <= 7) { winPoints = 2.0; drawPoints = 1.0; }    // Group stage
             else if (roundId == 8) { winPoints = 3.0; drawPoints = 0; }      // QF
             else if (roundId == 9) { winPoints = 4.0; drawPoints = 0; }      // SF
             else { winPoints = 5.0; drawPoints = 0; }                        // Final
         } else {
-            // Stars Cup - worth less
-            if (roundId == 1) { winPoints = 0.5; drawPoints = 0; }           // R16
-            else if (roundId == 2) { winPoints = 1.5; drawPoints = 0; }      // QF
-            else if (roundId == 3) { winPoints = 2.0; drawPoints = 0; }      // SF
+            // Stars Cup
+            if (roundId <= 6) { winPoints = 1.0; drawPoints = 0.5; }         // Group stage
+            else if (roundId == 7) { winPoints = 1.0; drawPoints = 0; }      // Playoff
+            else if (roundId == 8) { winPoints = 1.5; drawPoints = 0; }      // QF
+            else if (roundId == 9) { winPoints = 2.0; drawPoints = 0; }      // SF
             else { winPoints = 2.5; drawPoints = 0; }                        // Final
         }
 
@@ -4380,26 +4579,41 @@ public class CompetitionController {
                 }
             }
         } else {
-            // Stars Cup prizes (smaller)
+            // Stars Cup prizes (with group stage)
             if (roundId == 1) {
-                // R16: participation bonus
-                awardPrizeMoney(team1Id, 2_000_000L, season, roundNumber,
-                        compName + " Round of 16", "european_prize");
-                awardPrizeMoney(team2Id, 2_000_000L, season, roundNumber,
-                        compName + " Round of 16", "european_prize");
-            } else if (roundId == 2) {
+                // Group stage participation bonus (first matchday only)
+                awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
+                        compName + " Group Stage Qualification", "european_prize");
+                awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
+                        compName + " Group Stage Qualification", "european_prize");
+            }
+            if (roundId >= 1 && roundId <= 6) {
+                // Group stage: win = 1.5M, draw = 500K
+                if (score1 > score2) {
+                    awardPrizeMoney(team1Id, 1_500_000L, season, roundNumber,
+                            compName + " Group Stage Win", "european_prize");
+                } else if (score2 > score1) {
+                    awardPrizeMoney(team2Id, 1_500_000L, season, roundNumber,
+                            compName + " Group Stage Win", "european_prize");
+                } else {
+                    awardPrizeMoney(team1Id, 500_000L, season, roundNumber,
+                            compName + " Group Stage Draw", "european_prize");
+                    awardPrizeMoney(team2Id, 500_000L, season, roundNumber,
+                            compName + " Group Stage Draw", "european_prize");
+                }
+            } else if (roundId == 8) {
                 // QF qualification
                 awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
                         compName + " Quarter-Final Qualification", "european_prize");
                 awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
                         compName + " Quarter-Final Qualification", "european_prize");
-            } else if (roundId == 3) {
+            } else if (roundId == 9) {
                 // SF qualification
                 awardPrizeMoney(team1Id, 10_000_000L, season, roundNumber,
                         compName + " Semi-Final Qualification", "european_prize");
                 awardPrizeMoney(team2Id, 10_000_000L, season, roundNumber,
                         compName + " Semi-Final Qualification", "european_prize");
-            } else if (roundId == 4) {
+            } else if (roundId == 10) {
                 // Final: winner 15M, runner-up 8M
                 if (score1 > score2) {
                     awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
@@ -4474,6 +4688,66 @@ public class CompetitionController {
             if (cc.isPresent()) total += cc.get().getPoints();
         }
         return total;
+    }
+
+    @GetMapping("/getEuropeanSummary")
+    public Map<String, Object> getEuropeanSummary() {
+        Map<String, Object> summary = new LinkedHashMap<>();
+
+        // LoC allocation totals
+        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
+        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
+        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
+        int numLeagues = (int) competitionRepository.findAll().stream().filter(c -> c.getTypeId() == 1).count();
+        int totalRanks = Math.min(numLeagues, 7);
+
+        int totalDirect = 0, totalQualifying = 0, totalPreliminary = 0;
+        for (int i = 0; i < totalRanks; i++) {
+            totalDirect += directSpots[i];
+            totalQualifying += qualifyingSpots[i];
+            totalPreliminary += preliminarySpots[i];
+        }
+        int locTotal = totalDirect + totalQualifying + totalPreliminary;
+        int groupStageTeams = totalDirect + (totalQualifying + totalPreliminary / 2) / 2;
+
+        Map<String, Object> loc = new LinkedHashMap<>();
+        loc.put("totalTeams", locTotal);
+        loc.put("directToGroups", totalDirect);
+        loc.put("qualifyingTeams", totalQualifying);
+        loc.put("preliminaryTeams", totalPreliminary);
+        loc.put("groupStageTeams", 16);
+        loc.put("groups", 4);
+        loc.put("teamsPerGroup", 4);
+        loc.put("advancePerGroup", 2);
+        summary.put("loc", loc);
+
+        Map<String, Object> sc = new LinkedHashMap<>();
+        sc.put("totalTeams", 16);
+        sc.put("groups", 4);
+        sc.put("teamsPerGroup", 4);
+        sc.put("format", "Group winners to QF, runners-up play LoC 3rd place in Playoff, then QF → SF → Final");
+        summary.put("starsCup", sc);
+
+        // Points system
+        Map<String, Object> locPoints = new LinkedHashMap<>();
+        locPoints.put("Preliminary/Qualifying win", "1 pt");
+        locPoints.put("Group stage win", "2 pts");
+        locPoints.put("Group stage draw", "1 pt");
+        locPoints.put("Quarter-Final win", "3 pts");
+        locPoints.put("Semi-Final win", "4 pts");
+        locPoints.put("Final win", "5 pts");
+        summary.put("locPoints", locPoints);
+
+        Map<String, Object> scPoints = new LinkedHashMap<>();
+        scPoints.put("Group stage win", "1 pt");
+        scPoints.put("Group stage draw", "0.5 pts");
+        scPoints.put("Playoff win", "1 pt");
+        scPoints.put("Quarter-Final win", "1.5 pts");
+        scPoints.put("Semi-Final win", "2 pts");
+        scPoints.put("Final win", "2.5 pts");
+        summary.put("starsCupPoints", scPoints);
+
+        return summary;
     }
 
     @GetMapping("/getCountryCoefficients")
@@ -4601,42 +4875,35 @@ public class CompetitionController {
     }
 
     private void assignEuropeanAllocation(Map<String, Object> entry, int rank) {
-        switch (rank) {
-            case 1:
-                entry.put("locSpots", 5);
-                entry.put("locEntry", "4 Group Stage + 1 Qualifying");
-                entry.put("starsCupSpots", 3);
-                break;
-            case 2:
-                entry.put("locSpots", 4);
-                entry.put("locEntry", "3 Group Stage + 1 Qualifying");
-                entry.put("starsCupSpots", 3);
-                break;
-            case 3:
-                entry.put("locSpots", 3);
-                entry.put("locEntry", "2 Group Stage + 1 Qualifying");
-                entry.put("starsCupSpots", 2);
-                break;
-            case 4:
-                entry.put("locSpots", 3);
-                entry.put("locEntry", "2 Group Stage + 1 Qualifying");
-                entry.put("starsCupSpots", 2);
-                break;
-            case 5:
-                entry.put("locSpots", 2);
-                entry.put("locEntry", "1 Group Stage + 1 Qualifying");
-                entry.put("starsCupSpots", 3);
-                break;
-            case 6:
-                entry.put("locSpots", 2);
-                entry.put("locEntry", "1 Group Stage + 1 Qualifying");
-                entry.put("starsCupSpots", 3);
-                break;
-            default:
-                entry.put("locSpots", 0);
-                entry.put("locEntry", "None");
-                entry.put("starsCupSpots", 0);
-                break;
+        // LoC direct + qualifying + preliminary spots per rank (non-increasing)
+        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
+        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
+        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
+        // Stars Cup: league spots + 1 cup reserved per nation (non-increasing)
+        int[] scLeagueSpots = {1, 1, 1, 1, 0, 0, 0};
+        int[] scCupSpots =    {1, 1, 1, 1, 1, 1, 1};
+
+        if (rank >= 1 && rank <= 7) {
+            int idx = rank - 1;
+            int locTotal = directSpots[idx] + qualifyingSpots[idx] + preliminarySpots[idx];
+            entry.put("locSpots", locTotal);
+
+            String locEntry;
+            if (directSpots[idx] > 0 && qualifyingSpots[idx] > 0) {
+                locEntry = directSpots[idx] + " Group Stage + " + qualifyingSpots[idx] + " Qualifying";
+            } else if (preliminarySpots[idx] > 0) {
+                locEntry = preliminarySpots[idx] + " Preliminary Qualifying";
+            } else if (directSpots[idx] > 0) {
+                locEntry = directSpots[idx] + " Group Stage";
+            } else {
+                locEntry = "None";
+            }
+            entry.put("locEntry", locEntry);
+            entry.put("starsCupSpots", scLeagueSpots[idx] + scCupSpots[idx]);
+        } else {
+            entry.put("locSpots", 0);
+            entry.put("locEntry", "None");
+            entry.put("starsCupSpots", 0);
         }
     }
 
@@ -4694,33 +4961,243 @@ public class CompetitionController {
         return sorted;
     }
 
-    private void drawEuropeanGroups(long locCompetitionId) {
+    private void drawEuropeanGroups(long competitionId, int groupStageRound) {
         long currentSeason = Long.parseLong(getCurrentSeason());
+        // Seeding uses coefficient from PREVIOUS seasons only (current season results count from next season)
+        int coeffSeason = (int) currentSeason - 1;
         List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
                 .findAllBySeasonNumber(currentSeason).stream()
-                .filter(cti -> cti.getCompetitionId() == locCompetitionId && cti.getRound() == 2)
+                .filter(cti -> cti.getCompetitionId() == competitionId && cti.getRound() == groupStageRound)
                 .collect(Collectors.toList());
 
         if (entries.size() < 4) return;
 
-        // Sort by team reputation (seeding)
+        // Sort by club coefficient (descending, previous seasons only), fallback to reputation
         entries.sort((a, b) -> {
+            double coeffA = getClubCoefficientRolling(a.getTeamId(), coeffSeason);
+            double coeffB = getClubCoefficientRolling(b.getTeamId(), coeffSeason);
+            if (coeffA != coeffB) return Double.compare(coeffB, coeffA);
             Team teamA = teamRepository.findById(a.getTeamId()).orElse(new Team());
             Team teamB = teamRepository.findById(b.getTeamId()).orElse(new Team());
             return Integer.compare(teamB.getReputation(), teamA.getReputation());
         });
 
-        // Split into 4 groups of 4 (snake draft for balance)
-        int numGroups = 4;
-        int groupSize = entries.size() / numGroups;
-        for (int i = 0; i < entries.size(); i++) {
-            int groupNumber = (i % numGroups) + 1;
-            // Snake: reverse order for even rows
-            if ((i / numGroups) % 2 == 1) {
-                groupNumber = numGroups - (i % numGroups);
+        // Cap at 4 groups of 4; trim excess lowest-seeded teams
+        int numGroups = Math.min(4, Math.max(1, entries.size() / 4));
+        int totalSlots = numGroups * 4;
+        if (entries.size() > totalSlots) {
+            System.out.println("=== drawEuropeanGroups: trimming " + (entries.size() - totalSlots)
+                    + " lowest-seeded teams from " + entries.size() + " to fit " + numGroups + " groups of 4");
+            entries = new ArrayList<>(entries.subList(0, totalSlots));
+        }
+        int potSize = totalSlots / numGroups; // = 4
+
+        // Create pots: Pot 1 = strongest, Pot 4 = weakest
+        List<List<CompetitionTeamInfo>> pots = new ArrayList<>();
+        for (int p = 0; p < numGroups; p++) {
+            List<CompetitionTeamInfo> pot = new ArrayList<>(entries.subList(p * potSize, (p + 1) * potSize));
+            Collections.shuffle(pot);
+            pots.add(pot);
+        }
+
+        // Assign groups: one team from each pot into each group
+        // groups[g] = list of entries assigned to group g+1
+        List<List<CompetitionTeamInfo>> groups = new ArrayList<>();
+        for (int g = 0; g < numGroups; g++) {
+            groups.add(new ArrayList<>());
+        }
+
+        for (int potIndex = 0; potIndex < pots.size(); potIndex++) {
+            List<CompetitionTeamInfo> pot = pots.get(potIndex);
+            for (int g = 0; g < numGroups; g++) {
+                CompetitionTeamInfo candidate = pot.get(g);
+                long candidateNation = getTeamNationId(candidate.getTeamId());
+
+                // Check same-nation constraint
+                boolean conflict = groups.get(g).stream()
+                        .anyMatch(existing -> getTeamNationId(existing.getTeamId()) == candidateNation);
+
+                if (conflict) {
+                    // Try to swap with another team in this pot going to a different group
+                    boolean swapped = false;
+                    for (int s = g + 1; s < numGroups; s++) {
+                        CompetitionTeamInfo swapCandidate = pot.get(s);
+                        long swapNation = getTeamNationId(swapCandidate.getTeamId());
+                        boolean swapConflictInTargetGroup = groups.get(g).stream()
+                                .anyMatch(ex -> getTeamNationId(ex.getTeamId()) == swapNation);
+                        boolean originalConflictInSwapGroup = groups.get(s).stream()
+                                .anyMatch(ex -> getTeamNationId(ex.getTeamId()) == candidateNation);
+                        if (!swapConflictInTargetGroup && !originalConflictInSwapGroup) {
+                            pot.set(g, swapCandidate);
+                            pot.set(s, candidate);
+                            candidate = swapCandidate;
+                            swapped = true;
+                            break;
+                        }
+                    }
+                    if (!swapped) {
+                        System.out.println("=== drawEuropeanGroups: could not avoid same-nation conflict for team "
+                                + candidate.getTeamId() + " in group " + (g + 1));
+                    }
+                }
+
+                candidate.setGroupNumber(g + 1);
+                candidate.setPotNumber(potIndex + 1);
+                groups.get(g).add(candidate);
+                competitionTeamInfoRepository.save(candidate);
             }
-            entries.get(i).setGroupNumber(groupNumber);
-            competitionTeamInfoRepository.save(entries.get(i));
+        }
+
+        // Log the draw
+        for (int g = 0; g < numGroups; g++) {
+            System.out.println("  Group " + (g + 1) + ": " + groups.get(g).stream()
+                    .map(cti -> teamRepository.findById(cti.getTeamId()).map(Team::getName).orElse("?")
+                            + "(P" + cti.getPotNumber() + ")")
+                    .collect(Collectors.joining(", ")));
+        }
+    }
+
+    private long getTeamNationId(long teamId) {
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team == null) return -1;
+        Competition comp = competitionRepository.findById(team.getCompetitionId()).orElse(null);
+        return comp != null ? comp.getNationId() : -1;
+    }
+
+    /**
+     * Seeded knockout draw for European competitions.
+     * Splits participants into seeded (Pot 1) and unseeded (Pot 2) based on club coefficient,
+     * then pairs seeded vs unseeded with same-nation avoidance.
+     * Seeded team is listed as team1 (home advantage).
+     */
+    private void drawEuropeanKnockoutSeeded(long competitionId, long roundId, List<Long> participants) {
+        // Seeding uses coefficient from PREVIOUS seasons only (current season results count from next season)
+        int coeffSeason = Integer.parseInt(getCurrentSeason()) - 1;
+
+        // Sort by club coefficient descending (previous seasons only, fallback to reputation)
+        participants.sort((a, b) -> {
+            double coeffA = getClubCoefficientRolling(a, coeffSeason);
+            double coeffB = getClubCoefficientRolling(b, coeffSeason);
+            if (coeffA != coeffB) return Double.compare(coeffB, coeffA);
+            Team teamA = teamRepository.findById(a).orElse(new Team());
+            Team teamB = teamRepository.findById(b).orElse(new Team());
+            return Integer.compare(teamB.getReputation(), teamA.getReputation());
+        });
+
+        int half = participants.size() / 2;
+        List<Long> seeded = new ArrayList<>(participants.subList(0, half));
+        List<Long> unseeded = new ArrayList<>(participants.subList(half, participants.size()));
+        Collections.shuffle(seeded);
+        Collections.shuffle(unseeded);
+
+        // Apply same-nation avoidance: try to swap within unseeded pot
+        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
+            long seededNation = getTeamNationId(seeded.get(i));
+            long unseededNation = getTeamNationId(unseeded.get(i));
+            if (seededNation == unseededNation && seededNation != -1) {
+                for (int j = i + 1; j < unseeded.size(); j++) {
+                    long swapNation = getTeamNationId(unseeded.get(j));
+                    long seededAtJ = (j < seeded.size()) ? getTeamNationId(seeded.get(j)) : -1;
+                    if (swapNation != seededNation && unseededNation != seededAtJ) {
+                        Collections.swap(unseeded, i, j);
+                        break;
+                    }
+                }
+            }
+        }
+
+        System.out.println("=== drawEuropeanKnockoutSeeded: comp=" + competitionId + " round=" + roundId);
+        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
+            long homeId = seeded.get(i);  // Seeded team = home (team1)
+            long awayId = unseeded.get(i);
+
+            CompetitionTeamInfoMatch match = new CompetitionTeamInfoMatch();
+            match.setCompetitionId(competitionId);
+            match.setRound(roundId);
+            match.setTeam1Id(homeId);
+            match.setTeam2Id(awayId);
+            match.setSeasonNumber(getCurrentSeason());
+            competitionTeamInfoMatchRepository.save(match);
+
+            String homeName = teamRepository.findById(homeId).map(Team::getName).orElse("?");
+            String awayName = teamRepository.findById(awayId).map(Team::getName).orElse("?");
+            System.out.println("  " + homeName + " (seeded) vs " + awayName);
+        }
+    }
+
+    /**
+     * Stars Cup Playoff seeded draw: LoC 3rd-place teams (Pot 1, seeded) vs SC runners-up (Pot 2, unseeded).
+     * LoC 3rd-place teams are identified by having an entry in the LoC competition.
+     */
+    private void drawStarsCupPlayoffSeeded(long starsCupCompetitionId, long roundId, List<Long> participants) {
+        long currentSeason = Long.parseLong(getCurrentSeason());
+
+        // Find LoC competition ID
+        long locCompetitionId = competitionRepository.findAll().stream()
+                .filter(c -> c.getTypeId() == 4).findFirst()
+                .map(Competition::getId).orElse(-1L);
+
+        // LoC 3rd-place teams = teams that played in LoC GROUP STAGE (groupNumber > 0).
+        // Teams that only played LoC preliminary/qualifying (and lost) are NOT LoC 3rd place —
+        // they entered Stars Cup at round 1 (groups), not round 7 (playoff).
+        Set<Long> locGroupTeams = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
+                .filter(cti -> cti.getCompetitionId() == locCompetitionId && cti.getGroupNumber() > 0)
+                .map(CompetitionTeamInfo::getTeamId)
+                .collect(Collectors.toSet());
+
+        List<Long> seeded = new ArrayList<>();   // LoC 3rd place (capi de serie)
+        List<Long> unseeded = new ArrayList<>(); // SC group runners-up (urna a doua)
+        for (Long teamId : participants) {
+            if (locGroupTeams.contains(teamId)) {
+                seeded.add(teamId);
+            } else {
+                unseeded.add(teamId);
+            }
+        }
+
+        Collections.shuffle(seeded);
+        Collections.shuffle(unseeded);
+
+        // If pots are unbalanced (edge case), fill from the larger pot
+        while (seeded.size() > unseeded.size() && seeded.size() > 0) {
+            unseeded.add(seeded.remove(seeded.size() - 1));
+        }
+        while (unseeded.size() > seeded.size() && unseeded.size() > 0) {
+            seeded.add(unseeded.remove(unseeded.size() - 1));
+        }
+
+        // Apply same-nation avoidance
+        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
+            long seededNation = getTeamNationId(seeded.get(i));
+            long unseededNation = getTeamNationId(unseeded.get(i));
+            if (seededNation == unseededNation && seededNation != -1) {
+                for (int j = i + 1; j < unseeded.size(); j++) {
+                    long swapNation = getTeamNationId(unseeded.get(j));
+                    long seededAtJ = (j < seeded.size()) ? getTeamNationId(seeded.get(j)) : -1;
+                    if (swapNation != seededNation && unseededNation != seededAtJ) {
+                        Collections.swap(unseeded, i, j);
+                        break;
+                    }
+                }
+            }
+        }
+
+        System.out.println("=== drawStarsCupPlayoffSeeded: LoC 3rd (seeded) vs SC runners-up (unseeded)");
+        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
+            long homeId = seeded.get(i);  // LoC 3rd place = seeded = team1
+            long awayId = unseeded.get(i);
+
+            CompetitionTeamInfoMatch match = new CompetitionTeamInfoMatch();
+            match.setCompetitionId(starsCupCompetitionId);
+            match.setRound(roundId);
+            match.setTeam1Id(homeId);
+            match.setTeam2Id(awayId);
+            match.setSeasonNumber(getCurrentSeason());
+            competitionTeamInfoMatchRepository.save(match);
+
+            String homeName = teamRepository.findById(homeId).map(Team::getName).orElse("?");
+            String awayName = teamRepository.findById(awayId).map(Team::getName).orElse("?");
+            System.out.println("  " + homeName + " (LoC 3rd, seeded) vs " + awayName + " (SC runner-up)");
         }
     }
 
@@ -4748,11 +5225,15 @@ public class CompetitionController {
         }
     }
 
-    private void generateGroupStageFixtures(long locCompetitionId) {
+    private void generateGroupStageFixtures(long competitionId) {
+        // Determine round offset: LoC groups start at round 2, Stars Cup at round 1
+        Competition comp = competitionRepository.findById(competitionId).orElse(null);
+        int roundOffset = (comp != null && comp.getTypeId() == 5) ? 0 : 1; // Stars Cup: 0, LoC: 1
+
         long currentSeason = Long.parseLong(getCurrentSeason());
         List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
                 .findAllBySeasonNumber(currentSeason).stream()
-                .filter(cti -> cti.getCompetitionId() == locCompetitionId && cti.getGroupNumber() > 0)
+                .filter(cti -> cti.getCompetitionId() == competitionId && cti.getGroupNumber() > 0)
                 .toList();
 
         // Generate round-robin fixtures for each group (6 matchdays for 4 teams)
@@ -4778,8 +5259,8 @@ public class CompetitionController {
                         long away = leg == 0 ? match.get(1) : match.get(0);
 
                         CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
-                        fixture.setCompetitionId(locCompetitionId);
-                        fixture.setRound(matchday + 1);
+                        fixture.setCompetitionId(competitionId);
+                        fixture.setRound(matchday + roundOffset);
                         fixture.setTeam1Id(home);
                         fixture.setTeam2Id(away);
                         fixture.setSeasonNumber(getCurrentSeason());
@@ -4788,7 +5269,8 @@ public class CompetitionController {
                     matchday++;
                 }
             }
-            System.out.println("  Group " + group.getKey() + ": " + teams.size() + " teams, " + matchday + " matchdays (rounds 2-" + matchday + ")");
+            int startRound = 1 + roundOffset;
+            System.out.println("  Group " + group.getKey() + ": " + teams.size() + " teams, " + matchday + " matchdays (rounds " + startRound + "-" + (matchday - 1 + roundOffset) + ")");
         }
     }
 
@@ -4836,10 +5318,133 @@ public class CompetitionController {
                 cti.setRound(8);
                 competitionTeamInfoRepository.save(cti);
                 String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
-                System.out.println("  -> Qualified: " + teamName + " (id=" + teamId + ") from group " + group.getKey());
+                System.out.println("  -> Qualified for LoC QF: " + teamName + " (id=" + teamId + ") from group " + group.getKey());
+            }
+
+            // 3rd place goes to Stars Cup playoff round (round 7)
+            if (standings.size() >= 3) {
+                long thirdPlaceTeamId = standings.get(2).getTeamId();
+                long starsCupCompetitionId = competitionRepository.findAll().stream()
+                        .filter(c -> c.getTypeId() == 5).findFirst()
+                        .map(Competition::getId).orElse(-1L);
+                if (starsCupCompetitionId > 0) {
+                    CompetitionTeamInfo scCti = new CompetitionTeamInfo();
+                    scCti.setTeamId(thirdPlaceTeamId);
+                    scCti.setCompetitionId(starsCupCompetitionId);
+                    scCti.setSeasonNumber(currentSeason);
+                    scCti.setRound(7); // Stars Cup playoff round
+                    competitionTeamInfoRepository.save(scCti);
+                    String teamName = teamRepository.findById(thirdPlaceTeamId).map(t -> t.getName()).orElse("?");
+                    System.out.println("  -> LoC 3rd place to Stars Cup: " + teamName + " (id=" + thirdPlaceTeamId + ")");
+                }
             }
         }
-        System.out.println("=== Total qualified for QF: " + alreadyQualified.size());
+        System.out.println("=== Total qualified for LoC QF: " + alreadyQualified.size());
+    }
+
+    /**
+     * After a LoC qualifying/preliminary round, find the losing teams and assign them to Stars Cup.
+     * Stars Cup teams enter at round 1 (group stage).
+     */
+    private void assignLocLosersToStarsCup(long locCompetitionId, int locRound) {
+        long currentSeason = Long.parseLong(getCurrentSeason());
+        long starsCupCompetitionId = competitionRepository.findAll().stream()
+                .filter(c -> c.getTypeId() == 5).findFirst()
+                .map(Competition::getId).orElse(-1L);
+        if (starsCupCompetitionId <= 0) return;
+
+        // Get all matches from this LoC round
+        List<CompetitionTeamInfoDetail> results = competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(locCompetitionId, locRound, currentSeason);
+
+        // Get winners (teams that advanced to the next round)
+        int nextRound = locRound + 1;
+        Set<Long> winners = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
+                .filter(cti -> cti.getCompetitionId() == locCompetitionId && cti.getRound() == nextRound)
+                .map(CompetitionTeamInfo::getTeamId)
+                .collect(Collectors.toSet());
+
+        // Participants in this round
+        Set<Long> participants = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
+                .filter(cti -> cti.getCompetitionId() == locCompetitionId && cti.getRound() == locRound)
+                .map(CompetitionTeamInfo::getTeamId)
+                .collect(Collectors.toSet());
+
+        // Losers = participants minus winners
+        for (long teamId : participants) {
+            if (!winners.contains(teamId)) {
+                // Check not already in Stars Cup
+                boolean alreadyInStarsCup = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
+                        .anyMatch(cti -> cti.getTeamId() == teamId && cti.getCompetitionId() == starsCupCompetitionId);
+                if (!alreadyInStarsCup) {
+                    CompetitionTeamInfo cti = new CompetitionTeamInfo();
+                    cti.setTeamId(teamId);
+                    cti.setCompetitionId(starsCupCompetitionId);
+                    cti.setSeasonNumber(currentSeason);
+                    cti.setRound(1); // Stars Cup group stage
+                    competitionTeamInfoRepository.save(cti);
+                    String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
+                    System.out.println("=== LoC round " + locRound + " loser to Stars Cup: " + teamName + " ===");
+                }
+            }
+        }
+    }
+
+    /**
+     * Stars Cup group stage qualification: group winners to QF (round 8), runners-up to playoff (round 7).
+     */
+    private void qualifyFromStarsCupGroupStage(long starsCupCompetitionId) {
+        long currentSeason = Long.parseLong(getCurrentSeason());
+        List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
+                .findAllBySeasonNumber(currentSeason).stream()
+                .filter(cti -> cti.getCompetitionId() == starsCupCompetitionId && cti.getGroupNumber() > 0)
+                .toList();
+
+        Map<Integer, List<Long>> groups = new HashMap<>();
+        for (CompetitionTeamInfo cti : entries) {
+            groups.computeIfAbsent(cti.getGroupNumber(), k -> new ArrayList<>()).add(cti.getTeamId());
+        }
+
+        System.out.println("=== Stars Cup qualifyFromGroupStage: " + groups.size() + " groups");
+
+        for (Map.Entry<Integer, List<Long>> group : groups.entrySet()) {
+            List<Long> teamIds = group.getValue().stream().distinct().toList();
+            List<TeamCompetitionDetail> standings = teamIds.stream()
+                    .map(tid -> teamCompetitionDetailRepository.findFirstByTeamIdAndCompetitionId(tid, starsCupCompetitionId))
+                    .filter(Objects::nonNull)
+                    .sorted((a, b) -> {
+                        if (a.getPoints() != b.getPoints()) return b.getPoints() - a.getPoints();
+                        if (a.getGoalDifference() != b.getGoalDifference()) return b.getGoalDifference() - a.getGoalDifference();
+                        return b.getGoalsFor() - a.getGoalsFor();
+                    })
+                    .toList();
+
+            // Group winner → QF (round 8)
+            if (!standings.isEmpty()) {
+                long winnerId = standings.get(0).getTeamId();
+                CompetitionTeamInfo cti = new CompetitionTeamInfo();
+                cti.setTeamId(winnerId);
+                cti.setCompetitionId(starsCupCompetitionId);
+                cti.setSeasonNumber(currentSeason);
+                cti.setRound(8); // QF
+                competitionTeamInfoRepository.save(cti);
+                String teamName = teamRepository.findById(winnerId).map(t -> t.getName()).orElse("?");
+                System.out.println("  -> Stars Cup group winner to QF: " + teamName);
+            }
+
+            // Runner-up → Playoff (round 7) vs LoC 3rd place
+            if (standings.size() >= 2) {
+                long runnerUpId = standings.get(1).getTeamId();
+                CompetitionTeamInfo cti = new CompetitionTeamInfo();
+                cti.setTeamId(runnerUpId);
+                cti.setCompetitionId(starsCupCompetitionId);
+                cti.setSeasonNumber(currentSeason);
+                cti.setRound(7); // Playoff
+                competitionTeamInfoRepository.save(cti);
+                String teamName = teamRepository.findById(runnerUpId).map(t -> t.getName()).orElse("?");
+                System.out.println("  -> Stars Cup runner-up to playoff: " + teamName);
+            }
+        }
     }
 
     private void initialization() {
@@ -4852,6 +5457,7 @@ public class CompetitionController {
         initializeTeams5();
         initializeTeams6();
         initializeTeams7();
+        initializeTeams8();
 
         initializeSpecialPlayers();
     }
@@ -4862,12 +5468,14 @@ public class CompetitionController {
                 List.of(3, 2, 2), List.of(3, 3, 3), List.of(2, 2, 1), List.of(2, 3, 2), List.of(4, 2, 1), List.of(4, 3, 2),
                 List.of(0, 1, 4), List.of(0, 2, 5),
                 List.of(5, 1, 1), List.of(5, 2, 2),
-                List.of(6, 1, 1), List.of(6, 2, 2)));
+                List.of(6, 1, 1), List.of(6, 2, 2),
+                List.of(7, 1, 1), List.of(7, 2, 2)));
 
         List<String> names = new ArrayList<>(List.of("Gallactick Football First League", "Gallactick Football Cup",
                 "Khess First League", "Khess Cup", "Khess Second League", "Dong Championship", "Dong Cup", "FootieCup League",
                 "FootieCup Cup", "League of Champions", "Stars Cup",
-                "Cards League", "Cards Cup", "Literature League", "Literature Cup"));
+                "Cards League", "Cards Cup", "Literature League", "Literature Cup",
+                "Eleven League", "Eleven Cup"));
 
         for (int i = 0; i < values.size(); i++) {
             Competition competition = new Competition();
@@ -5220,6 +5828,55 @@ public class CompetitionController {
         int addedModulo = 68;
         long leagueId = 14L;
         long cupId = 15L;
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
+    }
+
+    private void initializeTeams8() {
+
+        List<List<String>> teamNames = List.of(
+                List.of("Inazuma Japan", "blue", "yellow", "40"),
+                List.of("Zero", "black", "red", "55"),
+                List.of("FF Raimon", "orange", "blue", "30"),
+                List.of("Royal Academy", "purple", "white", "70"),
+                List.of("Zeus", "gold", "white", "45"),
+                List.of("Occult", "darkgreen", "black", "60"),
+                List.of("Kirkwood", "red", "white", "35"),
+                List.of("Gemini Storm", "cyan", "blue", "50"),
+                List.of("Epsilon", "white", "purple", "25"),
+                List.of("Diamond Dust", "lightblue", "white", "65"),
+                List.of("Prominence", "red", "orange", "15"),
+                List.of("The Genesis", "black", "gold", "80"),
+                List.of("Knights of Queen", "white", "red", "90"),
+                List.of("Orpheus", "blue", "white", "20"),
+                List.of("Fire Dragon", "red", "yellow", "75"),
+                List.of("Little Gigant", "green", "yellow", "10"),
+                List.of("Unicorn", "blue", "red", "85"),
+                List.of("Desert Lion", "gold", "brown", "95"),
+                List.of("Big Waves", "cyan", "white", "5"),
+                List.of("The Empire", "grey", "black", "50"));
+
+        List<List<Integer>> teamValues = List.of(
+                List.of(10000, 5), List.of(8000, 4), List.of(7800, 3),
+                List.of(7600, 5), List.of(7400, 4), List.of(7200, 2),
+                List.of(7000, 3), List.of(6800, 4), List.of(6600, 5),
+                List.of(6400, 2), List.of(6200, 1), List.of(6000, 5),
+                List.of(5800, 3), List.of(5600, 4), List.of(5400, 1),
+                List.of(5200, 2), List.of(5000, 3), List.of(4800, 1),
+                List.of(4600, 2), List.of(4400, 4));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(14, 18, 17), List.of(13, 17, 16), List.of(13, 16, 15),
+                List.of(12, 15, 14), List.of(12, 14, 13), List.of(11, 14, 13),
+                List.of(11, 13, 12), List.of(10, 12, 11), List.of(10, 11, 11),
+                List.of(9, 11, 10), List.of(9, 10, 10), List.of(8, 10, 9),
+                List.of(8, 9, 9), List.of(7, 9, 8), List.of(7, 8, 8),
+                List.of(6, 8, 7), List.of(6, 7, 7), List.of(5, 7, 6),
+                List.of(5, 6, 6), List.of(4, 5, 5));
+
+        int addedModulo = 86;
+        long leagueId = 16L;
+        long cupId = 17L;
 
         createTeamsAndCompetitions(teamNames, teamValues, facilities, addedModulo, leagueId, cupId);
     }
@@ -6171,7 +6828,7 @@ public class CompetitionController {
         }
     }
 
-    private void handleContractExpiries(int newSeason) {
+    public void handleContractExpiries(int newSeason) {
         Random random = new Random();
         List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
 
@@ -6181,19 +6838,33 @@ public class CompetitionController {
             if (player.getContractEndSeason() <= 0) continue; // skip players without contract data
             if (player.getContractEndSeason() > newSeason) continue; // contract not yet expired
 
+            long previousTeamId = player.getTeamId();
+
             if (userContext.isHumanTeam(player.getTeamId())) {
-                // Human team: send inbox notification
+                // Human team: player leaves + send inbox notification
                 ManagerInbox inbox = new ManagerInbox();
                 inbox.setTeamId(player.getTeamId());
                 inbox.setSeasonNumber(newSeason);
                 inbox.setRoundNumber(1);
-                inbox.setTitle("Contract Expired");
-                inbox.setContent("Contract expired for " + player.getName()
-                        + ". Negotiate renewal or lose him for free.");
+                inbox.setTitle("Player Left - Contract Expired");
+                inbox.setContent(player.getName() + " (" + player.getPosition() + ", Rating "
+                        + Math.round(player.getRating()) + ") has left the club as their contract expired.");
                 inbox.setCategory("contract");
                 inbox.setRead(false);
                 inbox.setCreatedAt(System.currentTimeMillis());
                 managerInboxRepository.save(inbox);
+
+                // Update salary budget
+                Team team = teamRepository.findById(player.getTeamId()).orElse(null);
+                if (team != null) {
+                    team.setSalaryBudget(Math.max(0, team.getSalaryBudget() - player.getWage()));
+                    teamRepository.save(team);
+                }
+
+                // Player becomes free agent
+                player.setTeamId(null);
+                player.setContractEndSeason(0);
+                humanRepository.save(player);
             } else {
                 // AI team: 50% auto-renew, 50% become free agent
                 if (random.nextBoolean()) {
@@ -6209,50 +6880,135 @@ public class CompetitionController {
     }
 
     /**
-     * Simulates a single matchday for a specific competition.
+     * Simulates a matchday for a specific competition.
      * Called by GameAdvanceService when processing MATCH events from the calendar.
      *
-     * @param competitionId the competition to simulate
-     * @param matchday the matchday/round number within the competition
-     * @param season the current season number
-     */
-    /**
-     * Simulates a matchday: just calls simulateRound (same as old play() logic).
+     * IMPORTANT: matchday is 1-based (from CalendarEvent), but competition rounds differ:
+     *   LoC (typeId 4): 11 matchdays → rounds 0-10 (matchday - 1 = round)
+     *     matchday 1 = round 0 (preliminary), matchday 2 = round 1 (qualifying),
+     *     matchdays 3-8 = rounds 2-7 (groups), matchdays 9-11 = rounds 8-10 (QF/SF/Final)
+     *   Stars Cup (typeId 5): 10 matchdays → rounds 1-10 (matchday = round)
+     *     matchdays 1-6 = rounds 1-6 (groups), matchday 7 = round 7 (playoff),
+     *     matchdays 8-10 = rounds 8-10 (QF/SF/Final)
+     *   Cup (typeId 2): matchday = round (1-based knockout)
      */
     @Transactional
     public void simulateMatchday(long competitionId, int matchday, int season) {
-        System.out.println("=== simulateMatchday: competitionId=" + competitionId
-                + ", matchday=" + matchday + ", season=" + season + " ===");
-
-        // Guard: skip if this round was already simulated (prevents duplicate detail records)
-        List<CompetitionTeamInfoDetail> existing = competitionTeamInfoDetailRepository
-                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, matchday, season);
-        if (!existing.isEmpty()) {
-            System.out.println("Round already simulated, skipping");
-            return;
-        }
-
         Competition competition = competitionRepository.findById(competitionId).orElse(null);
         if (competition == null) return;
 
         int typeId = (int) competition.getTypeId();
         String compIdStr = String.valueOf(competitionId);
-        String roundStr = String.valueOf(matchday);
 
-        if (typeId == 2 || typeId == 4 || typeId == 5) {
+        // Map matchday (1-based) to competition round
+        int round;
+        if (typeId == 4) {
+            round = matchday - 1; // LoC: matchday 1 = round 0
+        } else {
+            round = matchday; // Stars Cup & Cup: matchday = round
+        }
+        String roundStr = String.valueOf(round);
+
+        System.out.println("=== simulateMatchday: comp=" + competitionId + " typeId=" + typeId
+                + " matchday=" + matchday + " → round=" + round + " season=" + season + " ===");
+
+        // Guard: skip if this round was already simulated
+        List<CompetitionTeamInfoDetail> existing = competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, round, season);
+        if (!existing.isEmpty()) {
+            System.out.println("Round " + round + " already simulated, skipping");
+            return;
+        }
+
+        // === LoC (typeId 4) ===
+        if (typeId == 4) {
+            if (round == 0) {
+                // Preliminary: knockout draw + simulate + losers to Stars Cup
+                this.getFixturesForRound(compIdStr, roundStr);
+                this.simulateRound(compIdStr, roundStr);
+                assignLocLosersToStarsCup(competitionId, 0);
+                return;
+            }
+            if (round == 1) {
+                // Qualifying: knockout draw + simulate + losers to Stars Cup
+                this.getFixturesForRound(compIdStr, roundStr);
+                this.simulateRound(compIdStr, roundStr);
+                assignLocLosersToStarsCup(competitionId, 1);
+                return;
+            }
+            if (round >= 2 && round <= 7) {
+                // Group stage
+                if (round == 2) {
+                    // First group matchday: draw groups + generate all group fixtures
+                    drawEuropeanGroups(competitionId, 2);
+                    resetEuropeanStats(competitionId);
+                    generateGroupStageFixtures(competitionId);
+                    // Assign calendar days for remaining group matchdays
+                    for (int md = matchday + 1; md <= matchday + 5; md++) {
+                        fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
+                    }
+                }
+                this.simulateRound(compIdStr, roundStr);
+                if (round == 7) {
+                    // Last group matchday: qualify top 2 to QF, 3rd to Stars Cup playoff
+                    qualifyFromGroupStage(competitionId);
+                }
+                return;
+            }
+            // Knockout rounds 8-10
             this.getFixturesForRound(compIdStr, roundStr);
+            this.simulateRound(compIdStr, roundStr);
+            // Draw next knockout round
+            if (round < 10) {
+                int nextRound = round + 1;
+                this.getFixturesForRound(compIdStr, String.valueOf(nextRound));
+                fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
+            }
+            return;
         }
 
-        if (typeId == 4 && matchday == 2) {
-            drawEuropeanGroups(competitionId);
-            resetEuropeanStats(competitionId);
-            generateGroupStageFixtures(competitionId);
+        // === Stars Cup (typeId 5) ===
+        if (typeId == 5) {
+            if (round >= 1 && round <= 6) {
+                // Group stage
+                if (round == 1) {
+                    // First group matchday: draw groups + generate all group fixtures
+                    drawEuropeanGroups(competitionId, 1);
+                    resetEuropeanStats(competitionId);
+                    generateGroupStageFixtures(competitionId);
+                    for (int md = matchday + 1; md <= matchday + 5; md++) {
+                        fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
+                    }
+                }
+                this.simulateRound(compIdStr, roundStr);
+                if (round == 6) {
+                    // Last group matchday: winners to QF, runners-up to playoff
+                    qualifyFromStarsCupGroupStage(competitionId);
+                }
+                return;
+            }
+            // Knockout rounds 7-10 (7 = playoff, 8 = QF, 9 = SF, 10 = Final)
+            this.getFixturesForRound(compIdStr, roundStr);
+            this.simulateRound(compIdStr, roundStr);
+            // Draw next knockout round
+            if (round < 10) {
+                int nextRound = round + 1;
+                this.getFixturesForRound(compIdStr, String.valueOf(nextRound));
+                fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
+            }
+            return;
         }
 
+        // === Cup (typeId 2) ===
+        this.getFixturesForRound(compIdStr, roundStr);
         this.simulateRound(compIdStr, roundStr);
-
-        if (typeId == 4 && matchday == 7) {
-            qualifyFromGroupStage(competitionId);
+        // Draw next cup round
+        int numTeams = getTeamCountForCompetition(competitionId);
+        int maxRounds = Math.max(1, (int) Math.ceil(Math.log(numTeams) / Math.log(2)));
+        if (round < maxRounds) {
+            int nextRound = round + 1;
+            this.getFixturesForRound(compIdStr, String.valueOf(nextRound));
+            fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
         }
     }
 

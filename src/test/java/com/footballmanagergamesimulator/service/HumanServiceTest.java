@@ -3,9 +3,8 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.TeamFacilities;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.repository.RoundRepository;
-import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
+import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +32,18 @@ class HumanServiceTest {
 
     @Mock
     private RoundRepository roundRepository;
+
+    @Mock
+    private CompetitionService competitionService;
+
+    @Mock
+    private PlayerSkillsRepository playerSkillsRepository;
+
+    @Mock
+    private ScorerLeaderboardRepository scorerLeaderboardRepository;
+
+    @Mock
+    private CompositeNameGenerator compositeNameGenerator;
 
     @BeforeEach
     void setUp() {
@@ -89,7 +100,7 @@ class HumanServiceTest {
 
         assertEquals(21, human1.getAge());
         assertEquals(26, human2.getAge());
-        verify(humanRepository, times(2)).save(any(Human.class));
+        verify(humanRepository, times(1)).saveAll(anyList());
     }
 
     @Test

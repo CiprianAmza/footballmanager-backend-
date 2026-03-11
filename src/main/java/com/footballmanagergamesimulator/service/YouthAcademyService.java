@@ -4,10 +4,9 @@ import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.YouthPlayer;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
-import com.footballmanagergamesimulator.repository.TeamRepository;
-import com.footballmanagergamesimulator.repository.YouthPlayerRepository;
+import com.footballmanagergamesimulator.model.Round;
+import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +21,8 @@ public class YouthAcademyService {
     HumanRepository humanRepository;
     @Autowired
     TeamRepository teamRepository;
+    @Autowired
+    RoundRepository roundRepository;
     @Autowired
     ManagerInboxRepository managerInboxRepository;
     @Autowired
@@ -77,6 +78,27 @@ public class YouthAcademyService {
         YouthPlayer yp = youthPlayerRepository.findById(youthPlayerId)
                 .orElseThrow(() -> new RuntimeException("Youth player not found: " + youthPlayerId));
 
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        int currentSeason = (int) round.getSeason();
+
+        // Calculate wage based on ability (youth players get modest wages)
+        long youthWage = (long) (Math.pow(yp.getCurrentAbility() / 10.0, 2.0) * 200);
+        youthWage = Math.max(youthWage, 500); // minimum wage for youth
+
+        // Calculate release clause (5x annual wage equivalent)
+        long releaseClause = youthWage * 52 * 5;
+
+        // Find next available shirt number
+        List<Human> teamPlayers = humanRepository.findAllByTeamId(teamId);
+        Set<Integer> usedNumbers = new HashSet<>();
+        for (Human h : teamPlayers) {
+            if (!h.isRetired()) usedNumbers.add(h.getShirtNumber());
+        }
+        int shirtNumber = 1;
+        for (int n = 30; n <= 99; n++) {
+            if (!usedNumbers.contains(n)) { shirtNumber = n; break; }
+        }
+
         Human human = new Human();
         human.setTypeId(1); // PLAYER_TYPE
         human.setTeamId(teamId);
@@ -91,8 +113,21 @@ public class YouthAcademyService {
         human.setFitness(70);
         human.setCurrentStatus("Junior");
         human.setRetired(false);
+        human.setContractEndSeason(currentSeason + 5);
+        human.setWage(youthWage);
+        human.setSalary(youthWage);
+        human.setReleaseClause(releaseClause);
+        human.setSeasonCreated(currentSeason);
+        human.setShirtNumber(shirtNumber);
 
         humanRepository.save(human);
+
+        // Update team salary budget
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team != null) {
+            team.setSalaryBudget(team.getSalaryBudget() + youthWage);
+            teamRepository.save(team);
+        }
 
         yp.setStatus("PROMOTED");
         yp.setPlayerId(human.getId());

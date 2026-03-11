@@ -69,6 +69,7 @@ public class MatchService {
 
             // Use calendar day for proper date display instead of round number
             int matchDay = competitionTeamInfoMatch.getDay();
+            scheduleView.setDay(matchDay);
             if (matchDay > 0) {
                 scheduleView.setDate(calendarService.getDateDisplay(matchDay));
             } else {
@@ -84,6 +85,9 @@ public class MatchService {
 
             scheduleViews.add(scheduleView);
         }
+
+        // Sort by calendar day (chronological order across all competitions)
+        scheduleViews.sort(Comparator.comparingInt(ScheduleView::getDay));
 
         return scheduleViews;
     }
@@ -131,6 +135,7 @@ public class MatchService {
 
             // Calendar date display
             int matchDayCal = match.getDay();
+            entry.setDay(matchDayCal);
             if (matchDayCal > 0) {
                 entry.setDateDisplay(calendarService.getDateDisplay(matchDayCal));
             }
@@ -171,8 +176,8 @@ public class MatchService {
             entries.add(entry);
         }
 
-        // Sort by round number
-        entries.sort(Comparator.comparingInt(CalendarEntryView::getRoundNumber));
+        // Sort by calendar day (chronological order across all competitions)
+        entries.sort(Comparator.comparingInt(CalendarEntryView::getDay));
 
         return entries;
     }

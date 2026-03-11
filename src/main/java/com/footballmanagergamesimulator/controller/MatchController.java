@@ -1,11 +1,9 @@
 package com.footballmanagergamesimulator.controller;
 
-import com.footballmanagergamesimulator.frontend.CalendarEntryView;
-import com.footballmanagergamesimulator.frontend.MatchPreviewView;
-import com.footballmanagergamesimulator.frontend.MatchSummaryView;
-import com.footballmanagergamesimulator.frontend.ScheduleView;
+import com.footballmanagergamesimulator.frontend.*;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import com.footballmanagergamesimulator.service.MatchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +20,8 @@ public class MatchController {
     CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired
     MatchService matchService;
+    @Autowired
+    LiveMatchSimulationService liveMatchSimulationService;
     @Autowired
     CompetitionController competitionController;
     @Autowired
@@ -93,9 +93,10 @@ public class MatchController {
                 .findAllBySeasonNumberAndTeamId(String.valueOf(currentSeason), teamId);
 
         // Find the first match that has no result yet (no CompetitionTeamInfoDetail)
+        // Sort by calendar day to find the chronologically next match across all competitions
         CompetitionTeamInfoMatch nextMatch = null;
         for (CompetitionTeamInfoMatch match : allMatches.stream()
-                .sorted(Comparator.comparingLong(CompetitionTeamInfoMatch::getRound))
+                .sorted(Comparator.comparingInt(CompetitionTeamInfoMatch::getDay))
                 .toList()) {
 
             CompetitionTeamInfoDetail detail = competitionTeamInfoDetailRepository
@@ -329,6 +330,28 @@ public class MatchController {
         }
 
         return summary;
+    }
+
+    /**
+     * Fetch the live match simulation timeline by key.
+     * Key format: competitionId_season_round_teamId1_teamId2
+     */
+    @GetMapping("/live/{key}")
+    public LiveMatchData getLiveMatch(@PathVariable String key) {
+        return liveMatchSimulationService.getLiveMatchData(key);
+    }
+
+    /**
+     * Fetch the live match simulation timeline by match parameters.
+     */
+    @GetMapping("/live/{competitionId}/{season}/{round}/{teamId1}/{teamId2}")
+    public LiveMatchData getLiveMatch(
+            @PathVariable long competitionId,
+            @PathVariable int season,
+            @PathVariable int round,
+            @PathVariable long teamId1,
+            @PathVariable long teamId2) {
+        return liveMatchSimulationService.getLiveMatchData(competitionId, season, round, teamId1, teamId2);
     }
 
     private int calculateTeamPower(long teamId) {

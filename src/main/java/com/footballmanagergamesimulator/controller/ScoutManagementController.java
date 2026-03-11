@@ -249,6 +249,10 @@ public class ScoutManagementController {
             scout.setContractEndSeason(currentSeason + contractYears);
             scoutRepository.save(scout);
 
+            // Update salary budget
+            team.setSalaryBudget(team.getSalaryBudget() + offeredWage);
+            teamRepository.save(team);
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", message,
@@ -292,6 +296,13 @@ public class ScoutManagementController {
             assignment.setStatus("cancelled");
         }
         if (!active.isEmpty()) scoutAssignmentRepository.saveAll(active);
+
+        // Update salary budget before releasing
+        Team team = teamRepository.findById(scout.getTeamId()).orElse(null);
+        if (team != null) {
+            team.setSalaryBudget(team.getSalaryBudget() - scout.getWage());
+            teamRepository.save(team);
+        }
 
         // Release the scout back to free agency
         scout.setTeamId(null);
@@ -676,6 +687,13 @@ public class ScoutManagementController {
                 // Contract expired — release scout
                 long teamId = scout.getTeamId();
                 String name = scout.getName();
+
+                // Update salary budget
+                Team team = teamRepository.findById(teamId).orElse(null);
+                if (team != null) {
+                    team.setSalaryBudget(team.getSalaryBudget() - scout.getWage());
+                    teamRepository.save(team);
+                }
 
                 scout.setTeamId(null);
                 scout.setWage(0);

@@ -66,15 +66,39 @@ public class ContractController {
         // Transfer request: players wanting to leave demand huge wages to stay
         if (player.isWantsTransfer()) moraleMultiplier *= 1.5;
 
+        // Playing time multiplier: players who played many matches demand more (50%-250% premium)
+        double playingTimeMultiplier = 1.0;
+        int matchesPlayed = player.getSeasonMatchesPlayed();
+        if (matchesPlayed >= 30) {
+            playingTimeMultiplier = 2.5; // 250% more - undisputed starter
+        } else if (matchesPlayed >= 20) {
+            playingTimeMultiplier = 1.8; // 80% more - regular starter
+        } else if (matchesPlayed >= 10) {
+            playingTimeMultiplier = 1.5; // 50% more - rotation player
+        }
+
+        // Squad ranking multiplier: top 3 players by rating demand 2x
+        double squadRankMultiplier = 1.0;
+        if (player.getTeamId() != null) {
+            List<Human> teamPlayers = humanRepository.findAllByTeamIdAndTypeId(player.getTeamId(), 1);
+            teamPlayers.sort((a, b) -> Double.compare(b.getRating(), a.getRating()));
+            for (int i = 0; i < Math.min(3, teamPlayers.size()); i++) {
+                if (teamPlayers.get(i).getId() == player.getId()) {
+                    squadRankMultiplier = 2.0;
+                    break;
+                }
+            }
+        }
+
         // Never below current wage * 0.9
-        long demanded = (long) (baseWage * ageMultiplier * moraleMultiplier);
+        long demanded = (long) (baseWage * ageMultiplier * moraleMultiplier
+                * Math.max(playingTimeMultiplier, squadRankMultiplier));
         return Math.max(demanded, (long) (player.getWage() * 0.9));
     }
 
     @PostMapping("/renew")
     public ResponseEntity<?> renewContract(HttpServletRequest request, @RequestBody Map<String, Object> body) {
         long playerId = Long.parseLong(String.valueOf(body.get("playerId")));
-        int newEndSeason = Integer.parseInt(String.valueOf(body.get("newEndSeason")));
         long newWage = Long.parseLong(String.valueOf(body.get("newWage")));
 
         Optional<Human> playerOpt = humanRepository.findById(playerId);
@@ -89,6 +113,15 @@ public class ContractController {
 
         Round round = roundRepository.findById(1L).orElse(new Round());
         int currentSeason = (int) round.getSeason();
+
+        // Accept both contractYears (relative) and newEndSeason (absolute) for backwards compatibility
+        int newEndSeason;
+        if (body.containsKey("contractYears")) {
+            int contractYears = Integer.parseInt(String.valueOf(body.get("contractYears")));
+            newEndSeason = currentSeason + contractYears;
+        } else {
+            newEndSeason = Integer.parseInt(String.valueOf(body.get("newEndSeason")));
+        }
 
         long wageDemand = calculateWageDemand(player);
         int minDuration = currentSeason + 1;
@@ -108,6 +141,7 @@ public class ContractController {
         }
 
         if (wageAcceptable && durationAcceptable) {
+            long oldWage = player.getWage();
             player.setContractEndSeason(newEndSeason);
             player.setWage(newWage);
             // Renewing contract settles the player
@@ -116,6 +150,13 @@ public class ContractController {
                 player.setMorale(Math.min(120, player.getMorale() + 10));
             }
             humanRepository.save(player);
+
+            // Update team salary budget with the wage difference
+            Team team = teamRepository.findById(player.getTeamId()).orElse(null);
+            if (team != null) {
+                team.setSalaryBudget(team.getSalaryBudget() + (newWage - oldWage));
+                teamRepository.save(team);
+            }
 
             String msg = player.getName() + " has accepted the new contract until Season " + newEndSeason + ".";
             if (negotiated) msg += " (After some negotiation, the player agreed to a slightly lower wage.)";

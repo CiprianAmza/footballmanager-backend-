@@ -24,4 +24,5 @@ public class CompetitionTeamInfo {
   private long round;
   private long seasonNumber;
   private int groupNumber; // 0 = not in a group, 1-4 = group number
+  private int potNumber;   // 0 = no pot assigned, 1-4 = pot number (seeding tier)
 }

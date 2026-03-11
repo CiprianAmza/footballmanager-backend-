@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class FixtureSchedulingService {
@@ -28,6 +27,9 @@ public class FixtureSchedulingService {
     @Autowired
     private CompetitionTeamInfoRepository competitionTeamInfoRepository;
 
+    @Autowired
+    private LeagueConfigService leagueConfigService;
+
     /**
      * Generates all CalendarEvent entries for a full 365-day season.
      * Called once at the start of each season.
@@ -42,8 +44,9 @@ public class FixtureSchedulingService {
      * - Days 341-365: OFF_SEASON
      */
     public void generateSeasonCalendar(int season) {
-        Set<Integer> matchDaySet = new HashSet<>();
         List<CalendarEvent> allEvents = new ArrayList<>();
+        // Global set only used for friendlies vs all matches
+        Set<Integer> allMatchDays = new HashSet<>();
 
         // 1. Generate match-day CalendarEvents for each competition
         List<Competition> competitions = competitionRepository.findAll();
@@ -57,9 +60,10 @@ public class FixtureSchedulingService {
                 case 3: // Second league
                     int numMatchdays = getActualRoundCount(comp.getId(), season);
                     if (numMatchdays == 0) {
-                        // Fallback: estimate from team count (4x round-robin)
+                        // Fallback: estimate from team count using league-config.json
                         int numTeams = getTeamCountForCompetition(comp.getId(), season);
-                        numMatchdays = Math.max(2, 4 * (numTeams - 1));
+                        int encounters = leagueConfigService.getEncounters(comp.getName(), numTeams);
+                        numMatchdays = Math.max(2, encounters * (numTeams - 1));
                     }
                     matchDays = generateLeagueMatchDays(numMatchdays);
                     eventType = "MATCH_LEAGUE";
@@ -69,15 +73,27 @@ public class FixtureSchedulingService {
                     eventType = "MATCH_CUP";
                     break;
                 case 4: // LoC (Champions League equivalent)
-                    matchDays = new int[]{38, 56, 77, 105, 140, 168, 196, 245, 280, 330};
+                    // Round 0: preliminary, Round 1: qualifying, Rounds 2-7: group stage,
+                    // Rounds 8-10: QF, SF, Final
+                    matchDays = new int[]{28, 38, 56, 77, 105, 140, 168, 196, 245, 280, 330};
                     eventType = "MATCH_EUROPEAN";
                     break;
-                case 5: // Stars Cup
-                    matchDays = new int[]{63, 133, 210, 308};
+                case 5: // Stars Cup (with group stage)
+                    // Rounds 1-6: group stage, Round 7: playoff, Rounds 8-10: QF, SF, Final
+                    matchDays = new int[]{42, 60, 84, 112, 147, 175, 220, 252, 295, 325};
                     eventType = "MATCH_EUROPEAN";
                     break;
                 default:
                     continue;
+            }
+
+            // Resolve collisions WITHIN this competition only:
+            // No two matchdays of the same competition should be on the same day,
+            // and there should be at least 2 days between matchdays of the same competition.
+            Set<Integer> competitionUsedDays = new HashSet<>();
+            for (int i = 0; i < matchDays.length; i++) {
+                matchDays[i] = resolveWithinCompetitionCollision(matchDays[i], competitionUsedDays);
+                competitionUsedDays.add(matchDays[i]);
             }
 
             for (int i = 0; i < matchDays.length; i++) {
@@ -94,12 +110,12 @@ public class FixtureSchedulingService {
                 event.setPriority(1);
                 allEvents.add(event);
 
-                matchDaySet.add(matchDays[i]);
+                allMatchDays.add(matchDays[i]);
 
                 // Press conference the day before
                 CalendarEvent pressConf = new CalendarEvent();
                 pressConf.setSeason(season);
-                pressConf.setDay(matchDays[i] - 1);
+                pressConf.setDay(Math.max(1, matchDays[i] - 1));
                 pressConf.setPhase("AFTERNOON");
                 pressConf.setEventType("PRESS_CONFERENCE");
                 pressConf.setCompetitionId(comp.getId());
@@ -114,9 +130,12 @@ public class FixtureSchedulingService {
             updateMatchDays(comp.getId(), season, matchDays);
         }
 
-        // 2. Generate pre-season friendlies
+        // 2. Generate pre-season friendlies (avoid all match days)
         int[] friendlyDays = {7, 14, 21, 28};
-        for (int day : friendlyDays) {
+        for (int i = 0; i < friendlyDays.length; i++) {
+            int day = friendlyDays[i];
+            // Just shift if there's already a match on that day
+            while (allMatchDays.contains(day) && day <= 30) day++;
             CalendarEvent event = new CalendarEvent();
             event.setSeason(season);
             event.setDay(day);
@@ -127,18 +146,18 @@ public class FixtureSchedulingService {
             event.setPriority(1);
             allEvents.add(event);
 
-            matchDaySet.add(day);
+            allMatchDays.add(day);
         }
 
         // 3. Generate daily events (training and injury updates)
         Set<Integer> restDays = new HashSet<>();
-        for (int matchDay : matchDaySet) {
+        for (int matchDay : allMatchDays) {
             restDays.add(matchDay + 1);
         }
 
         for (int day = 1; day <= 365; day++) {
             // Training session (morning, skip match days and rest days)
-            if (!matchDaySet.contains(day) && !restDays.contains(day)) {
+            if (!allMatchDays.contains(day) && !restDays.contains(day)) {
                 CalendarEvent training = new CalendarEvent();
                 training.setSeason(season);
                 training.setDay(day);
@@ -199,26 +218,93 @@ public class FixtureSchedulingService {
     }
 
     /**
-     * Generates 38 league matchdays spread from day 35 to day 315,
-     * snapped to the nearest weekend (Saturday = day%7==5, Sunday = day%7==6).
+     * Resolves collisions within a single competition.
+     * Ensures at least 2 days between matchdays of the same competition,
+     * so teams always have a rest day between matches.
+     * Stays within bounds [2, 340].
+     */
+    private int resolveWithinCompetitionCollision(int day, Set<Integer> competitionUsedDays) {
+        if (isDayFreeForCompetition(day, competitionUsedDays)) {
+            return day;
+        }
+        // Try shifting: +1, -1, +2, -2, etc. with wide range
+        for (int offset = 1; offset <= 50; offset++) {
+            int forward = day + offset;
+            if (forward <= 340 && isDayFreeForCompetition(forward, competitionUsedDays)) {
+                return forward;
+            }
+            int backward = day - offset;
+            if (backward >= 2 && isDayFreeForCompetition(backward, competitionUsedDays)) {
+                return backward;
+            }
+        }
+        // Fallback: just avoid same day
+        for (int offset = 1; offset <= 100; offset++) {
+            int forward = day + offset;
+            if (forward <= 340 && !competitionUsedDays.contains(forward)) return forward;
+            int backward = day - offset;
+            if (backward >= 2 && !competitionUsedDays.contains(backward)) return backward;
+        }
+        return day; // absolute last resort
+    }
+
+    /**
+     * Checks if a day is free with at least 2-day gap from other matchdays
+     * in the SAME competition (so a team has a rest day between matches).
+     */
+    private boolean isDayFreeForCompetition(int day, Set<Integer> competitionUsedDays) {
+        if (day < 2 || day > 340) return false;
+        return !competitionUsedDays.contains(day)
+                && !competitionUsedDays.contains(day - 1)
+                && !competitionUsedDays.contains(day + 1);
+    }
+
+    /**
+     * Generates league matchdays spread evenly from day 35 to day 315.
      */
     private int[] generateLeagueMatchDays(int numMatchdays) {
         int[] days = new int[numMatchdays];
         int startDay = 35;
         int endDay = 315;
-        double interval = (double) (endDay - startDay) / (numMatchdays - 1);
+        double interval = (double) (endDay - startDay) / Math.max(1, numMatchdays - 1);
 
         for (int i = 0; i < numMatchdays; i++) {
-            int rawDay = startDay + (int) (i * interval);
-            // Snap to nearest weekend (Saturday=day%7==5 or Sunday=day%7==6)
-            int dayOfWeek = rawDay % 7;
-            if (dayOfWeek < 5) {
-                rawDay += (5 - dayOfWeek); // snap forward to Saturday
-            }
-            // dayOfWeek == 5 (Saturday) or 6 (Sunday) stays as is
+            int rawDay = startDay + (int) Math.round(i * interval);
             days[i] = Math.min(rawDay, endDay);
         }
+
+        // Ensure each matchday is unique and at least 3 days from the previous
+        for (int i = 1; i < days.length; i++) {
+            if (days[i] <= days[i - 1] + 2) {
+                days[i] = days[i - 1] + 3;
+            }
+        }
+
         return days;
+    }
+
+    /**
+     * Assigns the calendar day to newly drawn cup/european round matches.
+     * Called after a knockout round draw creates CompetitionTeamInfoMatch records.
+     * Looks up the pre-scheduled calendar day from CalendarEvent.
+     */
+    public void assignMatchDayForNewRound(long competitionId, int matchday, int season) {
+        // Look up the calendar day from the CalendarEvent that was pre-generated
+        List<CalendarEvent> events = calendarEventRepository.findBySeasonAndCompetitionIdAndMatchday(
+                season, competitionId, matchday);
+
+        int calendarDay = 0;
+        for (CalendarEvent event : events) {
+            String type = event.getEventType();
+            if ("MATCH_LEAGUE".equals(type) || "MATCH_CUP".equals(type) || "MATCH_EUROPEAN".equals(type)) {
+                calendarDay = event.getDay();
+                break;
+            }
+        }
+
+        if (calendarDay > 0) {
+            assignMatchDay(competitionId, season, matchday, calendarDay);
+        }
     }
 
     /**
@@ -303,13 +389,10 @@ public class FixtureSchedulingService {
 
     /**
      * Generates transfer window open/close events.
-     * End-of-season window: days 341 (open) to 355 (close) — after SEASON_END, before SEASON_TRANSITION
-     * Winter window: days 201 (open) to 210 (close)
      */
     private List<CalendarEvent> generateTransferWindowEvents(int season) {
         List<CalendarEvent> events = new ArrayList<>();
 
-        // End-of-season transfer window open - day 341 (after SEASON_END at day 340)
         CalendarEvent summerOpen = new CalendarEvent();
         summerOpen.setSeason(season);
         summerOpen.setDay(341);
@@ -320,7 +403,6 @@ public class FixtureSchedulingService {
         summerOpen.setPriority(1);
         events.add(summerOpen);
 
-        // End-of-season transfer window close - day 355
         CalendarEvent summerClose = new CalendarEvent();
         summerClose.setSeason(season);
         summerClose.setDay(355);
@@ -331,7 +413,6 @@ public class FixtureSchedulingService {
         summerClose.setPriority(1);
         events.add(summerClose);
 
-        // Winter transfer window open - day 201
         CalendarEvent winterOpen = new CalendarEvent();
         winterOpen.setSeason(season);
         winterOpen.setDay(201);
@@ -342,7 +423,6 @@ public class FixtureSchedulingService {
         winterOpen.setPriority(1);
         events.add(winterOpen);
 
-        // Winter transfer window close - day 210
         CalendarEvent winterClose = new CalendarEvent();
         winterClose.setSeason(season);
         winterClose.setDay(210);
@@ -357,22 +437,11 @@ public class FixtureSchedulingService {
     }
 
     /**
-     * Generates season boundary events: season start, season end,
-     * awards ceremony, season transition, and contract expiry check.
-     *
-     * Timeline:
-     *   Day 1:   SEASON_START
-     *   Day 335: AWARDS_CEREMONY
-     *   Day 340: SEASON_END — final standings, AI transfers (game pauses)
-     *   Day 341: TRANSFER_WINDOW_OPEN — user can make transfers
-     *   Day 345: CONTRACT_EXPIRY_CHECK
-     *   Day 355: TRANSFER_WINDOW_CLOSE
-     *   Day 360: SEASON_TRANSITION — creates new season calendar
+     * Generates season boundary events.
      */
     private List<CalendarEvent> generateSeasonBoundaryEvents(int season) {
         List<CalendarEvent> events = new ArrayList<>();
 
-        // Season start - day 1
         CalendarEvent seasonStart = new CalendarEvent();
         seasonStart.setSeason(season);
         seasonStart.setDay(1);
@@ -383,7 +452,6 @@ public class FixtureSchedulingService {
         seasonStart.setPriority(1);
         events.add(seasonStart);
 
-        // Season end - day 340 (final standings + AI transfers)
         CalendarEvent seasonEnd = new CalendarEvent();
         seasonEnd.setSeason(season);
         seasonEnd.setDay(340);
@@ -394,7 +462,6 @@ public class FixtureSchedulingService {
         seasonEnd.setPriority(1);
         events.add(seasonEnd);
 
-        // Awards ceremony - day 335
         CalendarEvent awards = new CalendarEvent();
         awards.setSeason(season);
         awards.setDay(335);
@@ -405,7 +472,6 @@ public class FixtureSchedulingService {
         awards.setPriority(1);
         events.add(awards);
 
-        // Contract expiry check - day 345
         CalendarEvent contractCheck = new CalendarEvent();
         contractCheck.setSeason(season);
         contractCheck.setDay(345);
@@ -416,7 +482,6 @@ public class FixtureSchedulingService {
         contractCheck.setPriority(1);
         events.add(contractCheck);
 
-        // Season transition - day 360 (creates new season after transfer window)
         CalendarEvent seasonTransition = new CalendarEvent();
         seasonTransition.setSeason(season);
         seasonTransition.setDay(360);
@@ -446,7 +511,7 @@ public class FixtureSchedulingService {
      * Finds all CompetitionTeamInfoMatch entries for the given competition, round, and season,
      * then sets their day field to the specified calendar day.
      */
-    private void assignMatchDay(long competitionId, int season, int competitionMatchday, int calendarDay) {
+    public void assignMatchDay(long competitionId, int season, int competitionMatchday, int calendarDay) {
         String seasonNumber = String.valueOf(season);
         List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
                 .findAllByCompetitionIdAndRoundAndSeasonNumber(competitionId, competitionMatchday, seasonNumber);

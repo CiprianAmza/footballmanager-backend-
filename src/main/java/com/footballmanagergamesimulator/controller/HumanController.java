@@ -12,10 +12,9 @@ import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.Random;
+import java.util.*;
+
+
 
 @RestController
 @RequestMapping("/humans")
@@ -60,6 +59,22 @@ public class HumanController {
         return playerView;
     }
     
+    @GetMapping("/compare/{playerId1}/{playerId2}")
+    public Map<String, Object> comparePlayers(@PathVariable long playerId1, @PathVariable long playerId2) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        Human p1 = humanRepository.findById(playerId1).orElse(null);
+        Human p2 = humanRepository.findById(playerId2).orElse(null);
+        if (p1 == null || p2 == null) {
+            result.put("error", "Player not found");
+            return result;
+        }
+
+        result.put("player1", buildPlayerView(p1));
+        result.put("player2", buildPlayerView(p2));
+        return result;
+    }
+
     public PlayerView buildPlayerView(Human player) { // todo move into service
 
         PlayerView playerView = new PlayerView();

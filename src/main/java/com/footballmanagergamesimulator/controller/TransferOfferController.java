@@ -315,13 +315,16 @@ public class TransferOfferController {
     }
 
     private void executeTransfer(Human player, Team sellingTeam, Team buyingTeam, long fee, int season) {
+        long playerWage = player.getWage();
         player.setTeamId(buyingTeam.getId());
         player.setSeasonMatchesPlayed(0);
         player.setConsecutiveBenched(0);
         humanRepository.save(player);
 
         buyingTeam.setTransferBudget(buyingTeam.getTransferBudget() - fee);
+        buyingTeam.setSalaryBudget(buyingTeam.getSalaryBudget() + playerWage);
         sellingTeam.setTransferBudget(sellingTeam.getTransferBudget() + fee);
+        sellingTeam.setSalaryBudget(sellingTeam.getSalaryBudget() - playerWage);
         teamRepository.save(buyingTeam);
         teamRepository.save(sellingTeam);
 

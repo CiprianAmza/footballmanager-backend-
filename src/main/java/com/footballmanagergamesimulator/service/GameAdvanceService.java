@@ -2,7 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.model.*;
-import com.footballmanagergamesimulator.repository.*;;
+import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import java.util.stream.Collectors;
@@ -89,7 +89,13 @@ public class GameAdvanceService {
     HumanService humanService;
 
     @Autowired
+    LiveMatchSimulationService liveMatchSimulationService;
+
+    @Autowired
     CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
+
+    @Autowired
+    ScoutRepository scoutRepository;
 
     // Cache of competition IDs all human teams participate in (per season)
     private Set<Long> humanTeamCompetitionIds = null;
@@ -111,6 +117,8 @@ public class GameAdvanceService {
         humanTeamCompetitionIdsSeason = season;
         return humanTeamCompetitionIds;
     }
+
+    private static final Set<Integer> MONTH_START_DAYS = Set.of(1, 32, 62, 93, 123, 154, 185, 213, 244, 274, 305, 335);
 
     /**
      * Important event types that should stop auto-advancing and show to the user.
@@ -204,6 +212,11 @@ public class GameAdvanceService {
             }
         }
 
+        // Monthly wage processing: if we moved to a new day that's a month start
+        if (calendar.getCurrentDay() != startDay && MONTH_START_DAYS.contains(calendar.getCurrentDay())) {
+            processMonthlyWages(season);
+        }
+
         // Safety net: if we're past day 355 with no pending events, trigger season transition
         if (calendar.getCurrentDay() >= 355 && !calendar.isPaused()) {
             CalendarEvent pendingEvent = calendarService.getNextPendingEvent(season);
@@ -264,6 +277,29 @@ public class GameAdvanceService {
         }
 
         return result;
+    }
+
+    private void processMonthlyWages(int season) {
+        List<Team> allTeams = teamRepository.findAll();
+        for (Team team : allTeams) {
+            // Sum wages of all humans belonging to this team (players, managers, staff)
+            List<Human> teamMembers = humanRepository.findAllByTeamId(team.getId());
+            long totalWages = 0;
+            for (Human h : teamMembers) {
+                if (h.isRetired()) continue;
+                totalWages += h.getWage();
+            }
+
+            // Also add scout wages
+            List<Scout> scouts = scoutRepository.findAllByTeamId(team.getId());
+            for (Scout s : scouts) {
+                totalWages += s.getWage();
+            }
+
+            team.setTotalFinances(team.getTotalFinances() - totalWages);
+            teamRepository.save(team);
+        }
+        System.out.println("=== Monthly wages processed for season " + season + " ===");
     }
 
     private Map<String, Object> processEvent(CalendarEvent event, GameCalendar calendar) {
@@ -392,6 +428,23 @@ public class GameAdvanceService {
                         result.put("allMatchResults", allMatchResults);
                         // Backward compat: also put first result as "matchResult"
                         result.put("matchResult", allMatchResults.values().iterator().next());
+
+                        // Check if any human team has a live match available
+                        for (long htId : htIds) {
+                            Map<String, Object> mr = allMatchResults.get(htId);
+                            if (mr != null && mr.containsKey("team1Id") && mr.containsKey("team2Id")) {
+                                long t1 = ((Number) mr.get("team1Id")).longValue();
+                                long t2 = ((Number) mr.get("team2Id")).longValue();
+                                String liveKey = LiveMatchSimulationService.buildKey(
+                                        event.getCompetitionId(), event.getSeason(),
+                                        event.getMatchday(), t1, t2);
+                                if (liveMatchSimulationService.getLiveMatchData(liveKey) != null) {
+                                    result.put("hasLiveMatch", true);
+                                    result.put("liveMatchKey", liveKey);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 } else {
                     result.put("details", "Match day - missing competition data");
@@ -403,7 +456,8 @@ public class GameAdvanceService {
                 result.put("details", "Pre-season friendly completed");
                 break;
             case "CONTRACT_EXPIRY_CHECK":
-                result.put("details", "Contract expiry check completed");
+                competitionController.handleContractExpiries((int) calendar.getSeason());
+                result.put("details", "Contract expiry check completed - expired contracts processed");
                 break;
             case "ANALYTICS_REPORT":
                 result.put("details", "Analytics report available");
@@ -521,6 +575,27 @@ public class GameAdvanceService {
             result.put("allMatchResults", allMatchResults);
             // Backward compat: also put first result as "matchResult"
             result.put("matchResult", allMatchResults.values().iterator().next());
+
+            // Check if any human team has a live match available
+            for (long htId : htIds) {
+                Map<String, Object> mr = allMatchResults.get(htId);
+                if (mr != null && mr.containsKey("team1Id") && mr.containsKey("team2Id")) {
+                    long t1 = ((Number) mr.get("team1Id")).longValue();
+                    long t2 = ((Number) mr.get("team2Id")).longValue();
+                    for (CalendarEvent event : matchEvents) {
+                        if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
+                        String liveKey = LiveMatchSimulationService.buildKey(
+                                event.getCompetitionId(), event.getSeason(),
+                                event.getMatchday(), t1, t2);
+                        if (liveMatchSimulationService.getLiveMatchData(liveKey) != null) {
+                            result.put("hasLiveMatch", true);
+                            result.put("liveMatchKey", liveKey);
+                            break;
+                        }
+                    }
+                    if (result.containsKey("hasLiveMatch")) break;
+                }
+            }
         }
 
         return result;
