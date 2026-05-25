@@ -1,5 +1,8 @@
 Football Manager Game Simulator
 
+<img width="1512" height="904" alt="image" src="https://github.com/user-attachments/assets/a7a620fe-d326-44d9-a4bc-e4374df964db" />
+
+
 Project Overview
 
 A comprehensive, web-based football management simulation game designed to replicate the depth and tactical complexity of modern football management. Built with a robust Java Spring Boot backend and a dynamic Angular frontend, this application allows users to take full control of a football club, managing everything from tactical setups and squad planning to finances and scouting.
