@@ -654,6 +654,11 @@ public class StatsController {
         Map<Long, String> playerTeamName = new LinkedHashMap<>();
 
         for (Scorer s : scorers) {
+            // Placeholder rows are created at season start (teamScore=-1, opponentTeamId=-1)
+            // so the leaderboard wires up before any match is played. They must NOT be
+            // counted as appearances — otherwise every player shows M=1 before kickoff.
+            if (s.getTeamScore() < 0 || s.getOpponentTeamId() < 0) continue;
+
             long pid = s.getPlayerId();
             playerAgg.computeIfAbsent(pid, k -> new int[3]);
             playerAgg.get(pid)[0] += s.getGoals();

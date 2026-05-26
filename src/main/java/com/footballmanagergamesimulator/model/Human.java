@@ -129,6 +129,15 @@ public class Human {
     private boolean watchGoalHighlights = true;
 
     /**
+     * What the user wants to watch during matches: "NONE" (text only, no animations),
+     * "GOALS_ONLY" (animations for goals), or "KEY_MOMENTS" (animations for goals
+     * AND big chances / saves / misses). Source of truth — {@link #watchGoalHighlights}
+     * is kept as a derived mirror for legacy save-file compatibility.
+     */
+    @Column(columnDefinition = "varchar(20) default 'GOALS_ONLY'")
+    private String matchHighlightsLevel = "GOALS_ONLY";
+
+    /**
      * Coaching attributes (used when typeId is a coach type: 5-10)
      * Scale: 1-20
      */

@@ -2940,11 +2940,24 @@ public class CompetitionController {
                     if (knockout && teamScore1 == teamScore2) {
                         double total = teamPower1 + teamPower2;
                         double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
-                        if (random.nextDouble() < winChance) {
+                        boolean homeWins = random.nextDouble() < winChance;
+                        long winnerTeamId;
+                        long loserTeamId;
+                        if (homeWins) {
                             teamScore1++;
+                            winnerTeamId = teamId1;
+                            loserTeamId = teamId2;
                         } else {
                             teamScore2++;
+                            winnerTeamId = teamId2;
+                            loserTeamId = teamId1;
                         }
+                        // Persist a "goal" MatchEvent for the phantom winner so the match
+                        // report doesn't show fewer goals than the final score. The live
+                        // simulator already saved its events; this is an extra appended
+                        // event for the extra-time decider.
+                        appendKnockoutWinnerGoal(_competitionId, Integer.parseInt(getCurrentSeason()),
+                                (int) _roundId, teamId1, teamId2, winnerTeamId, loserTeamId);
                     }
 
                     // Scorer tracking still needed for leaderboard/stats
@@ -4287,7 +4300,10 @@ public class CompetitionController {
                     scorer.setTeamName(teamName);
                     scorer.setOpponentTeamName(opponentName);
                     scorer.setCompetitionName(competitionName);
-                    // Rating will be set by assignMatchRatings() below
+                    // Seed the player's base rating so weight = posMul × rating²/70 works
+                    // when we sample scorers below. assignMatchRatings() will overwrite
+                    // this with the actual match performance rating afterwards.
+                    scorer.setRating(player.getRating());
 
                     // 🔹 LOGICA NOUĂ: Index >= 30 înseamnă Rezervă
                     if (data.getPositionIndex() >= 30) {
@@ -4327,7 +4343,10 @@ public class CompetitionController {
                 scorer.setTeamName(teamName);
                 scorer.setOpponentTeamName(opponentName);
                 scorer.setCompetitionName(competitionName);
-                // Rating will be set by assignMatchRatings() below
+                // Seed base rating so the scorer-distribution weighting below sees a
+                // meaningful value (otherwise rating² = 0 and the position multiplier
+                // gets clamped to the 0.1 floor — strikers/defenders end up equally likely).
+                scorer.setRating(playerView.getRating());
                 scorer.setSubstitute(false);
                 return scorer;
             }).forEach(possibleScorers::add);
@@ -4347,7 +4366,7 @@ public class CompetitionController {
                 scorer.setTeamName(teamName);
                 scorer.setOpponentTeamName(opponentName);
                 scorer.setCompetitionName(competitionName);
-                // Rating will be set by assignMatchRatings() below
+                scorer.setRating(playerView.getRating());
                 scorer.setSubstitute(true);
                 return scorer;
             }).forEach(substitutions::add);
@@ -4378,6 +4397,24 @@ public class CompetitionController {
                     EnumeratedDistribution<Scorer> distribution = new EnumeratedDistribution<>(weightedPlayers);
                     Scorer selected = distribution.sample();
                     selected.setGoals(selected.getGoals() + 1);
+
+                    // Assists: ~75% of goals have an assist; assister is weighted by
+                    // creative-position bias (wide mids and AMs over defenders/strikers)
+                    // and must be a different player from the scorer.
+                    if (random.nextDouble() < 0.75) {
+                        List<Pair<Scorer, Double>> assistCandidates = new ArrayList<>();
+                        for (Scorer s : possibleScorers) {
+                            if (s.getPlayerId() == selected.getPlayerId()) continue;
+                            if ("GK".equals(s.getPosition())) continue;
+                            double w = getAssistWeight(s);
+                            if (w > 0) assistCandidates.add(new Pair<>(s, w));
+                        }
+                        if (!assistCandidates.isEmpty()) {
+                            EnumeratedDistribution<Scorer> assistDist = new EnumeratedDistribution<>(assistCandidates);
+                            Scorer assister = assistDist.sample();
+                            assister.setAssists(assister.getAssists() + 1);
+                        }
+                    }
                 } catch (Exception e) {
                     System.err.println("Distribution error (negative weights?): " + e.getMessage());
                 }
@@ -7311,6 +7348,86 @@ public class CompetitionController {
         System.out.println("=== SEASON OBJECTIVES EVALUATED FOR SEASON " + season + " ===");
     }
 
+    /**
+     * Persist a MatchEvent "goal" row for the extra-time decider so the
+     * match-report timeline never shows fewer goals than the final score
+     * after a knockout tiebreaker bumps it.
+     *
+     * Picks an outfield player from the winning team via position+rating
+     * weighting (so a striker is more likely to be credited than a defender)
+     * and writes both a "goal" and an "assist" MatchEvent.
+     */
+    private void appendKnockoutWinnerGoal(long competitionId, int season, int roundNumber,
+                                          long teamId1, long teamId2,
+                                          long winnerTeamId, long loserTeamId) {
+        List<Human> winners = humanRepository.findAllByTeamIdAndTypeId(winnerTeamId, TypeNames.PLAYER_TYPE).stream()
+                .filter(h -> !h.isRetired())
+                .filter(h -> !"GK".equals(h.getPosition()))
+                .toList();
+        if (winners.isEmpty()) return;
+
+        // Position weights mirror the live-sim attacker selection.
+        double totalWeight = 0;
+        double[] weights = new double[winners.size()];
+        for (int i = 0; i < winners.size(); i++) {
+            double posMul = switch (winners.get(i).getPosition()) {
+                case "ST" -> 3.0;
+                case "AMC", "AML", "AMR" -> 2.0;
+                case "MC", "ML", "MR" -> 1.2;
+                case "DC", "DL", "DR", "DM" -> 0.4;
+                default -> 1.0;
+            };
+            weights[i] = winners.get(i).getRating() * posMul;
+            totalWeight += weights[i];
+        }
+        Random rnd = new Random();
+        double r = rnd.nextDouble() * totalWeight;
+        double cum = 0;
+        Human scorer = winners.get(winners.size() - 1);
+        for (int i = 0; i < winners.size(); i++) {
+            cum += weights[i];
+            if (r < cum) { scorer = winners.get(i); break; }
+        }
+
+        MatchEvent goal = new MatchEvent();
+        goal.setCompetitionId(competitionId);
+        goal.setSeasonNumber(season);
+        goal.setRoundNumber(roundNumber);
+        goal.setTeamId1(teamId1);
+        goal.setTeamId2(teamId2);
+        goal.setMinute(120); // extra time
+        goal.setEventType("goal");
+        goal.setPlayerId(scorer.getId());
+        goal.setPlayerName(scorer.getName());
+        goal.setTeamId(winnerTeamId);
+        goal.setDetails("Extra time winner");
+        matchEventRepository.save(goal);
+    }
+
+    /**
+     * Weight for picking an assister. Differs from the goal-weighting: creative
+     * positions (wingers, attacking mids) get the highest share; pure forwards and
+     * defenders contribute less; goalkeepers are excluded upstream.
+     * Rating scales linearly here (not squared) so assists are more evenly spread
+     * across the squad than goals.
+     */
+    private double getAssistWeight(Scorer scorer) {
+        Map<String, Double> positionToValue = Map.of(
+                "GK", 0D,
+                "DL", 0.8,
+                "DR", 0.8,
+                "DC", 0.4,
+                "ML", 2.5,
+                "MR", 2.5,
+                "MC", 2.0,
+                "ST", 1.2);
+        double posMul = positionToValue.getOrDefault(scorer.getPosition(), 1.0);
+        double ratingFactor = Math.max(scorer.getRating(), 1.0);
+        double w = posMul * ratingFactor;
+        if (scorer.isSubstitute()) w /= 2;
+        return Math.max(w, 0);
+    }
+
     private void recordManagerHistory(int season, List<TeamCompetitionDetail> allDetails) {
         List<Team> allTeams = teamRepository.findAll();
         List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
@@ -7318,6 +7435,12 @@ public class CompetitionController {
         List<CompetitionHistory> allCompHistory = competitionHistoryRepository.findAll().stream()
                 .filter(h -> h.getSeasonNumber() == season)
                 .toList();
+
+        // Build a fast lookup: league competition ids (typeId 1 = league, 3 = second league)
+        Set<Long> leagueCompetitionIds = allCompetitions.stream()
+                .filter(c -> c.getTypeId() == 1 || c.getTypeId() == 3)
+                .map(Competition::getId)
+                .collect(Collectors.toSet());
 
         for (Team team : allTeams) {
             Human manager = allManagers.stream()
@@ -7327,9 +7450,10 @@ public class CompetitionController {
 
             if (manager == null) continue;
 
-            // Find league details for this team
+            // Find this team's LEAGUE detail (not just any competition — used to be a bug
+            // where findFirst() could pick up a cup row and report cup stats as the season).
             TeamCompetitionDetail leagueDetail = allDetails.stream()
-                    .filter(d -> d.getTeamId() == team.getId())
+                    .filter(d -> d.getTeamId() == team.getId() && leagueCompetitionIds.contains(d.getCompetitionId()))
                     .findFirst()
                     .orElse(null);
 

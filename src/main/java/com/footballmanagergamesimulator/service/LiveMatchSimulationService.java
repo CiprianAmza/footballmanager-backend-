@@ -158,13 +158,45 @@ public class LiveMatchSimulationService {
         // Slight home advantage
         team1PossChance = Math.min(0.65, team1PossChance + 0.03);
 
+        // Per-team attack rate: how often a possession turns into a shot.
+        // Was a flat 0.22 for both teams (giving roughly equal shot counts even when
+        // power was very uneven — the source of the "12-10 between a top side and a
+        // minnow" complaint). Scales with raw power share: a 75/25 power split
+        // produces ~12 shots vs ~3 instead of ~13 vs ~7.
+        // Tuned alongside big-chance count + cutoffs to keep match goal totals
+        // close to the AI-vs-AI engine's ~3.0/match average.
+        double rawRatio1 = totalPower > 0 ? power1 / totalPower : 0.5;
+        double rawRatio2 = 1.0 - rawRatio1;
+        double team1AttackChance = 0.04 + Math.min(0.14, rawRatio1 * 0.18);
+        double team2AttackChance = 0.04 + Math.min(0.14, rawRatio2 * 0.18);
+
+        // Big-chance allocation per team: a baseline + a slice from the attacking
+        // surplus. Big chances ALWAYS produce an animation regardless of outcome,
+        // so users on KEY_MOMENTS see saves and wide shots animated too.
+        int team1BigChances = computeBigChances(rawRatio1, random);
+        int team2BigChances = computeBigChances(rawRatio2, random);
+        // Schedule big-chance minutes uniformly across the match.
+        Set<Integer> team1BigChanceMinutes = pickRandomMinutes(team1BigChances, 5, 89, random);
+        Set<Integer> team2BigChanceMinutes = pickRandomMinutes(team2BigChances, 5, 89, random);
+        // Make sure the two teams don't claim the same minute.
+        team2BigChanceMinutes.removeAll(team1BigChanceMinutes);
+
         // Kickoff
         timeline.add(createMinuteEvent(1, 0, 0, "kickoff",
                 "The referee blows the whistle! " + homeTeamName + " vs " + awayTeamName + " is underway!",
                 0, null, 0, null));
 
         for (int min = 1; min <= 90; min++) {
-            boolean team1HasBall = random.nextDouble() < team1PossChance;
+            // Big chances are pre-scheduled per team. On those minutes we force the
+            // possession to the scheduled team and force the per-minute roll into
+            // the ATTACK branch so the key moment actually lands.
+            boolean isHomeBigChance = team1BigChanceMinutes.contains(min);
+            boolean isAwayBigChance = team2BigChanceMinutes.contains(min);
+            boolean forcedAttack = isHomeBigChance || isAwayBigChance;
+
+            boolean team1HasBall = forcedAttack
+                    ? isHomeBigChance
+                    : random.nextDouble() < team1PossChance;
             if (team1HasBall) homePossessionMinutes++;
 
             long attackingTeamId = team1HasBall ? teamId1 : teamId2;
@@ -173,9 +205,145 @@ public class LiveMatchSimulationService {
             List<Human> allDefenders = team1HasBall ? team2All : team1All;
 
             double roll = random.nextDouble();
+            // Per-team attack chance — much lower for the weaker side. Layout:
+            //   ATTACK (variable) → POSSESSION (0.38) → FOUL (0.10) → OFFSIDE (0.04) → BUILDUP (rest)
+            double currentAttackChance = forcedAttack
+                    ? 1.0
+                    : (team1HasBall ? team1AttackChance : team2AttackChance);
+            double attackEnd     = currentAttackChance;
+            double possessionEnd = attackEnd + 0.38;
+            double foulEnd       = possessionEnd + 0.10;
+            double offsideEnd    = foulEnd + 0.04;
 
-            if (roll < 0.38) {
-                // Possession play - add commentary every ~5 minutes
+            if (roll < attackEnd) {
+                // ATTACK - the core of the match engine
+                if (!attackers.isEmpty()) {
+                    Human attacker = pickWeightedAttacker(attackers, random);
+
+                    if (team1HasBall) homeShots++; else awayShots++;
+
+                    // For big chances we bias toward on-target outcomes and ALWAYS
+                    // generate an animation (so KEY_MOMENTS users see them). Conversion
+                    // (30%) is a touch above real-world big-chance rate (~38%) to keep
+                    // overall goal counts near 3/match. Regular attacks keep the
+                    // original 17% conversion.
+                    double attackRoll = random.nextDouble();
+                    double goalCutoff   = forcedAttack ? 0.30 : 0.17;
+                    double saveCutoff   = forcedAttack ? 0.60 : 0.42;
+                    double missCutoff   = forcedAttack ? 0.85 : 0.70;
+                    double blockedCutoff = forcedAttack ? 0.95 : 0.87;
+
+                    if (attackRoll < goalCutoff) {
+                        // GOAL!
+                        if (team1HasBall) { homeScore++; homeShotsOnTarget++; }
+                        else { awayScore++; awayShotsOnTarget++; }
+
+                        String goalDesc = GOAL_DESCRIPTIONS[random.nextInt(GOAL_DESCRIPTIONS.length)];
+                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "goal",
+                                "GOAL! " + attacker.getName() + "! " + goalDesc,
+                                attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+
+                        dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
+                                min, "goal", attacker.getId(), attacker.getName(), attackingTeamId, goalDesc));
+
+                        // 70% chance of assist
+                        Human goalAssister = null;
+                        if (random.nextDouble() < 0.7 && attackers.size() > 1) {
+                            goalAssister = pickDifferentPlayer(attackers, attacker, random);
+                            if (goalAssister != null) {
+                                dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
+                                        min, "assist", goalAssister.getId(), goalAssister.getName(), attackingTeamId, "Assist"));
+                            }
+                        }
+
+                        if (goalAnimations != null) {
+                            GoalAnimationData anim = buildAttackAnimation(
+                                    team1HasBall ? team1All : team2All,
+                                    team1HasBall ? team2All : team1All,
+                                    attacker, goalAssister,
+                                    attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                                    teamId1, min, "GOAL", random);
+                            if (anim != null) goalAnimations.put(min, anim);
+                        }
+
+                    } else if (attackRoll < saveCutoff) {
+                        // Shot saved
+                        if (team1HasBall) homeShotsOnTarget++; else awayShotsOnTarget++;
+                        String saveDesc = SAVE_DESCRIPTIONS[random.nextInt(SAVE_DESCRIPTIONS.length)];
+                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "shot_saved",
+                                attacker.getName() + " " + saveDesc,
+                                attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+
+                        // Big chances → always animate. Regular saves → 25% chance.
+                        boolean shouldAnimate = forcedAttack || (goalAnimations != null && random.nextDouble() < 0.25);
+                        if (goalAnimations != null && shouldAnimate) {
+                            GoalAnimationData anim = buildAttackAnimation(
+                                    team1HasBall ? team1All : team2All,
+                                    team1HasBall ? team2All : team1All,
+                                    attacker, null,
+                                    attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                                    teamId1, min, "SAVE", random);
+                            if (anim != null) goalAnimations.put(min, anim);
+                        }
+
+                    } else if (attackRoll < missCutoff) {
+                        // Shot wide/high
+                        String missDesc = MISS_DESCRIPTIONS[random.nextInt(MISS_DESCRIPTIONS.length)];
+                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "shot_wide",
+                                attacker.getName() + " " + missDesc,
+                                attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+
+                        boolean shouldAnimate = forcedAttack || (goalAnimations != null && random.nextDouble() < 0.15);
+                        if (goalAnimations != null && shouldAnimate) {
+                            GoalAnimationData anim = buildAttackAnimation(
+                                    team1HasBall ? team1All : team2All,
+                                    team1HasBall ? team2All : team1All,
+                                    attacker, null,
+                                    attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                                    teamId1, min, "MISS", random);
+                            if (anim != null) goalAnimations.put(min, anim);
+                        }
+
+                    } else if (attackRoll < blockedCutoff) {
+                        // Shot blocked
+                        String blockDesc = BLOCK_DESCRIPTIONS[random.nextInt(BLOCK_DESCRIPTIONS.length)];
+                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "shot_blocked",
+                                attacker.getName() + blockDesc,
+                                attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+
+                    } else {
+                        // Corner won
+                        if (team1HasBall) homeCorners++; else awayCorners++;
+                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "corner",
+                                "Corner kick for " + attackingTeamName + ".",
+                                0, null, attackingTeamId, attackingTeamName));
+
+                        if (random.nextDouble() < 0.08 && !attackers.isEmpty()) {
+                            Human header = pickWeightedAttacker(attackers, random);
+                            if (team1HasBall) { homeScore++; homeShotsOnTarget++; homeShots++; }
+                            else { awayScore++; awayShotsOnTarget++; awayShots++; }
+
+                            timeline.add(createMinuteEvent(min, homeScore, awayScore, "goal",
+                                    "GOAL! " + header.getName() + " rises highest and heads it in from the corner!",
+                                    header.getId(), header.getName(), attackingTeamId, attackingTeamName));
+
+                            dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
+                                    min, "goal", header.getId(), header.getName(), attackingTeamId, "Header from corner"));
+
+                            if (goalAnimations != null) {
+                                GoalAnimationData anim = goalAnimationService.generate(
+                                        team1HasBall ? team1All : team2All,
+                                        team1HasBall ? team2All : team1All,
+                                        header, null,
+                                        attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                                        teamId1, min, "GOAL");
+                                if (anim != null) goalAnimations.put(min, anim);
+                            }
+                        }
+                    }
+                }
+
+            } else if (roll < possessionEnd) {
                 if (min % 5 == 0 || min == 1) {
                     String template = POSSESSION_COMMENTARY[random.nextInt(POSSESSION_COMMENTARY.length)];
                     timeline.add(createMinuteEvent(min, homeScore, awayScore, "commentary",
@@ -183,179 +351,30 @@ public class LiveMatchSimulationService {
                             0, null, attackingTeamId, attackingTeamName));
                 }
 
-            } else if (roll < 0.60) {
-                // ATTACK - the core of the match engine
-                if (attackers.isEmpty()) continue;
-                Human attacker = pickWeightedAttacker(attackers, random);
-
-                if (team1HasBall) homeShots++; else awayShots++;
-
-                double attackRoll = random.nextDouble();
-
-                if (attackRoll < 0.17) {
-                    // GOAL!
-                    if (team1HasBall) { homeScore++; homeShotsOnTarget++; }
-                    else { awayScore++; awayShotsOnTarget++; }
-
-                    String goalDesc = GOAL_DESCRIPTIONS[random.nextInt(GOAL_DESCRIPTIONS.length)];
-                    timeline.add(createMinuteEvent(min, homeScore, awayScore, "goal",
-                            "GOAL! " + attacker.getName() + "! " + goalDesc,
-                            attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
-
-                    dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
-                            min, "goal", attacker.getId(), attacker.getName(), attackingTeamId, goalDesc));
-
-                    // 70% chance of assist
-                    Human goalAssister = null;
-                    if (random.nextDouble() < 0.7 && attackers.size() > 1) {
-                        goalAssister = pickDifferentPlayer(attackers, attacker, random);
-                        if (goalAssister != null) {
-                            dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
-                                    min, "assist", goalAssister.getId(), goalAssister.getName(), attackingTeamId, "Assist"));
-                        }
-                    }
-
-                    // Generate goal animation (randomly pick type)
-                    if (goalAnimations != null) {
-                        List<Human> atkAll = team1HasBall ? team1All : team2All;
-                        List<Human> defAll = team1HasBall ? team2All : team1All;
-                        long defTeamId = team1HasBall ? teamId2 : teamId1;
-                        double typeRoll = random.nextDouble();
-                        GoalAnimationData anim;
-                        if (typeRoll < 0.15) {
-                            anim = goalAnimationService.generatePenalty(
-                                    atkAll, defAll, attacker,
-                                    attackingTeamId, defTeamId, teamId1, min, true);
-                        } else if (typeRoll < 0.35) {
-                            anim = goalAnimationService.generateFreeKick(
-                                    atkAll, defAll, attacker,
-                                    attackingTeamId, defTeamId, teamId1, min, "GOAL");
-                        } else {
-                            anim = goalAnimationService.generate(
-                                    atkAll, defAll, attacker, goalAssister,
-                                    attackingTeamId, defTeamId, teamId1, min);
-                        }
-                        if (anim != null) goalAnimations.put(min, anim);
-                    }
-
-                } else if (attackRoll < 0.42) {
-                    // Shot saved
-                    if (team1HasBall) homeShotsOnTarget++; else awayShotsOnTarget++;
-                    String saveDesc = SAVE_DESCRIPTIONS[random.nextInt(SAVE_DESCRIPTIONS.length)];
-                    timeline.add(createMinuteEvent(min, homeScore, awayScore, "shot_saved",
-                            attacker.getName() + " " + saveDesc,
-                            attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
-
-                    // 25% chance to show a set piece animation for saves
-                    if (goalAnimations != null && random.nextDouble() < 0.25) {
-                        List<Human> atkAll = team1HasBall ? team1All : team2All;
-                        List<Human> defAll = team1HasBall ? team2All : team1All;
-                        long defTeamId = team1HasBall ? teamId2 : teamId1;
-                        GoalAnimationData anim;
-                        if (random.nextDouble() < 0.4) {
-                            anim = goalAnimationService.generatePenalty(
-                                    atkAll, defAll, attacker,
-                                    attackingTeamId, defTeamId, teamId1, min, false);
-                        } else {
-                            anim = goalAnimationService.generateFreeKick(
-                                    atkAll, defAll, attacker,
-                                    attackingTeamId, defTeamId, teamId1, min, "SAVE");
-                        }
-                        if (anim != null) goalAnimations.put(min, anim);
-                    }
-
-                } else if (attackRoll < 0.70) {
-                    // Shot wide/high
-                    String missDesc = MISS_DESCRIPTIONS[random.nextInt(MISS_DESCRIPTIONS.length)];
-                    timeline.add(createMinuteEvent(min, homeScore, awayScore, "shot_wide",
-                            attacker.getName() + " " + missDesc,
-                            attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
-
-                    // 15% chance to show a free kick miss animation
-                    if (goalAnimations != null && random.nextDouble() < 0.15) {
-                        List<Human> atkAll = team1HasBall ? team1All : team2All;
-                        List<Human> defAll = team1HasBall ? team2All : team1All;
-                        long defTeamId = team1HasBall ? teamId2 : teamId1;
-                        GoalAnimationData anim = goalAnimationService.generateFreeKick(
-                                atkAll, defAll, attacker,
-                                attackingTeamId, defTeamId, teamId1, min, "MISS");
-                        if (anim != null) goalAnimations.put(min, anim);
-                    }
-
-                } else if (attackRoll < 0.87) {
-                    // Shot blocked
-                    String blockDesc = BLOCK_DESCRIPTIONS[random.nextInt(BLOCK_DESCRIPTIONS.length)];
-                    timeline.add(createMinuteEvent(min, homeScore, awayScore, "shot_blocked",
-                            attacker.getName() + blockDesc,
-                            attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
-
-                } else {
-                    // Corner won
-                    if (team1HasBall) homeCorners++; else awayCorners++;
-                    timeline.add(createMinuteEvent(min, homeScore, awayScore, "corner",
-                            "Corner kick for " + attackingTeamName + ".",
-                            0, null, attackingTeamId, attackingTeamName));
-
-                    // 8% chance of goal from corner
-                    if (random.nextDouble() < 0.08 && !attackers.isEmpty()) {
-                        Human header = pickWeightedAttacker(attackers, random);
-                        if (team1HasBall) { homeScore++; homeShotsOnTarget++; homeShots++; }
-                        else { awayScore++; awayShotsOnTarget++; awayShots++; }
-
-                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "goal",
-                                "GOAL! " + header.getName() + " rises highest and heads it in from the corner!",
-                                header.getId(), header.getName(), attackingTeamId, attackingTeamName));
-
+            } else if (roll < foulEnd) {
+                // FOUL — defender from the OTHER team commits it
+                if (!allDefenders.isEmpty()) {
+                    Human fouler = allDefenders.get(random.nextInt(allDefenders.size()));
+                    if (team1HasBall) awayFouls++; else homeFouls++;
+                    long foulerTeamId = team1HasBall ? teamId2 : teamId1;
+                    String foulerTeamName = team1HasBall ? awayTeamName : homeTeamName;
+                    double cardRoll = random.nextDouble();
+                    if (cardRoll < 0.22) {
+                        if (team1HasBall) awayYellowCards++; else homeYellowCards++;
+                        String foulDesc = FOUL_DESCRIPTIONS[random.nextInt(FOUL_DESCRIPTIONS.length)];
+                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "yellow_card",
+                                fouler.getName() + " " + foulDesc + " Yellow card!",
+                                fouler.getId(), fouler.getName(), foulerTeamId, foulerTeamName));
                         dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
-                                min, "goal", header.getId(), header.getName(), attackingTeamId, "Header from corner"));
-
-                        // Generate goal animation for corner goal
-                        if (goalAnimations != null) {
-                            List<Human> atkAll = team1HasBall ? team1All : team2All;
-                            List<Human> defAll = team1HasBall ? team2All : team1All;
-                            long defTeamId = team1HasBall ? teamId2 : teamId1;
-                            GoalAnimationData anim = goalAnimationService.generate(
-                                    atkAll, defAll, header, null,
-                                    attackingTeamId, defTeamId, teamId1, min);
-                            if (anim != null) goalAnimations.put(min, anim);
-                        }
-                    }
-                }
-
-            } else if (roll < 0.72) {
-                // FOUL
-                if (allDefenders.isEmpty()) continue;
-                Human fouler = allDefenders.get(random.nextInt(allDefenders.size()));
-                if (team1HasBall) awayFouls++; else homeFouls++;
-
-                double cardRoll = random.nextDouble();
-                long foulerTeamId = team1HasBall ? teamId2 : teamId1;
-                String foulerTeamName = team1HasBall ? awayTeamName : homeTeamName;
-
-                if (cardRoll < 0.22) {
-                    // Yellow card
-                    if (team1HasBall) awayYellowCards++; else homeYellowCards++;
-                    String foulDesc = FOUL_DESCRIPTIONS[random.nextInt(FOUL_DESCRIPTIONS.length)];
-                    timeline.add(createMinuteEvent(min, homeScore, awayScore, "yellow_card",
-                            fouler.getName() + " " + foulDesc + " Yellow card!",
-                            fouler.getId(), fouler.getName(), foulerTeamId, foulerTeamName));
-
-                    dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
-                            min, "yellow_card", fouler.getId(), fouler.getName(), foulerTeamId, "Yellow card"));
-
-                } else if (cardRoll < 0.24) {
-                    // Red card
-                    if (team1HasBall) awayRedCards++; else homeRedCards++;
-                    timeline.add(createMinuteEvent(min, homeScore, awayScore, "red_card",
-                            "RED CARD! " + fouler.getName() + " is sent off for a terrible challenge!",
-                            fouler.getId(), fouler.getName(), foulerTeamId, foulerTeamName));
-
-                    dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
-                            min, "red_card", fouler.getId(), fouler.getName(), foulerTeamId, "Red card"));
-
-                } else {
-                    // Regular foul
-                    if (min % 4 == 0) { // Don't spam too many foul events
+                                min, "yellow_card", fouler.getId(), fouler.getName(), foulerTeamId, "Yellow card"));
+                    } else if (cardRoll < 0.24) {
+                        if (team1HasBall) awayRedCards++; else homeRedCards++;
+                        timeline.add(createMinuteEvent(min, homeScore, awayScore, "red_card",
+                                "RED CARD! " + fouler.getName() + " is sent off for a terrible challenge!",
+                                fouler.getId(), fouler.getName(), foulerTeamId, foulerTeamName));
+                        dbEvents.add(buildMatchEvent(competitionId, season, round, teamId1, teamId2,
+                                min, "red_card", fouler.getId(), fouler.getName(), foulerTeamId, "Red card"));
+                    } else if (min % 4 == 0) {
                         String foulDesc = FOUL_DESCRIPTIONS[random.nextInt(FOUL_DESCRIPTIONS.length)];
                         timeline.add(createMinuteEvent(min, homeScore, awayScore, "foul",
                                 fouler.getName() + " " + foulDesc,
@@ -363,19 +382,18 @@ public class LiveMatchSimulationService {
                     }
                 }
 
-            } else if (roll < 0.76) {
-                // OFFSIDE
+            } else if (roll < offsideEnd) {
                 if (!attackers.isEmpty()) {
                     Human offside = attackers.get(random.nextInt(attackers.size()));
                     if (team1HasBall) homeOffsides++; else awayOffsides++;
-                    if (min % 3 == 0) { // Don't spam too many offside events
+                    if (min % 3 == 0) {
                         timeline.add(createMinuteEvent(min, homeScore, awayScore, "offside",
                                 offside.getName() + " is caught offside. Free kick to the defence.",
                                 offside.getId(), offside.getName(), attackingTeamId, attackingTeamName));
                     }
                 }
+
             } else {
-                // Buildup play / transitions
                 if (min % 7 == 0) {
                     String template = BUILDUP_COMMENTARY[random.nextInt(BUILDUP_COMMENTARY.length)];
                     timeline.add(createMinuteEvent(min, homeScore, awayScore, "commentary",
@@ -476,6 +494,63 @@ public class LiveMatchSimulationService {
     }
 
     // ==================== PRIVATE HELPERS ====================
+
+    /**
+     * Pick an animation flavour (open play / penalty / free kick) for a given
+     * attacker + outcome. Centralised so the GOAL / SAVE / MISS branches stay tidy
+     * and so the outcome flag propagates consistently.
+     *
+     * Distribution: ~15% penalty, ~20% free kick, ~65% open play. Penalty only
+     * fires for GOAL/SAVE (no "penalty miss" in the engine yet); MISS routes to
+     * free kick or open play.
+     */
+    private GoalAnimationData buildAttackAnimation(
+            List<Human> attackingAll, List<Human> defendingAll,
+            Human attacker, Human assister,
+            long attackingTeamId, long defendingTeamId,
+            long homeTeamId, int minute, String outcome,
+            Random random) {
+        double typeRoll = random.nextDouble();
+        if (!"MISS".equals(outcome) && typeRoll < 0.15) {
+            return goalAnimationService.generatePenalty(
+                    attackingAll, defendingAll, attacker,
+                    attackingTeamId, defendingTeamId, homeTeamId, minute,
+                    "GOAL".equals(outcome));
+        }
+        if (typeRoll < 0.35) {
+            return goalAnimationService.generateFreeKick(
+                    attackingAll, defendingAll, attacker,
+                    attackingTeamId, defendingTeamId, homeTeamId, minute, outcome);
+        }
+        return goalAnimationService.generate(
+                attackingAll, defendingAll, attacker, assister,
+                attackingTeamId, defendingTeamId, homeTeamId, minute, outcome);
+    }
+
+    /**
+     * Big chances allocated to a team per match — biased by their share of total
+     * power. A 75% share averages ~2.75 big chances; a 25% share averages ~1.25;
+     * 50/50 averages ~2. Capped at 4 to stay close to real-world rates and to
+     * stop goal counts ballooning above ~3/match average.
+     */
+    private int computeBigChances(double rawRatio, Random random) {
+        double expected = 0.5 + rawRatio * 3.0;        // 0.5→2.0 ; 1.0→3.5 ; 0.25→1.25
+        int floor = (int) Math.floor(expected);
+        double frac = expected - floor;
+        int extra = random.nextDouble() < frac ? 1 : 0;
+        return Math.max(0, Math.min(4, floor + extra));
+    }
+
+    /** Pick {@code count} distinct minutes in [minMinute, maxMinute]. */
+    private Set<Integer> pickRandomMinutes(int count, int minMinute, int maxMinute, Random random) {
+        Set<Integer> minutes = new LinkedHashSet<>();
+        int range = maxMinute - minMinute + 1;
+        int guard = 0;
+        while (minutes.size() < count && guard++ < count * 10) {
+            minutes.add(minMinute + random.nextInt(range));
+        }
+        return minutes;
+    }
 
     private List<Human> getOutfieldPlayers(long teamId) {
         return humanRepository.findAllByTeamIdAndTypeId(teamId, 1L).stream()

@@ -13,6 +13,12 @@ public class GoalAnimationData {
     private long homeTeamId;
     private int totalFrames;
 
+    // Team kits used by the frontend to colour outfield players + goalkeepers.
+    // Backend resolves conflicts (e.g. both teams in blue → defending side swaps to its secondary)
+    // and picks GK kits that contrast against BOTH outfield kits.
+    private TeamKit scoringTeamKit;
+    private TeamKit defendingTeamKit;
+
     // "OPEN_PLAY", "PENALTY", "FREE_KICK"
     private String animationType;
     // "GOAL", "SAVE", "MISS"
@@ -62,5 +68,17 @@ public class GoalAnimationData {
         private String type;      // "PASS", "SHOT", "GOAL", "SAVE", "MISS"
         private long fromPlayerId;
         private long toPlayerId;  // 0 for SHOT/GOAL
+    }
+
+    @Data
+    public static class TeamKit {
+        // Outfield kit (shirt fill + border for the player circle).
+        // CSS-compatible color names or hex strings ("blue", "#3498db", etc.).
+        private String outfieldPrimary;
+        private String outfieldSecondary;
+        private String outfieldBorder;
+        // Goalkeeper kit — chosen to contrast against BOTH outfield kits.
+        private String gkPrimary;
+        private String gkBorder;
     }
 }

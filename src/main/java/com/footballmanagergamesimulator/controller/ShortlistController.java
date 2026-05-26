@@ -2,8 +2,8 @@ package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.user.CurrentUserService;
 import com.footballmanagergamesimulator.user.User;
-import com.footballmanagergamesimulator.user.UserContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +21,7 @@ public class ShortlistController {
     ShortlistRepository shortlistRepository;
 
     @Autowired
-    UserContext userContext;
+    CurrentUserService currentUserService;
 
     @Autowired
     HumanRepository humanRepository;
@@ -34,7 +34,7 @@ public class ShortlistController {
 
     @GetMapping("/all")
     public List<Map<String, Object>> getShortlist(HttpServletRequest request) {
-        User user = userContext.getUserOrNull(request);
+        User user = currentUserService.getUserOrNull(request);
         if (user == null) return Collections.emptyList();
 
         List<Shortlist> entries = shortlistRepository.findAllByUserId(user.getId());
@@ -75,7 +75,7 @@ public class ShortlistController {
 
     @PostMapping("/add/{playerId}")
     public ResponseEntity<?> addToShortlist(@PathVariable long playerId, HttpServletRequest request) {
-        User user = userContext.getUserOrNull(request);
+        User user = currentUserService.getUserOrNull(request);
         if (user == null) return ResponseEntity.status(401).body("Not logged in");
 
         if (shortlistRepository.existsByUserIdAndPlayerId(user.getId(), playerId)) {
@@ -105,7 +105,7 @@ public class ShortlistController {
     @DeleteMapping("/remove/{playerId}")
     @Transactional
     public ResponseEntity<?> removeFromShortlist(@PathVariable long playerId, HttpServletRequest request) {
-        User user = userContext.getUserOrNull(request);
+        User user = currentUserService.getUserOrNull(request);
         if (user == null) return ResponseEntity.status(401).body("Not logged in");
 
         shortlistRepository.deleteByUserIdAndPlayerId(user.getId(), playerId);
@@ -114,14 +114,14 @@ public class ShortlistController {
 
     @GetMapping("/check/{playerId}")
     public Map<String, Boolean> isInShortlist(@PathVariable long playerId, HttpServletRequest request) {
-        User user = userContext.getUserOrNull(request);
+        User user = currentUserService.getUserOrNull(request);
         if (user == null) return Map.of("inShortlist", false);
         return Map.of("inShortlist", shortlistRepository.existsByUserIdAndPlayerId(user.getId(), playerId));
     }
 
     @PostMapping("/updateNotes/{shortlistId}")
     public ResponseEntity<?> updateNotes(@PathVariable long shortlistId, @RequestBody Map<String, String> body, HttpServletRequest request) {
-        User user = userContext.getUserOrNull(request);
+        User user = currentUserService.getUserOrNull(request);
         if (user == null) return ResponseEntity.status(401).body("Not logged in");
 
         Shortlist entry = shortlistRepository.findById(shortlistId).orElse(null);

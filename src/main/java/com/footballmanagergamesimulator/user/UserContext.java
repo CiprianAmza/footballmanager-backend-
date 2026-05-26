@@ -13,29 +13,15 @@ public class UserContext {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private CurrentUserService currentUserService;
+
     /**
      * Get the teamId for the current user from the X-User-Id header.
      * Throws RuntimeException if user not found or has no team.
      */
     public long getTeamId(HttpServletRequest request) {
-        String userIdHeader = request.getHeader("X-User-Id");
-        if (userIdHeader == null || userIdHeader.isBlank()) {
-            throw new RuntimeException("Missing X-User-Id header");
-        }
-        int userId;
-        try {
-            userId = Integer.parseInt(userIdHeader);
-        } catch (NumberFormatException e) {
-            throw new RuntimeException("Invalid X-User-Id header");
-        }
-        User user = userRepository.findById(userId).orElse(null);
-        if (user == null) {
-            throw new RuntimeException("User not found: " + userId);
-        }
-        if (user.getTeamId() == null || user.getTeamId() <= 0) {
-            throw new RuntimeException("User has no team assigned");
-        }
-        return user.getTeamId();
+        return currentUserService.requireTeamId(request);
     }
 
     /**
@@ -72,14 +58,8 @@ public class UserContext {
      * Check if the current user (from header) is fired.
      */
     public boolean isCurrentUserFired(HttpServletRequest request) {
-        String userIdHeader = request.getHeader("X-User-Id");
-        if (userIdHeader == null || userIdHeader.isBlank()) return false;
-        try {
-            int userId = Integer.parseInt(userIdHeader);
-            return userRepository.findById(userId).map(User::isFired).orElse(false);
-        } catch (NumberFormatException e) {
-            return false;
-        }
+        User user = currentUserService.getUserOrNull(request);
+        return user != null && user.isFired();
     }
 
     /**
@@ -93,13 +73,6 @@ public class UserContext {
      * Get the User entity for the current request, or null.
      */
     public User getUserOrNull(HttpServletRequest request) {
-        String userIdHeader = request.getHeader("X-User-Id");
-        if (userIdHeader == null || userIdHeader.isBlank()) return null;
-        try {
-            int userId = Integer.parseInt(userIdHeader);
-            return userRepository.findById(userId).orElse(null);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        return currentUserService.getUserOrNull(request);
     }
 }
