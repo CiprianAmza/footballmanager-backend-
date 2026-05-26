@@ -116,12 +116,10 @@ public class NationalTeamService {
                 }
             }
 
-            // 5% chance of morale boost
-            if (random.nextDouble() < MORALE_BOOST_CHANCE) {
-                double newMorale = Math.min(player.getMorale() + 1.0, 100.0);
-                player.setMorale(newMorale);
-                humanRepository.save(player);
-            }
+            // Guaranteed morale boost for being selected for national team (+3 to +5)
+            double moraleBoost = 3 + random.nextDouble() * 2;
+            player.setMorale(Math.min(player.getMorale() + moraleBoost, 100.0));
+            humanRepository.save(player);
 
             callup = nationalTeamCallupRepository.save(callup);
             callups.add(callup);

@@ -2,11 +2,13 @@ package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.TrainingSchedule;
 import com.footballmanagergamesimulator.repository.TrainingScheduleRepository;
+import com.footballmanagergamesimulator.service.TrainingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/training")
@@ -15,6 +17,9 @@ public class TrainingController {
 
     @Autowired
     TrainingScheduleRepository trainingScheduleRepository;
+
+    @Autowired
+    TrainingService trainingService;
 
     @GetMapping("/schedule/{teamId}")
     public List<TrainingSchedule> getSchedule(@PathVariable(name = "teamId") long teamId) {
@@ -89,5 +94,33 @@ public class TrainingController {
         ts.setSessionName(name);
         ts.setIntensity(intensity);
         return ts;
+    }
+
+    // --- Individual Training Endpoints ---
+
+    @GetMapping("/individual/{playerId}")
+    public Map<String, Object> getIndividualTraining(@PathVariable long playerId) {
+        return trainingService.getIndividualTraining(playerId);
+    }
+
+    @PostMapping("/individual/{playerId}")
+    public Map<String, Object> setIndividualTraining(@PathVariable long playerId,
+                                                      @RequestBody Map<String, String> body) {
+        String focus = body.get("focus");
+        String attribute = body.get("attribute");
+        String role = body.get("role");
+        trainingService.setIndividualTraining(playerId, focus, attribute, role);
+        return trainingService.getIndividualTraining(playerId);
+    }
+
+    @DeleteMapping("/individual/{playerId}")
+    public Map<String, Object> clearIndividualTraining(@PathVariable long playerId) {
+        trainingService.setIndividualTraining(playerId, null, null, null);
+        return trainingService.getIndividualTraining(playerId);
+    }
+
+    @GetMapping("/individual/options/{position}")
+    public Map<String, Object> getIndividualTrainingOptions(@PathVariable String position) {
+        return trainingService.getAvailableIndividualTraining(position);
     }
 }

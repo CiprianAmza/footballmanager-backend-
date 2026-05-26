@@ -23,4 +23,10 @@ public class PersonalizedTactic {
     private String inPossession;
     private String passingType;
     private String tempo;
+
+    // Set piece takers
+    private Long penaltyTakerId;
+    private Long freeKickTakerId;
+    private Long cornerTakerLeftId;
+    private Long cornerTakerRightId;
 }

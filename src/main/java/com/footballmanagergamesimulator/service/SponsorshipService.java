@@ -10,9 +10,9 @@ import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
+
+
 
 /**
  * Service responsible for managing sponsorship deals.
@@ -38,6 +38,8 @@ public class SponsorshipService {
     private TeamRepository teamRepository;
     @Autowired
     private ManagerInboxRepository managerInboxRepository;
+    @Autowired
+    private FinanceService financeService;
 
     private final Random random = new Random();
 
@@ -60,12 +62,38 @@ public class SponsorshipService {
             return new ArrayList<>();
         }
 
-        int offerCount = 1 + random.nextInt(2); // 1 or 2 offers
+        // Find which sponsor types already have active contracts
+        List<Sponsorship> activeSponsors = sponsorshipRepository.findAllByTeamIdAndStatus(teamId, "ACTIVE");
+        Set<String> occupiedTypes = new HashSet<>();
+        for (Sponsorship active : activeSponsors) {
+            occupiedTypes.add(active.getType());
+        }
+
+        // Filter available types (exclude types with active contracts)
+        List<String> availableTypes = new ArrayList<>();
+        for (String type : SPONSOR_TYPES) {
+            if (!occupiedTypes.contains(type)) {
+                availableTypes.add(type);
+            }
+        }
+
+        // No available sponsor slots
+        if (availableTypes.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        int offerCount = Math.min(1 + random.nextInt(2), availableTypes.size()); // 1 or 2 offers, max available
         List<Sponsorship> offers = new ArrayList<>();
+        List<String> usedTypes = new ArrayList<>();
 
         for (int i = 0; i < offerCount; i++) {
             String sponsorName = SPONSOR_NAMES[random.nextInt(SPONSOR_NAMES.length)];
-            String sponsorType = SPONSOR_TYPES[random.nextInt(SPONSOR_TYPES.length)];
+            // Pick from available types, avoiding duplicates within the same batch
+            List<String> remainingTypes = new ArrayList<>(availableTypes);
+            remainingTypes.removeAll(usedTypes);
+            if (remainingTypes.isEmpty()) break;
+            String sponsorType = remainingTypes.get(random.nextInt(remainingTypes.size()));
+            usedTypes.add(sponsorType);
             int multiplier = 10 + random.nextInt(41); // 10 to 50
             long annualValue = (long) team.getReputation() * multiplier;
             int duration = 1 + random.nextInt(3); // 1 to 3 seasons
@@ -129,12 +157,10 @@ public class SponsorshipService {
         sponsorship.setStatus("ACTIVE");
         sponsorship = sponsorshipRepository.save(sponsorship);
 
-        // Add money to team budget
-        Team team = teamRepository.findById(sponsorship.getTeamId()).orElse(null);
-        if (team != null) {
-            team.setTotalFinances(team.getTotalFinances() + sponsorship.getAnnualValue());
-            teamRepository.save(team);
-        }
+        // Record sponsorship income via finance service
+        financeService.recordTransaction(sponsorship.getTeamId(), sponsorship.getStartSeason(), 0,
+                "SPONSORSHIP", sponsorship.getSponsorName() + " (" + sponsorship.getType() + ") sponsorship deal",
+                sponsorship.getAnnualValue());
 
         return sponsorship;
     }
@@ -171,19 +197,15 @@ public class SponsorshipService {
             return;
         }
 
-        long totalRevenue = 0;
         for (Sponsorship sponsorship : activeSponsors) {
             if (season > sponsorship.getEndSeason()) {
                 sponsorship.setStatus("EXPIRED");
                 sponsorshipRepository.save(sponsorship);
             } else {
-                totalRevenue += sponsorship.getAnnualValue();
+                financeService.recordTransaction(teamId, season, 0,
+                        "SPONSORSHIP", sponsorship.getSponsorName() + " (" + sponsorship.getType() + ") annual revenue",
+                        sponsorship.getAnnualValue());
             }
-        }
-
-        if (totalRevenue > 0) {
-            team.setTotalFinances(team.getTotalFinances() + totalRevenue);
-            teamRepository.save(team);
         }
     }
 

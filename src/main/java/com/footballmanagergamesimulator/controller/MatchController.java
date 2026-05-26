@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.frontend.*;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.service.GoalAnimationService;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import com.footballmanagergamesimulator.service.MatchService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +39,10 @@ public class MatchController {
     ScorerRepository scorerRepository;
     @Autowired
     HumanRepository humanRepository;
+    @Autowired
+    GoalAnimationService goalAnimationService;
+    @Autowired
+    com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
 
     @GetMapping("/getScheduleForSeasonNumber/{seasonNumber}/{teamId}")
     public List<ScheduleView> getScheduleForSeasonNumberAndTeamId(@PathVariable(name = "seasonNumber") int seasonNumber, @PathVariable(name = "teamId") long teamId) {
@@ -316,17 +321,24 @@ public class MatchController {
             summary.setManOfTheMatchTeamId(motm.getTeamId());
         }
 
-        // Possession estimate based on team power ratio
-        int homePower = calculateTeamPower(teamId1);
-        int awayPower = calculateTeamPower(teamId2);
-        int totalPower = homePower + awayPower;
-        if (totalPower > 0) {
-            int homePossession = (int) Math.round((double) homePower / totalPower * 100);
-            summary.setHomePossession(homePossession);
-            summary.setAwayPossession(100 - homePossession);
+        // Use real match stats if available, otherwise estimate from power ratio
+        Optional<com.footballmanagergamesimulator.model.MatchStats> matchStats =
+                matchSimulationService.getMatchStats(competitionId, season, round, teamId1, teamId2);
+        if (matchStats.isPresent()) {
+            summary.setHomePossession(matchStats.get().getHomePossession());
+            summary.setAwayPossession(matchStats.get().getAwayPossession());
         } else {
-            summary.setHomePossession(50);
-            summary.setAwayPossession(50);
+            int homePower = calculateTeamPower(teamId1);
+            int awayPower = calculateTeamPower(teamId2);
+            int totalPower = homePower + awayPower;
+            if (totalPower > 0) {
+                int homePossession = (int) Math.round((double) homePower / totalPower * 100);
+                summary.setHomePossession(homePossession);
+                summary.setAwayPossession(100 - homePossession);
+            } else {
+                summary.setHomePossession(50);
+                summary.setAwayPossession(50);
+            }
         }
 
         return summary;
@@ -352,6 +364,174 @@ public class MatchController {
             @PathVariable long teamId1,
             @PathVariable long teamId2) {
         return liveMatchSimulationService.getLiveMatchData(competitionId, season, round, teamId1, teamId2);
+    }
+
+    /**
+     * Generate a single goal animation on demand for preview/testing.
+     *
+     * @param teamId1 attacking team (home)
+     * @param teamId2 defending team (away)
+     * @param type    OPEN_PLAY, PENALTY, or FREE_KICK
+     * @param outcome GOAL, SAVE, or MISS (MISS only for FREE_KICK)
+     * @param minute  simulated match minute (affects side mirroring)
+     */
+    @GetMapping("/animation/preview")
+    public GoalAnimationData previewAnimation(
+            @RequestParam long teamId1,
+            @RequestParam long teamId2,
+            @RequestParam(defaultValue = "OPEN_PLAY") String type,
+            @RequestParam(defaultValue = "GOAL") String outcome,
+            @RequestParam(defaultValue = "25") int minute) {
+
+        List<Human> atkAll = humanRepository.findAllByTeamIdAndTypeId(teamId1, 1L).stream()
+                .filter(h -> !h.isRetired()).collect(Collectors.toList());
+        List<Human> defAll = humanRepository.findAllByTeamIdAndTypeId(teamId2, 1L).stream()
+                .filter(h -> !h.isRetired()).collect(Collectors.toList());
+
+        if (atkAll.isEmpty() || defAll.isEmpty()) return null;
+
+        // Pick a random scorer from the attacking team (weighted by position)
+        Random rng = new Random();
+        List<Human> outfield = atkAll.stream()
+                .filter(h -> !"GK".equals(h.getPosition()))
+                .collect(Collectors.toList());
+        if (outfield.isEmpty()) outfield = atkAll;
+        Human scorer = outfield.get(rng.nextInt(outfield.size()));
+
+        switch (type.toUpperCase()) {
+            case "PENALTY":
+                return goalAnimationService.generatePenalty(
+                        atkAll, defAll, scorer,
+                        teamId1, teamId2, teamId1, minute,
+                        "GOAL".equalsIgnoreCase(outcome));
+
+            case "FREE_KICK":
+                String fkOutcome = outcome.toUpperCase();
+                if (!"GOAL".equals(fkOutcome) && !"SAVE".equals(fkOutcome) && !"MISS".equals(fkOutcome)) {
+                    fkOutcome = "GOAL";
+                }
+                return goalAnimationService.generateFreeKick(
+                        atkAll, defAll, scorer,
+                        teamId1, teamId2, teamId1, minute, fkOutcome);
+
+            default: // OPEN_PLAY
+                Human assister = null;
+                if (outfield.size() > 1) {
+                    do {
+                        assister = outfield.get(rng.nextInt(outfield.size()));
+                    } while (assister.getId() == scorer.getId());
+                }
+                return goalAnimationService.generate(
+                        atkAll, defAll, scorer, assister,
+                        teamId1, teamId2, teamId1, minute);
+        }
+    }
+
+    /**
+     * Get full match statistics for a specific match.
+     * Returns all Opta-style stats: possession, shots, passes, tackles, xG, etc.
+     */
+    @GetMapping("/stats/{competitionId}/{season}/{round}/{teamId1}/{teamId2}")
+    public Map<String, Object> getMatchStats(
+            @PathVariable long competitionId,
+            @PathVariable int season,
+            @PathVariable int round,
+            @PathVariable long teamId1,
+            @PathVariable long teamId2) {
+
+        Optional<com.footballmanagergamesimulator.model.MatchStats> statsOpt =
+                matchSimulationService.getMatchStats(competitionId, season, round, teamId1, teamId2);
+
+        if (statsOpt.isEmpty()) {
+            return Map.of("available", false);
+        }
+
+        com.footballmanagergamesimulator.model.MatchStats s = statsOpt.get();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("available", true);
+        result.put("homeTeamName", teamRepository.findNameById(teamId1));
+        result.put("awayTeamName", teamRepository.findNameById(teamId2));
+        result.put("competitionName", competitionRepository.findNameById(competitionId));
+
+        // Build stat rows as arrays [home, label, away] for easy frontend rendering
+        List<Map<String, Object>> stats = new ArrayList<>();
+        stats.add(statRow(s.getHomePossession() + "%", "Possession", s.getAwayPossession() + "%"));
+        stats.add(statRow(s.getHomeShots(), "Total Shots", s.getAwayShots()));
+        stats.add(statRow(s.getHomeShotsOnTarget(), "Shots on Target", s.getAwayShotsOnTarget()));
+        stats.add(statRow(s.getHomeShotsBlocked(), "Shots Blocked", s.getAwayShotsBlocked()));
+        stats.add(statRow(s.getHomeShots() - s.getHomeShotsOnTarget() - s.getHomeShotsBlocked(),
+                "Shots Off Target",
+                s.getAwayShots() - s.getAwayShotsOnTarget() - s.getAwayShotsBlocked()));
+        stats.add(statRow(String.format("%.2f", s.getHomeXg() / 100.0), "Expected Goals (xG)",
+                String.format("%.2f", s.getAwayXg() / 100.0)));
+        stats.add(statRow(s.getHomeBigChances(), "Big Chances", s.getAwayBigChances()));
+        stats.add(statRow(s.getHomeBigChancesMissed(), "Big Chances Missed", s.getAwayBigChancesMissed()));
+        stats.add(statRow(s.getHomePasses(), "Passes", s.getAwayPasses()));
+        stats.add(statRow(s.getHomePassAccuracy() + "%", "Pass Accuracy", s.getAwayPassAccuracy() + "%"));
+        stats.add(statRow(s.getHomeCrosses(), "Crosses", s.getAwayCrosses()));
+        stats.add(statRow(s.getHomeCrossesAccurate(), "Accurate Crosses", s.getAwayCrossesAccurate()));
+        stats.add(statRow(s.getHomeCorners(), "Corners", s.getAwayCorners()));
+        stats.add(statRow(s.getHomeOffsides(), "Offsides", s.getAwayOffsides()));
+        stats.add(statRow(s.getHomeTackles(), "Tackles", s.getAwayTackles()));
+        stats.add(statRow(s.getHomeInterceptions(), "Interceptions", s.getAwayInterceptions()));
+        stats.add(statRow(s.getHomeClearances(), "Clearances", s.getAwayClearances()));
+        stats.add(statRow(s.getHomeDuelsWon(), "Duels Won", s.getAwayDuelsWon()));
+        stats.add(statRow(s.getHomeAerialDuelsWon(), "Aerial Duels Won", s.getAwayAerialDuelsWon()));
+        stats.add(statRow(s.getHomeSaves(), "Saves", s.getAwaySaves()));
+        stats.add(statRow(s.getHomeFouls(), "Fouls", s.getAwayFouls()));
+        stats.add(statRow(s.getHomeFreeKicks(), "Free Kicks Won", s.getAwayFreeKicks()));
+        stats.add(statRow(s.getHomeYellowCards(), "Yellow Cards", s.getAwayYellowCards()));
+        stats.add(statRow(s.getHomeRedCards(), "Red Cards", s.getAwayRedCards()));
+
+        result.put("stats", stats);
+
+        // Also include raw numeric data for frontend charts
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("homePossession", s.getHomePossession());
+        raw.put("awayPossession", s.getAwayPossession());
+        raw.put("homeShots", s.getHomeShots());
+        raw.put("awayShots", s.getAwayShots());
+        raw.put("homeShotsOnTarget", s.getHomeShotsOnTarget());
+        raw.put("awayShotsOnTarget", s.getAwayShotsOnTarget());
+        raw.put("homeXg", s.getHomeXg() / 100.0);
+        raw.put("awayXg", s.getAwayXg() / 100.0);
+        raw.put("homePasses", s.getHomePasses());
+        raw.put("awayPasses", s.getAwayPasses());
+        raw.put("homePassAccuracy", s.getHomePassAccuracy());
+        raw.put("awayPassAccuracy", s.getAwayPassAccuracy());
+        raw.put("homeCorners", s.getHomeCorners());
+        raw.put("awayCorners", s.getAwayCorners());
+        raw.put("homeFouls", s.getHomeFouls());
+        raw.put("awayFouls", s.getAwayFouls());
+        raw.put("homeOffsides", s.getHomeOffsides());
+        raw.put("awayOffsides", s.getAwayOffsides());
+        raw.put("homeTackles", s.getHomeTackles());
+        raw.put("awayTackles", s.getAwayTackles());
+        raw.put("homeSaves", s.getHomeSaves());
+        raw.put("awaySaves", s.getAwaySaves());
+        raw.put("homeBigChances", s.getHomeBigChances());
+        raw.put("awayBigChances", s.getAwayBigChances());
+        result.put("raw", raw);
+
+        return result;
+    }
+
+    /**
+     * Get aggregated season statistics for a team.
+     */
+    @GetMapping("/stats/season/{teamId}/{season}")
+    public Map<String, Object> getTeamSeasonStats(
+            @PathVariable long teamId,
+            @PathVariable int season) {
+        return matchSimulationService.getTeamSeasonStats(teamId, season);
+    }
+
+    private Map<String, Object> statRow(Object home, String label, Object away) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("home", home);
+        row.put("label", label);
+        row.put("away", away);
+        return row;
     }
 
     private int calculateTeamPower(long teamId) {

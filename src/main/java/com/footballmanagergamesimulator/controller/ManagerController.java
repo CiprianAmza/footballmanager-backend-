@@ -177,6 +177,7 @@ public class ManagerController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("attendPressConferences", manager.isAttendPressConferences());
         result.put("viewFullMatch", manager.isViewFullMatch());
+        result.put("watchGoalHighlights", manager.isWatchGoalHighlights());
         return result;
     }
 
@@ -197,6 +198,9 @@ public class ManagerController {
         if (body.containsKey("viewFullMatch")) {
             manager.setViewFullMatch((Boolean) body.get("viewFullMatch"));
         }
+        if (body.containsKey("watchGoalHighlights")) {
+            manager.setWatchGoalHighlights((Boolean) body.get("watchGoalHighlights"));
+        }
 
         humanRepository.save(manager);
 
@@ -204,6 +208,7 @@ public class ManagerController {
         result.put("success", true);
         result.put("attendPressConferences", manager.isAttendPressConferences());
         result.put("viewFullMatch", manager.isViewFullMatch());
+        result.put("watchGoalHighlights", manager.isWatchGoalHighlights());
         return result;
     }
 

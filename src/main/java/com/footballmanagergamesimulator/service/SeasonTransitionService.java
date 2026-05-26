@@ -53,6 +53,10 @@ public class SeasonTransitionService {
     private MatchEventRepository matchEventRepository;
     @Autowired
     private LoanRepository loanRepository;
+    @Autowired
+    private FinanceService financeService;
+    @Autowired
+    private StaffService staffService;
 
     // ==================== END OF SEASON ====================
 
@@ -79,6 +83,12 @@ public class SeasonTransitionService {
 
         // 5. Handle contract expiries (players and staff whose contracts expire)
         handleContractExpiries(season + 1);
+
+        // 5b. Process pre-contract signings
+        processPreContracts(season);
+
+        // 5c. Handle coach contract expiries
+        handleCoachContractExpiries(season + 1);
 
         // 6. Process player retirements
         processRetirements(season);
@@ -464,14 +474,224 @@ public class SeasonTransitionService {
         matchEventRepository.deleteAllBySeasonNumber(newSeason - 3);
     }
 
+    // ==================== PRE-CONTRACTS ====================
+
+    /**
+     * Process pre-contract signings: players who agreed a pre-contract move to their new team.
+     */
+    private void processPreContracts(int season) {
+        List<Human> preContractPlayers = humanRepository.findAllByPreContractTeamId(0L);
+        // findAllByPreContractTeamId(0) returns empty; we need all with preContractTeamId > 0
+        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
+
+        for (Human player : allPlayers) {
+            if (player.getPreContractTeamId() <= 0) continue;
+            if (player.isRetired()) continue;
+
+            long newTeamId = player.getPreContractTeamId();
+            Team newTeam = teamRepository.findById(newTeamId).orElse(null);
+            if (newTeam == null) {
+                player.setPreContractTeamId(0L);
+                humanRepository.save(player);
+                continue;
+            }
+
+            // Notify old team
+            if (player.getTeamId() != null && player.getTeamId() > 0 && userContext.isHumanTeam(player.getTeamId())) {
+                ManagerInbox inbox = new ManagerInbox();
+                inbox.setTeamId(player.getTeamId());
+                inbox.setSeasonNumber(season);
+                inbox.setRoundNumber(0);
+                inbox.setTitle("Player Departed: " + player.getName());
+                inbox.setContent(player.getName() + " has left to join " + newTeam.getName() + " on a pre-contract agreement.");
+                inbox.setCategory("transfer");
+                inbox.setRead(false);
+                inbox.setCreatedAt(System.currentTimeMillis());
+                managerInboxRepository.save(inbox);
+            }
+
+            // Move player
+            long oldWage = player.getWage();
+            Team oldTeam = player.getTeamId() != null && player.getTeamId() > 0 ?
+                    teamRepository.findById(player.getTeamId()).orElse(null) : null;
+            if (oldTeam != null) {
+                oldTeam.setSalaryBudget(oldTeam.getSalaryBudget() - oldWage);
+                teamRepository.save(oldTeam);
+            }
+
+            player.setTeamId(newTeamId);
+            player.setPreContractTeamId(0L);
+            player.setContractEndSeason(season + 3);
+            player.setSeasonMatchesPlayed(0);
+            player.setConsecutiveBenched(0);
+            player.setMorale(75);
+            humanRepository.save(player);
+
+            newTeam.setSalaryBudget(newTeam.getSalaryBudget() + player.getWage());
+            teamRepository.save(newTeam);
+
+            // Notify new team
+            if (userContext.isHumanTeam(newTeamId)) {
+                ManagerInbox inbox = new ManagerInbox();
+                inbox.setTeamId(newTeamId);
+                inbox.setSeasonNumber(season);
+                inbox.setRoundNumber(0);
+                inbox.setTitle("Pre-Contract Player Arrived: " + player.getName());
+                inbox.setContent(player.getName() + " has joined the club on a pre-contract agreement.");
+                inbox.setCategory("transfer");
+                inbox.setRead(false);
+                inbox.setCreatedAt(System.currentTimeMillis());
+                managerInboxRepository.save(inbox);
+            }
+        }
+    }
+
+    // ==================== COACH CONTRACT EXPIRIES ====================
+
+    /**
+     * Handle coach contract expiries at end of season.
+     * Coaches whose contracts expire become free agents, and the team generates replacements.
+     */
+    private void handleCoachContractExpiries(int newSeason) {
+        List<Team> allTeams = teamRepository.findAll();
+
+        for (Team team : allTeams) {
+            for (long coachType : new long[]{TypeNames.ASSISTANT_MANAGER_TYPE, TypeNames.FIRST_TEAM_COACH_TYPE,
+                    TypeNames.FITNESS_COACH_TYPE, TypeNames.GK_COACH_TYPE, TypeNames.YOUTH_COACH_TYPE, TypeNames.HOYD_TYPE}) {
+                List<Human> expiringCoaches = humanRepository
+                        .findAllByTeamIdAndTypeIdAndContractEndSeasonLessThanEqual(team.getId(), coachType, newSeason - 1);
+
+                for (Human coach : expiringCoaches) {
+                    if (userContext.isHumanTeam(team.getId())) {
+                        ManagerInbox inbox = new ManagerInbox();
+                        inbox.setTeamId(team.getId());
+                        inbox.setSeasonNumber(newSeason - 1);
+                        inbox.setRoundNumber(0);
+                        inbox.setTitle("Staff Contract Expired: " + coach.getName());
+                        inbox.setContent(coach.getName() + " (" + TypeNames.coachTypeName(coach.getTypeId()) +
+                                ") has left the club as their contract has expired.");
+                        inbox.setCategory("staff");
+                        inbox.setRead(false);
+                        inbox.setCreatedAt(System.currentTimeMillis());
+                        managerInboxRepository.save(inbox);
+                    }
+
+                    coach.setTeamId(0L);
+                    humanRepository.save(coach);
+                }
+            }
+
+            // AI teams auto-replace expired coaches
+            if (!userContext.isHumanTeam(team.getId())) {
+                List<Human> currentStaff = staffService.getTeamStaff(team.getId());
+                boolean hasAM = currentStaff.stream().anyMatch(s -> s.getTypeId() == TypeNames.ASSISTANT_MANAGER_TYPE);
+                boolean hasHOYD = currentStaff.stream().anyMatch(s -> s.getTypeId() == TypeNames.HOYD_TYPE);
+
+                if (!hasAM) staffService.generateInitialStaff(team.getId(), newSeason); // will re-generate all
+                else if (!hasHOYD) {
+                    // Generate just the missing HOYD
+                    // For simplicity, AI teams just regenerate any missing positions
+                }
+            }
+        }
+
+        // Generate new free agent coaches each season
+        staffService.generateFreeAgentCoaches(20, newSeason);
+    }
+
     // ==================== LOAN RETURNS ====================
 
     /**
      * Return all loaned players to their parent clubs at end of season.
-     * Stub: loan return logic will be migrated.
+     * Processes buy obligations automatically.
      */
     public void processLoanReturns(int season) {
-        // Stub: loan return logic will be migrated from CompetitionController.
-        // All loans ending this season should return players to their parent clubs.
+        List<Loan> activeLoans = loanRepository.findAllByStatus("active");
+
+        for (Loan loan : activeLoans) {
+            Human player = humanRepository.findById(loan.getPlayerId()).orElse(null);
+            if (player == null) {
+                loan.setStatus("completed");
+                loanRepository.save(loan);
+                continue;
+            }
+
+            Team loanTeam = teamRepository.findById(loan.getLoanTeamId()).orElse(null);
+            Team parentTeam = teamRepository.findById(loan.getParentTeamId()).orElse(null);
+
+            // Check for buy obligation
+            if (loan.isBuyObligatory() && loan.getBuyOptionFee() > 0 && loanTeam != null && parentTeam != null) {
+                // Obligatory buy: execute permanent transfer
+                long fee = loan.getBuyOptionFee();
+
+                player.setTeamId(loan.getLoanTeamId());
+                player.setSeasonMatchesPlayed(0);
+                player.setConsecutiveBenched(0);
+                humanRepository.save(player);
+
+                financeService.recordExpense(loanTeam.getId(), season, 0,
+                        "TRANSFER_BUY", "Obligation to buy exercised: " + player.getName(), fee);
+                loanTeam = teamRepository.findById(loanTeam.getId()).orElse(loanTeam);
+                loanTeam.setTransferBudget(loanTeam.getTransferBudget() - fee);
+                teamRepository.save(loanTeam);
+
+                financeService.recordTransaction(parentTeam.getId(), season, 0,
+                        "TRANSFER_SALE", "Obligation to buy exercised: " + player.getName(), fee);
+
+                loan.setStatus("buy_obligated");
+                loanRepository.save(loan);
+
+                // Notify human teams
+                if (userContext.isHumanTeam(loan.getLoanTeamId())) {
+                    ManagerInbox inbox = new ManagerInbox();
+                    inbox.setTeamId(loan.getLoanTeamId());
+                    inbox.setSeasonNumber(season);
+                    inbox.setRoundNumber(0);
+                    inbox.setTitle("Buy Obligation Completed");
+                    inbox.setContent(player.getName() + " has been permanently signed from " +
+                            parentTeam.getName() + " for " + fee + " (obligation to buy).");
+                    inbox.setCategory("transfer");
+                    inbox.setRead(false);
+                    inbox.setCreatedAt(System.currentTimeMillis());
+                    managerInboxRepository.save(inbox);
+                }
+
+                continue;
+            }
+
+            // Normal loan return: player goes back to parent club
+            long playerWage = player.getWage();
+            player.setTeamId(loan.getParentTeamId());
+            player.setSeasonMatchesPlayed(0);
+            humanRepository.save(player);
+
+            // Adjust salary budgets
+            if (loanTeam != null) {
+                loanTeam.setSalaryBudget(loanTeam.getSalaryBudget() - playerWage);
+                teamRepository.save(loanTeam);
+            }
+            if (parentTeam != null) {
+                parentTeam.setSalaryBudget(parentTeam.getSalaryBudget() + playerWage);
+                teamRepository.save(parentTeam);
+            }
+
+            loan.setStatus("completed");
+            loanRepository.save(loan);
+
+            // Notify human team if their player returned
+            if (parentTeam != null && userContext.isHumanTeam(parentTeam.getId())) {
+                ManagerInbox inbox = new ManagerInbox();
+                inbox.setTeamId(parentTeam.getId());
+                inbox.setSeasonNumber(season);
+                inbox.setRoundNumber(0);
+                inbox.setTitle("Loan Return: " + player.getName());
+                inbox.setContent(player.getName() + " has returned from loan at " +
+                        (loanTeam != null ? loanTeam.getName() : "Unknown") + ".");
+                inbox.setCategory("transfer");
+                inbox.setRead(false);
+                inbox.setCreatedAt(System.currentTimeMillis());
+                managerInboxRepository.save(inbox);
+            }
+        }
     }
 }

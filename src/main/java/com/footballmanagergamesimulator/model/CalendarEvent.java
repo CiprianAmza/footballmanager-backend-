@@ -20,7 +20,7 @@ public class CalendarEvent {
     private Long competitionId; // nullable
     private int matchday; // the matchday number within the competition
     @Column(name = "event_status")
-    private String status; // "PENDING", "COMPLETED", "SKIPPED"
+    private String status; // "PENDING", "PROCESSING", "COMPLETED", "SKIPPED"
     private String title;
     private String description; // nullable
     private int priority; // ordering within same day+phase

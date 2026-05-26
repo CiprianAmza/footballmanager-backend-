@@ -9,4 +9,5 @@ public interface PlayerSkillsRepository extends JpaRepository<PlayerSkills, Long
 
     Optional<PlayerSkills> findPlayerSkillsByPlayerId(long playerId);
 
+    java.util.List<PlayerSkills> findAllByPlayerIdIn(java.util.Collection<Long> playerIds);
 }

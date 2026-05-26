@@ -28,6 +28,8 @@ public class TeamController {
     RoundRepository roundRepository;
     @Autowired
     GameCalendarRepository gameCalendarRepository;
+    @Autowired
+    com.footballmanagergamesimulator.service.FinanceService financeService;
 
     private static final int[] MONTH_START_DAYS = {1, 32, 62, 93, 123, 154, 185, 213, 244, 274, 305, 335};
 
@@ -42,6 +44,38 @@ public class TeamController {
     public String getTeamNameByTeamId(@PathVariable(name = "teamId") long teamId) {
 
         return teamRepository.findNameById(teamId);
+    }
+
+    /**
+     * Lightweight team metadata used by tactics/squad pages for branding
+     * (colors, name, reputation). Returns null fields rather than 404 if a team
+     * is missing, so the caller can fall back to defaults.
+     */
+    @GetMapping("/info/{teamId}")
+    public Map<String, Object> getTeamInfo(@PathVariable(name = "teamId") long teamId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        teamRepository.findById(teamId).ifPresent(t -> {
+            result.put("id", t.getId());
+            result.put("name", t.getName());
+            result.put("color1", t.getColor1());
+            result.put("color2", t.getColor2());
+            result.put("reputation", t.getReputation());
+            result.put("stadiumName", t.getStadiumName());
+        });
+        return result;
+    }
+
+    @GetMapping("/all")
+    public List<Map<String, Object>> getAllTeams() {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Team team : teamRepository.findAll()) {
+            Map<String, Object> t = new LinkedHashMap<>();
+            t.put("id", team.getId());
+            t.put("name", team.getName());
+            result.add(t);
+        }
+        result.sort(Comparator.comparing(a -> (String) a.get("name")));
+        return result;
     }
     
     @GetMapping("/allPlayers/{teamId}")
@@ -143,7 +177,20 @@ public class TeamController {
         finances.put("europeanIncome", europeanIncome);
         finances.put("estimatedSeasonIncome", leagueIncome + europeanIncome);
 
+        // New finance system fields
+        finances.put("debt", team.getDebt());
+        finances.put("boardConfidence", team.getBoardConfidence());
+        finances.put("transferBudgetPercentage", financeService.getTransferBudgetPercentage(team.getBoardConfidence()));
+        finances.put("stadiumCapacity", team.getStadiumCapacity());
+
         return finances;
+    }
+
+    @GetMapping("/finances/report/{teamId}/{season}")
+    public Map<String, Object> getFinancialReport(
+            @PathVariable(name = "teamId") long teamId,
+            @PathVariable(name = "season") int season) {
+        return financeService.getFinancialReport(teamId, season);
     }
 
 }

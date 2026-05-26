@@ -1,13 +1,13 @@
 package com.footballmanagergamesimulator.service;
 
-import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.model.ManagerInbox;
-import com.footballmanagergamesimulator.model.YouthPlayer;
+import com.footballmanagergamesimulator.controller.CompetitionController;
+import com.footballmanagergamesimulator.model.*;
+import com.footballmanagergamesimulator.service.HumanService;
+import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
-import com.footballmanagergamesimulator.model.Round;
-import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -27,6 +27,17 @@ public class YouthAcademyService {
     ManagerInboxRepository managerInboxRepository;
     @Autowired
     CompositeNameGenerator compositeNameGenerator;
+    @Autowired
+    PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    CompetitionService competitionService;
+    @Autowired
+    TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
+    @Autowired
+    @Lazy
+    CompetitionController competitionController;
+    @Autowired
+    StaffService staffService;
 
     private static final String[] POSITIONS = {"GK", "DC", "DL", "DR", "MC", "ML", "MR", "AMC", "ST"};
     private static final int[] POSITION_WEIGHTS = {5, 15, 10, 10, 15, 10, 10, 10, 15};
@@ -37,12 +48,18 @@ public class YouthAcademyService {
         int count = random.nextInt(1, 4); // 1-3 new youth players
         List<YouthPlayer> newProspects = new ArrayList<>();
 
+        // HOYD quality boosts youth player potential (1-20 scale)
+        int hoydQuality = staffService.getHOYDQuality(teamId);
+
         for (int i = 0; i < count; i++) {
             YouthPlayer yp = new YouthPlayer();
             yp.setTeamId(teamId);
             yp.setName(compositeNameGenerator.generateName(1L));
             yp.setAge(random.nextInt(15, 19));
-            yp.setPotentialAbility(generateWeightedPotential(random));
+            int basePotential = generateWeightedPotential(random);
+            // HOYD quality bonus: up to +10 potential for top HOYD (quality 20)
+            int hoydBonus = (int) (hoydQuality * 0.5);
+            yp.setPotentialAbility(Math.min(99, basePotential + hoydBonus));
             yp.setCurrentAbility((int) (yp.getPotentialAbility() * random.nextDouble(0.3, 0.6)));
             yp.setPosition(generateWeightedPosition(random));
             yp.setPotential(categorizePotential(yp.getPotentialAbility()));
@@ -109,7 +126,8 @@ public class YouthAcademyService {
         human.setCurrentAbility(yp.getCurrentAbility());
         human.setPotentialAbility(yp.getPotentialAbility());
         human.setBestEverRating(yp.getCurrentAbility());
-        human.setMorale(60);
+        human.setSeasonOfBestEverRating(currentSeason);
+        human.setMorale(75);
         human.setFitness(70);
         human.setCurrentStatus("Junior");
         human.setRetired(false);
@@ -117,10 +135,37 @@ public class YouthAcademyService {
         human.setWage(youthWage);
         human.setSalary(youthWage);
         human.setReleaseClause(releaseClause);
+        human.setTransferValue(competitionController.calculateTransferValue(
+                yp.getAge(), yp.getPosition(), yp.getCurrentAbility()));
         human.setSeasonCreated(currentSeason);
         human.setShirtNumber(shirtNumber);
 
+        // Generate physical profile
+        HumanService.generatePhysicalProfile(human, new java.util.Random());
+
+        human = humanRepository.save(human);
+
+        // Generate player skills
+        PlayerSkills playerSkills = new PlayerSkills();
+        playerSkills.setPlayerId(human.getId());
+        playerSkills.setPosition(yp.getPosition());
+        competitionService.generateSkills(playerSkills, yp.getCurrentAbility());
+        playerSkillsRepository.save(playerSkills);
+
+        // Recompute rating from attributes
+        double computedRating = PlayerSkillsService.computeOverallRating(playerSkills);
+        human.setRating(computedRating);
+        human.setCurrentAbility((int) computedRating);
+        human.setBestEverRating(computedRating);
         humanRepository.save(human);
+
+        // Create historical relation for player career history
+        TeamPlayerHistoricalRelation relation = new TeamPlayerHistoricalRelation();
+        relation.setPlayerId(human.getId());
+        relation.setTeamId(teamId);
+        relation.setSeasonNumber(currentSeason);
+        relation.setRating(human.getRating());
+        teamPlayerHistoricalRelationRepository.save(relation);
 
         // Update team salary budget
         Team team = teamRepository.findById(teamId).orElse(null);

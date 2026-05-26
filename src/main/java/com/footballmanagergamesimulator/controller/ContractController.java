@@ -147,7 +147,7 @@ public class ContractController {
             // Renewing contract settles the player
             if (player.isWantsTransfer()) {
                 player.setWantsTransfer(false);
-                player.setMorale(Math.min(120, player.getMorale() + 10));
+                player.setMorale(Math.min(100, player.getMorale() + 10));
             }
             humanRepository.save(player);
 
@@ -178,7 +178,7 @@ public class ContractController {
             }
 
             // Rejected contract can lower morale
-            player.setMorale(Math.max(30, player.getMorale() - 3));
+            player.setMorale(Math.max(0, player.getMorale() - 3));
             humanRepository.save(player);
 
             return ResponseEntity.ok(Map.of(
@@ -285,6 +285,153 @@ public class ContractController {
     }
 
     /**
+     * Sign a pre-contract with a player whose contract expires at the end of the current season.
+     * The player will join your team for free when their contract expires.
+     */
+    @PostMapping("/preContract")
+    public ResponseEntity<?> signPreContract(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        long playerId = ((Number) body.get("playerId")).longValue();
+        long offeredWage = ((Number) body.get("offeredWage")).longValue();
+        int contractYears = body.containsKey("contractYears") ? ((Number) body.get("contractYears")).intValue() : 3;
+
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player == null || player.isRetired()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Player not found or retired"));
+        }
+
+        long humanTeamId = userContext.getTeamId(request);
+        if (player.getTeamId() != null && player.getTeamId() == humanTeamId) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Cannot sign a pre-contract with your own player"));
+        }
+
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        int currentSeason = (int) round.getSeason();
+
+        // Can only sign pre-contract if player's contract expires at end of current season
+        if (player.getContractEndSeason() > currentSeason) {
+            return ResponseEntity.badRequest().body(Map.of("success", false,
+                    "message", "Player's contract doesn't expire this season (expires Season " + player.getContractEndSeason() + ")"));
+        }
+
+        // Check if player already has a pre-contract
+        if (player.getPreContractTeamId() > 0) {
+            return ResponseEntity.badRequest().body(Map.of("success", false,
+                    "message", "Player has already signed a pre-contract with another club"));
+        }
+
+        long wageDemand = calculateWageDemand(player);
+
+        if (offeredWage < wageDemand * 0.8) {
+            return ResponseEntity.ok(Map.of("success", false,
+                    "message", player.getName() + " rejected the pre-contract. They demand at least " + wageDemand,
+                    "wageDemand", wageDemand));
+        }
+
+        boolean accepted = offeredWage >= wageDemand
+                || (offeredWage >= wageDemand * 0.8 && new Random().nextDouble() < 0.5);
+
+        if (!accepted) {
+            return ResponseEntity.ok(Map.of("success", false,
+                    "message", player.getName() + " rejected your pre-contract offer.",
+                    "wageDemand", wageDemand));
+        }
+
+        player.setPreContractTeamId(humanTeamId);
+        humanRepository.save(player);
+
+        // Send inbox notification
+        ManagerInbox inbox = new ManagerInbox();
+        inbox.setTeamId(humanTeamId);
+        inbox.setSeasonNumber(currentSeason);
+        inbox.setRoundNumber((int) round.getRound());
+        inbox.setTitle("Pre-Contract Signed");
+        inbox.setContent(player.getName() + " has agreed to join on a pre-contract. " +
+                "They will join at the end of the season when their current contract expires. " +
+                "Wage: " + offeredWage + ", Duration: " + contractYears + " years.");
+        inbox.setCategory("transfer");
+        inbox.setRead(false);
+        inbox.setCreatedAt(System.currentTimeMillis());
+        managerInboxRepository.save(inbox);
+
+        return ResponseEntity.ok(Map.of("success", true,
+                "message", player.getName() + " has agreed to a pre-contract! They will join at end of season."));
+    }
+
+    /**
+     * Get players available for pre-contract signing (contract expires this season, from other teams).
+     */
+    @GetMapping("/preContractAvailable/{teamId}")
+    public List<Map<String, Object>> getPreContractAvailable(@PathVariable(name = "teamId") long teamId) {
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        int currentSeason = (int) round.getSeason();
+
+        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
+
+        return allPlayers.stream()
+                .filter(p -> !p.isRetired())
+                .filter(p -> p.getTeamId() != null && p.getTeamId() != teamId && p.getTeamId() != 0L)
+                .filter(p -> p.getContractEndSeason() <= currentSeason)
+                .filter(p -> p.getPreContractTeamId() == 0)
+                .map(player -> {
+                    Map<String, Object> info = new LinkedHashMap<>();
+                    info.put("id", player.getId());
+                    info.put("name", player.getName());
+                    info.put("position", player.getPosition());
+                    info.put("age", player.getAge());
+                    info.put("rating", Math.round(player.getRating() * 10) / 10.0);
+                    info.put("currentTeamId", player.getTeamId());
+                    String teamName = teamRepository.findById(player.getTeamId()).map(t -> t.getName()).orElse("Unknown");
+                    info.put("currentTeamName", teamName);
+                    info.put("contractEndSeason", player.getContractEndSeason());
+                    info.put("wageDemand", calculateWageDemand(player));
+                    return info;
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Set contract clauses during renewal.
+     */
+    @PostMapping("/setClauses")
+    public ResponseEntity<?> setContractClauses(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        long playerId = ((Number) body.get("playerId")).longValue();
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Player not found"));
+        }
+        long humanTeamId = userContext.getTeamId(request);
+        if (player.getTeamId() == null || player.getTeamId() != humanTeamId) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Not your player"));
+        }
+
+        if (body.containsKey("releaseClause")) {
+            player.setReleaseClause(((Number) body.get("releaseClause")).longValue());
+        }
+        if (body.containsKey("sellOnPercentage")) {
+            int pct = ((Number) body.get("sellOnPercentage")).intValue();
+            player.setSellOnPercentage(Math.max(0, Math.min(50, pct)));
+            player.setSellOnClubId(humanTeamId);
+        }
+        if (body.containsKey("optionalExtensionYears")) {
+            player.setOptionalExtensionYears(Math.max(0, Math.min(2,
+                    ((Number) body.get("optionalExtensionYears")).intValue())));
+        }
+        if (body.containsKey("appearanceBonus")) {
+            player.setAppearanceBonus(((Number) body.get("appearanceBonus")).longValue());
+        }
+        if (body.containsKey("goalBonus")) {
+            player.setGoalBonus(((Number) body.get("goalBonus")).longValue());
+        }
+        if (body.containsKey("relegationWageDrop")) {
+            player.setRelegationWageDrop(Math.max(0, Math.min(50,
+                    ((Number) body.get("relegationWageDrop")).intValue())));
+        }
+
+        humanRepository.save(player);
+        return ResponseEntity.ok(Map.of("success", true, "message", "Contract clauses updated for " + player.getName()));
+    }
+
+    /**
      * Promise playing time to an unhappy player to settle them.
      */
     @PostMapping("/promisePlayingTime")
@@ -314,7 +461,7 @@ public class ContractController {
 
         if (random.nextDouble() < successChance) {
             player.setWantsTransfer(false);
-            player.setMorale(Math.min(120, player.getMorale() + 15));
+            player.setMorale(Math.min(100, player.getMorale() + 15));
             player.setConsecutiveBenched(0); // Reset the counter
             humanRepository.save(player);
 
@@ -323,7 +470,7 @@ public class ContractController {
                     "message", player.getName() + " has accepted your promise of more playing time and is willing to stay."
             ));
         } else {
-            player.setMorale(Math.max(30, player.getMorale() - 5));
+            player.setMorale(Math.max(0, player.getMorale() - 5));
             humanRepository.save(player);
 
             return ResponseEntity.ok(Map.of(

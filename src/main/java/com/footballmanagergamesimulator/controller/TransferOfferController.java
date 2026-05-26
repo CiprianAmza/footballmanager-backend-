@@ -42,6 +42,12 @@ public class TransferOfferController {
     @Autowired
     CompetitionController competitionController;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.FinanceService financeService;
+
+    @Autowired
+    ContractController contractController;
+
     private final Random random = new Random();
 
     @GetMapping("/incoming/{teamId}")
@@ -133,6 +139,18 @@ public class TransferOfferController {
         offer.setDirection("outgoing");
         offer.setCreatedAt(System.currentTimeMillis());
 
+        // Release clause enforcement: if player has a release clause and offer meets it, auto-accept
+        if (player.getReleaseClause() > 0 && offerAmount >= player.getReleaseClause()) {
+            offer.setStatus("accepted");
+            transferOfferRepository.save(offer);
+            executeTransfer(player, sellingTeam, humanTeam, offerAmount, season);
+            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Release Clause Triggered",
+                    "Your offer of " + offerAmount + " has triggered the release clause for " +
+                    player.getName() + ". The transfer is complete!",
+                    "transfer");
+            return ResponseEntity.ok(offer);
+        }
+
         // AI responds immediately
         if (offerAmount >= askingPrice) {
             // Accept - execute transfer
@@ -205,8 +223,8 @@ public class TransferOfferController {
             if (rejectedPlayer != null) {
                 double moralePenalty = -(5 + random.nextDouble() * 5); // -5 to -10
                 rejectedPlayer.setMorale(rejectedPlayer.getMorale() + moralePenalty);
-                rejectedPlayer.setMorale(Math.min(rejectedPlayer.getMorale(), 120D));
-                rejectedPlayer.setMorale(Math.max(rejectedPlayer.getMorale(), 30D));
+                rejectedPlayer.setMorale(Math.min(rejectedPlayer.getMorale(), 100D));
+                rejectedPlayer.setMorale(Math.max(rejectedPlayer.getMorale(), 0D));
                 humanRepository.save(rejectedPlayer);
 
                 sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Player Unhappy",
@@ -316,17 +334,47 @@ public class TransferOfferController {
 
     private void executeTransfer(Human player, Team sellingTeam, Team buyingTeam, long fee, int season) {
         long playerWage = player.getWage();
+
+        // Calculate sell-on fee before changing ownership
+        long sellOnFee = 0;
+        long sellOnRecipientTeamId = 0;
+        if (player.getSellOnPercentage() > 0 && player.getSellOnClubId() > 0) {
+            sellOnFee = (long) (fee * player.getSellOnPercentage() / 100.0);
+            sellOnRecipientTeamId = player.getSellOnClubId();
+        }
+
+        // Set up sell-on clause for the selling team on the player's new contract
+        long previousTeamId = sellingTeam.getId();
+
         player.setTeamId(buyingTeam.getId());
         player.setSeasonMatchesPlayed(0);
         player.setConsecutiveBenched(0);
+        // Clear old sell-on clause; the buying team can set a new one during contract negotiation
+        player.setSellOnPercentage(0);
+        player.setSellOnClubId(0);
         humanRepository.save(player);
 
+        // Record financial transactions
+        long effectiveFeeForSeller = fee - sellOnFee;
+
+        financeService.recordExpense(buyingTeam.getId(), season, 0,
+                "TRANSFER_BUY", "Bought " + player.getName(), fee);
+        buyingTeam = teamRepository.findById(buyingTeam.getId()).orElse(buyingTeam);
         buyingTeam.setTransferBudget(buyingTeam.getTransferBudget() - fee);
         buyingTeam.setSalaryBudget(buyingTeam.getSalaryBudget() + playerWage);
-        sellingTeam.setTransferBudget(sellingTeam.getTransferBudget() + fee);
-        sellingTeam.setSalaryBudget(sellingTeam.getSalaryBudget() - playerWage);
         teamRepository.save(buyingTeam);
+
+        financeService.recordTransaction(sellingTeam.getId(), season, 0,
+                "TRANSFER_SALE", "Sold " + player.getName(), effectiveFeeForSeller);
+        sellingTeam = teamRepository.findById(sellingTeam.getId()).orElse(sellingTeam);
+        sellingTeam.setSalaryBudget(sellingTeam.getSalaryBudget() - playerWage);
         teamRepository.save(sellingTeam);
+
+        // Pay sell-on fee to the third-party club
+        if (sellOnFee > 0 && sellOnRecipientTeamId > 0) {
+            financeService.recordTransaction(sellOnRecipientTeamId, season, 0,
+                    "SELL_ON_FEE", "Sell-on fee for " + player.getName() + " (" + player.getSellOnPercentage() + "%)", sellOnFee);
+        }
 
         Transfer transfer = new Transfer();
         transfer.setPlayerId(player.getId());
@@ -339,6 +387,8 @@ public class TransferOfferController {
         transfer.setRating(player.getRating());
         transfer.setSeasonNumber(season);
         transfer.setPlayerAge(player.getAge());
+        transfer.setSellOnFeePaid(sellOnFee);
+        transfer.setSellOnRecipientTeamId(sellOnRecipientTeamId);
         transferRepository.save(transfer);
     }
 
@@ -353,6 +403,93 @@ public class TransferOfferController {
         inbox.setRead(false);
         inbox.setCreatedAt(System.currentTimeMillis());
         managerInboxRepository.save(inbox);
+    }
+
+    /**
+     * Browse free agent players (teamId = 0, not retired, player type only).
+     */
+    @GetMapping("/freeAgents/{teamId}")
+    public List<Map<String, Object>> getFreeAgents(@PathVariable(name = "teamId") long teamId) {
+        List<Human> freeAgents = humanRepository.findAllByTeamIdAndTypeId(0L, 1L);
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (Human player : freeAgents) {
+            if (player.isRetired()) continue;
+
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("id", player.getId());
+            info.put("name", player.getName());
+            info.put("position", player.getPosition());
+            info.put("age", player.getAge());
+            info.put("rating", Math.round(player.getRating() * 10) / 10.0);
+            info.put("wage", player.getWage());
+            info.put("transferValue", calculateTransferValue(player.getAge(), player.getPosition(), player.getRating()));
+            result.add(info);
+        }
+
+        return result;
+    }
+
+    /**
+     * Sign a free agent player (no transfer fee, wage negotiation only).
+     */
+    @PostMapping("/signFreeAgent")
+    public ResponseEntity<?> signFreeAgent(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        long playerId = ((Number) body.get("playerId")).longValue();
+        long offeredWage = ((Number) body.get("offeredWage")).longValue();
+        int contractYears = body.containsKey("contractYears") ? ((Number) body.get("contractYears")).intValue() : 3;
+
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player == null || player.isRetired()) {
+            return ResponseEntity.badRequest().body("Player not found or retired");
+        }
+        if (player.getTeamId() != null && player.getTeamId() != 0L) {
+            return ResponseEntity.badRequest().body("Player is not a free agent");
+        }
+
+        long humanTeamId = userContext.getTeamId(request);
+        Team team = teamRepository.findById(humanTeamId).orElse(null);
+        if (team == null) {
+            return ResponseEntity.badRequest().body("Team not found");
+        }
+
+        // Free agents have a minimum wage demand based on rating
+        long wageDemand = (long) (Math.pow(player.getRating() / 10.0, 2.5) * 400);
+        wageDemand = Math.max(wageDemand, (long) (player.getWage() * 0.8));
+
+        if (offeredWage < wageDemand * 0.8) {
+            return ResponseEntity.badRequest().body("Wage offer too low. Player demands at least " + wageDemand);
+        }
+
+        // Accept if offered wage >= 80% of demand (with some negotiation luck)
+        boolean accepted = offeredWage >= wageDemand || (offeredWage >= wageDemand * 0.8 && random.nextDouble() < 0.5);
+
+        if (!accepted) {
+            return ResponseEntity.ok(Map.of("success", false, "message",
+                    player.getName() + " rejected your wage offer. They demand at least " + wageDemand,
+                    "wageDemand", wageDemand));
+        }
+
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        int season = (int) round.getSeason();
+
+        player.setTeamId(humanTeamId);
+        player.setWage(offeredWage);
+        player.setContractEndSeason(season + contractYears);
+        player.setSeasonMatchesPlayed(0);
+        player.setConsecutiveBenched(0);
+        player.setMorale(75);
+        humanRepository.save(player);
+
+        team.setSalaryBudget(team.getSalaryBudget() + offeredWage);
+        teamRepository.save(team);
+
+        sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Free Agent Signed",
+                player.getName() + " has signed a " + contractYears + "-year contract as a free agent with a wage of " + offeredWage + ".",
+                "transfer");
+
+        return ResponseEntity.ok(Map.of("success", true, "message",
+                player.getName() + " has signed for the club!"));
     }
 
     public long calculateTransferValue(long age, String position, double rating) {

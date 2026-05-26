@@ -38,4 +38,9 @@ public class PlayerView {
 
   List<String> skillNames;
   List<Long> skillValues;
+
+  // Physical profile
+  private String preferredFoot;
+  private int heightCm;
+  private int weightKg;
 }

@@ -38,4 +38,22 @@ public class Team {
 
   private Long strategy;
 
+  /**
+   * Stadium information
+   */
+  @Column(columnDefinition = "int default 30000")
+  private int stadiumCapacity = 30000;
+
+  private String stadiumName;
+
+  /**
+   * Finance information
+   */
+  @Column(columnDefinition = "bigint default 0")
+  private long debt = 0;
+
+  // Board confidence in the manager (0-100). Affects what % of income goes to transfer budget.
+  @Column(columnDefinition = "int default 50")
+  private int boardConfidence = 50;
+
 }

@@ -102,6 +102,26 @@ public class CalendarService {
         }
     }
 
+    // Atomic claim — only one thread wins the transition PENDING -> PROCESSING.
+    // Use before processing an event to prevent concurrent advance() calls from
+    // double-processing the same match/event.
+    public boolean claimEvent(long eventId) {
+        return calendarEventRepository.claimEvent(eventId) == 1;
+    }
+
+    // Release ALL stuck PROCESSING events for a season back to PENDING.
+    // Call at the start of advance() — advance() is synchronized so nothing else
+    // is mid-processing, and any leftover PROCESSING rows are crash debris.
+    public int releaseStuckEvents(int season) {
+        return calendarEventRepository.releaseStuckEvents(season);
+    }
+
+    // Release a single event from PROCESSING back to PENDING. Used in exception
+    // handlers so a failed event can be retried next advance().
+    public void releaseEvent(long eventId) {
+        calendarEventRepository.releaseEvent(eventId);
+    }
+
     public Map<String, Object> advancePhase(GameCalendar calendar) {
         Map<String, Object> result = new LinkedHashMap<>();
         String currentPhase = calendar.getCurrentPhase();

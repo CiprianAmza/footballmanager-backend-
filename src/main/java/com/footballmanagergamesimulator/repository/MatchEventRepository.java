@@ -17,4 +17,8 @@ public interface MatchEventRepository extends JpaRepository<MatchEvent, Long> {
 
     long countByPlayerIdAndCompetitionIdAndSeasonNumberAndEventType(
             long playerId, long competitionId, int seasonNumber, String eventType);
+
+    List<MatchEvent> findAllByCompetitionIdAndSeasonNumber(long competitionId, int seasonNumber);
+
+    List<MatchEvent> findAllBySeasonNumber(int seasonNumber);
 }

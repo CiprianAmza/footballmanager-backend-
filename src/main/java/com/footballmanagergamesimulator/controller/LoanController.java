@@ -37,6 +37,9 @@ public class LoanController {
     @Autowired
     CompetitionController competitionController;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.FinanceService financeService;
+
     /**
      * Get active loans where team is either parent or loan team
      */
@@ -72,6 +75,9 @@ public class LoanController {
     public ResponseEntity<?> makeLoanOffer(HttpServletRequest request, @RequestBody Map<String, Object> body) {
         long playerId = ((Number) body.get("playerId")).longValue();
         long loanFee = ((Number) body.get("loanFee")).longValue();
+        long buyOptionFee = body.containsKey("buyOptionFee") ? ((Number) body.get("buyOptionFee")).longValue() : 0;
+        boolean buyObligatory = body.containsKey("buyObligatory") && (boolean) body.get("buyObligatory");
+        int parentWageContribution = body.containsKey("parentWageContribution") ? ((Number) body.get("parentWageContribution")).intValue() : 0;
 
         // Check transfer window is open
         if (!competitionController.isTransferWindowOpen()) {
@@ -122,13 +128,19 @@ public class LoanController {
             player.setTeamId(userContext.getTeamId(request));
             humanRepository.save(player);
 
-            // Update finances (transfer budget + salary budget moves with the player)
+            // Record loan fee as financial transactions
             long playerWage = player.getWage();
+            financeService.recordExpense(humanTeam.getId(), (int) round.getSeason(), 0,
+                    "LOAN_FEE", "Loan fee for " + player.getName(), loanFee);
+            humanTeam = teamRepository.findById(humanTeam.getId()).orElse(humanTeam);
             humanTeam.setTransferBudget(humanTeam.getTransferBudget() - loanFee);
             humanTeam.setSalaryBudget(humanTeam.getSalaryBudget() + playerWage);
-            parentTeam.setTransferBudget(parentTeam.getTransferBudget() + loanFee);
-            parentTeam.setSalaryBudget(parentTeam.getSalaryBudget() - playerWage);
             teamRepository.save(humanTeam);
+
+            financeService.recordTransaction(parentTeam.getId(), (int) round.getSeason(), 0,
+                    "LOAN_FEE", "Loan fee received for " + player.getName(), loanFee);
+            parentTeam = teamRepository.findById(parentTeam.getId()).orElse(parentTeam);
+            parentTeam.setSalaryBudget(parentTeam.getSalaryBudget() - playerWage);
             teamRepository.save(parentTeam);
 
             Loan loan = new Loan();
@@ -141,6 +153,9 @@ public class LoanController {
             loan.setSeasonNumber((int) round.getSeason());
             loan.setStatus("active");
             loan.setLoanFee(loanFee);
+            loan.setBuyOptionFee(buyOptionFee);
+            loan.setBuyObligatory(buyObligatory);
+            loan.setParentWageContribution(Math.max(0, Math.min(100, parentWageContribution)));
             loanRepository.save(loan);
 
             // Send inbox message
@@ -169,6 +184,81 @@ public class LoanController {
             }
             return ResponseEntity.badRequest().body("Loan offer rejected. " + reason);
         }
+    }
+
+    /**
+     * Exercise a buy option on a loaned player.
+     */
+    @PostMapping("/exerciseBuyOption/{loanId}")
+    public ResponseEntity<?> exerciseBuyOption(HttpServletRequest request, @PathVariable long loanId) {
+        Loan loan = loanRepository.findById(loanId).orElse(null);
+        if (loan == null || !"active".equals(loan.getStatus())) {
+            return ResponseEntity.badRequest().body("Loan not found or not active");
+        }
+
+        if (loan.getBuyOptionFee() <= 0) {
+            return ResponseEntity.badRequest().body("This loan has no buy option");
+        }
+
+        long humanTeamId = userContext.getTeamId(request);
+        if (loan.getLoanTeamId() != humanTeamId) {
+            return ResponseEntity.badRequest().body("You can only exercise buy options on your own loans");
+        }
+
+        Human player = humanRepository.findById(loan.getPlayerId()).orElse(null);
+        if (player == null) {
+            return ResponseEntity.badRequest().body("Player not found");
+        }
+
+        Team buyingTeam = teamRepository.findById(humanTeamId).orElse(null);
+        Team sellingTeam = teamRepository.findById(loan.getParentTeamId()).orElse(null);
+        if (buyingTeam == null || sellingTeam == null) {
+            return ResponseEntity.badRequest().body("Team not found");
+        }
+
+        long fee = loan.getBuyOptionFee();
+        if (fee > buyingTeam.getTransferBudget()) {
+            return ResponseEntity.badRequest().body("Insufficient transfer budget for buy option fee of " + fee);
+        }
+
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        int season = (int) round.getSeason();
+
+        // Execute the permanent transfer
+        player.setTeamId(humanTeamId);
+        player.setSeasonMatchesPlayed(0);
+        player.setConsecutiveBenched(0);
+        humanRepository.save(player);
+
+        long playerWage = player.getWage();
+
+        financeService.recordExpense(buyingTeam.getId(), season, 0,
+                "TRANSFER_BUY", "Exercised buy option for " + player.getName(), fee);
+        buyingTeam = teamRepository.findById(buyingTeam.getId()).orElse(buyingTeam);
+        buyingTeam.setTransferBudget(buyingTeam.getTransferBudget() - fee);
+        teamRepository.save(buyingTeam);
+
+        financeService.recordTransaction(sellingTeam.getId(), season, 0,
+                "TRANSFER_SALE", "Buy option exercised for " + player.getName(), fee);
+
+        loan.setStatus("buy_exercised");
+        loanRepository.save(loan);
+
+        // Inbox message
+        ManagerInbox inbox = new ManagerInbox();
+        inbox.setTeamId(humanTeamId);
+        inbox.setSeasonNumber(season);
+        inbox.setRoundNumber((int) round.getRound());
+        inbox.setTitle("Buy Option Exercised");
+        inbox.setContent("You have permanently signed " + player.getName() + " from " +
+                sellingTeam.getName() + " for " + fee + ".");
+        inbox.setCategory("transfer");
+        inbox.setRead(false);
+        inbox.setCreatedAt(System.currentTimeMillis());
+        managerInboxRepository.save(inbox);
+
+        return ResponseEntity.ok(Map.of("success", true,
+                "message", player.getName() + " has been permanently signed for " + fee));
     }
 
     /**

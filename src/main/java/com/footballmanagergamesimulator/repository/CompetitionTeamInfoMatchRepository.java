@@ -25,4 +25,12 @@ public interface CompetitionTeamInfoMatchRepository extends JpaRepository<Compet
     List<Long> findDistinctRoundsByCompetitionIdAndSeasonNumber(
             @Param("competitionId") long competitionId,
             @Param("seasonNumber") String seasonNumber);
+
+    // Used by CupBracketService to find the specific bracket slot a winner advances into.
+    @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE c.competitionId = :competitionId AND c.round = :round AND c.matchIndex = :matchIndex AND c.seasonNumber = :seasonNumber")
+    java.util.Optional<CompetitionTeamInfoMatch> findOneByCompetitionRoundIndex(
+            @Param("competitionId") long competitionId,
+            @Param("round") long round,
+            @Param("matchIndex") int matchIndex,
+            @Param("seasonNumber") String seasonNumber);
 }

@@ -43,6 +43,9 @@ public class ScoutManagementController {
     @Autowired
     private UserContext userContext;
 
+    @Autowired
+    private com.footballmanagergamesimulator.service.FinanceService financeService;
+
     private final Random random = new Random();
 
     private Round getRound() {
@@ -481,7 +484,10 @@ public class ScoutManagementController {
                             " but you only have " + humanTeam.getTransferBudget()));
         }
 
-        // Deduct cost
+        // Deduct cost and record financial transaction
+        financeService.recordExpense(humanTeam.getId(), (int) getRound().getSeason(),
+                calendar.getCurrentDay(), "SCOUT_COST", "Scouting mission for " + player.getName(), baseCost);
+        humanTeam = teamRepository.findById(humanTeam.getId()).orElse(humanTeam);
         humanTeam.setTransferBudget(humanTeam.getTransferBudget() - baseCost);
         teamRepository.save(humanTeam);
 

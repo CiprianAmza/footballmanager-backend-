@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -29,6 +30,10 @@ public class FixtureSchedulingService {
 
     @Autowired
     private LeagueConfigService leagueConfigService;
+
+    @Autowired
+    @Lazy
+    private FriendlyMatchService friendlyMatchService;
 
     /**
      * Generates all CalendarEvent entries for a full 365-day season.
@@ -130,11 +135,11 @@ public class FixtureSchedulingService {
             updateMatchDays(comp.getId(), season, matchDays);
         }
 
-        // 2. Generate pre-season friendlies (avoid all match days)
+        // 2. Auto-schedule pre-season friendlies with real opponents for human teams
+        // Create MATCH_FRIENDLY calendar events on the standard pre-season days
         int[] friendlyDays = {7, 14, 21, 28};
         for (int i = 0; i < friendlyDays.length; i++) {
             int day = friendlyDays[i];
-            // Just shift if there's already a match on that day
             while (allMatchDays.contains(day) && day <= 30) day++;
             CalendarEvent event = new CalendarEvent();
             event.setSeason(season);
@@ -148,6 +153,9 @@ public class FixtureSchedulingService {
 
             allMatchDays.add(day);
         }
+
+        // After saving all events, auto-schedule friendly matches with opponents
+        // (done after bulk save below since we need the calendar events saved first)
 
         // 3. Generate daily events (training and injury updates)
         Set<Integer> restDays = new HashSet<>();
@@ -192,6 +200,9 @@ public class FixtureSchedulingService {
 
         // Save all events in bulk
         calendarEventRepository.saveAll(allEvents);
+
+        // Auto-schedule pre-season friendlies with real opponents for human teams
+        friendlyMatchService.autoSchedulePreSeasonFriendlies(season, allMatchDays);
     }
 
     /**
@@ -504,6 +515,28 @@ public class FixtureSchedulingService {
             int competitionMatchday = i + 1;
             int calendarDay = matchDays[i];
             assignMatchDay(competitionId, season, competitionMatchday, calendarDay);
+        }
+    }
+
+    /**
+     * Re-sync calendar days onto already-existing CompetitionTeamInfoMatch rows of one
+     * competition, using whatever CalendarEvent rows already exist for that competition+season.
+     *
+     * Needed for cups: generateSeasonCalendar() runs BEFORE CupBracketService creates the
+     * bracket matches, so its updateMatchDays() finds nothing to update and the cup matches
+     * end up with day=0. Calling this after generateBracket() fixes that without rebuilding
+     * the calendar.
+     */
+    public void syncCalendarDaysOntoExistingMatches(long competitionId, int season) {
+        List<CalendarEvent> events = calendarEventRepository.findAllBySeasonAndStatus(season, "PENDING").stream()
+                .filter(e -> e.getCompetitionId() != null && e.getCompetitionId() == competitionId
+                        && e.getMatchday() > 0
+                        && ("MATCH_LEAGUE".equals(e.getEventType())
+                            || "MATCH_CUP".equals(e.getEventType())
+                            || "MATCH_EUROPEAN".equals(e.getEventType())))
+                .toList();
+        for (CalendarEvent e : events) {
+            assignMatchDay(competitionId, season, e.getMatchday(), e.getDay());
         }
     }
 

@@ -120,6 +120,8 @@ public class GameController {
     @Autowired PlayerInteractionRepository playerInteractionRepository;
     @Autowired AwardRepository awardRepository;
     @Autowired UserRepository userRepository;
+    @Autowired StadiumRepository stadiumRepository;
+    @Autowired FinancialRecordRepository financialRecordRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -156,6 +158,11 @@ public class GameController {
                     return result;
                 }
             }
+            // userId was sent but the user row doesn't exist (DB wipe / stale localStorage).
+            // Tell the frontend explicitly so it can purge its cached login and re-prompt.
+            result.put("setupComplete", false);
+            result.put("userNotFound", true);
+            return result;
         }
 
         // Fallback: check Round-based setup (backward compatible)
@@ -371,10 +378,15 @@ public class GameController {
 
     @GetMapping("/facilities/{teamId}")
     public Map<String, Object> getFacilities(@PathVariable long teamId) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("facilities", facilityUpgradeService.getFacilities(teamId));
-        result.put("upgradesInProgress", facilityUpgradeService.getUpgradesInProgress(teamId));
-        return result;
+        // Lazy completion check: ensure any ready upgrades are completed before returning overview
+        int season = getCurrentSeason();
+        java.util.List<com.footballmanagergamesimulator.model.GameCalendar> calendars =
+                gameCalendarRepository.findBySeason(season);
+        if (!calendars.isEmpty()) {
+            int currentDay = calendars.get(0).getCurrentDay();
+            facilityUpgradeService.checkUpgradeCompletion(teamId, currentDay, season);
+        }
+        return facilityUpgradeService.getFullFacilityOverview(teamId);
     }
 
     @PostMapping("/facilities/upgrade")
@@ -382,7 +394,14 @@ public class GameController {
         long teamId = ((Number) body.get("teamId")).longValue();
         String facilityType = (String) body.get("facilityType");
         int season = getCurrentSeason();
-        return facilityUpgradeService.startUpgrade(teamId, facilityType, season);
+        // Get current day from calendar
+        int currentDay = 0;
+        java.util.List<com.footballmanagergamesimulator.model.GameCalendar> calendars =
+                gameCalendarRepository.findBySeason(season);
+        if (!calendars.isEmpty()) {
+            currentDay = calendars.get(0).getCurrentDay();
+        }
+        return facilityUpgradeService.startUpgrade(teamId, facilityType, season, currentDay);
     }
 
     // ==================== AWARDS ====================
@@ -612,7 +631,9 @@ public class GameController {
         save.put("teamCompetitionDetails", teamCompetitionDetailRepository.findAll());
         save.put("competitionHistories", competitionHistoryRepository.findAll());
         save.put("teamFacilities", teamFacilitiesRepository.findAll());
+        save.put("stadiums", stadiumRepository.findAll());
         save.put("clubCoefficients", clubCoefficientRepository.findAll());
+        save.put("financialRecords", financialRecordRepository.findAll());
 
         // People
         save.put("humans", humanRepository.findAll());
@@ -678,6 +699,7 @@ public class GameController {
             importNative(save, "competitions", "COMPETITION");
             importNative(save, "teams", "TEAM");
             importNative(save, "teamFacilities", "TEAM_FACILITIES");
+            importNative(save, "stadiums", "STADIUM");
             importNative(save, "gameCalendars", "GAME_CALENDAR");
             importNative(save, "calendarEvents", "CALENDAR_EVENT");
             importNative(save, "humans", "HUMAN");
@@ -710,6 +732,7 @@ public class GameController {
             importNative(save, "trainingSchedules", "TRAINING_SCHEDULE");
             importNative(save, "personalizedTactics", "PERSONALIZED_TACTIC");
             importNative(save, "teamPlayerHistorical", "TEAM_PLAYER_HISTORICAL_RELATION");
+            importNative(save, "financialRecords", "FINANCIAL_RECORD");
             importNative(save, "users", "USERS");
 
             // Reset identity sequences to max(id)+1 for all tables
@@ -750,6 +773,7 @@ public class GameController {
             Map.entry("BOARD_REQUEST", Map.of("day", "REQUEST_DAY", "status", "REQUEST_STATUS")),
             Map.entry("CALENDAR_EVENT", Map.of("day", "EVENT_DAY", "status", "EVENT_STATUS")),
             Map.entry("COMPETITION_TEAM_INFO_MATCH", Map.of("day", "MATCH_DAY")),
+            Map.entry("FINANCIAL_RECORD", Map.of("day", "RECORD_DAY")),
             Map.entry("MATCH_EVENT", Map.of("minute", "EVENT_MINUTE")),
             Map.entry("PLAYER_INTERACTION", Map.of("day", "INTERACTION_DAY")),
             Map.entry("PRESS_CONFERENCE", Map.of("day", "CONFERENCE_DAY")),

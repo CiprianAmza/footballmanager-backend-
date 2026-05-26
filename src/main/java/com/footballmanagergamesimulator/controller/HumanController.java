@@ -116,22 +116,44 @@ public class HumanController {
         playerView.setSeasonOfBestEverRating(player.getSeasonOfBestEverRating());
 
         List<String> skillNames = new ArrayList<>();
-        List<Long> skillValues =  new ArrayList<>();
-
-        List<String> names = List.of("Acceleration", "Pace", "Strength", "Dribbling", "Passing", "Work Rate",
-                "Shot", "Finishing", "Crossing", "Defending");
+        List<Long> skillValues = new ArrayList<>();
 
         Optional<PlayerSkills> playerSkills = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId());
 
         if (playerSkills.isPresent()) {
-            for (int i = 0; i < names.size(); i++) {
-                skillNames.add(names.get(i));
-                skillValues.add(PlayerSkillsService.GETTER_MAP.get("skill" + (i + 1)).apply(playerSkills.get()));
+            PlayerSkills ps = playerSkills.get();
+            boolean isGK = "GK".equals(player.getPosition());
+
+            // For GK: show GK attrs first, then mental + physical
+            // For outfield: show Technical, Mental, Physical (skip GK attrs)
+            if (isGK) {
+                for (String attr : PlayerSkillsService.GOALKEEPER) {
+                    skillNames.add(attr);
+                    skillValues.add((long) PlayerSkillsService.GETTER_MAP.get(attr).apply(ps));
+                }
+            }
+            for (String attr : PlayerSkillsService.TECHNICAL) {
+                if (isGK) continue; // skip technical for GK display (low values not useful)
+                skillNames.add(attr);
+                skillValues.add((long) PlayerSkillsService.GETTER_MAP.get(attr).apply(ps));
+            }
+            for (String attr : PlayerSkillsService.MENTAL) {
+                skillNames.add(attr);
+                skillValues.add((long) PlayerSkillsService.GETTER_MAP.get(attr).apply(ps));
+            }
+            for (String attr : PlayerSkillsService.PHYSICAL) {
+                skillNames.add(attr);
+                skillValues.add((long) PlayerSkillsService.GETTER_MAP.get(attr).apply(ps));
             }
         }
 
         playerView.setSkillNames(skillNames);
         playerView.setSkillValues(skillValues);
+
+        // Add physical profile
+        playerView.setPreferredFoot(player.getPreferredFoot());
+        playerView.setHeightCm(player.getHeightCm());
+        playerView.setWeightKg(player.getWeightKg());
 
         return playerView;
     }

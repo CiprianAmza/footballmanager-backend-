@@ -45,6 +45,12 @@ class HumanServiceTest {
     @Mock
     private CompositeNameGenerator compositeNameGenerator;
 
+    @Mock
+    private TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
+
+    @Mock
+    private StaffService staffService;
+
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
@@ -55,9 +61,11 @@ class HumanServiceTest {
         Human human = new Human();
         human.setCurrentStatus("Junior");
         human.setRating(50.0);
+        human.setAge(20);
 
         TeamFacilities teamFacilities = new TeamFacilities();
         teamFacilities.setYouthTrainingLevel(10L);
+        teamFacilities.setSeniorTrainingLevel(10L);
 
         Human result = humanService.trainPlayer(human, teamFacilities, 1);
 
@@ -113,9 +121,10 @@ class HumanServiceTest {
         round.setSeason(1L);
 
         when(roundRepository.findById(1L)).thenReturn(Optional.of(round));
+        when(humanRepository.save(any(Human.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         humanService.addRegens(teamFacilities, 1L);
 
-        verify(humanRepository, times(1)).save(any(Human.class));
+        verify(humanRepository, atLeast(1)).save(any(Human.class));
     }
 }

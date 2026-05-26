@@ -18,34 +18,121 @@ public class PlayerSkills {
   @GeneratedValue(strategy= GenerationType.IDENTITY)
   private long id;
 
-  /**
-   * Relation ids
-   */
   private long playerId;
-
-  /**
-   * Display information
-   */
   private String position;
 
-  private long skill1;
-  private String skill1Name;
-  private long skill2;
-  private String skill2Name;
-  private long skill3;
-  private String skill3Name;
-  private long skill4;
-  private String skill4Name;
-  private long skill5;
-  private String skill5Name;
-  private long skill6;
-  private String skill6Name;
-  private long skill7;
-  private String skill7Name;
-  private long skill8;
-  private String skill8Name;
-  private long skill9;
-  private String skill9Name;
-  private long skill10;
-  private String skill10Name;
+  // ===== TECHNICAL ATTRIBUTES (1-20) =====
+  @Column(columnDefinition = "int default 10")
+  private int corners;
+  @Column(columnDefinition = "int default 10")
+  private int crossing;
+  @Column(columnDefinition = "int default 10")
+  private int dribbling;
+  @Column(columnDefinition = "int default 10")
+  private int finishing;
+  @Column(columnDefinition = "int default 10")
+  private int firstTouch;
+  @Column(columnDefinition = "int default 10")
+  private int freeKick;
+  @Column(columnDefinition = "int default 10")
+  private int heading;
+  @Column(columnDefinition = "int default 10")
+  private int longShots;
+  @Column(columnDefinition = "int default 10")
+  private int longThrows;
+  @Column(columnDefinition = "int default 10")
+  private int marking;
+  @Column(columnDefinition = "int default 10")
+  private int passing;
+  @Column(columnDefinition = "int default 10")
+  private int penaltyTaking;
+  @Column(columnDefinition = "int default 10")
+  private int tackling;
+  @Column(columnDefinition = "int default 10")
+  private int technique;
+
+  // ===== MENTAL ATTRIBUTES (1-20) =====
+  @Column(columnDefinition = "int default 10")
+  private int aggression;
+  @Column(columnDefinition = "int default 10")
+  private int anticipation;
+  @Column(columnDefinition = "int default 10")
+  private int bravery;
+  @Column(columnDefinition = "int default 10")
+  private int composure;
+  @Column(columnDefinition = "int default 10")
+  private int concentration;
+  @Column(columnDefinition = "int default 10")
+  private int decisions;
+  @Column(columnDefinition = "int default 10")
+  private int determination;
+  @Column(columnDefinition = "int default 10")
+  private int flair;
+  @Column(columnDefinition = "int default 10")
+  private int leadership;
+  @Column(columnDefinition = "int default 10")
+  private int offTheBall;
+  @Column(columnDefinition = "int default 10")
+  private int positioning;
+  @Column(columnDefinition = "int default 10")
+  private int teamwork;
+  @Column(columnDefinition = "int default 10")
+  private int vision;
+  @Column(columnDefinition = "int default 10")
+  private int workRate;
+
+  // ===== PHYSICAL ATTRIBUTES (1-20) =====
+  @Column(columnDefinition = "int default 10")
+  private int acceleration;
+  @Column(columnDefinition = "int default 10")
+  private int agility;
+  @Column(columnDefinition = "int default 10")
+  private int balance;
+  @Column(columnDefinition = "int default 10")
+  private int jumpingReach;
+  @Column(columnDefinition = "int default 10")
+  private int naturalFitness;
+  @Column(columnDefinition = "int default 10")
+  private int pace;
+  @Column(columnDefinition = "int default 10")
+  private int stamina;
+  @Column(columnDefinition = "int default 10")
+  private int strength;
+
+  // ===== GOALKEEPER ATTRIBUTES (1-20) =====
+  @Column(columnDefinition = "int default 1")
+  private int handling;
+  @Column(columnDefinition = "int default 1")
+  private int reflexes;
+  @Column(columnDefinition = "int default 1")
+  private int oneOnOnes;
+  @Column(columnDefinition = "int default 1")
+  private int commandOfArea;
+  @Column(columnDefinition = "int default 1")
+  private int kicking;
+  @Column(columnDefinition = "int default 1")
+  private int throwing;
+
+  // ===== BACKWARD COMPATIBILITY (mapped from new attributes) =====
+  // These are kept for DB migration but computed from real attributes
+  @Transient
+  public long getSkill1() { return acceleration; }
+  @Transient
+  public long getSkill2() { return pace; }
+  @Transient
+  public long getSkill3() { return strength; }
+  @Transient
+  public long getSkill4() { return dribbling; }
+  @Transient
+  public long getSkill5() { return passing; }
+  @Transient
+  public long getSkill6() { return workRate; }
+  @Transient
+  public long getSkill7() { return longShots; }
+  @Transient
+  public long getSkill8() { return finishing; }
+  @Transient
+  public long getSkill9() { return crossing; }
+  @Transient
+  public long getSkill10() { return tackling; }
 }

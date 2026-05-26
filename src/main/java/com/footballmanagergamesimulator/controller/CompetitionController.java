@@ -11,12 +11,16 @@ import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.service.CompetitionService;
+import com.footballmanagergamesimulator.service.FinanceService;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import org.springframework.transaction.annotation.Transactional;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.HumanService;
 import com.footballmanagergamesimulator.service.LeagueConfigService;
+import com.footballmanagergamesimulator.service.PlayerSkillsService;
+import com.footballmanagergamesimulator.service.PlayerInstructionService;
 import com.footballmanagergamesimulator.service.TacticService;
+import com.footballmanagergamesimulator.service.TeamTalkService;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
@@ -45,6 +49,10 @@ public class CompetitionController {
     private TeamRepository teamRepository;
     @Autowired
     private HumanRepository humanRepository;
+    @Autowired
+    private PredeterminedScoreRepository predeterminedScoreRepository;
+    @Autowired
+    private com.footballmanagergamesimulator.service.CupBracketService cupBracketService;
     @Autowired
     private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired
@@ -119,7 +127,24 @@ public class CompetitionController {
     @Autowired
     UserRepository userRepository;
     @Autowired
+    com.footballmanagergamesimulator.service.JobOfferService jobOfferService;
+    @Autowired
     LiveMatchSimulationService liveMatchSimulationService;
+    @Autowired
+    @org.springframework.context.annotation.Lazy
+    FinanceService financeService;
+    @Autowired
+    StadiumRepository stadiumRepository;
+    @Autowired
+    @org.springframework.context.annotation.Lazy
+    com.footballmanagergamesimulator.service.StaffService staffService;
+    @Autowired
+    @org.springframework.context.annotation.Lazy
+    com.footballmanagergamesimulator.service.SeasonTransitionService seasonTransitionService;
+    @Autowired
+    com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
+    @Autowired
+    com.footballmanagergamesimulator.service.PlayerRoleService playerRoleService;
 
     private final ObjectMapper objectMapper = new ObjectMapper(); // <--- Ai nevoie de asta
 
@@ -138,6 +163,21 @@ public class CompetitionController {
     @PostConstruct
     public void initializeRound() {
 
+        // ===== Resume support =====
+        // If a Round already exists (file-based DB carrying over a prior run),
+        // just load it and skip the entire one-time setup below. The previous
+        // implementation always re-ran the full season-1 setup on every boot —
+        // fine with in-memory H2 (table is empty on each restart), but with
+        // persistent storage it created duplicate TeamFacilities/players/etc.
+        Optional<Round> existing = roundRepository.findById(1L);
+        if (existing.isPresent()) {
+            round = existing.get();
+            System.out.println("=== Resuming from season " + round.getSeason()
+                    + ", round " + round.getRound() + " ===");
+            return;
+        }
+
+        // ===== First-time setup =====
         round = new Round();
         round.setId(1L);
         round.setSeason(1);
@@ -183,7 +223,7 @@ public class CompetitionController {
                 player.setAge(random.nextInt(23, 30));
                 player.setSeasonCreated(1L);
                 player.setCurrentStatus("Senior");
-                player.setMorale(100);
+                player.setMorale(70);
                 player.setFitness(100);
 
                 int reputation = 100;
@@ -194,6 +234,10 @@ public class CompetitionController {
                 player.setCurrentAbility(playerRating);
                 player.setPotentialAbility(playerRating + random.nextInt(10, 40));
                 player.setBestEverRating(playerRating);
+
+                // Generate physical profile (height, weight, preferred foot)
+                HumanService.generatePhysicalProfile(player, random);
+
                 player.setTransferValue(calculateTransferValue(player.getAge(), player.getPosition(), player.getRating()));
                 player.setContractEndSeason((int) round.getSeason() + random.nextInt(2, 6));
                 player.setWage((long) (player.getRating() * 50));
@@ -213,6 +257,15 @@ public class CompetitionController {
                 playerSkills.setPosition(player.getPosition());
                 competitionService.generateSkills(playerSkills, player.getRating());
                 playerSkillsRepository.save(playerSkills);
+
+                // Recompute rating from generated attributes
+                double computedRating = PlayerSkillsService.computeOverallRating(playerSkills);
+                player.setRating(computedRating);
+                player.setCurrentAbility((int) computedRating);
+                player.setBestEverRating(computedRating);
+                player.setTransferValue(calculateTransferValue(player.getAge(), player.getPosition(), computedRating));
+                player.setWage((long) (computedRating * 50));
+                humanRepository.save(player);
             }
 
             // create manager for each team
@@ -227,10 +280,19 @@ public class CompetitionController {
             manager.setPosition("Manager");
             manager.setSeasonCreated(1L);
             manager.setTypeId(TypeNames.MANAGER_TYPE);
-            List<String> tactics = List.of("442", "433", "343", "352", "451");
-            manager.setTacticStyle(tactics.get(random.nextInt(0, tactics.size())));
+            // Assign a real tactical kit (multiple known tactics + a preferred one)
+            // scaled by manager rating instead of the old hardcoded 5-option pick.
+            String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), random);
+            manager.setTacticStyle(kit[0]);
+            manager.setKnownTactics(kit[1]);
             humanRepository.save(manager);
+
+            // Generate coaching staff for each team
+            staffService.generateInitialStaff(team.getId(), 1);
         }
+
+        // Generate free agent coaches on the market
+        staffService.generateFreeAgentCoaches(30, 1);
 
         // Initialize scorers for all players
         List<Team> allTeams = teamRepository.findAll();
@@ -281,6 +343,300 @@ public class CompetitionController {
         }
 
         System.out.println("=== Initialization complete: teams, players, fixtures, and scorers created ===");
+
+        // Build proper full cup brackets for season 1 (wipes the legacy per-league
+        // cup CompetitionTeamInfo records and replaces with bracket-aware fixtures).
+        regenerateAllCupBrackets((int) round.getSeason());
+    }
+
+    /**
+     * (Re)generates the bracket for every national cup for the given season.
+     * Safe to call multiple times — the service wipes the cup's existing
+     * (cup, season) data before rebuilding.
+     */
+    private void regenerateAllCupBrackets(int season) {
+        Set<Long> cupIds = getCompetitionIdsByCompetitionType(2);
+        for (Long cupId : cupIds) {
+            cupBracketService.generateBracket(cupId, season);
+            // generateSeasonCalendar() runs before the bracket exists, so the match rows
+            // we just created still have day=0. Sync them with the already-existing
+            // MATCH_CUP CalendarEvent rows so they appear on the right day in schedules.
+            fixtureSchedulingService.syncCalendarDaysOntoExistingMatches(cupId, season);
+        }
+    }
+
+    /**
+     * Leagues overview — for the leagues-overview frontend page.
+     * Returns all first-division leagues sorted by their nation's UEFA-style
+     * coefficient rank (rank 1 = strongest), each with:
+     *  - top N standings (positional + W/D/L/GF/GA/GD/Pts)
+     *  - the qualification zones for that rank (which 1-based positions go to
+     *    LoC group / LoC qualifying / LoC preliminary / Stars Cup / relegation)
+     * so the frontend can color each row based on what that position earns.
+     */
+    @GetMapping("/leaguesOverview")
+    public Map<String, Object> getLeaguesOverview(@RequestParam(defaultValue = "5") int topN) {
+        int currentSeason = Integer.parseInt(getCurrentSeason());
+        List<Long> sortedLeagueIds = getLeagueIdsSortedByCoefficient();
+
+        List<Map<String, Object>> leagues = new ArrayList<>();
+        for (int i = 0; i < sortedLeagueIds.size(); i++) {
+            long leagueId = sortedLeagueIds.get(i);
+            int rank = i + 1;
+            Competition comp = competitionRepository.findById(leagueId).orElse(null);
+            if (comp == null) continue;
+
+            Map<String, Object> league = new LinkedHashMap<>();
+            league.put("competitionId", leagueId);
+            league.put("name", comp.getName());
+            league.put("nationId", comp.getNationId());
+            league.put("rank", rank);
+            league.put("qualificationZones", computeLeagueQualificationZones(rank));
+
+            List<TeamCompetitionDetail> standings = teamCompetitionDetailRepository.findAll().stream()
+                    .filter(d -> d.getCompetitionId() == leagueId)
+                    .sorted((a, b) -> {
+                        if (a.getPoints() != b.getPoints()) return Integer.compare(b.getPoints(), a.getPoints());
+                        if (a.getGoalDifference() != b.getGoalDifference())
+                            return Integer.compare(b.getGoalDifference(), a.getGoalDifference());
+                        return Integer.compare(b.getGoalsFor(), a.getGoalsFor());
+                    })
+                    .toList();
+
+            List<Map<String, Object>> topTeams = new ArrayList<>();
+            int limit = Math.min(topN, standings.size());
+            for (int p = 0; p < limit; p++) {
+                TeamCompetitionDetail s = standings.get(p);
+                Team t = teamRepository.findById(s.getTeamId()).orElse(null);
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("position", p + 1);
+                row.put("teamId", s.getTeamId());
+                row.put("teamName", t != null ? t.getName() : "?");
+                row.put("played", s.getGames());
+                row.put("wins", s.getWins());
+                row.put("draws", s.getDraws());
+                row.put("losses", s.getLoses());
+                row.put("goalsFor", s.getGoalsFor());
+                row.put("goalsAgainst", s.getGoalsAgainst());
+                row.put("goalDifference", s.getGoalDifference());
+                row.put("points", s.getPoints());
+                row.put("form", s.getForm() != null ? s.getForm() : "");
+                topTeams.add(row);
+            }
+            league.put("topTeams", topTeams);
+            league.put("totalTeams", standings.size());
+
+            leagues.add(league);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("season", currentSeason);
+        result.put("topN", topN);
+        result.put("leagues", leagues);
+        return result;
+    }
+
+    /**
+     * Same as the European qualification logic in qualifyTeamsForEuropeanCompetitions().
+     * Returned positions are 1-based so the frontend can compare to a row's display
+     * position directly.
+     */
+    private Map<String, Object> computeLeagueQualificationZones(int rank) {
+        Map<String, Object> zones = new LinkedHashMap<>();
+        List<Integer> locGroup = new ArrayList<>();
+        List<Integer> locQualifying = new ArrayList<>();
+        List<Integer> locPreliminary = new ArrayList<>();
+        List<Integer> starsCup = new ArrayList<>();
+
+        if (rank >= 1 && rank <= 7) {
+            int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
+            int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
+            int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
+            int[][] starsCupPositions = {{4}, {4}, {3}, {3}, {}, {}, {}};
+
+            int idx = rank - 1;
+            int pos = 0;
+            for (int i = 0; i < directSpots[idx]; i++) locGroup.add(++pos);
+            for (int i = 0; i < qualifyingSpots[idx]; i++) locQualifying.add(++pos);
+            for (int i = 0; i < preliminarySpots[idx]; i++) locPreliminary.add(++pos);
+            for (int p : starsCupPositions[idx]) starsCup.add(p + 1);
+        }
+
+        zones.put("locGroup", locGroup);
+        zones.put("locQualifying", locQualifying);
+        zones.put("locPreliminary", locPreliminary);
+        zones.put("starsCup", starsCup);
+        return zones;
+    }
+
+    /**
+     * Cups overview — sister endpoint to /leaguesOverview, one row per national cup
+     * with its current state: which round just played, how many teams remain, and
+     * either the last completed round's results or the upcoming round's pairings.
+     */
+    @GetMapping("/cupsOverview")
+    public Map<String, Object> getCupsOverview() {
+        int currentSeason = Integer.parseInt(getCurrentSeason());
+        String seasonStr = String.valueOf(currentSeason);
+
+        // Order cups by their nation's league rank (rank 1 league's cup comes first)
+        List<Long> sortedLeagueIds = getLeagueIdsSortedByCoefficient();
+        List<Competition> orderedCups = new ArrayList<>();
+        for (Long leagueId : sortedLeagueIds) {
+            Competition league = competitionRepository.findById(leagueId).orElse(null);
+            if (league == null) continue;
+            competitionRepository.findAll().stream()
+                    .filter(c -> c.getTypeId() == 2L && c.getNationId() == league.getNationId())
+                    .findFirst()
+                    .ifPresent(orderedCups::add);
+        }
+
+        List<Map<String, Object>> cups = new ArrayList<>();
+        int rank = 0;
+        for (Competition cup : orderedCups) {
+            rank++;
+            Map<String, Object> cupInfo = new LinkedHashMap<>();
+            cupInfo.put("competitionId", cup.getId());
+            cupInfo.put("name", cup.getName());
+            cupInfo.put("nationId", cup.getNationId());
+            cupInfo.put("rank", rank);
+
+            List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository.findAll().stream()
+                    .filter(m -> m.getCompetitionId() == cup.getId() && seasonStr.equals(m.getSeasonNumber()))
+                    .sorted(Comparator.comparingLong(CompetitionTeamInfoMatch::getRound)
+                            .thenComparingInt(CompetitionTeamInfoMatch::getMatchIndex))
+                    .toList();
+
+            int totalRounds = matches.stream().mapToInt(m -> (int) m.getRound()).max().orElse(0);
+            cupInfo.put("totalRounds", totalRounds);
+
+            // Find the most recently played round (any with a saved CompetitionTeamInfoDetail)
+            List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository.findAll().stream()
+                    .filter(d -> d.getCompetitionId() == cup.getId() && d.getSeasonNumber() == currentSeason)
+                    .toList();
+            int lastPlayedRound = details.stream().mapToInt(d -> (int) d.getRoundId()).max().orElse(0);
+            cupInfo.put("lastPlayedRound", lastPlayedRound);
+            cupInfo.put("currentRoundName", roundDisplayName(lastPlayedRound > 0 ? lastPlayedRound : 1, totalRounds, matches));
+
+            // Show next-to-play (or last played) round's pairings as a small bracket card
+            int focusRound = lastPlayedRound > 0 && lastPlayedRound < totalRounds ? lastPlayedRound + 1 : Math.max(1, lastPlayedRound);
+            List<Map<String, Object>> roundMatches = new ArrayList<>();
+            Set<Long> teamIdsInRound = new HashSet<>();
+            for (CompetitionTeamInfoMatch m : matches) {
+                if (m.getRound() != focusRound) continue;
+                if (m.getTeam1Id() > 0) teamIdsInRound.add(m.getTeam1Id());
+                if (m.getTeam2Id() > 0) teamIdsInRound.add(m.getTeam2Id());
+            }
+            Map<Long, String> nameLookup = teamRepository.findAllById(teamIdsInRound).stream()
+                    .collect(Collectors.toMap(Team::getId, Team::getName));
+            Map<String, String> scoreByKey = new HashMap<>();
+            for (CompetitionTeamInfoDetail d : details) {
+                if (d.getRoundId() != focusRound) continue;
+                scoreByKey.put(d.getTeam1Id() + "-" + d.getTeam2Id(), d.getScore());
+            }
+            for (CompetitionTeamInfoMatch m : matches) {
+                if (m.getRound() != focusRound) continue;
+                Map<String, Object> mr = new LinkedHashMap<>();
+                mr.put("matchIndex", m.getMatchIndex());
+                mr.put("team1Name", m.getTeam1Id() > 0 ? nameLookup.getOrDefault(m.getTeam1Id(), "?") : null);
+                mr.put("team2Name", m.getTeam2Id() > 0 ? nameLookup.getOrDefault(m.getTeam2Id(), "?") : null);
+                mr.put("score", scoreByKey.get(m.getTeam1Id() + "-" + m.getTeam2Id()));
+                roundMatches.add(mr);
+            }
+            cupInfo.put("focusRound", focusRound);
+            cupInfo.put("focusRoundMatches", roundMatches);
+
+            cups.add(cupInfo);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("season", currentSeason);
+        result.put("cups", cups);
+        return result;
+    }
+
+    private String roundDisplayName(int round, int totalRounds, List<CompetitionTeamInfoMatch> allMatches) {
+        if (totalRounds <= 0) return "Round " + round;
+        int fromEnd = totalRounds - round + 1;
+        // Prelim detection: round 1 with fewer matches than round 2
+        if (round == 1 && totalRounds >= 2) {
+            long r1Count = allMatches.stream().filter(m -> m.getRound() == 1).count();
+            long r2Count = allMatches.stream().filter(m -> m.getRound() == 2).count();
+            if (r1Count < r2Count) return "Preliminary";
+        }
+        if (fromEnd == 1) return "Final";
+        if (fromEnd == 2) return "Semi-Final";
+        if (fromEnd == 3) return "Quarter-Final";
+        if (fromEnd == 4) return "Round of 16";
+        if (fromEnd == 5) return "Round of 32";
+        return "Round " + round;
+    }
+
+    /**
+     * Returns the full pre-generated cup bracket for the given (cup, season),
+     * grouped by round. team1Id/team2Id == 0 means "winner of the matching
+     * earlier-round slot" (placeholder, not yet decided). Frontend renders this
+     * as a tree so users can see the whole path from day 1.
+     */
+    @GetMapping("/cupBracket/{cupId}/{season}")
+    public Map<String, Object> getCupBracket(@PathVariable long cupId,
+                                              @PathVariable int season) {
+        String seasonStr = String.valueOf(season);
+
+        List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository.findAll().stream()
+                .filter(m -> m.getCompetitionId() == cupId && seasonStr.equals(m.getSeasonNumber()))
+                .sorted(Comparator.comparingLong(CompetitionTeamInfoMatch::getRound)
+                        .thenComparingInt(CompetitionTeamInfoMatch::getMatchIndex))
+                .toList();
+
+        // Look up team names + played-match results once, in batches
+        Set<Long> teamIds = new HashSet<>();
+        for (CompetitionTeamInfoMatch m : matches) {
+            if (m.getTeam1Id() > 0) teamIds.add(m.getTeam1Id());
+            if (m.getTeam2Id() > 0) teamIds.add(m.getTeam2Id());
+        }
+        Map<Long, String> teamNames = teamRepository.findAllById(teamIds).stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
+
+        List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository.findAll().stream()
+                .filter(d -> d.getCompetitionId() == cupId && d.getSeasonNumber() == season)
+                .toList();
+        Map<String, String> scoreByKey = new HashMap<>();
+        for (CompetitionTeamInfoDetail d : details) {
+            scoreByKey.put(d.getCompetitionId() + "-" + d.getRoundId() + "-"
+                    + d.getTeam1Id() + "-" + d.getTeam2Id(), d.getScore());
+        }
+
+        // Group matches by round
+        Map<Long, List<Map<String, Object>>> matchesByRound = new LinkedHashMap<>();
+        for (CompetitionTeamInfoMatch m : matches) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("matchIndex", m.getMatchIndex());
+            entry.put("day", m.getDay());
+            entry.put("team1Id", m.getTeam1Id());
+            entry.put("team2Id", m.getTeam2Id());
+            entry.put("team1Name", m.getTeam1Id() > 0 ? teamNames.getOrDefault(m.getTeam1Id(), "?") : null);
+            entry.put("team2Name", m.getTeam2Id() > 0 ? teamNames.getOrDefault(m.getTeam2Id(), "?") : null);
+            String key = m.getCompetitionId() + "-" + m.getRound() + "-" + m.getTeam1Id() + "-" + m.getTeam2Id();
+            entry.put("score", scoreByKey.get(key)); // null if not yet played
+            matchesByRound.computeIfAbsent(m.getRound(), k -> new ArrayList<>()).add(entry);
+        }
+
+        List<Map<String, Object>> rounds = new ArrayList<>();
+        for (Map.Entry<Long, List<Map<String, Object>>> e : matchesByRound.entrySet()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("round", e.getKey());
+            r.put("matches", e.getValue());
+            rounds.add(r);
+        }
+
+        Competition cup = competitionRepository.findById(cupId).orElse(null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cupId", cupId);
+        result.put("cupName", cup != null ? cup.getName() : "");
+        result.put("season", season);
+        result.put("rounds", rounds);
+        return result;
     }
 
     @GetMapping("/getCurrentSeason")
@@ -553,6 +909,11 @@ public class CompetitionController {
                 // Reset seasonal tracking for player relationships
                 human.setSeasonMatchesPlayed(0);
                 human.setConsecutiveBenched(0);
+                // Fresh start: 50% chance to reset wantsTransfer
+                if (human.isWantsTransfer() && new Random().nextDouble() < 0.5) {
+                    human.setWantsTransfer(false);
+                    human.setMorale(Math.min(100, human.getMorale() + 10));
+                }
             }
             humanRepository.saveAll(players);
         }
@@ -793,9 +1154,16 @@ public class CompetitionController {
             human.setConsecutiveBenched(0);
             humanRepository.save(human);
 
+            // Record transfer as financial transaction
+            financeService.recordExpense(buyTeam.getId(), (int) round.getSeason(), 0,
+                    "TRANSFER_BUY", "Bought " + human.getName(), transferFee);
+            buyTeam = teamRepository.findById(buyTeam.getId()).orElse(buyTeam);
             buyTeam.setTransferBudget(buyTeam.getTransferBudget() - transferFee);
-            sellTeam.setTransferBudget(sellTeam.getTransferBudget() + transferFee);
             teamRepository.save(buyTeam);
+
+            financeService.recordTransaction(sellTeam.getId(), (int) round.getSeason(), 0,
+                    "TRANSFER_SALE", "Sold " + human.getName(), transferFee);
+            sellTeam = teamRepository.findById(sellTeam.getId()).orElse(sellTeam);
             teamRepository.save(sellTeam);
 
             Transfer transfer = new Transfer();
@@ -919,17 +1287,8 @@ public class CompetitionController {
             this.saveHistoricalValues(competitionId, round.getSeason());
         this.saveAllPlayerTeamHistoricalRelations(round.getSeason());
 
-        // Return loaned players
-        List<com.footballmanagergamesimulator.model.Loan> activeLoans = loanRepository.findAllByStatus("active");
-        for (com.footballmanagergamesimulator.model.Loan loan : activeLoans) {
-            Human loanedPlayer = humanRepository.findById(loan.getPlayerId()).orElse(null);
-            if (loanedPlayer != null) {
-                loanedPlayer.setTeamId(loan.getParentTeamId());
-                humanRepository.save(loanedPlayer);
-            }
-            loan.setStatus("completed");
-            loanRepository.save(loan);
-        }
+        // Return loaned players (handles buy obligations and salary adjustments)
+        seasonTransitionService.processLoanReturns((int) round.getSeason());
 
         this.resetCompetitionData();
         this.removeCompetitionData(round.getSeason() + 1);
@@ -962,6 +1321,11 @@ public class CompetitionController {
                 human.setTransferValue(calculateTransferValue(human.getAge(), human.getPosition(), human.getRating()));
                 human.setSeasonMatchesPlayed(0);
                 human.setConsecutiveBenched(0);
+                // Fresh start: 50% chance to reset wantsTransfer
+                if (human.isWantsTransfer() && new Random().nextDouble() < 0.5) {
+                    human.setWantsTransfer(false);
+                    human.setMorale(Math.min(100, human.getMorale() + 10));
+                }
             }
             humanRepository.saveAll(players);
         }
@@ -1047,6 +1411,11 @@ public class CompetitionController {
         // Reset end-of-season flag for the next season
         endOfSeasonProcessed = false;
 
+        // Rebuild cup brackets for the new season — based on last season's standings.
+        // This wipes whatever cup CompetitionTeamInfo/Match rows the legacy per-league
+        // loop wrote earlier and replaces them with a proper full bracket.
+        regenerateAllCupBrackets((int) round.getSeason());
+
         System.out.println("=== NEW SEASON " + round.getSeason() + " STARTED ===");
     }
 
@@ -1058,6 +1427,13 @@ public class CompetitionController {
         // Game paused during transfer window or any manager firing - wait for resolution
         if (transferWindowOpen || userContext.isAnyUserFired()) {
             return;
+        }
+
+        // Game paused while any user has a pending job offer (must accept/decline first)
+        for (User u : userRepository.findAll()) {
+            if (jobOfferService.userHasPendingOffer(u.getId())) {
+                return;
+            }
         }
 
         // initialization() is now called from @PostConstruct initializeRound()
@@ -1230,10 +1606,16 @@ public class CompetitionController {
                 human.setConsecutiveBenched(0);
                 humanRepository.save(human);
 
-                // Update team finances
+                // Record transfer as financial transaction
+                financeService.recordExpense(buyTeam.getId(), (int) round.getSeason(), 0,
+                        "TRANSFER_BUY", "Bought " + human.getName(), transferFee);
+                buyTeam = teamRepository.findById(buyTeam.getId()).orElse(buyTeam);
                 buyTeam.setTransferBudget(buyTeam.getTransferBudget() - transferFee);
-                sellTeam.setTransferBudget(sellTeam.getTransferBudget() + transferFee);
                 teamRepository.save(buyTeam);
+
+                financeService.recordTransaction(sellTeam.getId(), (int) round.getSeason(), 0,
+                        "TRANSFER_SALE", "Sold " + human.getName(), transferFee);
+                sellTeam = teamRepository.findById(sellTeam.getId()).orElse(sellTeam);
                 teamRepository.save(sellTeam);
 
                 Transfer transfer = new Transfer();
@@ -1372,6 +1754,10 @@ public class CompetitionController {
                         player.setCurrentAbility(playerRating);
                         player.setPotentialAbility(playerRating + random.nextInt(10, 40));
                         player.setBestEverRating(playerRating);
+
+                        // Generate physical profile
+                        HumanService.generatePhysicalProfile(player, random);
+
                         player.setTransferValue(calculateTransferValue(player.getAge(), player.getPosition(), player.getRating()));
 
                         // Initialize contract
@@ -1396,6 +1782,15 @@ public class CompetitionController {
                         competitionService.generateSkills(playerSkills, player.getRating());
 
                         playerSkillsRepository.save(playerSkills);
+
+                        // Recompute rating from attributes
+                        double computedRating = PlayerSkillsService.computeOverallRating(playerSkills);
+                        player.setRating(computedRating);
+                        player.setCurrentAbility((int) computedRating);
+                        player.setBestEverRating(computedRating);
+                        player.setTransferValue(calculateTransferValue(player.getAge(), player.getPosition(), computedRating));
+                        player.setWage((long) (computedRating * 50));
+                        humanRepository.save(player);
                     }
 
                     // create manager for each team
@@ -1412,9 +1807,9 @@ public class CompetitionController {
                     manager.setPosition("Manager");
                     manager.setSeasonCreated(1L);
                     manager.setTypeId(TypeNames.MANAGER_TYPE);
-                    List<String> tactics = List.of("442", "433", "343", "352", "451");
-
-                    manager.setTacticStyle(tactics.get(random.nextInt(0, tactics.size())));
+                    String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), random);
+                    manager.setTacticStyle(kit[0]);
+                    manager.setKnownTactics(kit[1]);
                     humanRepository.save(manager);
                 }
             }
@@ -1474,14 +1869,16 @@ public class CompetitionController {
         }
 
         if (round.getRound() % 3 == 0) {
+            List<Human> allTrainedPlayers = new ArrayList<>();
             for (long teamId : teamIds) {
                 TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(teamId);
                 List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L);
                 for (Human player : players) {
                     player = _humanService.trainPlayer(player, teamFacilities, Integer.parseInt(getCurrentSeason()));
-                    humanRepository.save(player);
+                    allTrainedPlayers.add(player);
                 }
             }
+            if (!allTrainedPlayers.isEmpty()) humanRepository.saveAll(allTrainedPlayers);
         }
 
         // Decrement injury days for all active injuries at the start of each round
@@ -2305,6 +2702,18 @@ public class CompetitionController {
         Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3);
 
         if (leagueCompetitionIds.contains(_competitionId) || secondLeagueCompetitionIds.contains(_competitionId)) {
+            // Guard: league fixtures are generated once per season (all rounds at once)
+            // from the round=1 entry point. Skip if any round already exists for this
+            // competition+season to prevent duplicating the entire schedule.
+            List<Long> existingRounds = competitionTeamInfoMatchRepository
+                    .findDistinctRoundsByCompetitionIdAndSeasonNumber(_competitionId, getCurrentSeason());
+            if (!existingRounds.isEmpty()) {
+                System.out.println("=== getFixturesForRound league: comp=" + competitionId
+                        + " season=" + getCurrentSeason() + " already has " + existingRounds.size()
+                        + " rounds, skipping");
+                return;
+            }
+
             List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
             int currentRound = 1;
 
@@ -2403,6 +2812,8 @@ public class CompetitionController {
     @Transactional
     public void simulateRound(@PathVariable(name = "competitionId") String competitionId, @PathVariable(name = "roundId") String roundId) {
 
+        long _t0 = System.nanoTime();
+
         long _competitionId = Long.parseLong(competitionId);
         long _roundId = Long.parseLong(roundId);
         long nextRound = getNextRound(_roundId);
@@ -2425,9 +2836,59 @@ public class CompetitionController {
             cachedSecondLeagueCompIds = getCompetitionIdsByCompetitionType(3);
         }
 
+        // ===== Per-round pre-load: one IN-query per entity type instead of
+        // re-querying inside every helper for every match. =====
+        Set<Long> participatingTeamIds = new HashSet<>();
+        for (CompetitionTeamInfoMatch m : matches) {
+            participatingTeamIds.add(m.getTeam1Id());
+            participatingTeamIds.add(m.getTeam2Id());
+        }
+
+        if (!participatingTeamIds.isEmpty()) {
+            roundPlayersByTeam = humanRepository
+                    .findAllByTeamIdInAndTypeId(participatingTeamIds, TypeNames.PLAYER_TYPE)
+                    .stream()
+                    .collect(Collectors.groupingBy(Human::getTeamId));
+            roundInjuredIdsByTeam = injuryRepository
+                    .findAllByTeamIdInAndDaysRemainingGreaterThan(participatingTeamIds, 0)
+                    .stream()
+                    .collect(Collectors.groupingBy(
+                            Injury::getTeamId,
+                            Collectors.mapping(Injury::getPlayerId, Collectors.toSet())));
+            roundTeamsById = teamRepository.findAllById(participatingTeamIds).stream()
+                    .collect(Collectors.toMap(Team::getId, t -> t));
+        } else {
+            roundPlayersByTeam = Map.of();
+            roundInjuredIdsByTeam = Map.of();
+            roundTeamsById = Map.of();
+        }
+
+        roundCompetition = competitionRepository.findById(_competitionId).orElse(null);
+        roundCompetitionName = roundCompetition != null ? roundCompetition.getName() : "";
+        roundCompetitionTypeId = roundCompetition != null ? roundCompetition.getTypeId() : 0L;
+
+        long _tPreloadDone = System.nanoTime();
+
+        // ===== Per-operation aggregate timers (ms) =====
+        long tGetRating = 0, tScorers = 0, tInjuries = 0, tMorale = 0,
+             tCoeff = 0, tMgrRep = 0, tMatchStats = 0, tDetail = 0, tFinance = 0,
+             tHumanFull = 0;
+        int humanMatches = 0, aiMatches = 0;
+
+        try {
+
         for (CompetitionTeamInfoMatch match : matches) {
             long teamId1 = match.getTeam1Id();
             long teamId2 = match.getTeam2Id();
+
+            // Defensive skip: a cup bracket slot still holding a 0 placeholder means
+            // its prelim feeder never resolved (data from before the propagation fix,
+            // or a propagation bug). Don't try to simulate against a non-existent team.
+            if (teamId1 <= 0 || teamId2 <= 0) {
+                System.out.println("  [skip] match round=" + _roundId + " idx=" + match.getMatchIndex()
+                        + " teams=" + teamId1 + " vs " + teamId2 + " — placeholder unresolved");
+                continue;
+            }
 
             boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
 
@@ -2435,6 +2896,8 @@ public class CompetitionController {
             double teamPower1, teamPower2;
 
             if (isHumanMatch) {
+                humanMatches++;
+                long _tsHuman = System.nanoTime();
                 // --- FULL SIMULATION for human team matches ---
                 String tactic1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE).get(0).getTacticStyle();
                 String tactic2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE).get(0).getTacticStyle();
@@ -2450,20 +2913,26 @@ public class CompetitionController {
                 if (personalizedTactic2.isPresent())
                     teamPower2 = adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
 
+                // Admin override — if a score has been forced for this match, skip the
+                // live engine entirely and use the instant path with the forced score.
+                int[] adminScore = consumePredeterminedScore(_competitionId, (int) _roundId, teamId1, teamId2);
+
                 // Check if any human manager has viewFullMatch enabled
                 boolean useFullMatchEngine = false;
                 long humanTeamIdForMatch = userContext.isHumanTeam(teamId1) ? teamId1 : teamId2;
                 Human humanManager = humanRepository.findAllByTeamIdAndTypeId(humanTeamIdForMatch, TypeNames.MANAGER_TYPE)
                         .stream().findFirst().orElse(null);
-                if (humanManager != null && humanManager.isViewFullMatch()) {
+                if (humanManager != null && humanManager.isViewFullMatch() && adminScore == null) {
                     useFullMatchEngine = true;
                 }
 
                 if (useFullMatchEngine) {
                     // --- LIVE MATCH ENGINE: minute-by-minute simulation ---
+                    boolean generateGoalAnims = humanManager != null && humanManager.isWatchGoalHighlights();
                     LiveMatchData liveData = liveMatchSimulationService.simulateLiveMatch(
                             teamId1, teamId2, teamPower1, teamPower2,
-                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId);
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            generateGoalAnims);
 
                     teamScore1 = liveData.getHomeScore();
                     teamScore2 = liveData.getAwayScore();
@@ -2484,11 +2953,21 @@ public class CompetitionController {
 
                     // MatchEvent records already created by live simulation - skip generateMatchEvents
 
+                    // Persist match stats from live match data
+                    matchSimulationService.persistLiveMatchStats(
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            teamId1, teamId2, liveData, teamPower1, teamPower2);
+
                 } else {
                     // --- INSTANT SIMULATION (original behavior) ---
-                    List<Integer> scores = calculateScores(teamPower1, teamPower2);
-                    teamScore1 = scores.get(0);
-                    teamScore2 = scores.get(1);
+                    if (adminScore != null) {
+                        teamScore1 = adminScore[0];
+                        teamScore2 = adminScore[1];
+                    } else {
+                        List<Integer> scores = calculateScores(teamPower1, teamPower2);
+                        teamScore1 = scores.get(0);
+                        teamScore2 = scores.get(1);
+                    }
 
                     if (knockout && teamScore1 == teamScore2) {
                         double total = teamPower1 + teamPower2;
@@ -2507,6 +2986,12 @@ public class CompetitionController {
                     // Detailed match events (goals, assists, cards, substitutions)
                     generateMatchEvents(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
                             teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2);
+
+                    // Generate and persist match stats
+                    matchSimulationService.generateAndSaveMatchStats(
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
+                            personalizedTactic1.orElse(null), personalizedTactic2.orElse(null));
                 }
 
                 // Full post-match processing for human matches (same for both modes)
@@ -2521,15 +3006,25 @@ public class CompetitionController {
                 generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
                 updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
 
+                tHumanFull += System.nanoTime() - _tsHuman;
             } else {
+                aiMatches++;
                 // --- OPTIMIZED SIMULATION for AI vs AI matches ---
-                // Same features as human but: cached ratings, simplified morale, batch saves
+                long _ts = System.nanoTime();
                 teamPower1 = getSimpleTeamRating(teamId1);
                 teamPower2 = getSimpleTeamRating(teamId2);
+                tGetRating += System.nanoTime() - _ts;
 
-                List<Integer> scores = calculateScores(teamPower1, teamPower2);
-                teamScore1 = scores.get(0);
-                teamScore2 = scores.get(1);
+                // Admin override — use forced score if set, otherwise compute normally
+                int[] adminScoreAi = consumePredeterminedScore(_competitionId, (int) _roundId, teamId1, teamId2);
+                if (adminScoreAi != null) {
+                    teamScore1 = adminScoreAi[0];
+                    teamScore2 = adminScoreAi[1];
+                } else {
+                    List<Integer> scores = calculateScores(teamPower1, teamPower2);
+                    teamScore1 = scores.get(0);
+                    teamScore2 = scores.get(1);
+                }
 
                 if (knockout && teamScore1 == teamScore2) {
                     double total = teamPower1 + teamPower2;
@@ -2541,53 +3036,121 @@ public class CompetitionController {
                     }
                 }
 
-                // Scorer tracking (lightweight: random goal assignment, batch leaderboard)
+                _ts = System.nanoTime();
                 getScorersForTeamSimplified(teamId1, teamId2, teamScore1, teamScore2, Long.valueOf(competitionId));
                 getScorersForTeamSimplified(teamId2, teamId1, teamScore2, teamScore1, Long.valueOf(competitionId));
+                tScorers += System.nanoTime() - _ts;
 
-                // Injuries (same logic, batched saves)
+                _ts = System.nanoTime();
                 processInjuriesForTeamBatched(teamId1, random, batchedInjuries, batchedInjuredPlayers);
                 processInjuriesForTeamBatched(teamId2, random, batchedInjuries, batchedInjuredPlayers);
+                tInjuries += System.nanoTime() - _ts;
 
-                // Standings + simplified morale (no season scorer query)
+                _ts = System.nanoTime();
                 updateTeamWithSimpleMorale(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, random);
                 updateTeamWithSimpleMorale(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, random);
+                tMorale += System.nanoTime() - _ts;
 
-                // Coefficient points (competition type IDs already cached)
+                _ts = System.nanoTime();
                 awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                tCoeff += System.nanoTime() - _ts;
 
-                // Manager reputation (batched)
+                _ts = System.nanoTime();
                 batchUpdateManagerReputation(teamId1, teamId2, teamScore1, teamScore2, batchedManagers);
+                tMgrRep += System.nanoTime() - _ts;
+
+                _ts = System.nanoTime();
+                matchSimulationService.generateAndSaveMatchStats(
+                        _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                        teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
+                        null, null);
+                tMatchStats += System.nanoTime() - _ts;
             }
 
             // Knockout progression (needed for both human and AI matches)
             if (knockout) {
-                CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
-                competitionTeamInfo.setCompetitionId(_competitionId);
-                competitionTeamInfo.setRound(nextRound);
+                long winnerId = teamScore1 > teamScore2 ? teamId1 : teamId2;
 
-                competitionTeamInfo.setTeamId(teamScore1 > teamScore2 ? teamId1 : teamId2);
-                competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()));
-                competitionTeamInfoRepository.save(competitionTeamInfo);
+                // National cup: propagate the winner into the pre-created bracket slot.
+                // For LoC/Stars Cup we keep the legacy CompetitionTeamInfo flow below.
+                if (cachedCupCompIds != null && cachedCupCompIds.contains(_competitionId)
+                        && match.getMatchIndex() > 0) {
+                    cupBracketService.propagateWinner(
+                            _competitionId, Integer.parseInt(getCurrentSeason()),
+                            _roundId, match.getMatchIndex(), winnerId);
+                } else {
+                    CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
+                    competitionTeamInfo.setCompetitionId(_competitionId);
+                    competitionTeamInfo.setRound(nextRound);
+                    competitionTeamInfo.setTeamId(winnerId);
+                    competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+                    competitionTeamInfoRepository.save(competitionTeamInfo);
+                }
             }
 
             // Match result record (needed for both - results page)
+            long _tsDetail = System.nanoTime();
             CompetitionTeamInfoDetail competitionTeamInfoDetail = new CompetitionTeamInfoDetail();
             competitionTeamInfoDetail.setCompetitionId(_competitionId);
             competitionTeamInfoDetail.setRoundId(_roundId);
             competitionTeamInfoDetail.setTeam1Id(teamId1);
             competitionTeamInfoDetail.setTeam2Id(teamId2);
-            competitionTeamInfoDetail.setTeamName1(teamRepository.findById(teamId1).get().getName());
-            competitionTeamInfoDetail.setTeamName2(teamRepository.findById(teamId2).get().getName());
+            competitionTeamInfoDetail.setTeamName1(roundTeamName(teamId1));
+            competitionTeamInfoDetail.setTeamName2(roundTeamName(teamId2));
             competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2);
             competitionTeamInfoDetail.setSeasonNumber(Long.parseLong(getCurrentSeason()));
             competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
+            tDetail += System.nanoTime() - _tsDetail;
+
+            // Match day income for home team (team1) — competition cached for the round
+            long _tsFin = System.nanoTime();
+            String compName = roundCompetitionName != null && !roundCompetitionName.isEmpty()
+                    ? roundCompetitionName : "Match";
+            financeService.processMatchDayIncome(teamId1, Integer.parseInt(getCurrentSeason()),
+                    match.getDay(), teamId2, compName);
+            tFinance += System.nanoTime() - _tsFin;
         }
+
+        long _tLoopDone = System.nanoTime();
 
         // Batch save all collected AI match data at once
         if (!batchedInjuries.isEmpty()) injuryRepository.saveAll(batchedInjuries);
         if (!batchedInjuredPlayers.isEmpty()) humanRepository.saveAll(batchedInjuredPlayers);
         if (!batchedManagers.isEmpty()) humanRepository.saveAll(batchedManagers);
+
+        long _tBatchDone = System.nanoTime();
+
+        // ===== Print breakdown =====
+        long totalMs = (_tBatchDone - _t0) / 1_000_000;
+        long preloadMs = (_tPreloadDone - _t0) / 1_000_000;
+        long loopMs = (_tLoopDone - _tPreloadDone) / 1_000_000;
+        long batchMs = (_tBatchDone - _tLoopDone) / 1_000_000;
+        System.out.println(String.format(
+                "  [TIMER simulateRound comp=%d round=%d] total=%dms  preload=%dms  loop=%dms  batch=%dms  | matches=%d (AI=%d, human=%d)",
+                _competitionId, _roundId, totalMs, preloadMs, loopMs, batchMs,
+                matches.size(), aiMatches, humanMatches));
+        if (aiMatches > 0) {
+            System.out.println(String.format(
+                    "    AI breakdown (total ms across %d matches): rating=%d  scorers=%d  injuries=%d  morale=%d  coeff=%d  mgrRep=%d  stats=%d  detail=%d  finance=%d",
+                    aiMatches,
+                    tGetRating / 1_000_000, tScorers / 1_000_000, tInjuries / 1_000_000,
+                    tMorale / 1_000_000, tCoeff / 1_000_000, tMgrRep / 1_000_000,
+                    tMatchStats / 1_000_000, tDetail / 1_000_000, tFinance / 1_000_000));
+        }
+        if (humanMatches > 0) {
+            System.out.println(String.format(
+                    "    Human breakdown: total=%dms across %d matches", tHumanFull / 1_000_000, humanMatches));
+        }
+
+        } finally {
+            // Clear per-round caches so they don't leak across simulateRound calls.
+            roundPlayersByTeam = null;
+            roundInjuredIdsByTeam = null;
+            roundTeamsById = null;
+            roundCompetition = null;
+            roundCompetitionName = null;
+            roundCompetitionTypeId = 0L;
+        }
     }
 
     private double adjustTeamPowerByTacticalProperties(double teamRating, double opponentRating, PersonalizedTactic teamTactic) {
@@ -2854,14 +3417,54 @@ public class CompetitionController {
             team.setForm(team.getForm().substring(team.getForm().length() - 5));
         teamCompetitionDetailRepository.save(team);
 
-        // 2. Simplified morale: uniform change for all players (no scorer query needed)
+        // 2. Morale with bench tracking for AI teams — use cached players from start of round
         double baseMoraleChange = calculateMoraleChangeForTeamDifference(result, teamPowerDifference);
-        List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+        List<Human> allPlayers = roundPlayers(teamId);
+
+        // Determine best 11 from cache to know who played vs who was benched
+        Set<Long> playedIds = new HashSet<>();
+        List<PlayerView> cachedBestXI = bestElevenCache.getOrDefault(teamId, List.of());
+        for (PlayerView pv : cachedBestXI) {
+            playedIds.add(pv.getId());
+        }
+
         for (Human player : allPlayers) {
             if (player.isRetired()) continue;
-            // All players get the base morale change (no individual played/benched distinction for AI)
-            double moraleChange = baseMoraleChange + random.nextDouble(-1, 1);
-            player.setMorale(Math.min(120D, Math.max(30D, player.getMorale() + moraleChange)));
+            double moraleChange;
+
+            if (playedIds.contains(player.getId())) {
+                // Player participated
+                moraleChange = baseMoraleChange + random.nextDouble(-1, 1);
+                player.setSeasonMatchesPlayed(player.getSeasonMatchesPlayed() + 1);
+                player.setConsecutiveBenched(0);
+
+                // AI player calms down if getting regular game time
+                if (player.isWantsTransfer() && player.getSeasonMatchesPlayed() > 5) {
+                    if (random.nextDouble() < 0.3) {
+                        player.setWantsTransfer(false);
+                    }
+                }
+            } else {
+                // Benched
+                player.setConsecutiveBenched(player.getConsecutiveBenched() + 1);
+                switch (result) {
+                    case "W": moraleChange = -2; break;
+                    case "D": moraleChange = -4; break;
+                    case "L": moraleChange = -3; break;
+                    default: moraleChange = 0;
+                }
+                int benched = player.getConsecutiveBenched();
+                if (benched >= 5) moraleChange -= 2;
+                // AI players also request transfers when benched too long
+                if (benched >= 3 && player.getRating() > 50 && !player.isWantsTransfer()) {
+                    double demandChance = (benched >= 7) ? 0.5 : (benched >= 5) ? 0.3 : 0.1;
+                    if (random.nextDouble() < demandChance) {
+                        player.setWantsTransfer(true);
+                    }
+                }
+            }
+
+            player.setMorale(Math.min(100D, Math.max(0D, player.getMorale() + moraleChange)));
         }
         humanRepository.saveAll(allPlayers);
     }
@@ -2873,9 +3476,9 @@ public class CompetitionController {
      */
     private void processInjuriesForTeamBatched(long teamId, Random random,
                                                 List<Injury> batchedInjuries, List<Human> batchedInjuredPlayers) {
-        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-        Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
-                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+        // Use per-round caches when available (populated at start of simulateRound)
+        List<Human> players = roundPlayers(teamId);
+        Set<Long> injuredPlayerIds = roundInjuredIds(teamId);
 
         String[] injuryTypes = {"Hamstring Strain", "Knee Ligament", "Ankle Sprain", "Muscle Fatigue", "Broken Bone", "Concussion"};
 
@@ -2920,8 +3523,9 @@ public class CompetitionController {
      */
     private void batchUpdateManagerReputation(long teamId1, long teamId2, int score1, int score2,
                                                List<Human> batchedManagers) {
-        Team team1 = teamRepository.findById(teamId1).orElse(null);
-        Team team2 = teamRepository.findById(teamId2).orElse(null);
+        // Use per-round cached team entities (populated at start of simulateRound)
+        Team team1 = roundTeam(teamId1);
+        Team team2 = roundTeam(teamId2);
         if (team1 == null || team2 == null) return;
 
         List<Human> managers1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
@@ -3081,8 +3685,8 @@ public class CompetitionController {
             }
 
             player.setMorale(player.getMorale() + moraleChange);
-            player.setMorale(Math.min(player.getMorale(), 120D));
-            player.setMorale(Math.max(player.getMorale(), 30D));
+            player.setMorale(Math.min(player.getMorale(), 100D));
+            player.setMorale(Math.max(player.getMorale(), 0D));
         }
         humanRepository.saveAll(allPlayers);
     }
@@ -3106,11 +3710,15 @@ public class CompetitionController {
         for (Human player : allPlayers) {
             if (player.isRetired()) continue;
             double morale = player.getMorale();
-            if (morale < 80) {
-                player.setMorale(Math.min(morale + 1, 80D));
+            // Recovery toward 70 (neutral zone: 65-75 left alone)
+            if (morale < 60) {
+                player.setMorale(Math.min(morale + 2, 70D));
                 changed = true;
-            } else if (morale > 110) {
-                player.setMorale(Math.max(morale - 1, 110D));
+            } else if (morale < 65) {
+                player.setMorale(Math.min(morale + 1, 70D));
+                changed = true;
+            } else if (morale > 80) {
+                player.setMorale(Math.max(morale - 1, 70D));
                 changed = true;
             }
         }
@@ -3119,53 +3727,63 @@ public class CompetitionController {
         }
     }
 
+    /**
+     * Manager morale influence on team power.
+     * Neutral at 70 (1.0). Low morale penalizes, high morale boosts slightly.
+     * Range: 0.94 (morale 0) to 1.03 (morale 100).
+     */
+    private double getManagerMoraleMultiplier(long teamId) {
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        if (managers.isEmpty()) return 1.0;
+        double managerMorale = managers.get(0).getMorale();
+        return 1.0 + (managerMorale - 70) * 0.001;
+    }
+
     private double calculateMoraleChangeForTeamDifference(String result, double teamPowerDifference) {
-
         Random random = new Random();
-
-        if (result.equals("W")) {
-            if (teamPowerDifference > 500) {
-                return random.nextDouble(0, 2);
-            } else if (teamPowerDifference > 200) {
-                return random.nextDouble(1, 2);
-            } else if (teamPowerDifference > 0) {
-                return random.nextDouble(1, 4);
-            } else if (teamPowerDifference > -200) {
-                return random.nextDouble(2, 6);
-            } else if (teamPowerDifference > -500) {
-                return random.nextDouble(5, 10);
-            } else {
-                return random.nextDouble(7, 15);
-            }
-        } else if (result.equals("D")) {
-            if (teamPowerDifference > 500) {
-                return random.nextDouble(-8, -2);
-            } else if (teamPowerDifference > 200) {
-                return random.nextDouble(-5, 0);
-            } else if (teamPowerDifference > 0) {
-                return random.nextDouble(-2, 1);
-            } else if (teamPowerDifference > -200) {
-                return random.nextDouble(1, 3);
-            } else if (teamPowerDifference > -500) {
-                return random.nextDouble(2, 7);
-            } else {
-                return random.nextDouble(5, 10);
-            }
+        if ("W".equals(result)) {
+            if (teamPowerDifference > 500) return random.nextDouble(0, 1);
+            else if (teamPowerDifference > 200) return random.nextDouble(1, 2);
+            else if (teamPowerDifference > 0) return random.nextDouble(1, 3);
+            else if (teamPowerDifference > -200) return random.nextDouble(2, 5);
+            else if (teamPowerDifference > -500) return random.nextDouble(4, 7);
+            else return random.nextDouble(5, 10);
+        } else if ("D".equals(result)) {
+            if (teamPowerDifference > 500) return random.nextDouble(-6, -2);
+            else if (teamPowerDifference > 200) return random.nextDouble(-4, 0);
+            else if (teamPowerDifference > 0) return random.nextDouble(-2, 1);
+            else if (teamPowerDifference > -200) return random.nextDouble(1, 3);
+            else if (teamPowerDifference > -500) return random.nextDouble(2, 5);
+            else return random.nextDouble(3, 7);
         } else {
-            if (teamPowerDifference > 500) {
-                return random.nextDouble(-20, -5);
-            } else if (teamPowerDifference > 200) {
-                return random.nextDouble(-10, -3);
-            } else if (teamPowerDifference > 0) {
-                return random.nextDouble(-5, -2);
-            } else if (teamPowerDifference > -200) {
-                return random.nextDouble(-3, -1);
-            } else if (teamPowerDifference > -500) {
-                return random.nextDouble(-2, 0);
-            } else {
-                return random.nextDouble(-1, 0);
-            }
+            if (teamPowerDifference > 500) return random.nextDouble(-15, -5);
+            else if (teamPowerDifference > 200) return random.nextDouble(-8, -3);
+            else if (teamPowerDifference > 0) return random.nextDouble(-5, -2);
+            else if (teamPowerDifference > -200) return random.nextDouble(-3, -1);
+            else if (teamPowerDifference > -500) return random.nextDouble(-2, 0);
+            else return random.nextDouble(-1, 0);
         }
+    }
+
+    /**
+     * Admin override: if an un-consumed PredeterminedScore exists for this exact
+     * (competition, season, round, team1, team2), returns it and marks it consumed
+     * so it isn't reused. Returns null if no override is set.
+     */
+    private int[] consumePredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
+        int season = (int) round.getSeason();
+        Optional<PredeterminedScore> preset = predeterminedScoreRepository
+                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2IdAndConsumedFalse(
+                        competitionId, season, roundId, team1Id, team2Id);
+        if (preset.isEmpty()) return null;
+        PredeterminedScore p = preset.get();
+        int s1 = p.getTeam1Score();
+        int s2 = p.getTeam2Score();
+        p.setConsumed(true);
+        predeterminedScoreRepository.save(p);
+        System.out.println("=== PredeterminedScore consumed: comp=" + competitionId
+                + " round=" + roundId + " " + team1Id + " vs " + team2Id + " = " + s1 + "-" + s2);
+        return new int[]{s1, s2};
     }
 
     private List<Integer> calculateScores(double power1, double power2) {
@@ -3308,18 +3926,39 @@ public class CompetitionController {
                     // 3. Aflăm ce poziție reprezintă indexul de pe grilă (ex: 27 -> "GK")
                     String tacticPosition = tacticService.getPositionFromIndex(data.getPositionIndex());
 
-                    // 4. Calculăm rating-ul (cu morale + fitness)
-                    // Morale: 0-100 mapped to 0.85-1.15 (±15% impact)
-                    double moraleMultiplier = 0.85 + (player.getMorale() / 100D) * 0.30;
+                    // 4. Calculăm rating-ul (cu morale + fitness + role suitability)
+                    // Morale: neutral at 70 (1.0), swing reduced 10x — squad value should
+                    // dominate the result, morale only nudges it. Range now ~0.97..1.012.
+                    double moraleMultiplier = 1.0 + (player.getMorale() - 70) * 0.0004;
                     double fitnessMultiplier = Math.max(0.7, player.getFitness() / 100D);
-                    if (player.getPosition().equals(tacticPosition)) {
-                        rating += player.getRating() * moraleMultiplier * fitnessMultiplier;
+
+                    double playerRating;
+                    // Compare using base positions so AMC≡MC, AML≡ML, AMR≡MR
+                    String basePlayerPos = TacticService.getBasePosition(player.getPosition());
+                    String baseTacticPos = TacticService.getBasePosition(tacticPosition);
+                    if (basePlayerPos.equals(baseTacticPos)) {
+                        // Use role-based effective rating if role is assigned
+                        if (data.getRole() != null && !data.getRole().isEmpty()) {
+                            PlayerSkills skills = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()).orElse(null);
+                            if (skills != null) {
+                                playerRating = playerRoleService.computeEffectiveRating(skills, data.getRole());
+                            } else {
+                                playerRating = player.getRating();
+                            }
+                        } else {
+                            playerRating = player.getRating();
+                        }
+                        // Apply individual instruction multiplier (use base position for lookup)
+                        double instructionMultiplier = PlayerInstructionService.computeInstructionMultiplier(
+                                data.getInstructions(), baseTacticPos, "general");
+                        rating += playerRating * moraleMultiplier * fitnessMultiplier * instructionMultiplier;
                     } else {
                         rating += player.getRating() / 2 * moraleMultiplier * fitnessMultiplier;
                     }
                 }
 
-                // add extra bonus logic here if needed
+                // Manager morale influence: low manager morale penalizes team
+                rating *= getManagerMoraleMultiplier(teamId);
 
                 return rating;
 
@@ -3333,14 +3972,18 @@ public class CompetitionController {
         // Folosește algoritmul automat pentru a determina cel mai bun 11
         List<PlayerView> playerViews = tacticController.getBestEleven(String.valueOf(teamId), tactic);
 
-        return playerViews
+        double fallbackRating = playerViews
                 .stream()
                 .mapToDouble(playerView -> {
-                    double moraleMul = 0.85 + (playerView.getMorale() / 100D) * 0.30;
+                    // Morale nudge (1/10 of previous), fitness unchanged
+                    double moraleMul = 1.0 + (playerView.getMorale() - 70) * 0.0004;
                     double fitMul = Math.max(0.7, playerView.getFitness() / 100D);
                     return playerView.getRating() * moraleMul * fitMul;
                 })
                 .sum();
+
+        // Manager morale influence
+        return fallbackRating * getManagerMoraleMultiplier(teamId);
     }
 
     /**
@@ -3352,6 +3995,47 @@ public class CompetitionController {
     private Map<Long, String> managerTacticCache = new HashMap<>();
     private Map<Long, List<PlayerView>> bestElevenCache = new HashMap<>();
     private Map<Long, List<PlayerView>> substitutionsCache = new HashMap<>();
+
+    // ===== Per-round caches (populated at start of simulateRound, cleared at end) =====
+    // simulateRound is called sequentially (one competition's round at a time from the
+    // single-threaded GameAdvanceService loop), so instance fields are safe here.
+    private Map<Long, List<Human>> roundPlayersByTeam;
+    private Map<Long, Set<Long>> roundInjuredIdsByTeam;
+    private Map<Long, Team> roundTeamsById;
+    private Competition roundCompetition;
+    private String roundCompetitionName;
+    private long roundCompetitionTypeId;
+
+    private List<Human> roundPlayers(long teamId) {
+        if (roundPlayersByTeam != null) {
+            return roundPlayersByTeam.getOrDefault(teamId, List.of());
+        }
+        return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+    }
+
+    private Set<Long> roundInjuredIds(long teamId) {
+        if (roundInjuredIdsByTeam != null) {
+            return roundInjuredIdsByTeam.getOrDefault(teamId, Set.of());
+        }
+        return injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
+                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+    }
+
+    private String roundTeamName(long teamId) {
+        if (roundTeamsById != null) {
+            Team t = roundTeamsById.get(teamId);
+            if (t != null) return t.getName();
+        }
+        return teamRepository.findNameById(teamId);
+    }
+
+    private Team roundTeam(long teamId) {
+        if (roundTeamsById != null) {
+            Team t = roundTeamsById.get(teamId);
+            if (t != null) return t;
+        }
+        return teamRepository.findById(teamId).orElse(null);
+    }
 
     private double getSimpleTeamRating(long teamId) {
         if (simpleRatingCache.containsKey(teamId)) return simpleRatingCache.get(teamId);
@@ -3370,6 +4054,9 @@ public class CompetitionController {
         double rating = bestEleven.stream()
                 .mapToDouble(PlayerView::getRating)
                 .sum();
+
+        // Manager morale influence on AI team power
+        rating *= getManagerMoraleMultiplier(teamId);
 
         simpleRatingCache.put(teamId, rating);
         return rating;
@@ -3400,11 +4087,20 @@ public class CompetitionController {
         if (playerViews.isEmpty()) return;
 
         String currentSeason = getCurrentSeason();
-        Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
-        long competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
-        String teamName = teamRepository.findNameById(teamId1);
-        String opponentName = teamRepository.findNameById(teamId2);
-        String competitionName = competitionRepository.findNameById(competitionId);
+        // Use per-round caches when this is the simulateRound's competition (the common case).
+        // Falls through to repository lookups only for ad-hoc callers.
+        long competitionTypeId;
+        String competitionName;
+        if (roundCompetition != null && roundCompetition.getId() == competitionId) {
+            competitionTypeId = roundCompetitionTypeId;
+            competitionName = roundCompetitionName;
+        } else {
+            Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
+            competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
+            competitionName = competitionRepository.findNameById(competitionId);
+        }
+        String teamName = roundTeamName(teamId1);
+        String opponentName = roundTeamName(teamId2);
 
         List<Scorer> possibleScorers = new ArrayList<>();
 
@@ -3422,7 +4118,7 @@ public class CompetitionController {
             scorer.setTeamName(teamName);
             scorer.setOpponentTeamName(opponentName);
             scorer.setCompetitionName(competitionName);
-            scorer.setRating(pv.getRating());
+            // Rating will be set by assignMatchRatings() below
             scorer.setSubstitute(false);
             possibleScorers.add(scorer);
         }
@@ -3442,7 +4138,7 @@ public class CompetitionController {
             scorer.setTeamName(teamName);
             scorer.setOpponentTeamName(opponentName);
             scorer.setCompetitionName(competitionName);
-            scorer.setRating(pv.getRating());
+            // Rating will be set by assignMatchRatings() below
             scorer.setSubstitute(true);
             substitutions.add(scorer);
         }
@@ -3457,7 +4153,9 @@ public class CompetitionController {
             }
         }
 
-        // 3. Weighted goal distribution by position
+        // 3. Weighted goal distribution by position. Adds a per-match "form of the day"
+        // bonus to one randomly-picked outfield player so hat-tricks happen at the
+        // realistic frequency you'd expect from in-form strikers, not by pure RNG.
         List<Pair<Scorer, Double>> weightedPlayers = new ArrayList<>();
         for (Scorer scorer : possibleScorers) {
             if ("GK".equals(scorer.getPosition())) continue;
@@ -3466,19 +4164,42 @@ public class CompetitionController {
             weightedPlayers.add(new Pair<>(scorer, weight));
         }
 
+        // Pick a "form of the day" player (weighted by base weight) and triple their
+        // weight for this match only — recreates an on-fire striker / midfielder.
+        if (weightedPlayers.size() >= 2) {
+            try {
+                EnumeratedDistribution<Scorer> pickHot = new EnumeratedDistribution<>(weightedPlayers);
+                Scorer hotPlayer = pickHot.sample();
+                for (int i = 0; i < weightedPlayers.size(); i++) {
+                    if (weightedPlayers.get(i).getKey() == hotPlayer) {
+                        weightedPlayers.set(i, new Pair<>(hotPlayer, weightedPlayers.get(i).getValue() * 3.0));
+                        break;
+                    }
+                }
+            } catch (Exception ignored) { /* no hot-player bonus if sampling fails */ }
+        }
+
         if (!weightedPlayers.isEmpty()) {
-            for (int i = 0; i < teamScore; i++) {
-                try {
-                    EnumeratedDistribution<Scorer> distribution = new EnumeratedDistribution<>(weightedPlayers);
+            // Build the distribution ONCE per match (was per goal — wasteful).
+            EnumeratedDistribution<Scorer> distribution;
+            try {
+                distribution = new EnumeratedDistribution<>(weightedPlayers);
+            } catch (Exception e) {
+                System.err.println("Distribution error: " + e.getMessage());
+                distribution = null;
+            }
+            if (distribution != null) {
+                for (int i = 0; i < teamScore; i++) {
                     Scorer selected = distribution.sample();
                     selected.setGoals(selected.getGoals() + 1);
-                } catch (Exception e) {
-                    System.err.println("Distribution error: " + e.getMessage());
                 }
             }
         }
 
-        // 4. Batch leaderboard lookup (1 query instead of N individual findByPlayerId calls)
+        // 4. Assign match performance ratings (1-10 scale)
+        matchSimulationService.assignMatchRatings(possibleScorers, teamScore, opponentScore);
+
+        // 5. Batch leaderboard lookup (1 query instead of N individual findByPlayerId calls)
         List<Long> playerIds = possibleScorers.stream().map(Scorer::getPlayerId).toList();
         List<ScorerLeaderboardEntry> leaderboardEntries = scorerLeaderboardRepository.findAllByPlayerIdIn(playerIds);
         Map<Long, ScorerLeaderboardEntry> leaderboardMap = new HashMap<>();
@@ -3566,7 +4287,7 @@ public class CompetitionController {
                     scorer.setTeamName(teamName);
                     scorer.setOpponentTeamName(opponentName);
                     scorer.setCompetitionName(competitionName);
-                    scorer.setRating(player.getRating());
+                    // Rating will be set by assignMatchRatings() below
 
                     // 🔹 LOGICA NOUĂ: Index >= 30 înseamnă Rezervă
                     if (data.getPositionIndex() >= 30) {
@@ -3606,7 +4327,7 @@ public class CompetitionController {
                 scorer.setTeamName(teamName);
                 scorer.setOpponentTeamName(opponentName);
                 scorer.setCompetitionName(competitionName);
-                scorer.setRating(playerView.getRating());
+                // Rating will be set by assignMatchRatings() below
                 scorer.setSubstitute(false);
                 return scorer;
             }).forEach(possibleScorers::add);
@@ -3626,7 +4347,7 @@ public class CompetitionController {
                 scorer.setTeamName(teamName);
                 scorer.setOpponentTeamName(opponentName);
                 scorer.setCompetitionName(competitionName);
-                scorer.setRating(playerView.getRating());
+                // Rating will be set by assignMatchRatings() below
                 scorer.setSubstitute(true);
                 return scorer;
             }).forEach(substitutions::add);
@@ -3662,6 +4383,9 @@ public class CompetitionController {
                 }
             }
         }
+
+        // Assign match performance ratings (1-10 scale) and determine Man of the Match
+        matchSimulationService.assignMatchRatings(possibleScorers, teamScore, opponentScore);
 
         for (Scorer scorer: possibleScorers) {
 
@@ -3756,6 +4480,10 @@ public class CompetitionController {
 
         String[] goalDescriptions = {"Tap in", "Header", "Long range shot", "Free kick", "Penalty", "Solo run", "Volley"};
 
+        // Load set piece takers for both teams
+        Optional<PersonalizedTactic> tactic1Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
+        Optional<PersonalizedTactic> tactic2Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
+
         // Generate random sorted minutes for all goals
         int totalGoals = teamScore1 + teamScore2;
         List<Integer> goalMinutes = new ArrayList<>();
@@ -3793,7 +4521,8 @@ public class CompetitionController {
 
         // Generate goal events for team 1
         for (int minute : team1GoalMinutes) {
-            Human scorer = team1Outfield.get(random.nextInt(team1Outfield.size()));
+            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
+            Human scorer = resolveGoalScorer(description, team1Outfield, tactic1Opt.orElse(null), random);
             MatchEvent goalEvent = new MatchEvent();
             goalEvent.setCompetitionId(competitionId);
             goalEvent.setSeasonNumber(seasonNumber);
@@ -3805,11 +4534,11 @@ public class CompetitionController {
             goalEvent.setPlayerId(scorer.getId());
             goalEvent.setPlayerName(scorer.getName());
             goalEvent.setTeamId(teamId1);
-            goalEvent.setDetails(goalDescriptions[random.nextInt(goalDescriptions.length)]);
+            goalEvent.setDetails(description);
             events.add(goalEvent);
 
-            // 70% chance of assist
-            if (random.nextDouble() < 0.7 && team1Outfield.size() > 1) {
+            // 70% chance of assist (no assist for penalties)
+            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team1Outfield.size() > 1) {
                 List<Human> possibleAssisters = team1Outfield.stream()
                         .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
                 if (!possibleAssisters.isEmpty()) {
@@ -3833,7 +4562,8 @@ public class CompetitionController {
 
         // Generate goal events for team 2
         for (int minute : team2GoalMinutes) {
-            Human scorer = team2Outfield.get(random.nextInt(team2Outfield.size()));
+            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
+            Human scorer = resolveGoalScorer(description, team2Outfield, tactic2Opt.orElse(null), random);
             MatchEvent goalEvent = new MatchEvent();
             goalEvent.setCompetitionId(competitionId);
             goalEvent.setSeasonNumber(seasonNumber);
@@ -3845,10 +4575,10 @@ public class CompetitionController {
             goalEvent.setPlayerId(scorer.getId());
             goalEvent.setPlayerName(scorer.getName());
             goalEvent.setTeamId(teamId2);
-            goalEvent.setDetails(goalDescriptions[random.nextInt(goalDescriptions.length)]);
+            goalEvent.setDetails(description);
             events.add(goalEvent);
 
-            if (random.nextDouble() < 0.7 && team2Outfield.size() > 1) {
+            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team2Outfield.size() > 1) {
                 List<Human> possibleAssisters = team2Outfield.stream()
                         .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
                 if (!possibleAssisters.isEmpty()) {
@@ -3949,6 +4679,33 @@ public class CompetitionController {
         }
 
         matchEventRepository.saveAll(events);
+    }
+
+    /**
+     * Resolve the goal scorer based on goal type and set piece taker assignments.
+     * - "Penalty" → use designated penalty taker (if set)
+     * - "Free kick" → use designated free kick taker (if set)
+     * - Otherwise → random outfield player
+     */
+    private Human resolveGoalScorer(String goalDescription, List<Human> outfieldPlayers,
+                                     PersonalizedTactic tactic, Random random) {
+        if (tactic != null && outfieldPlayers != null && !outfieldPlayers.isEmpty()) {
+            Long takerId = null;
+            if ("Penalty".equals(goalDescription) && tactic.getPenaltyTakerId() != null) {
+                takerId = tactic.getPenaltyTakerId();
+            } else if ("Free kick".equals(goalDescription) && tactic.getFreeKickTakerId() != null) {
+                takerId = tactic.getFreeKickTakerId();
+            }
+            if (takerId != null) {
+                final long id = takerId;
+                Human taker = outfieldPlayers.stream()
+                        .filter(p -> p.getId() == id)
+                        .findFirst().orElse(null);
+                if (taker != null) return taker;
+                // Taker not in outfield list (may be injured/subbed) — fallback to random
+            }
+        }
+        return outfieldPlayers.get(random.nextInt(outfieldPlayers.size()));
     }
 
     @GetMapping("/getCompetitionInfo/{id}")
@@ -4146,14 +4903,13 @@ public class CompetitionController {
             leagueTierMap.put(sortedLeagueIds.get(i), tier);
         }
 
-        // 1. League prize money (based on final position + coefficient-based tier)
+        // 1. League prize money + TV income (based on final position + coefficient-based tier)
         for (Competition comp : allComps) {
             if (comp.getTypeId() != 1 && comp.getTypeId() != 3) continue;
 
             // For second leagues, find their parent first league's tier via nationId
             int tier = 3; // default
             if (comp.getTypeId() == 3) {
-                // Second league: find the first league of same nation
                 long nationId = comp.getNationId();
                 for (Competition firstLeague : allComps) {
                     if (firstLeague.getTypeId() == 1 && firstLeague.getNationId() == nationId) {
@@ -4167,14 +4923,12 @@ public class CompetitionController {
 
             long leagueBase;
             if (comp.getTypeId() == 3) {
-                // Second leagues get smaller prizes
                 leagueBase = (tier == 1) ? 5_000_000L : (tier == 2) ? 3_000_000L : 2_000_000L;
             } else {
-                // First leagues: tier from coefficient ranking
                 switch (tier) {
-                    case 1: leagueBase = 50_000_000L; break;   // Top league: 1st place gets ~50M
-                    case 2: leagueBase = 20_000_000L; break;   // Mid league: 1st place gets ~20M
-                    default: leagueBase = 8_000_000L; break;   // Lower league: 1st place gets ~8M
+                    case 1: leagueBase = 50_000_000L; break;
+                    case 2: leagueBase = 20_000_000L; break;
+                    default: leagueBase = 8_000_000L; break;
                 }
             }
 
@@ -4192,34 +4946,52 @@ public class CompetitionController {
 
             int position = 1;
             for (TeamCompetitionDetail detail : standings) {
-                // Position-based distribution: 1st gets full, last gets ~20%
                 double positionFactor = 1.0 - (0.8 * (position - 1.0) / Math.max(numTeams - 1, 1));
                 long leagueIncome = (long) (leagueBase * positionFactor);
 
                 Team team = teamRepository.findById(detail.getTeamId()).orElse(null);
                 if (team == null) { position++; continue; }
 
-                // European income: coefficient points * 2,000,000 (LoC/Stars Cup participation is lucrative)
+                // European income: coefficient points * 2,000,000
                 Optional<ClubCoefficient> cc = clubCoefficientRepository
                         .findByTeamIdAndSeasonNumber(detail.getTeamId(), season);
                 long europeanIncome = cc.map(c -> (long) (c.getPoints() * 2_000_000L)).orElse(0L);
 
-                // Decay unspent budget by 15%, then add new income
-                long newBudget = (long) (team.getTransferBudget() * 0.85) + leagueIncome + europeanIncome;
-                team.setTransferBudget(newBudget);
-                team.setTotalFinances(team.getTotalFinances() + leagueIncome + europeanIncome);
-                teamRepository.save(team);
-                processedTeamIds.add(detail.getTeamId());
+                // TV income distributed by league position
+                int tvTier = (comp.getTypeId() == 3) ? tier + 1 : tier; // Second leagues get lower TV tier
+                long tvIncome = financeService.calculateTvIncome(position, numTeams, Math.min(tvTier, 3));
 
+                // Record financial transactions
+                financeService.recordTransaction(team.getId(), season, 340, "PRIZE_MONEY",
+                        comp.getName() + " prize money (Position " + position + ")", leagueIncome);
+                if (tvIncome > 0) {
+                    financeService.recordTransaction(team.getId(), season, 340, "TV_INCOME",
+                            comp.getName() + " TV revenue (Position " + position + ")", tvIncome);
+                }
+                if (europeanIncome > 0) {
+                    financeService.recordTransaction(team.getId(), season, 340, "PRIZE_MONEY",
+                            "European competition revenue", europeanIncome);
+                }
+
+                // Decay unspent budget by 15%
+                team = teamRepository.findById(detail.getTeamId()).orElse(null);
+                if (team != null) {
+                    team.setTransferBudget((long) (team.getTransferBudget() * 0.85));
+                    teamRepository.save(team);
+                }
+
+                // Update board confidence based on league position
+                financeService.updateBoardConfidence(detail.getTeamId(), position, numTeams);
+
+                processedTeamIds.add(detail.getTeamId());
                 position++;
             }
         }
 
         // 2. Cup prize money (for teams that participated)
         for (Competition comp : allComps) {
-            if (comp.getTypeId() != 2) continue; // Only domestic cups
+            if (comp.getTypeId() != 2) continue;
 
-            // Cup tier from parent first league's coefficient tier
             int cupTier = 3;
             long nationId = comp.getNationId();
             for (Competition firstLeague : allComps) {
@@ -4231,27 +5003,27 @@ public class CompetitionController {
 
             long cupWinnerPrize;
             switch (cupTier) {
-                case 1: cupWinnerPrize = 10_000_000L; break;   // Top nation cup
-                case 2: cupWinnerPrize = 4_000_000L; break;    // Mid nation cup
-                default: cupWinnerPrize = 1_500_000L; break;   // Lower nation cup
+                case 1: cupWinnerPrize = 10_000_000L; break;
+                case 2: cupWinnerPrize = 4_000_000L; break;
+                default: cupWinnerPrize = 1_500_000L; break;
             }
 
-            // Give cup winner a bonus (we check CompetitionHistory for the winner)
             List<CompetitionHistory> cupHistory = competitionHistoryRepository.findByCompetitionId(comp.getId()).stream()
                     .filter(h -> h.getSeasonNumber() == season && h.getLastPosition() == 1)
                     .toList();
             for (CompetitionHistory ch : cupHistory) {
-                Team team = teamRepository.findById(ch.getTeamId()).orElse(null);
-                if (team != null) {
-                    team.setTransferBudget(team.getTransferBudget() + cupWinnerPrize);
-                    team.setTotalFinances(team.getTotalFinances() + cupWinnerPrize);
-                    teamRepository.save(team);
-                }
+                financeService.recordTransaction(ch.getTeamId(), season, 340, "PRIZE_MONEY",
+                        comp.getName() + " Winner prize", cupWinnerPrize);
             }
         }
 
-        // 3. European competition prizes are now awarded per-match via awardEuropeanMatchPrizeMoney()
-        // No additional season-end European prizes needed
+        // 3. Owner injections for high-reputation clubs
+        List<Team> allTeams = teamRepository.findAll();
+        for (Team team : allTeams) {
+            financeService.processOwnerInjection(team.getId(), season);
+        }
+
+        // 4. European competition prizes are now awarded per-match via awardEuropeanMatchPrizeMoney()
     }
 
     private void qualifyTeamsForEuropeanCompetitions() {
@@ -4631,12 +5403,7 @@ public class CompetitionController {
     }
 
     private void awardPrizeMoney(long teamId, long amount, int season, int roundNumber, String reason, String category) {
-        Team team = teamRepository.findById(teamId).orElse(null);
-        if (team == null) return;
-
-        team.setTransferBudget(team.getTransferBudget() + amount);
-        team.setTotalFinances(team.getTotalFinances() + amount);
-        teamRepository.save(team);
+        financeService.recordTransaction(teamId, season, roundNumber, "PRIZE_MONEY", reason, amount);
 
         // Send inbox notification only for human teams
         if (userContext.isHumanTeam(teamId)) {
@@ -5888,7 +6655,7 @@ public class CompetitionController {
         Kvekrpur.setName("Kvekrpur");
         Kvekrpur.setTeamId(14L); // Tik Tok
         Kvekrpur.setAge(20);
-        Kvekrpur.setMorale(100D);
+        Kvekrpur.setMorale(70D);
         Kvekrpur.setFitness(100D);
         Kvekrpur.setCurrentAbility(300);
         Kvekrpur.setPotentialAbility(350);
@@ -5916,6 +6683,11 @@ public class CompetitionController {
             team.setCompetitionId(leagueId);
             team.setTransferBudget(0L);
             team.setTotalFinances(0L);
+            // Stadium capacity based on reputation: 10,000 base + reputation * 8
+            int stadiumCapacity = 10_000 + teamValues.get(i).get(0) * 8;
+            team.setStadiumCapacity(stadiumCapacity);
+            team.setStadiumName(teamNames.get(i).get(0) + " Stadium");
+            team.setBoardConfidence(50);
             teamRepository.save(team);
 
             CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
@@ -5944,6 +6716,40 @@ public class CompetitionController {
             teamFacilities.setScoutingLevel(Math.min(20, Math.max(1, (facilities.get(i).get(0) + facilities.get(i).get(1)) / 2)));
             _teamFacilitiesRepository.save(teamFacilities);
 
+            // Create Stadium entity
+            Stadium stadium = new Stadium();
+            stadium.setTeamId(i + addedModulo + 1);
+            stadium.setStadiumName(teamNames.get(i).get(0) + " Stadium");
+            stadium.setCapacity(stadiumCapacity);
+            // Initialize stadium facilities based on reputation tier
+            int rep = teamValues.get(i).get(0);
+            if (rep >= 9000) {
+                stadium.setVipBoxesLevel(5);
+                stadium.setCateringLevel(4);
+                stadium.setFanShopLevel(4);
+                stadium.setFastFoodLevel(3);
+                stadium.setHeadquartersLevel(5);
+                stadium.setTrainingPitchLevel(5);
+                stadium.setParkingLevel(4);
+            } else if (rep >= 7000) {
+                stadium.setVipBoxesLevel(3);
+                stadium.setCateringLevel(2);
+                stadium.setFanShopLevel(2);
+                stadium.setFastFoodLevel(2);
+                stadium.setHeadquartersLevel(3);
+                stadium.setTrainingPitchLevel(3);
+                stadium.setParkingLevel(2);
+            } else if (rep >= 5000) {
+                stadium.setVipBoxesLevel(1);
+                stadium.setCateringLevel(1);
+                stadium.setFanShopLevel(1);
+                stadium.setFastFoodLevel(1);
+                stadium.setHeadquartersLevel(2);
+                stadium.setTrainingPitchLevel(2);
+                stadium.setParkingLevel(1);
+            }
+            stadiumRepository.save(stadium);
+
             // Initialize default training schedule for this team
             long currentTeamId = i + addedModulo + 1;
             List<TrainingSchedule> defaultSchedule = TrainingController.buildDefaultSchedule(currentTeamId);
@@ -5957,10 +6763,12 @@ public class CompetitionController {
             manager.setManagerReputation(team.getReputation() / 3);
             manager.setAge(35 + new Random().nextInt(20)); // 35-54
             manager.setSeasonCreated(1);
-            manager.setMorale(100D);
+            manager.setMorale(70D);
             manager.setFitness(100D);
             manager.setRating(0);
-            manager.setTacticStyle("442");
+            String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), new Random());
+            manager.setTacticStyle(kit[0]);
+            manager.setKnownTactics(kit[1]);
             humanRepository.save(manager);
         }
     }
@@ -6194,8 +7002,12 @@ public class CompetitionController {
 
     // ==================== TEAM TALK ====================
 
+    @Autowired
+    private TeamTalkService teamTalkService;
+
     public void resetTeamTalkUsed() {
         teamTalkUsedThisRound = false;
+        teamTalkService.resetAllForNewMatch();
     }
 
     @GetMapping("/teamTalkStatus")
@@ -6206,103 +7018,87 @@ public class CompetitionController {
         return status;
     }
 
+    /**
+     * Legacy team talk endpoint (backward compatible).
+     * Maps old types (calm, motivated, aggressive, no_pressure) to new PRE_MATCH phase.
+     */
     @PostMapping("/teamTalk")
     public Map<String, Object> giveTeamTalk(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        Map<String, Object> response = new HashMap<>();
-
         if (teamTalkUsedThisRound) {
+            Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "Team talk already used this round.");
             return response;
         }
 
         String type = body.get("type");
-        if (type == null || type.isEmpty()) {
-            response.put("success", false);
-            response.put("message", "Talk type is required.");
-            return response;
+        // Map legacy types to new types
+        String mappedType = switch (type) {
+            case "calm" -> "focus";
+            case "motivated" -> "show_passion";
+            case "aggressive" -> "expect_win";
+            case "no_pressure" -> "no_pressure";
+            default -> type;
+        };
+
+        long teamId = userContext.getTeamId(request);
+        int season = Integer.parseInt(getCurrentSeason());
+        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, "PRE_MATCH", mappedType, null, season);
+
+        if (Boolean.TRUE.equals(result.get("success"))) {
+            teamTalkUsedThisRound = true;
         }
-
-        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(userContext.getTeamId(request), TypeNames.PLAYER_TYPE);
-        Random random = new Random();
-        double totalMoraleChange = 0;
-        int playersAffected = 0;
-        List<Map<String, Object>> playerChanges = new ArrayList<>();
-
-        for (Human player : players) {
-            double change = 0;
-            double currentMorale = player.getMorale();
-
-            switch (type) {
-                case "calm":
-                    change = random.nextDouble(2, 6); // +2 to +5
-                    break;
-                case "motivated":
-                    if (currentMorale > 100 && random.nextDouble() < 0.25) {
-                        change = -3; // backfire for high morale players
-                    } else {
-                        change = random.nextDouble(5, 11); // +5 to +10
-                    }
-                    break;
-                case "aggressive":
-                    if (currentMorale > 90 && random.nextDouble() < 0.4) {
-                        change = random.nextDouble(-10, -5); // backfire
-                    } else {
-                        change = random.nextDouble(8, 16); // +8 to +15
-                    }
-                    break;
-                case "no_pressure":
-                    change = random.nextDouble(1, 4); // +1 to +3
-                    break;
-                default:
-                    response.put("success", false);
-                    response.put("message", "Invalid talk type: " + type);
-                    return response;
-            }
-
-            double newMorale = player.getMorale() + change;
-            newMorale = Math.min(newMorale, 120D);
-            newMorale = Math.max(newMorale, 30D);
-            player.setMorale(newMorale);
-
-            totalMoraleChange += change;
-            playersAffected++;
-
-            Map<String, Object> pc = new HashMap<>();
-            pc.put("playerName", player.getName());
-            pc.put("change", Math.round(change * 10.0) / 10.0);
-            playerChanges.add(pc);
-        }
-
-        humanRepository.saveAll(players);
-        teamTalkUsedThisRound = true;
-
-        double avgChange = playersAffected > 0 ? totalMoraleChange / playersAffected : 0;
-
-        response.put("success", true);
-        response.put("type", type);
-        response.put("averageMoraleChange", Math.round(avgChange * 10.0) / 10.0);
-        response.put("playersAffected", playersAffected);
-        response.put("playerChanges", playerChanges);
-        response.put("message", getTeamTalkMessage(type, avgChange));
-
-        return response;
+        return result;
     }
 
-    private String getTeamTalkMessage(String type, double avgChange) {
-        String changeStr = (avgChange >= 0 ? "+" : "") + String.format("%.1f", avgChange);
-        switch (type) {
-            case "calm":
-                return "Your calm words settled the squad. Average morale change: " + changeStr;
-            case "motivated":
-                return "You fired up the team with a motivational speech. Average morale change: " + changeStr;
-            case "aggressive":
-                return "Your aggressive talk divided opinions in the dressing room. Average morale change: " + changeStr;
-            case "no_pressure":
-                return "You eased the pressure on the squad. Average morale change: " + changeStr;
-            default:
-                return "Team talk delivered. Average morale change: " + changeStr;
+    /**
+     * Expanded team talk endpoint with phase support (PRE_MATCH, HALF_TIME, POST_MATCH).
+     */
+    @PostMapping("/teamTalkExpanded")
+    public Map<String, Object> giveExpandedTeamTalk(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        String phase = body.getOrDefault("phase", "PRE_MATCH");
+        String type = body.get("type");
+        String matchContext = body.get("matchContext"); // "winning", "losing", "drawing"
+        long teamId = userContext.getTeamId(request);
+        int season = Integer.parseInt(getCurrentSeason());
+
+        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, phase, type, matchContext, season);
+
+        // Legacy flag for PRE_MATCH
+        if ("PRE_MATCH".equals(phase) && Boolean.TRUE.equals(result.get("success"))) {
+            teamTalkUsedThisRound = true;
         }
+        return result;
+    }
+
+    /**
+     * Get available talk options for a phase.
+     */
+    @GetMapping("/teamTalkOptions/{phase}")
+    public List<Map<String, Object>> getTeamTalkOptions(
+            @PathVariable String phase,
+            @RequestParam(required = false, defaultValue = "") String matchContext) {
+        return teamTalkService.getAvailableTalks(phase, matchContext);
+    }
+
+    /**
+     * Individual player talk.
+     */
+    @PostMapping("/playerTalk")
+    public Map<String, Object> givePlayerTalk(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        long teamId = userContext.getTeamId(request);
+        long playerId = ((Number) body.get("playerId")).longValue();
+        String type = (String) body.get("type");
+        int season = Integer.parseInt(getCurrentSeason());
+        return teamTalkService.giveIndividualTalk(teamId, playerId, type, season);
+    }
+
+    /**
+     * Get available individual talk options.
+     */
+    @GetMapping("/playerTalkOptions")
+    public List<Map<String, Object>> getPlayerTalkOptions() {
+        return teamTalkService.getIndividualTalkOptions();
     }
 
     private void generateSeasonObjectives(int season) {
@@ -6362,10 +7158,9 @@ public class CompetitionController {
                 if (numTeams == 0) numTeams = 12;
                 int predicted = predictedPositionByComp.getOrDefault(comp.getId(), numTeams / 2);
 
-                if (comp.getTypeId() == 1 || comp.getTypeId() == 3) { // League or Second League
+                if (comp.getTypeId() == 1) { // First League — has relegation
                     objective.setObjectiveType("league_position");
                     objective.setImportance("critical");
-                    // Target = predicted position + 2 (give some leeway), but at least 1
                     int target = Math.min(predicted + 2, numTeams);
                     target = Math.max(target, 1);
                     if (target <= 3) {
@@ -6378,10 +7173,22 @@ public class CompetitionController {
                         objective.setDescription("Finish in position " + target + " or higher");
                     }
                     objective.setTargetValue(target);
-                } else if (comp.getTypeId() == 2) { // Cup
+                } else if (comp.getTypeId() == 3) { // Second League — promotion target, no relegation
+                    objective.setObjectiveType("league_position");
+                    objective.setImportance("critical");
+                    int target = Math.min(predicted + 2, numTeams);
+                    target = Math.max(target, 1);
+                    if (target <= 2) {
+                        objective.setDescription("Promote to the first league (top " + target + ")");
+                    } else if (target <= numTeams / 2) {
+                        objective.setDescription("Finish in the top half (top " + target + ")");
+                    } else {
+                        objective.setDescription("Finish in position " + target + " or higher");
+                    }
+                    objective.setTargetValue(target);
+                } else if (comp.getTypeId() == 2) { // Cup — scale realistically by predicted strength
                     objective.setObjectiveType("cup_round");
                     objective.setImportance("medium");
-                    // Use predicted league position to estimate cup expectations
                     if (predicted <= 3) {
                         objective.setTargetValue(4);
                         objective.setDescription("Win the cup");
@@ -6391,33 +7198,50 @@ public class CompetitionController {
                     } else if (predicted <= numTeams / 2) {
                         objective.setTargetValue(2);
                         objective.setDescription("Reach the cup semi-final");
-                    } else {
+                    } else if (predicted <= 3 * numTeams / 4) {
                         objective.setTargetValue(1);
                         objective.setDescription("Reach the cup quarter-final");
+                    } else {
+                        // Weak side: just being in the cup is fine, no realistic deep run
+                        objective.setTargetValue(0);
+                        objective.setDescription("Compete honorably in the cup");
                     }
-                } else if (comp.getTypeId() == 4) { // LoC (European)
+                } else if (comp.getTypeId() == 4) { // LoC — scale by predicted strength
                     objective.setObjectiveType("european_round");
                     objective.setImportance("high");
-                    // Use league predicted position for European expectations
                     if (predicted <= 2) {
                         objective.setTargetValue(4);
                         objective.setDescription("Win the League of Champions");
                     } else if (predicted <= 5) {
                         objective.setTargetValue(3);
                         objective.setDescription("Reach the LoC final");
-                    } else {
+                    } else if (predicted <= 8) {
                         objective.setTargetValue(2);
                         objective.setDescription("Reach the LoC semi-final");
+                    } else if (predicted <= 11) {
+                        objective.setTargetValue(1);
+                        objective.setDescription("Reach the LoC quarter-final");
+                    } else {
+                        // Mid/lower-table side qualifying through coefficient cascade —
+                        // just getting past the group stage is the realistic ceiling.
+                        objective.setTargetValue(0);
+                        objective.setDescription("Qualify from the group stage");
                     }
-                } else if (comp.getTypeId() == 5) { // Stars Cup (European)
+                } else if (comp.getTypeId() == 5) { // Stars Cup — scale by predicted strength
                     objective.setObjectiveType("european_round");
                     objective.setImportance("medium");
                     if (predicted <= 3) {
                         objective.setTargetValue(3);
                         objective.setDescription("Reach the Stars Cup final");
-                    } else {
+                    } else if (predicted <= 8) {
                         objective.setTargetValue(2);
                         objective.setDescription("Reach the Stars Cup semi-final");
+                    } else if (predicted <= 11) {
+                        objective.setTargetValue(1);
+                        objective.setDescription("Reach the Stars Cup quarter-final");
+                    } else {
+                        objective.setTargetValue(0);
+                        objective.setDescription("Qualify from the group stage");
                     }
                 } else {
                     continue; // Unknown competition type
@@ -6819,7 +7643,9 @@ public class CompetitionController {
                 newManager.setMorale(100D);
                 newManager.setFitness(100D);
                 newManager.setRating(0);
-                newManager.setTacticStyle("442");
+                String[] kit = tacticService.buildManagerTacticKit((int) newManager.getRating(), new Random());
+                newManager.setTacticStyle(kit[0]);
+                newManager.setKnownTactics(kit[1]);
                 humanRepository.save(newManager);
 
                 System.out.println("=== AI MANAGER FIRED: " + manager.getName() + " from " + team.getName()
@@ -6894,6 +7720,7 @@ public class CompetitionController {
      */
     @Transactional
     public void simulateMatchday(long competitionId, int matchday, int season) {
+        long _tMatchdayStart = System.nanoTime();
         Competition competition = competitionRepository.findById(competitionId).orElse(null);
         if (competition == null) return;
 
@@ -6911,6 +7738,8 @@ public class CompetitionController {
 
         System.out.println("=== simulateMatchday: comp=" + competitionId + " typeId=" + typeId
                 + " matchday=" + matchday + " → round=" + round + " season=" + season + " ===");
+
+        try {
 
         // Guard: skip if this round was already simulated
         List<CompetitionTeamInfoDetail> existing = competitionTeamInfoDetailRepository
@@ -6999,16 +7828,35 @@ public class CompetitionController {
             return;
         }
 
+        // === League (typeId 1) / Second League (typeId 3) ===
+        // Fixtures are pre-generated at season start. Calling getFixturesForRound
+        // here would duplicate every round in competition_team_info_match and cause
+        // unique-constraint violations on match_stats during simulateRound.
+        if (typeId == 1 || typeId == 3) {
+            this.simulateRound(compIdStr, roundStr);
+            return;
+        }
+
         // === Cup (typeId 2) ===
-        this.getFixturesForRound(compIdStr, roundStr);
+        // Bracket is fully pre-generated at season start by CupBracketService — no
+        // per-round draw, no "draw next round" step. We just simulate this round;
+        // simulateRound propagates winners into the pre-created next-round slots
+        // via cupBracketService.propagateWinner().
         this.simulateRound(compIdStr, roundStr);
-        // Draw next cup round
+
+        // Still need to assign a calendar day for the next round if there is one,
+        // so the existing calendar/event flow knows when to fire it.
         int numTeams = getTeamCountForCompetition(competitionId);
         int maxRounds = Math.max(1, (int) Math.ceil(Math.log(numTeams) / Math.log(2)));
         if (round < maxRounds) {
-            int nextRound = round + 1;
-            this.getFixturesForRound(compIdStr, String.valueOf(nextRound));
             fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
+        }
+
+        } finally {
+            long totalMs = (System.nanoTime() - _tMatchdayStart) / 1_000_000;
+            System.out.println(String.format(
+                    "<<< simulateMatchday comp=%d matchday=%d DONE in %dms",
+                    competitionId, matchday, totalMs));
         }
     }
 

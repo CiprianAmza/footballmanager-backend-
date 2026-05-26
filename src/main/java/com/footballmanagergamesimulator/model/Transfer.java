@@ -24,5 +24,10 @@ public class Transfer {
     private String buyTeamName;
     private String playerName;
 
+    // Sell-on fee paid to a third club
+    @Column(columnDefinition = "bigint default 0")
+    private long sellOnFeePaid;
+    @Column(columnDefinition = "bigint default 0")
+    private long sellOnRecipientTeamId;
 
 }

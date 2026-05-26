@@ -43,7 +43,8 @@ class TacticServiceTest {
     @Test
     void testGetAllExistingTactics() {
         // Test the list of tactics
-        List<String> expectedTactics = List.of("442", "433", "343", "451", "352");
+        List<String> expectedTactics = List.of("442", "433", "343", "451", "352",
+                "4231", "4141", "4411", "4321", "4222", "3421", "532", "5212", "541", "3511");
         assertEquals(expectedTactics, tacticService.getAllExistingTactics());
     }
 }

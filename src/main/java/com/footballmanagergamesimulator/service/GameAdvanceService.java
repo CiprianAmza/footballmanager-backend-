@@ -89,10 +89,34 @@ public class GameAdvanceService {
     HumanService humanService;
 
     @Autowired
+    @Lazy
+    JobOfferService jobOfferService;
+
+    @Autowired
+    @Lazy
+    com.footballmanagergamesimulator.controller.AdminController adminController;
+
+    @Autowired
+    com.footballmanagergamesimulator.user.UserRepository userRepository;
+
+    private final java.util.Random random = new java.util.Random();
+
+    @Autowired
     LiveMatchSimulationService liveMatchSimulationService;
 
     @Autowired
+    @Lazy
+    FinanceService financeService;
+
+    @Autowired
+    @Lazy
+    FriendlyMatchService friendlyMatchService;
+
+    @Autowired
     CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
+
+    @Autowired
+    PlayerSkillsRepository playerSkillsRepository;
 
     @Autowired
     ScoutRepository scoutRepository;
@@ -132,7 +156,20 @@ public class GameAdvanceService {
             "SPONSOR_OFFER", "NATIONAL_TEAM_CALL", "YOUTH_ACADEMY_REPORT"
     );
 
-    public Map<String, Object> advance(int season) {
+    public synchronized Map<String, Object> advance(int season) {
+        // synchronized so two concurrent /game/advance calls (e.g. autoContinue
+        // firing rapidly, double-click on CONTINUE, two tabs) can't both update
+        // the same human/team rows in parallel. H2 row-level lock timeout was
+        // the symptom — single-user game, simplest correct serialization.
+
+        // Recovery: any PROCESSING events left over from a previous crash/exception
+        // are flipped back to PENDING so they can be retried. Safe because we're
+        // synchronized and nothing else is mid-processing right now.
+        int released = calendarService.releaseStuckEvents(season);
+        if (released > 0) {
+            System.out.println(">>> advance: released " + released + " stuck PROCESSING events back to PENDING");
+        }
+
         GameCalendar calendar = calendarService.getOrCreateCalendar(season);
 
         if (calendar.isManagerFired()) {
@@ -146,10 +183,22 @@ public class GameAdvanceService {
             return result;
         }
 
+        // Hard pause: any logged-in user has a pending job offer → block advance
+        // until they accept/decline. Frontend shows a banner / inbox modal.
+        Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar);
+        if (jobOfferBlock != null) return jobOfferBlock;
+
         // Clear pause flag - pressing CONTINUE is the user input that unpauses
         if (calendar.isPaused()) {
             calendar.setPaused(false);
             gameCalendarRepository.save(calendar);
+        }
+
+        // Run the offer generator — admin force OR periodic (low chance per advance)
+        try {
+            maybeGenerateJobOffers();
+        } catch (Exception ex) {
+            System.err.println("Job offer generator failed: " + ex);
         }
 
         List<Map<String, Object>> processedEvents = new ArrayList<>();
@@ -167,6 +216,9 @@ public class GameAdvanceService {
 
             for (CalendarEvent event : events) {
                 if (!"PENDING".equals(event.getStatus())) continue;
+                // Atomic DB claim — if two advance() calls race, only the one whose
+                // UPDATE matched PENDING gets to process this event. The other skips.
+                if (!calendarService.claimEvent(event.getId())) continue;
                 String type = event.getEventType();
                 if ("MATCH_LEAGUE".equals(type) || "MATCH_CUP".equals(type) || "MATCH_EUROPEAN".equals(type)) {
                     matchEvents.add(event);
@@ -177,7 +229,19 @@ public class GameAdvanceService {
 
             // Process non-match events
             for (CalendarEvent event : otherEvents) {
-                Map<String, Object> eventResult = processEvent(event, calendar);
+                Map<String, Object> eventResult;
+                try {
+                    eventResult = processEvent(event, calendar);
+                } catch (RuntimeException ex) {
+                    // Don't leave the event stuck in PROCESSING — release it so the next
+                    // advance() retries instead of silently skipping it forever.
+                    calendarService.releaseEvent(event.getId());
+                    System.err.println(">>> processEvent failed for event id=" + event.getId()
+                            + " type=" + event.getEventType() + " day=" + event.getDay()
+                            + " — released back to PENDING. " + ex);
+                    ex.printStackTrace();
+                    throw ex;
+                }
                 calendarService.markEventCompleted(event.getId());
 
                 boolean isImportant = IMPORTANT_EVENT_TYPES.contains(event.getEventType());
@@ -194,7 +258,19 @@ public class GameAdvanceService {
 
             // Batch-process all match events at once
             if (!matchEvents.isEmpty() && !calendar.isPaused()) {
-                Map<String, Object> batchResult = processBatchMatches(matchEvents, calendar);
+                Map<String, Object> batchResult;
+                try {
+                    batchResult = processBatchMatches(matchEvents, calendar);
+                } catch (RuntimeException ex) {
+                    for (CalendarEvent me : matchEvents) {
+                        calendarService.releaseEvent(me.getId());
+                    }
+                    System.err.println(">>> processBatchMatches failed for "
+                            + matchEvents.size() + " events on day " + calendar.getCurrentDay()
+                            + " — released back to PENDING. " + ex);
+                    ex.printStackTrace();
+                    throw ex;
+                }
                 processedEvents.add(batchResult);
 
                 for (CalendarEvent me : matchEvents) {
@@ -280,24 +356,27 @@ public class GameAdvanceService {
     }
 
     private void processMonthlyWages(int season) {
+        GameCalendar calendar = calendarService.getOrCreateCalendar(season);
+        int currentDay = calendar.getCurrentDay();
+
         List<Team> allTeams = teamRepository.findAll();
         for (Team team : allTeams) {
-            // Sum wages of all humans belonging to this team (players, managers, staff)
-            List<Human> teamMembers = humanRepository.findAllByTeamId(team.getId());
-            long totalWages = 0;
-            for (Human h : teamMembers) {
-                if (h.isRetired()) continue;
-                totalWages += h.getWage();
-            }
+            // Process wages through finance service (records transaction + updates totalFinances)
+            long wagesPaid = financeService.processTeamMonthlyWages(team, season, currentDay);
 
-            // Also add scout wages
-            List<Scout> scouts = scoutRepository.findAllByTeamId(team.getId());
-            for (Scout s : scouts) {
-                totalWages += s.getWage();
-            }
+            // Process monthly merchandising income for all teams
+            financeService.processMerchandisingIncome(team.getId(), season, currentDay);
 
-            team.setTotalFinances(team.getTotalFinances() - totalWages);
-            teamRepository.save(team);
+            // Process debt interest if applicable
+            financeService.processDebtInterest(team.getId(), season, currentDay);
+
+            // Check if finances went negative -> create debt
+            financeService.checkAndCreateDebt(team.getId());
+
+            // Send financial report to human managers
+            if (userContext.isHumanTeam(team.getId())) {
+                financeService.sendMonthlyFinancialReport(team.getId(), season, currentDay, wagesPaid);
+            }
         }
         System.out.println("=== Monthly wages processed for season " + season + " ===");
     }
@@ -401,7 +480,7 @@ public class GameAdvanceService {
                 processInjuryUpdate();
                 // Also check facility upgrade completion for all human teams
                 for (long htId : userContext.getAllHumanTeamIds()) {
-                    facilityUpgradeService.checkUpgradeCompletion(htId, calendar.getCurrentDay());
+                    facilityUpgradeService.checkUpgradeCompletion(htId, calendar.getCurrentDay(), calendar.getSeason());
                 }
                 // Process completed scouting assignments
                 scoutManagementController.processCompletedAssignments(calendar.getSeason(), calendar.getCurrentDay());
@@ -453,7 +532,18 @@ public class GameAdvanceService {
                 suspensionService.processMatchCards(event.getCompetitionId(), event.getMatchday(), calendar.getSeason());
                 break;
             case "MATCH_FRIENDLY":
-                result.put("details", "Pre-season friendly completed");
+                List<Map<String, Object>> friendlyResults = friendlyMatchService.simulateFriendliesForDay(
+                        calendar.getSeason(), calendar.getCurrentDay());
+                if (!friendlyResults.isEmpty()) {
+                    result.put("details", "Friendly match completed");
+                    result.put("friendlyResults", friendlyResults);
+                    // Show first result as summary
+                    Map<String, Object> first = friendlyResults.get(0);
+                    result.put("title", "Friendly: " + first.get("homeTeam") + " " +
+                            first.get("score") + " " + first.get("awayTeam"));
+                } else {
+                    result.put("details", "Pre-season friendly day (no matches scheduled)");
+                }
                 break;
             case "CONTRACT_EXPIRY_CHECK":
                 competitionController.handleContractExpiries((int) calendar.getSeason());
@@ -522,6 +612,7 @@ public class GameAdvanceService {
         }
 
         // Simulate ALL competitions (just simulateRound, same as old play())
+        long _tBatchStart = System.nanoTime();
         for (CalendarEvent event : matchEvents) {
             if (event.getCompetitionId() != null && event.getMatchday() > 0) {
                 competitionController.simulateMatchday(
@@ -529,6 +620,10 @@ public class GameAdvanceService {
                 matchSummaries.add(event.getTitle());
             }
         }
+        long batchMs = (System.nanoTime() - _tBatchStart) / 1_000_000;
+        System.out.println(String.format(
+                "=== processBatchMatches: %d competitions in %dms (avg %dms/comp) ===",
+                matchEvents.size(), batchMs, matchEvents.isEmpty() ? 0 : batchMs / matchEvents.size()));
 
         // AFTER all simulations: find match results for ALL human teams
         List<Long> htIds = userContext.getAllHumanTeamIds();
@@ -712,44 +807,117 @@ public class GameAdvanceService {
     private static final double AI_TRAINING_SCALE = 11.0 / 88.0; // ~0.125
 
     /**
-     * Trains all AI team players using the original trainPlayer logic.
-     * Runs every 5th training session (more frequent than before) but with scaled-down
-     * rating changes to compensate for the higher frequency.
-     * Single batch save for all players across all teams.
+     * Trains all AI team players using batch-loaded data.
+     * Runs every 3rd training session with scaled-down rating changes.
+     * Uses bulk queries instead of per-player/per-team queries (~5 queries total vs ~10,000).
      */
     private void trainAllAITeams(int season) {
         aiTrainingCounter++;
         if (aiTrainingCounter % AI_TRAINING_FREQUENCY != 0) return;
 
+        // 1. Determine which teams are AI teams
         List<Team> allTeams = teamRepository.findAll();
-        List<Human> allPlayersToSave = new ArrayList<>();
-
+        Set<Long> aiTeamIds = new HashSet<>();
         for (Team team : allTeams) {
-            if (userContext.isHumanTeam(team.getId())) continue;
+            if (!userContext.isHumanTeam(team.getId())) {
+                aiTeamIds.add(team.getId());
+            }
+        }
+        if (aiTeamIds.isEmpty()) return;
 
-            TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(team.getId());
-            if (facilities == null) continue;
+        // 2. Bulk load all facilities (1 query)
+        List<TeamFacilities> allFacilities = teamFacilitiesRepository.findAll();
+        Map<Long, TeamFacilities> facilitiesMap = new HashMap<>();
+        for (TeamFacilities f : allFacilities) {
+            facilitiesMap.put(f.getTeamId(), f);
+        }
 
-            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
-            for (Human player : players) {
-                if (player.isRetired()) continue;
-                double ratingBefore = player.getRating();
-                player = humanService.trainPlayer(player, facilities, season);
-                // Scale down the rating change to compensate for more frequent training
-                double ratingChange = player.getRating() - ratingBefore;
-                if (ratingChange != 0) {
-                    double scaledRating = ratingBefore + (ratingChange * AI_TRAINING_SCALE);
-                    player.setRating(scaledRating);
-                    if (scaledRating > player.getBestEverRating()) {
-                        player.setBestEverRating(scaledRating);
-                        player.setSeasonOfBestEverRating(season);
-                    }
+        // 3. Bulk load all AI team players (1 query)
+        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
+        List<Human> aiPlayers = new ArrayList<>();
+        for (Human p : allPlayers) {
+            if (p.getTeamId() != null && aiTeamIds.contains(p.getTeamId()) && !p.isRetired()) {
+                aiPlayers.add(p);
+            }
+        }
+        if (aiPlayers.isEmpty()) return;
+
+        // 4. Bulk load all PlayerSkills for AI players (1 query)
+        List<Long> aiPlayerIds = aiPlayers.stream().map(Human::getId).collect(Collectors.toList());
+        List<PlayerSkills> allSkills = playerSkillsRepository.findAllByPlayerIdIn(aiPlayerIds);
+        Map<Long, PlayerSkills> skillsMap = new HashMap<>();
+        for (PlayerSkills ps : allSkills) {
+            skillsMap.put(ps.getPlayerId(), ps);
+        }
+
+        // 5. Bulk load all coaching staff and pre-compute multiplier per team (1 query per coach type = 6 queries)
+        Map<Long, Double> coachingMultiplierCache = new HashMap<>();
+        // Pre-load all staff in one pass by loading all humans with coach types
+        Map<Long, List<Human>> staffByTeam = new HashMap<>();
+        for (long coachType : new long[]{TypeNames.ASSISTANT_MANAGER_TYPE, TypeNames.FIRST_TEAM_COACH_TYPE,
+                TypeNames.FITNESS_COACH_TYPE, TypeNames.GK_COACH_TYPE,
+                TypeNames.YOUTH_COACH_TYPE, TypeNames.HOYD_TYPE}) {
+            for (Human staff : humanRepository.findAllByTypeId(coachType)) {
+                if (staff.getTeamId() != null && aiTeamIds.contains(staff.getTeamId())) {
+                    staffByTeam.computeIfAbsent(staff.getTeamId(), k -> new ArrayList<>()).add(staff);
                 }
-                allPlayersToSave.add(player);
             }
         }
 
-        if (!allPlayersToSave.isEmpty()) humanRepository.saveAll(allPlayersToSave);
+        for (long teamId : aiTeamIds) {
+            List<Human> staff = staffByTeam.getOrDefault(teamId, List.of());
+            if (staff.isEmpty()) {
+                coachingMultiplierCache.put(teamId, 0.5);
+            } else {
+                double avg = staff.stream()
+                        .mapToDouble(c -> (c.getCoachingAttacking() + c.getCoachingDefending() +
+                                c.getCoachingTactical() + c.getCoachingTechnical() +
+                                c.getCoachingMental() + c.getCoachingFitness()) / 6.0)
+                        .average().orElse(5.0);
+                coachingMultiplierCache.put(teamId, 0.5 + (avg / 20.0));
+            }
+        }
+
+        // 6. Train all players in memory
+        Random random = new Random();
+        List<Human> modifiedPlayers = new ArrayList<>();
+        List<PlayerSkills> modifiedSkills = new ArrayList<>();
+
+        for (Human player : aiPlayers) {
+            long teamId = player.getTeamId();
+            TeamFacilities facilities = facilitiesMap.get(teamId);
+            if (facilities == null) continue;
+
+            double staffMult = coachingMultiplierCache.getOrDefault(teamId, 0.5);
+            double facilityBase = 0.5 + (facilities.getSeniorTrainingLevel() / 20.0);
+            double facilityMultiplier = staffMult * 0.6 + facilityBase * 0.4;
+
+            PlayerSkills skills = skillsMap.get(player.getId());
+            double ratingBefore = player.getRating();
+
+            PlayerSkills changedSkills = humanService.trainPlayerBatch(
+                    player, facilities, facilityMultiplier, skills, season, random);
+
+            // Scale down the rating change
+            double ratingChange = player.getRating() - ratingBefore;
+            if (ratingChange != 0) {
+                double scaledRating = ratingBefore + (ratingChange * AI_TRAINING_SCALE);
+                player.setRating(scaledRating);
+                if (scaledRating > player.getBestEverRating()) {
+                    player.setBestEverRating(scaledRating);
+                    player.setSeasonOfBestEverRating(season);
+                }
+            }
+
+            modifiedPlayers.add(player);
+            if (changedSkills != null) {
+                modifiedSkills.add(changedSkills);
+            }
+        }
+
+        // 7. Batch save (2 queries)
+        if (!modifiedPlayers.isEmpty()) humanRepository.saveAll(modifiedPlayers);
+        if (!modifiedSkills.isEmpty()) playerSkillsRepository.saveAll(modifiedSkills);
     }
 
     /**
@@ -890,5 +1058,61 @@ public class GameAdvanceService {
         Map<String, Object> finalState = getGameState(season);
         finalState.put("allEventsProcessed", allProcessed);
         return finalState;
+    }
+
+    // ============================================================
+    //                    JOB OFFER INTEGRATION
+    // ============================================================
+
+    /**
+     * If any human user has a pending job offer, return a paused response so
+     * the frontend blocks CONTINUE until they accept/decline. Returns null
+     * if there's nothing blocking.
+     */
+    private Map<String, Object> checkJobOfferPause(int season, GameCalendar calendar) {
+        boolean anyPending = false;
+        List<Integer> usersWithOffers = new ArrayList<>();
+        for (var u : userRepository.findAll()) {
+            if (jobOfferService.userHasPendingOffer(u.getId())) {
+                anyPending = true;
+                usersWithOffers.add(u.getId());
+            }
+        }
+        if (!anyPending) return null;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("paused", true);
+        result.put("reason", "JOB_OFFER_PENDING");
+        result.put("awaitingInput", true);
+        result.put("usersWithOffers", usersWithOffers);
+        result.put("season", season);
+        result.put("day", calendar.getCurrentDay());
+        result.put("phase", calendar.getCurrentPhase());
+        result.put("dateDisplay", calendarService.getDateDisplay(calendar.getCurrentDay()));
+        return result;
+    }
+
+    /**
+     * Decide whether to spawn job offers this tick. Two paths:
+     *  - Admin force flag → guaranteed offer for every active user.
+     *  - Periodic random → tiny chance per advance per user (about once every
+     *    ~50 advances), only if the master switch is on.
+     */
+    private void maybeGenerateJobOffers() {
+        boolean forced = adminController.consumeForceOfferFlag();
+        if (!forced && !adminController.areJobOffersEnabled()) return;
+
+        for (var u : userRepository.findAll()) {
+            if (u.getTeamId() == null) continue;            // jobless user — skip
+            if (u.isFired()) continue;                       // separate flow
+            if (jobOfferService.userHasPendingOffer(u.getId())) continue;
+            if (!forced && random.nextDouble() > 0.02) continue; // 2% per advance per user
+
+            try {
+                jobOfferService.generateOpportunisticOffer(u.getId());
+            } catch (Exception ex) {
+                System.err.println("Failed to generate offer for user " + u.getId() + ": " + ex);
+            }
+        }
     }
 }
