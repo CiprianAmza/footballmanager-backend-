@@ -305,7 +305,8 @@ public class CompetitionController {
                 }
 
                 Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
-                ScorerLeaderboardEntry scorerLeaderboardEntry = resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
+                ScorerLeaderboardEntry scorerLeaderboardEntry =
+                        com.footballmanagergamesimulator.service.SeasonTransitionService.resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
                 scorerLeaderboardRepository.save(scorerLeaderboardEntry);
             }
         }
@@ -314,23 +315,7 @@ public class CompetitionController {
 
         // Build proper full cup brackets for season 1 (wipes the legacy per-league
         // cup CompetitionTeamInfo records and replaces with bracket-aware fixtures).
-        regenerateAllCupBrackets((int) round.getSeason());
-    }
-
-    /**
-     * (Re)generates the bracket for every national cup for the given season.
-     * Safe to call multiple times — the service wipes the cup's existing
-     * (cup, season) data before rebuilding.
-     */
-    public void regenerateAllCupBrackets(int season) {
-        Set<Long> cupIds = getCompetitionIdsByCompetitionType(2);
-        for (Long cupId : cupIds) {
-            cupBracketService.generateBracket(cupId, season);
-            // generateSeasonCalendar() runs before the bracket exists, so the match rows
-            // we just created still have day=0. Sync them with the already-existing
-            // MATCH_CUP CalendarEvent rows so they appear on the right day in schedules.
-            fixtureSchedulingService.syncCalendarDaysOntoExistingMatches(cupId, season);
-        }
+        seasonTransitionService.regenerateAllCupBrackets((int) round.getSeason());
     }
 
     /**
@@ -813,169 +798,61 @@ public class CompetitionController {
     public void processNewSeasonSetup(int season) {
         seasonTransitionService.processNewSeasonSetup(season);
     }
-    public static ScorerLeaderboardEntry resetCurrentSeasonStats(Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry) {
 
-        ScorerLeaderboardEntry scorerLeaderboardEntry = optionalScorerLeaderboardEntry.get();
-        scorerLeaderboardEntry.setCurrentSeasonGames(0);
-        scorerLeaderboardEntry.setCurrentSeasonGoals(0);
-        scorerLeaderboardEntry.setCurrentSeasonLeagueGames(0);
-        scorerLeaderboardEntry.setCurrentSeasonLeagueGoals(0);
-        scorerLeaderboardEntry.setCurrentSeasonCupGames(0);
-        scorerLeaderboardEntry.setCurrentSeasonCupGoals(0);
-        scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGames(0);
-        scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGoals(0);
-        return scorerLeaderboardEntry;
+    /** Thin delegate to {@link SeasonTransitionService#handleContractExpiries(int)};
+     *  kept here so {@code GameAdvanceService} (CONTRACT_EXPIRY_CHECK calendar event)
+     *  can keep calling through the controller. */
+    public void handleContractExpiries(int newSeason) {
+        seasonTransitionService.handleContractExpiries(newSeason);
     }
 
-    public void addImprovementToOverachievers() { // todo aici
+    /** Per-match manager reputation update, called from {@link
+     *  com.footballmanagergamesimulator.service.MatchSimulationOrchestrator} via
+     *  the lazy controller back-reference. (TODO: candidate for
+     *  {@link TeamPostMatchService} extraction in a later slice.) */
+    public void updateManagerReputationAfterMatch(long teamId1, long teamId2, int score1, int score2) {
+        Team team1 = teamRepository.findById(teamId1).orElse(null);
+        Team team2 = teamRepository.findById(teamId2).orElse(null);
+        if (team1 == null || team2 == null) return;
 
-        System.out.println("Starting rating adjusting for season " + getCurrentSeason());
-        Random random = new Random();
-        List<ScorerLeaderboardEntry> allEntries = scorerLeaderboardRepository.findAll();
+        List<Human> managers1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
+        List<Human> managers2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
 
-        for (ScorerLeaderboardEntry entry: allEntries) {
+        if (!managers1.isEmpty()) {
+            double change = calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
+            Human mgr = managers1.get(0);
+            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
+            humanRepository.save(mgr);
+        }
 
-            if (entry.getCurrentSeasonGames() < 20) continue; // play at least half of the games
-
-            double ratio = 0D;
-            if (entry.getCurrentSeasonLeagueGames() > 0 && entry.getCurrentSeasonLeagueGoals() > 0) {
-                ratio = (double) entry.getCurrentSeasonLeagueGoals() / entry.getCurrentSeasonLeagueGames();
-            } else if (entry.getCurrentSeasonSecondLeagueGames() > 0 && entry.getCurrentSeasonSecondLeagueGoals() > 0){
-                ratio = (double) entry.getCurrentSeasonSecondLeagueGoals() / entry.getCurrentSeasonSecondLeagueGames();
-            }
-
-            int ratingIncrease = 0;
-            if (ratio >= 1.0D) { // amazing ratio, should increase rating by far
-                ratingIncrease = random.nextInt(15, 20);
-            } else if (ratio >= 0.75) {
-                ratingIncrease = random.nextInt(10, 15);
-            } else if (ratio >= 0.5) {
-                ratingIncrease = random.nextInt(7, 10);
-            } else if (ratio >= 0.4) {
-                ratingIncrease = random.nextInt(3, 7);
-            } else {
-                continue;
-            }
-            if (entry.getLeagueGoals() < entry.getSecondLeagueGoals()) { // this means that the goals were mainly scored in the second league, currently players can not be transferred during a season
-                ratingIncrease /= 2; // decrease rating, as overachieving in the second league is not that impressive
-            }
-
-            Optional<Human> human = humanRepository.findById(entry.getPlayerId());
-            if (human.isPresent()){
-                Human player = human.get();
-                System.out.println("Player " + player.getName() + " from team " + entry.getTeamName() + " had rating increased from " + player.getRating() + " to " + (player.getRating() + ratingIncrease) + " because of ratio of " + ratio);
-                player.setRating(player.getRating() + ratingIncrease);
-                humanRepository.save(player);
-
-                entry.setCurrentRating(player.getRating());
-                if (entry.getCurrentRating() > entry.getBestEverRating()) {
-                    entry.setBestEverRating(entry.getCurrentRating());
-                    entry.setSeasonOfBestEverRating((int) round.getSeason());
-                }
-                scorerLeaderboardRepository.save(entry);
-            }
+        if (!managers2.isEmpty()) {
+            double change = calculateMatchRepChange(score2, score1, team2.getReputation(), team1.getReputation());
+            Human mgr = managers2.get(0);
+            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
+            humanRepository.save(mgr);
         }
     }
 
-    public void saveAllPlayerTeamHistoricalRelations(long seasonNumber) {
+    public double calculateMatchRepChange(int myGoals, int oppGoals, int myTeamRep, int oppTeamRep) {
+        // repDiff positive = opponent stronger
+        double repDiff = oppTeamRep - myTeamRep;
+        // strengthFactor: 0.2x (much weaker opp) to 5x (much stronger opp)
+        double strengthFactor = Math.max(0.2, Math.min(5.0, 1.0 + repDiff / 50.0));
 
-        Set<Long> teamIds = new HashSet<>();
-        List<TeamCompetitionDetail> teams = teamCompetitionDetailRepository.findAll();
-
-        for (TeamCompetitionDetail teamCompetitionDetail: teams) {
-
-            teamIds.add(teamCompetitionDetail.getTeamId());
+        if (myGoals > oppGoals) {
+            // Win: base +2, big upset (opp 50+ rep stronger) base +10
+            double base = repDiff > 50 ? 10.0 : 2.0;
+            return base * strengthFactor;
+        } else if (myGoals == oppGoals) {
+            // Draw vs stronger: small gain, vs weaker: small loss
+            return repDiff > 0 ? 1.0 * strengthFactor : -1.0;
+        } else {
+            // Loss: base -2, embarrassing (opp 50+ rep weaker) base -10
+            double base = repDiff < -50 ? -10.0 : -2.0;
+            // Invert factor: losing to weaker = bigger penalty
+            double lossFactor = Math.max(0.2, Math.min(5.0, 1.0 - repDiff / 50.0));
+            return base * lossFactor;
         }
-
-        for (Long teamId: teamIds) {
-
-            List<Human> allTeamPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-            for (Human player: allTeamPlayers) {
-                TeamPlayerHistoricalRelation teamPlayerHistoricalRelation = new TeamPlayerHistoricalRelation();
-                teamPlayerHistoricalRelation.setPlayerId(player.getId());
-                teamPlayerHistoricalRelation.setTeamId(teamId);
-                teamPlayerHistoricalRelation.setSeasonNumber(seasonNumber + 1);
-                teamPlayerHistoricalRelation.setRating(player.getRating());
-
-                teamPlayerHistoricalRelationRepository.save(teamPlayerHistoricalRelation);
-            }
-        }
-    }
-
-    public void removeCompetitionData(Long seasonNumber) {
-
-        teamCompetitionDetailRepository.deleteAll();
-
-        List<CompetitionTeamInfo> competitionTeamInfos = competitionTeamInfoRepository.findAllBySeasonNumber(seasonNumber);
-
-        for (CompetitionTeamInfo team : competitionTeamInfos) {
-
-            TeamCompetitionDetail newTeam = new TeamCompetitionDetail();
-            newTeam.setTeamId(team.getTeamId());
-            newTeam.setCompetitionId(team.getCompetitionId());
-            newTeam.setForm("");
-            teamCompetitionDetailRepository.save(newTeam);
-        }
-    }
-
-    public void resetCompetitionData() {
-        // Keep CompetitionTeamInfoDetail (match results) for historical viewing
-        // Only delete CompetitionTeamInfoMatch (fixtures) as they're regenerated each season
-        competitionTeamInfoMatchRepository.deleteAll();
-    }
-
-    public void saveHistoricalValues(Long competitionId, Long seasonNumber) {
-
-        List<TeamCompetitionDetail> teams = teamCompetitionDetailRepository.findAll()
-                .stream()
-                .filter(teamCompetitionDetail -> teamCompetitionDetail.getCompetitionId() == competitionId)
-                .collect(Collectors.toList());
-
-        Collections.sort(teams, (a, b) -> {
-            int pointsA = a.getPoints();
-            int pointsB = b.getPoints();
-            if (pointsA != pointsB)
-                return pointsA > pointsB ? -1 : 1;
-
-            int gdA = a.getGoalDifference();
-            int gdB = b.getGoalDifference();
-            if (gdA != gdB)
-                return gdA > gdB ? -1 : 1;
-
-            return a.getGoalsFor() > b.getGoalsFor() ? -1 : 1;
-        });
-
-        for (int i = 0; i < teams.size(); i++) {
-            TeamCompetitionDetail team = teams.get(i);
-            if (team.getCompetitionId() != competitionId)
-                continue;
-            competitionHistoryRepository.save(this.adaptCompetitionHistory(team, seasonNumber, 1 + i));
-        }
-    }
-
-    private CompetitionHistory adaptCompetitionHistory(TeamCompetitionDetail team, Long seasonNumber, long position) {
-
-        CompetitionHistory competitionHistory = new CompetitionHistory();
-
-        Competition competition = competitionRepository.findById(team.getCompetitionId()).get();
-
-        competitionHistory.setSeasonNumber(seasonNumber);
-        competitionHistory.setLastPosition(position);
-        competitionHistory.setCompetitionTypeId(competition.getTypeId());
-        competitionHistory.setCompetitionName(competition.getName());
-        competitionHistory.setCompetitionId(team.getCompetitionId());
-        competitionHistory.setTeamId(team.getTeamId());
-        competitionHistory.setGames(team.getGames());
-        competitionHistory.setWins(team.getWins());
-        competitionHistory.setDraws(team.getDraws());
-        competitionHistory.setLoses(team.getLoses());
-        competitionHistory.setGoalsFor(team.getGoalsFor());
-        competitionHistory.setGoalsAgainst(team.getGoalsAgainst());
-        competitionHistory.setGoalDifference(team.getGoalDifference());
-        competitionHistory.setPoints(team.getPoints());
-        competitionHistory.setForm(team.getForm());
-
-        return competitionHistory;
     }
 
     @GetMapping("/historical/getTeams/{seasonNumber}/{competitionId}")
@@ -2516,148 +2393,6 @@ public class CompetitionController {
         transferMarketService.generateAiOffersForHumanPlayers(aiTeam, buyPlanTransferView);
     }
 
-    public void refreshTeamBudgets(int season) {
-        List<Competition> allComps = competitionRepository.findAll();
-        List<TeamCompetitionDetail> allDetails = teamCompetitionDetailRepository.findAll();
-
-        // Track teams already processed (to avoid double-counting)
-        Set<Long> processedTeamIds = new HashSet<>();
-
-        // Determine league tiers dynamically from coefficient ranking
-        List<Long> sortedLeagueIds = europeanCompetitionService.getLeagueIdsSortedByCoefficient();
-        Map<Long, Integer> leagueTierMap = new HashMap<>(); // leagueId -> tier (1=top, 2=mid, 3=lower)
-        for (int i = 0; i < sortedLeagueIds.size(); i++) {
-            int tier;
-            if (i < 2) tier = 1;       // Top 2 leagues
-            else if (i < 4) tier = 2;  // Next 2 leagues
-            else tier = 3;             // Rest
-            leagueTierMap.put(sortedLeagueIds.get(i), tier);
-        }
-
-        // 1. League prize money + TV income (based on final position + coefficient-based tier)
-        for (Competition comp : allComps) {
-            if (comp.getTypeId() != 1 && comp.getTypeId() != 3) continue;
-
-            // For second leagues, find their parent first league's tier via nationId
-            int tier = 3; // default
-            if (comp.getTypeId() == 3) {
-                long nationId = comp.getNationId();
-                for (Competition firstLeague : allComps) {
-                    if (firstLeague.getTypeId() == 1 && firstLeague.getNationId() == nationId) {
-                        tier = leagueTierMap.getOrDefault(firstLeague.getId(), 3);
-                        break;
-                    }
-                }
-            } else {
-                tier = leagueTierMap.getOrDefault(comp.getId(), 3);
-            }
-
-            long leagueBase;
-            if (comp.getTypeId() == 3) {
-                leagueBase = (tier == 1) ? 5_000_000L : (tier == 2) ? 3_000_000L : 2_000_000L;
-            } else {
-                switch (tier) {
-                    case 1: leagueBase = 50_000_000L; break;
-                    case 2: leagueBase = 20_000_000L; break;
-                    default: leagueBase = 8_000_000L; break;
-                }
-            }
-
-            List<TeamCompetitionDetail> standings = allDetails.stream()
-                    .filter(d -> d.getCompetitionId() == comp.getId())
-                    .sorted((a, b) -> {
-                        if (a.getPoints() != b.getPoints()) return b.getPoints() - a.getPoints();
-                        if (a.getGoalDifference() != b.getGoalDifference()) return b.getGoalDifference() - a.getGoalDifference();
-                        return b.getGoalsFor() - a.getGoalsFor();
-                    })
-                    .toList();
-
-            int numTeams = standings.size();
-            if (numTeams == 0) continue;
-
-            int position = 1;
-            for (TeamCompetitionDetail detail : standings) {
-                double positionFactor = 1.0 - (0.8 * (position - 1.0) / Math.max(numTeams - 1, 1));
-                long leagueIncome = (long) (leagueBase * positionFactor);
-
-                Team team = teamRepository.findById(detail.getTeamId()).orElse(null);
-                if (team == null) { position++; continue; }
-
-                // European income: coefficient points * 2,000,000
-                Optional<ClubCoefficient> cc = clubCoefficientRepository
-                        .findByTeamIdAndSeasonNumber(detail.getTeamId(), season);
-                long europeanIncome = cc.map(c -> (long) (c.getPoints() * 2_000_000L)).orElse(0L);
-
-                // TV income distributed by league position
-                int tvTier = (comp.getTypeId() == 3) ? tier + 1 : tier; // Second leagues get lower TV tier
-                long tvIncome = financeService.calculateTvIncome(position, numTeams, Math.min(tvTier, 3));
-
-                // Record financial transactions
-                financeService.recordTransaction(team.getId(), season, 340, "PRIZE_MONEY",
-                        comp.getName() + " prize money (Position " + position + ")", leagueIncome);
-                if (tvIncome > 0) {
-                    financeService.recordTransaction(team.getId(), season, 340, "TV_INCOME",
-                            comp.getName() + " TV revenue (Position " + position + ")", tvIncome);
-                }
-                if (europeanIncome > 0) {
-                    financeService.recordTransaction(team.getId(), season, 340, "PRIZE_MONEY",
-                            "European competition revenue", europeanIncome);
-                }
-
-                // Decay unspent budget by 15%
-                team = teamRepository.findById(detail.getTeamId()).orElse(null);
-                if (team != null) {
-                    team.setTransferBudget((long) (team.getTransferBudget() * 0.85));
-                    teamRepository.save(team);
-                }
-
-                // Update board confidence based on league position
-                financeService.updateBoardConfidence(detail.getTeamId(), position, numTeams);
-
-                processedTeamIds.add(detail.getTeamId());
-                position++;
-            }
-        }
-
-        // 2. Cup prize money (for teams that participated)
-        for (Competition comp : allComps) {
-            if (comp.getTypeId() != 2) continue;
-
-            int cupTier = 3;
-            long nationId = comp.getNationId();
-            for (Competition firstLeague : allComps) {
-                if (firstLeague.getTypeId() == 1 && firstLeague.getNationId() == nationId) {
-                    cupTier = leagueTierMap.getOrDefault(firstLeague.getId(), 3);
-                    break;
-                }
-            }
-
-            long cupWinnerPrize;
-            switch (cupTier) {
-                case 1: cupWinnerPrize = 10_000_000L; break;
-                case 2: cupWinnerPrize = 4_000_000L; break;
-                default: cupWinnerPrize = 1_500_000L; break;
-            }
-
-            List<CompetitionHistory> cupHistory = competitionHistoryRepository.findByCompetitionId(comp.getId()).stream()
-                    .filter(h -> h.getSeasonNumber() == season && h.getLastPosition() == 1)
-                    .toList();
-            for (CompetitionHistory ch : cupHistory) {
-                financeService.recordTransaction(ch.getTeamId(), season, 340, "PRIZE_MONEY",
-                        comp.getName() + " Winner prize", cupWinnerPrize);
-            }
-        }
-
-        // 3. Owner injections for high-reputation clubs
-        List<Team> allTeams = teamRepository.findAll();
-        for (Team team : allTeams) {
-            financeService.processOwnerInjection(team.getId(), season);
-        }
-
-        // 4. European competition prizes are now awarded per-match via awardEuropeanMatchPrizeMoney()
-    }
-
-
     private int getTeamCountForCompetition(long competitionId) {
         long currentSeason = Long.parseLong(getCurrentSeason());
         return (int) competitionTeamInfoRepository
@@ -3402,56 +3137,6 @@ public class CompetitionController {
         }
     }
 
-    public void applyTrainingEffect(List<Long> teamIds) {
-        // Pre-load all training schedules in one query
-        List<TrainingSchedule> allSchedules = trainingScheduleRepository.findAll();
-        Map<Long, Double> teamAvgIntensity = allSchedules.stream()
-                .collect(Collectors.groupingBy(TrainingSchedule::getTeamId,
-                        Collectors.averagingInt(TrainingSchedule::getIntensity)));
-
-        List<Human> playersToSave = new ArrayList<>();
-
-        for (Long teamId : teamIds) {
-            double avgIntensity = teamAvgIntensity.getOrDefault(teamId, 0.0);
-            if (avgIntensity == 0) continue;
-
-            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-            for (Human player : players) {
-                if (player.isRetired()) continue;
-
-                // Season-end rating boost: 0.5 to 2.0 depending on training intensity
-                double baseBoost = 0.5 + (avgIntensity / 100.0) * 1.5;
-
-                double ageModifier;
-                if (player.getAge() < 23) {
-                    ageModifier = 1.5;
-                } else if (player.getAge() > 30) {
-                    ageModifier = 0.5;
-                } else {
-                    ageModifier = 1.0;
-                }
-
-                double ratingBoost = baseBoost * ageModifier;
-
-                double newRating = player.getRating() + ratingBoost;
-                if (player.getPotentialAbility() > 0 && newRating > player.getPotentialAbility()) {
-                    newRating = player.getPotentialAbility();
-                }
-
-                player.setRating(newRating);
-
-                if (newRating > player.getBestEverRating()) {
-                    player.setBestEverRating(newRating);
-                    player.setSeasonOfBestEverRating((int) round.getSeason());
-                }
-
-                playersToSave.add(player);
-            }
-        }
-
-        humanRepository.saveAll(playersToSave);
-    }
-
     public Set<Long> getCompetitionIdsByCompetitionType(int competitionTypeId) {
 
         return competitionRepository
@@ -3796,410 +3481,6 @@ public class CompetitionController {
         return Math.max(w, 0);
     }
 
-    /** Public so {@link com.footballmanagergamesimulator.service.SeasonObjectiveService}
-     *  can call back through its lazy controller reference at end-of-season. */
-    public void recordManagerHistory(int season, List<TeamCompetitionDetail> allDetails) {
-        List<Team> allTeams = teamRepository.findAll();
-        List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
-        List<Competition> allCompetitions = competitionRepository.findAll();
-        List<CompetitionHistory> allCompHistory = competitionHistoryRepository.findAll().stream()
-                .filter(h -> h.getSeasonNumber() == season)
-                .toList();
-
-        // Build a fast lookup: league competition ids (typeId 1 = league, 3 = second league)
-        Set<Long> leagueCompetitionIds = allCompetitions.stream()
-                .filter(c -> c.getTypeId() == 1 || c.getTypeId() == 3)
-                .map(Competition::getId)
-                .collect(Collectors.toSet());
-
-        for (Team team : allTeams) {
-            Human manager = allManagers.stream()
-                    .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
-                    .findFirst()
-                    .orElse(null);
-
-            if (manager == null) continue;
-
-            // Find this team's LEAGUE detail (not just any competition — used to be a bug
-            // where findFirst() could pick up a cup row and report cup stats as the season).
-            TeamCompetitionDetail leagueDetail = allDetails.stream()
-                    .filter(d -> d.getTeamId() == team.getId() && leagueCompetitionIds.contains(d.getCompetitionId()))
-                    .findFirst()
-                    .orElse(null);
-
-            if (leagueDetail == null) continue;
-
-            // Calculate league position
-            long competitionId = leagueDetail.getCompetitionId();
-            List<TeamCompetitionDetail> leagueStandings = allDetails.stream()
-                    .filter(d -> d.getCompetitionId() == competitionId)
-                    .sorted((o1, o2) -> {
-                        if (o1.getPoints() != o2.getPoints()) return o2.getPoints() - o1.getPoints();
-                        if (o1.getGoalDifference() != o2.getGoalDifference()) return o2.getGoalDifference() - o1.getGoalDifference();
-                        return o2.getGoalsFor() - o1.getGoalsFor();
-                    })
-                    .toList();
-
-            int leaguePosition = 1;
-            for (TeamCompetitionDetail standing : leagueStandings) {
-                if (standing.getTeamId() == team.getId()) break;
-                leaguePosition++;
-            }
-
-            // Determine trophies won
-            List<String> trophies = new ArrayList<>();
-            if (leaguePosition == 1) {
-                Competition comp = allCompetitions.stream()
-                        .filter(c -> c.getId() == competitionId)
-                        .findFirst().orElse(null);
-                if (comp != null) trophies.add(comp.getName());
-            }
-
-            // Check cup wins - position 1 in competition history for cups
-            for (CompetitionHistory ch : allCompHistory) {
-                if (ch.getTeamId() == team.getId() && ch.getLastPosition() == 1) {
-                    Competition comp = allCompetitions.stream()
-                            .filter(c -> c.getId() == ch.getCompetitionId() && (c.getTypeId() == 2 || c.getTypeId() == 4 || c.getTypeId() == 5))
-                            .findFirst().orElse(null);
-                    if (comp != null) trophies.add(comp.getName());
-                }
-            }
-
-            // Detect promotion/relegation
-            boolean promoted = false;
-            boolean relegated = false;
-            Competition leagueComp = allCompetitions.stream()
-                    .filter(c -> c.getId() == competitionId)
-                    .findFirst().orElse(null);
-            if (leagueComp != null) {
-                int numTeams = leagueStandings.size();
-                if (leagueComp.getTypeId() == 3 && leaguePosition <= 2) { // second league, top 2 promoted
-                    promoted = true;
-                }
-                if (leagueComp.getTypeId() == 1 && leaguePosition >= numTeams - 1) { // first league, bottom 2 relegated
-                    relegated = true;
-                }
-            }
-
-            ManagerHistory mh = new ManagerHistory();
-            mh.setManagerId(manager.getId());
-            mh.setManagerName(manager.getName());
-            mh.setTeamId(team.getId());
-            mh.setTeamName(team.getName());
-            mh.setSeasonNumber(season);
-            mh.setGamesPlayed(leagueDetail.getGames());
-            mh.setWins(leagueDetail.getWins());
-            mh.setDraws(leagueDetail.getDraws());
-            mh.setLosses(leagueDetail.getLoses());
-            mh.setGoalsFor(leagueDetail.getGoalsFor());
-            mh.setGoalsAgainst(leagueDetail.getGoalsAgainst());
-            mh.setLeaguePosition(leaguePosition);
-            mh.setTrophiesWon(String.join(",", trophies));
-            mh.setPromoted(promoted);
-            mh.setRelegated(relegated);
-            managerHistoryRepository.save(mh);
-
-            // Update manager reputation at end of season (scale 0-10000)
-            double repChange = 0;
-
-            // League position bonuses
-            if (leaguePosition == 1) repChange += 100;
-            else if (leaguePosition == 2) repChange += 40;
-            else if (leaguePosition == 3) repChange += 20;
-
-            // Bottom of the table penalty
-            int numTeams = leagueStandings.size();
-            if (leaguePosition == numTeams) repChange -= 50;
-            else if (leaguePosition >= numTeams - 2) repChange -= 25;
-
-            // Trophy bonuses based on competition type
-            for (String trophy : trophies) {
-                String lower = trophy.toLowerCase();
-                if (lower.contains("champions") || lower.contains("loc") || lower.contains("league of champions")) {
-                    repChange += 500; // League of Champions
-                } else if (lower.contains("stars")) {
-                    repChange += 200; // Stars Cup
-                } else if (lower.contains("cup")) {
-                    repChange += 75; // Domestic cup
-                }
-            }
-
-            // Promotion/relegation
-            if (promoted) repChange += 50;
-            if (relegated) repChange -= 200;
-
-            // Failed objectives
-            List<SeasonObjective> objectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(team.getId(), season);
-            for (SeasonObjective obj : objectives) {
-                if ("failed".equals(obj.getStatus())) {
-                    if ("critical".equals(obj.getImportance())) repChange -= 50;
-                    else if ("high".equals(obj.getImportance())) repChange -= 25;
-                    else repChange -= 10;
-                }
-            }
-
-            double newRep = Math.max(0, Math.min(10000, manager.getManagerReputation() + repChange));
-            manager.setManagerReputation((int) newRep);
-            humanRepository.save(manager);
-        }
-
-        System.out.println("=== MANAGER HISTORY RECORDED FOR SEASON " + season + " ===");
-    }
-
-    /**
-     * Update manager reputation after each match (scale 0-10000).
-     * Normal win: +2, big upset: +10. Normal loss: -2, embarrassing loss: -10.
-     */
-    public void updateManagerReputationAfterMatch(long teamId1, long teamId2, int score1, int score2) {
-        Team team1 = teamRepository.findById(teamId1).orElse(null);
-        Team team2 = teamRepository.findById(teamId2).orElse(null);
-        if (team1 == null || team2 == null) return;
-
-        List<Human> managers1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
-        List<Human> managers2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
-
-        if (!managers1.isEmpty()) {
-            double change = calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
-            Human mgr = managers1.get(0);
-            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
-            humanRepository.save(mgr);
-        }
-
-        if (!managers2.isEmpty()) {
-            double change = calculateMatchRepChange(score2, score1, team2.getReputation(), team1.getReputation());
-            Human mgr = managers2.get(0);
-            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
-            humanRepository.save(mgr);
-        }
-    }
-
-    public double calculateMatchRepChange(int myGoals, int oppGoals, int myTeamRep, int oppTeamRep) {
-        // repDiff positive = opponent stronger
-        double repDiff = oppTeamRep - myTeamRep;
-        // strengthFactor: 0.2x (much weaker opp) to 5x (much stronger opp)
-        double strengthFactor = Math.max(0.2, Math.min(5.0, 1.0 + repDiff / 50.0));
-
-        if (myGoals > oppGoals) {
-            // Win: base +2, big upset (opp 50+ rep stronger) base +10
-            double base = repDiff > 50 ? 10.0 : 2.0;
-            return base * strengthFactor;
-        } else if (myGoals == oppGoals) {
-            // Draw vs stronger: small gain, vs weaker: small loss
-            return repDiff > 0 ? 1.0 * strengthFactor : -1.0;
-        } else {
-            // Loss: base -2, embarrassing (opp 50+ rep weaker) base -10
-            double base = repDiff < -50 ? -10.0 : -2.0;
-            // Invert factor: losing to weaker = bigger penalty
-            double lossFactor = Math.max(0.2, Math.min(5.0, 1.0 - repDiff / 50.0));
-            return base * lossFactor;
-        }
-    }
-
-    /** Public so {@link com.footballmanagergamesimulator.service.SeasonObjectiveService}
-     *  can call back through its lazy controller reference at end-of-season. */
-    public void checkManagerFiring(int season) {
-        for (long humanTeamId : userContext.getAllHumanTeamIds()) {
-            checkManagerFiringForTeam(humanTeamId, season);
-        }
-
-        // Fire AI managers that performed very badly
-        fireAIManagers(season);
-    }
-
-    private void checkManagerFiringForTeam(long humanTeamId, int season) {
-        List<SeasonObjective> humanObjectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(humanTeamId, season);
-        if (humanObjectives.isEmpty()) return;
-
-        int firingScore = 0;
-        for (SeasonObjective obj : humanObjectives) {
-            if (!"failed".equals(obj.getStatus())) continue;
-
-            int weight = "critical".equals(obj.getImportance()) ? 3 : "high".equals(obj.getImportance()) ? 2 : 1;
-
-            if ("league_position".equals(obj.getObjectiveType())) {
-                int miss = obj.getActualValue() - obj.getTargetValue();
-                firingScore += weight * Math.min(miss, 5);
-            } else {
-                int miss = obj.getTargetValue() - obj.getActualValue();
-                firingScore += weight * Math.min(miss, 3);
-            }
-        }
-
-        String title, content, category = "board";
-
-        if (firingScore >= 12) {
-            // Actually fire the human manager
-            title = "You Have Been Sacked!";
-            content = "The board has lost all confidence in your ability to manage this club. "
-                    + "You have been relieved of your duties with immediate effect. "
-                    + "Check the available jobs to find a new position.";
-            // Set fired flag on User(s) managing this team, preserve lastTeamId for inbox
-            List<User> usersWithTeam = userRepository.findAllByTeamId(humanTeamId);
-            for (User user : usersWithTeam) {
-                user.setFired(true);
-                user.setLastTeamId(humanTeamId);
-                user.setTeamId(null);
-                userRepository.save(user);
-            }
-
-            // Also set managerFired on GameCalendar so GameAdvanceService pauses
-            List<GameCalendar> nextCalendars = gameCalendarRepository.findBySeason(season + 1);
-            if (!nextCalendars.isEmpty()) {
-                GameCalendar cal = nextCalendars.get(0);
-                cal.setManagerFired(true);
-                gameCalendarRepository.save(cal);
-            } else {
-                List<GameCalendar> calendars = gameCalendarRepository.findBySeason(season);
-                if (!calendars.isEmpty()) {
-                    GameCalendar cal = calendars.get(0);
-                    cal.setManagerFired(true);
-                    gameCalendarRepository.save(cal);
-                }
-            }
-
-            // Remove human manager from team
-            Human humanManager = humanRepository.findAllByTeamIdAndTypeId(humanTeamId, TypeNames.MANAGER_TYPE)
-                    .stream().findFirst().orElse(null);
-            if (humanManager != null) {
-                humanManager.setManagerReputation(Math.max(0, humanManager.getManagerReputation() - 100));
-                humanManager.setTeamId(0L);
-                humanRepository.save(humanManager);
-            }
-
-            System.out.println("=== HUMAN MANAGER FIRED - Game paused for job selection ===");
-        } else if (firingScore >= 8) {
-            title = "Board Disappointed - Final Warning";
-            content = "The board is extremely disappointed with your performance this season. "
-                    + "You have failed to meet critical objectives. "
-                    + "Another season like this and you will be relieved of your duties.";
-        } else if (firingScore >= 5) {
-            title = "Board Concerns";
-            content = "The board has expressed concerns about your management. "
-                    + "Several objectives were not met. You are expected to improve next season.";
-        } else if (firingScore > 0) {
-            title = "Board Review";
-            content = "The board acknowledges a mixed season. Some objectives were not fully met, "
-                    + "but they remain supportive of your vision.";
-        } else {
-            title = "Board Praise";
-            content = "The board is delighted with your performance this season! "
-                    + "All objectives have been met. Keep up the excellent work!";
-        }
-
-        ManagerInbox inbox = new ManagerInbox();
-        inbox.setTeamId(humanTeamId);
-        inbox.setSeasonNumber(season);
-        inbox.setRoundNumber(50);
-        inbox.setTitle(title);
-        inbox.setContent(content);
-        inbox.setCategory(category);
-        inbox.setRead(false);
-        inbox.setCreatedAt(System.currentTimeMillis());
-        managerInboxRepository.save(inbox);
-    }
-
-    private void fireAIManagers(int season) {
-        List<Team> allTeams = teamRepository.findAll();
-        List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
-
-        for (Team team : allTeams) {
-            if (userContext.isHumanTeam(team.getId())) continue;
-
-            Human manager = allManagers.stream()
-                    .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
-                    .findFirst().orElse(null);
-
-            if (manager == null) continue;
-
-            List<SeasonObjective> objectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(team.getId(), season);
-            int firingScore = 0;
-            for (SeasonObjective obj : objectives) {
-                if (!"failed".equals(obj.getStatus())) continue;
-                int weight = "critical".equals(obj.getImportance()) ? 3 : "high".equals(obj.getImportance()) ? 2 : 1;
-                if ("league_position".equals(obj.getObjectiveType())) {
-                    firingScore += weight * Math.min(obj.getActualValue() - obj.getTargetValue(), 5);
-                } else {
-                    firingScore += weight * Math.min(obj.getTargetValue() - obj.getActualValue(), 3);
-                }
-            }
-
-            if (firingScore >= 12) {
-                // Fire the AI manager and create a replacement
-                manager.setTeamId(0L);
-                manager.setRetired(true);
-                humanRepository.save(manager);
-
-                Human newManager = new Human();
-                newManager.setName(compositeNameGenerator.generateName(1L));
-                newManager.setTypeId(TypeNames.MANAGER_TYPE);
-                newManager.setTeamId(team.getId());
-                newManager.setManagerReputation(team.getReputation() / 3);
-                newManager.setAge(35 + new Random().nextInt(20));
-                newManager.setSeasonCreated(season);
-                newManager.setMorale(100D);
-                newManager.setFitness(100D);
-                newManager.setRating(0);
-                String[] kit = tacticService.buildManagerTacticKit((int) newManager.getRating(), new Random());
-                newManager.setTacticStyle(kit[0]);
-                newManager.setKnownTactics(kit[1]);
-                humanRepository.save(newManager);
-
-                System.out.println("=== AI MANAGER FIRED: " + manager.getName() + " from " + team.getName()
-                        + " | Replaced by: " + newManager.getName() + " ===");
-            }
-        }
-    }
-
-    public void handleContractExpiries(int newSeason) {
-        Random random = new Random();
-        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
-
-        for (Human player : allPlayers) {
-            if (player.isRetired()) continue;
-            if (player.getTeamId() == null) continue;
-            if (player.getContractEndSeason() <= 0) continue; // skip players without contract data
-            if (player.getContractEndSeason() > newSeason) continue; // contract not yet expired
-
-            long previousTeamId = player.getTeamId();
-
-            if (userContext.isHumanTeam(player.getTeamId())) {
-                // Human team: player leaves + send inbox notification
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(player.getTeamId());
-                inbox.setSeasonNumber(newSeason);
-                inbox.setRoundNumber(1);
-                inbox.setTitle("Player Left - Contract Expired");
-                inbox.setContent(player.getName() + " (" + player.getPosition() + ", Rating "
-                        + Math.round(player.getRating()) + ") has left the club as their contract expired.");
-                inbox.setCategory("contract");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
-
-                // Update salary budget
-                Team team = teamRepository.findById(player.getTeamId()).orElse(null);
-                if (team != null) {
-                    team.setSalaryBudget(Math.max(0, team.getSalaryBudget() - player.getWage()));
-                    teamRepository.save(team);
-                }
-
-                // Player becomes free agent
-                player.setTeamId(null);
-                player.setContractEndSeason(0);
-                humanRepository.save(player);
-            } else {
-                // AI team: 50% auto-renew, 50% become free agent
-                if (random.nextBoolean()) {
-                    player.setContractEndSeason(newSeason + random.nextInt(2, 5));
-                    player.setWage((long) (player.getRating() * 50));
-                    humanRepository.save(player);
-                } else {
-                    player.setTeamId(null);
-                    humanRepository.save(player);
-                }
-            }
-        }
-    }
 
     /**
      * Simulates a matchday for a specific competition.

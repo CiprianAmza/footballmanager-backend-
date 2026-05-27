@@ -43,6 +43,10 @@ public class SeasonObjectiveService {
     @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
 
     @Autowired @Lazy private CompetitionController controllerRef;
+    /** @Lazy avoids a startup cycle: SeasonTransitionService.processEndOfSeason
+     *  calls evaluateSeasonObjectives on us via controllerRef, so the reverse
+     *  edge has to be lazy too. */
+    @Autowired @Lazy private SeasonTransitionService seasonTransitionService;
 
     /** Per-team, per-competition objective rows seeded at season start.
      *  Objectives scale with predicted league position (ranked by team reputation
@@ -250,11 +254,10 @@ public class SeasonObjectiveService {
             seasonObjectiveRepository.save(objective);
         }
 
-        // Record manager history for all teams + manager firing check for human team —
-        // both touch cross-cutting state (ManagerHistory, User.fired, GameCalendar),
-        // so they stay on the controller.
-        controllerRef.recordManagerHistory(season, allDetails);
-        controllerRef.checkManagerFiring(season);
+        // Manager history record + firing decisions live in SeasonTransitionService
+        // (cross-cutting end-of-season concerns: ManagerHistory, User.fired, GameCalendar).
+        seasonTransitionService.recordManagerHistory(season, allDetails);
+        seasonTransitionService.checkManagerFiring(season);
 
         System.out.println("=== SEASON OBJECTIVES EVALUATED FOR SEASON " + season + " ===");
     }
