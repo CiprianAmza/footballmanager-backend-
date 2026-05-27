@@ -1211,14 +1211,6 @@ public class CompetitionController {
         return teamCompetitionView;
     }
 
-    private long getNextRound(long previousRound) {
-        return previousRound + 1;
-    }
-
-    private boolean isKnockoutRound(long competitionId, long roundId) {
-        return europeanCompetitionService.isKnockoutRound(competitionId, roundId);
-    }
-
     @GetMapping("getResults/{competitionId}/{roundId}")
     public List<CompetitionTeamInfoDetail> getResults(@PathVariable(name = "competitionId") String competitionId, @PathVariable(name = "roundId") String roundId) {
 
@@ -1568,72 +1560,16 @@ public class CompetitionController {
         return competitionTypes;
     }
 
-    // updateTeam / isDerbyMatch extracted to TeamPostMatchService (Stage 1 of
-    // matchday-orchestration extraction). Thin wrappers below keep simulateRound
-    // + processMatchHumanTeam call sites unchanged.
-
-    private void updateTeam(long teamId, long competitionId, int scoreHome, int scoreAway, double teamPowerDifference) {
-        teamPostMatchService.updateTeam(teamId, competitionId, scoreHome, scoreAway, teamPowerDifference);
-    }
+    // Only the 6-arg updateTeam + getManagerMoraleMultiplier still have internal
+    // callers in this file; the other 10 thin wrappers around TeamPostMatchService
+    // were dead after the Stage-1 extraction and got pruned.
 
     private void updateTeam(long teamId, long competitionId, int scoreHome, int scoreAway, double teamPowerDifference, long opponentTeamId) {
         teamPostMatchService.updateTeam(teamId, competitionId, scoreHome, scoreAway, teamPowerDifference, opponentTeamId);
     }
 
-    private boolean isDerbyMatch(long teamId, long opponentTeamId, long competitionId) {
-        return teamPostMatchService.isDerbyMatch(teamId, opponentTeamId, competitionId);
-    }
-
-    private void updateTeamSimple(long teamId, long competitionId, int scoreHome, int scoreAway) {
-        teamPostMatchService.updateTeamSimple(teamId, competitionId, scoreHome, scoreAway);
-    }
-
-    // updatePlayersMorale / sendInboxNotification / applyMoraleRecovery /
-    // getManagerMoraleMultiplier / calculateMoraleChangeForTeamDifference /
-    // consumePredeterminedScore / calculateScores / poissonGoals — extracted
-    // to TeamPostMatchService. Thin wrappers below preserve internal call
-    // sites (processMatchHumanTeam, simulateRound, play() end-of-season).
-
-    private void updatePlayersMorale(long teamId, double baseMoraleChange, String matchResult) {
-        teamPostMatchService.updatePlayersMorale(teamId, baseMoraleChange, matchResult);
-    }
-
-    private void sendInboxNotification(long teamId, int season, int roundNumber, String title, String content, String category) {
-        teamPostMatchService.sendInboxNotification(teamId, season, roundNumber, title, content, category);
-    }
-
-    private void applyMoraleRecovery() {
-        teamPostMatchService.applyMoraleRecovery();
-    }
-
     private double getManagerMoraleMultiplier(long teamId) {
         return teamPostMatchService.getManagerMoraleMultiplier(teamId);
-    }
-
-    private double calculateMoraleChangeForTeamDifference(String result, double teamPowerDifference) {
-        return teamPostMatchService.calculateMoraleChangeForTeamDifference(result, teamPowerDifference);
-    }
-
-    private int[] consumePredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
-        return teamPostMatchService.consumePredeterminedScore(competitionId, roundId, team1Id, team2Id);
-    }
-
-    private List<Integer> calculateScores(double power1, double power2) {
-        return teamPostMatchService.calculateScores(power1, power2);
-    }
-
-    private int poissonGoals(Random random, double expectedGoals) {
-        return teamPostMatchService.poissonGoals(random, expectedGoals);
-    }
-
-
-    private List<Long> getAllTeams() {
-
-        return teamRepository.findAll()
-                .stream()
-                .map(Team::getId)
-                .collect(Collectors.toList());
-
     }
 
     public HashMap<String, Integer> getMinimumPositionNeeded() {
@@ -2337,34 +2273,6 @@ public class CompetitionController {
         return competitionRepository.findNameById(competitionId);
     }
 
-    private List<Human> getBestEleven(long teamId) {
-
-        List<Human> players = humanRepository
-                .findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
-                .stream()
-                .sorted(Comparator.comparing(Human::getRating))
-                .toList();
-
-        List<String> positions = getPositionsForBestEleven(teamId);
-        List<Human> bestEleven = new ArrayList<>();
-
-        for (String position : positions) {
-            for (Human player : players) {
-                if (player.getPosition().equals(position)) {
-                    bestEleven.add(player);
-                    break;
-                }
-            }
-        }
-
-        return bestEleven;
-    }
-
-    private List<String> getPositionsForBestEleven(long teamId) {
-
-        return List.of("GK", "DL", "DC", "DC", "DR", "ML", "MC", "MC", "MR", "ST", "ST");
-    }
-
     /** @deprecated thin delegate to {@link TransferMarketService#canBeTransfered};
      *  remaining for callers that still go through the controller back-ref. */
     @Deprecated
@@ -2532,10 +2440,6 @@ public class CompetitionController {
         europeanCompetitionService.drawEuropeanGroups(competitionId, groupStageRound);
     }
 
-    private long getTeamNationId(long teamId) {
-        return europeanCompetitionService.getTeamNationId(teamId);
-    }
-
     private void drawEuropeanKnockoutSeeded(long competitionId, long roundId, List<Long> participants) {
         europeanCompetitionService.drawEuropeanKnockoutSeeded(competitionId, roundId, participants);
     }
@@ -2575,12 +2479,8 @@ public class CompetitionController {
                 .collect(Collectors.toSet());
     }
 
-    public Round getRound() {
-
-        return round;
-    }
-
     // getHumanTeamId() removed - replaced by userContext.getTeamId(request), userContext.isHumanTeam(teamId), or userContext.getAllHumanTeamIds()
+    // getRound() removed - getRoundCache() is the canonical accessor
 
     public void generateMatchReport(long competitionId, long roundId, long teamId1, long teamId2, int teamScore1, int teamScore2) {
         // Only generate inbox reports for human players' teams
