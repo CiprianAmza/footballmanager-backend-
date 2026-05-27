@@ -297,7 +297,7 @@ public class MatchSimulationOrchestrator {
                     teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
                     teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
 
-                    controllerRef.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                    europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
 
                     controllerRef.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
                     controllerRef.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
@@ -360,7 +360,7 @@ public class MatchSimulationOrchestrator {
                 tMorale += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
-                controllerRef.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
                 tCoeff += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();

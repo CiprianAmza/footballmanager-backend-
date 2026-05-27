@@ -1,21 +1,34 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.controller.CompetitionController;
+import com.footballmanagergamesimulator.controller.ScoutManagementController;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
+import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
+import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
+import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Service responsible for end-of-season transitions and new-season preparation.
- * Extracted from CompetitionController to provide a clean interface for season lifecycle logic.
+ * End-of-season + new-season-setup orchestration extracted from
+ * {@link CompetitionController}. Owns {@code processEndOfSeason} +
+ * {@code processNewSeasonSetup} and the dedup flags that guard them.
  *
- * The methods here are initially stubs that define the correct interface. They will be
- * incrementally populated as logic is migrated from CompetitionController.
+ * <p>Cross-cutting helpers still living on the controller
+ * (transfer-market support, training application, historical snapshots,
+ * cup-bracket regeneration, etc.) are reached through a
+ * {@link Lazy @Lazy} controller back-reference. The previous slice's
+ * pattern (orchestrator + European service) — keep the controller as a
+ * thin REST/edge layer and let the service own the workflow.
  */
 @Service
 public class SeasonTransitionService {
@@ -50,553 +63,494 @@ public class SeasonTransitionService {
     @Autowired
     private ScorerRepository scorerRepository;
     @Autowired
+    private ScorerLeaderboardRepository scorerLeaderboardRepository;
+    @Autowired
     private MatchEventRepository matchEventRepository;
     @Autowired
     private LoanRepository loanRepository;
     @Autowired
+    private PersonalizedTacticRepository personalizedTacticRepository;
+    @Autowired
+    private TeamFacilitiesRepository teamFacilitiesRepository;
+    @Autowired
+    private RoundRepository roundRepository;
+    @Autowired
     private FinanceService financeService;
     @Autowired
     private StaffService staffService;
+    @Autowired
+    private HumanService humanService;
+    @Autowired
+    private CompositeTransferStrategy compositeTransferStrategy;
+    @Autowired
+    private TeamPostMatchService teamPostMatchService;
+    @Autowired
+    private EuropeanCompetitionService europeanCompetitionService;
 
-    // ==================== END OF SEASON ====================
+    @Lazy @Autowired
+    private CompetitionController controllerRef;
+    @Lazy @Autowired
+    private ScoutManagementController scoutManagementController;
 
-    /**
-     * Process all end-of-season activities. Called when the season reaches its final round.
-     *
-     * @param season the season number that just ended
-     * @return map containing processing results (e.g., whether the human manager was fired)
-     */
-    public Map<String, Object> processEndOfSeason(int season) {
-        Map<String, Object> result = new LinkedHashMap<>();
+    /** Dedup flags moved over from {@link CompetitionController} so the
+     *  service owns its own re-entry protection. */
+    private boolean endOfSeasonProcessed = false;
+    private int endOfSeasonProcessedForSeason = -1;
+    private boolean seasonTransitionInProgress = false;
 
-        // 1. Evaluate season objectives for all teams
-        evaluateSeasonObjectives(season);
-
-        // 2. Record manager history entries for the season
-        recordManagerHistory(season);
-
-        // 3. Check if the human manager should be fired based on objectives
-        boolean humanFired = checkManagerFiring(season);
-
-        // 4. Fire underperforming AI managers
-        fireAIManagers(season);
-
-        // 5. Handle contract expiries (players and staff whose contracts expire)
-        handleContractExpiries(season + 1);
-
-        // 5b. Process pre-contract signings
-        processPreContracts(season);
-
-        // 5c. Handle coach contract expiries
-        handleCoachContractExpiries(season + 1);
-
-        // 6. Process player retirements
-        processRetirements(season);
-
-        // 7. Generate youth academy players for each team
-        generateYouthPlayers(season + 1);
-
-        // 8. Apply sponsorship revenue
-        applySponsorshipRevenue(season);
-
-        result.put("humanFired", humanFired);
-        result.put("season", season);
-        return result;
-    }
-
-    // ==================== NEW SEASON PREPARATION ====================
+    // ============================================================
+    //  Phase 1 — end-of-season (day 340)
+    // ============================================================
 
     /**
-     * Prepare the new season by handling promotions/relegations, generating fixtures,
-     * creating objectives, and resetting stats.
-     *
-     * @param newSeason the new season number
+     * Final standings + relegation/promotion bracket setup, AI transfers, AI
+     * loans, season-objectives evaluation, transfer window open. Called from
+     * {@code GameAdvanceService} via a controller delegate; safe to call
+     * multiple times per season (idempotent via {@link #endOfSeasonProcessed}).
      */
-    public void prepareNewSeason(int newSeason) {
-        // 1. Process promotions and relegations
-        processPromotionsAndRelegations(newSeason);
+    @Transactional
+    public synchronized void processEndOfSeason(int season) {
+        if (seasonTransitionInProgress) {
+            System.out.println("=== processEndOfSeason: season " + season + " ALREADY IN PROGRESS, skipping ===");
+            return;
+        }
+        if (endOfSeasonProcessed && endOfSeasonProcessedForSeason == season) {
+            System.out.println("=== processEndOfSeason: season " + season + " ALREADY PROCESSED, skipping ===");
+            return;
+        }
+        seasonTransitionInProgress = true;
+        try {
+            System.out.println("=== processEndOfSeason: season " + season + " ===");
 
-        // 2. Generate new season objectives for all teams
-        generateSeasonObjectives(newSeason);
+            List<Long> teamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
 
-        // 3. Reset competition team entries for the new season
-        resetCompetitionEntries(newSeason);
+            // Final standings, relegation/promotion
+            Set<Long> leagueCompetitionIds = controllerRef.getCompetitionIdsByCompetitionType(1);
+            Set<Long> secondLeagueCompetitionIds = controllerRef.getCompetitionIdsByCompetitionType(3);
+            leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
 
-        // 4. Clean up old season data that is no longer needed
-        cleanupOldSeasonData(newSeason);
-    }
+            Map<Long, Long> leagueToCupMap = new HashMap<>();
+            List<Competition> allComps = competitionRepository.findAll();
+            for (Competition league : allComps) {
+                if (league.getTypeId() == 1 || league.getTypeId() == 3) {
+                    allComps.stream()
+                            .filter(c -> c.getTypeId() == 2 && c.getNationId() == league.getNationId())
+                            .findFirst()
+                            .ifPresent(cup -> leagueToCupMap.put(league.getId(), cup.getId()));
+                }
+            }
 
-    // ==================== SEASON OBJECTIVES ====================
-
-    /**
-     * Evaluate all season objectives at end of season.
-     * Compares actual results against targets and marks objectives as "achieved" or "failed".
-     */
-    private void evaluateSeasonObjectives(int season) {
-        for (long htId : userContext.getAllHumanTeamIds()) {
-            List<SeasonObjective> objectives = seasonObjectiveRepository.findAllByTeamId(htId).stream()
-                    .filter(obj -> obj.getSeasonNumber() == season && "active".equals(obj.getStatus()))
-                    .collect(Collectors.toList());
-
-            for (SeasonObjective obj : objectives) {
-                if ("league_position".equals(obj.getObjectiveType())) {
-                    if (obj.getActualValue() > 0 && obj.getActualValue() <= obj.getTargetValue()) {
-                        obj.setStatus("achieved");
-                    } else if (obj.getActualValue() > 0) {
-                        obj.setStatus("failed");
-                    }
-                } else if ("cup_round".equals(obj.getObjectiveType())) {
-                    if (obj.getActualValue() >= obj.getTargetValue()) {
-                        obj.setStatus("achieved");
-                    } else {
-                        obj.setStatus("failed");
-                    }
-                } else if ("european_qualification".equals(obj.getObjectiveType())) {
-                    if (obj.getActualValue() >= obj.getTargetValue()) {
-                        obj.setStatus("achieved");
-                    } else {
-                        obj.setStatus("failed");
+            // Ensure every team in every league has a TeamCompetitionDetail entry
+            // (needed when encounters=0 and no matches were played)
+            long currentSeason = currentSeason();
+            List<CompetitionTeamInfo> currentSeasonEntries = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason);
+            for (Long id : leagueCompetitionIds) {
+                List<Long> leagueTeamIds = currentSeasonEntries.stream()
+                        .filter(cti -> cti.getCompetitionId() == id)
+                        .map(CompetitionTeamInfo::getTeamId)
+                        .distinct().toList();
+                for (long tid : leagueTeamIds) {
+                    TeamCompetitionDetail existing = teamCompetitionDetailRepository.findFirstByTeamIdAndCompetitionId(tid, id);
+                    if (existing == null) {
+                        TeamCompetitionDetail tcd = new TeamCompetitionDetail();
+                        tcd.setTeamId(tid);
+                        tcd.setCompetitionId(id);
+                        tcd.setForm("");
+                        teamCompetitionDetailRepository.save(tcd);
                     }
                 }
             }
 
-            if (!objectives.isEmpty()) {
-                seasonObjectiveRepository.saveAll(objectives);
+            List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
+            for (Long id : leagueCompetitionIds) {
+                int finalId = Math.toIntExact(id);
+                List<TeamCompetitionDetail> teamCompetitionDetailList = teamCompetitionDetails.stream()
+                        .filter(detail -> detail.getCompetitionId() == finalId)
+                        .sorted((o1, o2) -> {
+                            if (o1.getPoints() != o2.getPoints())
+                                return o1.getPoints() < o2.getPoints() ? 1 : -1;
+                            if (o1.getGoalDifference() != o2.getGoalDifference())
+                                return o1.getGoalDifference() < o2.getGoalDifference() ? 1 : -1;
+                            if (o1.getGoalsFor() != o2.getGoalsFor())
+                                return o1.getGoalsFor() < o2.getGoalsFor() ? 1 : -1;
+                            // Fallback: sort by team reputation (for when no matches were played)
+                            Team teamA = teamRepository.findById(o1.getTeamId()).orElse(null);
+                            Team teamB = teamRepository.findById(o2.getTeamId()).orElse(null);
+                            int repA = teamA != null ? teamA.getReputation() : 0;
+                            int repB = teamB != null ? teamB.getReputation() : 0;
+                            return Integer.compare(repB, repA);
+                        }).toList();
+
+                int index = 1;
+                int numTeams = teamCompetitionDetailList.size();
+                int numCupRounds = numTeams > 0 ? (int) Math.ceil(Math.log(numTeams) / Math.log(2)) : 3;
+                int numByes = (int) Math.pow(2, numCupRounds) - numTeams;
+
+                for (TeamCompetitionDetail teamCompetitionDetail : teamCompetitionDetailList) {
+                    CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
+                    if (id == 3L && index >= 11)
+                        competitionTeamInfo.setCompetitionId(5L);
+                    else if (id == 5L && index <= 2)
+                        competitionTeamInfo.setCompetitionId(3L);
+                    else
+                        competitionTeamInfo.setCompetitionId(id);
+
+                    competitionTeamInfo.setSeasonNumber(currentSeason + 1);
+                    competitionTeamInfo.setRound(1L);
+                    competitionTeamInfo.setTeamId(teamCompetitionDetail.getTeamId());
+                    competitionTeamInfoRepository.save(competitionTeamInfo);
+
+                    Long cupId = leagueToCupMap.get(id);
+                    if (cupId != null) {
+                        CompetitionTeamInfo competitionTeamInfoCup = new CompetitionTeamInfo();
+                        competitionTeamInfoCup.setCompetitionId(cupId);
+                        competitionTeamInfoCup.setSeasonNumber(currentSeason + 1);
+                        competitionTeamInfoCup.setRound(index <= numByes ? 2L : 1L);
+                        competitionTeamInfoCup.setTeamId(teamCompetitionDetail.getTeamId());
+                        competitionTeamInfoRepository.save(competitionTeamInfoCup);
+                    }
+                    index++;
+                }
             }
 
-            long achieved = objectives.stream().filter(o -> "achieved".equals(o.getStatus())).count();
-            long failed = objectives.stream().filter(o -> "failed".equals(o.getStatus())).count();
+            europeanCompetitionService.qualifyTeamsForEuropeanCompetitions();
 
-            if (!objectives.isEmpty()) {
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(htId);
-                inbox.setSeasonNumber(season);
-                inbox.setRoundNumber(0);
-                inbox.setTitle("Season " + season + " Objectives Review");
-                inbox.setContent("Season objectives review:\n"
-                        + "Achieved: " + achieved + "\n"
-                        + "Failed: " + failed + "\n"
-                        + "The board will take these results into consideration.");
-                inbox.setCategory("board");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
+            int currentSeasonInt = (int) currentSeason;
+            // Refresh team budgets BEFORE AI transfers so teams have money to spend
+            controllerRef.refreshTeamBudgets(currentSeasonInt);
+
+            // AI transfer market
+            List<PlayerTransferView> playersForTransferMarket = new ArrayList<>();
+            for (Long teamId : teamIds) {
+                if (userContext.isHumanTeam(teamId)) continue;
+                Team team = teamRepository.findById(teamId).orElse(new Team());
+                playersForTransferMarket.addAll(compositeTransferStrategy.playersToSell(team, humanRepository, controllerRef.getMinimumPositionNeeded()));
             }
-        }
-    }
 
-    // ==================== MANAGER HISTORY ====================
+            HashMap<String, List<PlayerTransferView>> transferMarket = new HashMap<>();
+            for (PlayerTransferView playerTransferView : playersForTransferMarket) {
+                if (transferMarket.containsKey(playerTransferView.getPosition()))
+                    transferMarket.get(playerTransferView.getPosition()).add(playerTransferView);
+                else
+                    transferMarket.put(playerTransferView.getPosition(), new ArrayList<>(List.of(playerTransferView)));
+            }
 
-    /**
-     * Record a ManagerHistory entry for each manager summarizing their season performance.
-     */
-    private void recordManagerHistory(int season) {
-        List<Human> managers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
+            Map<PlayerTransferView, List<BuyPlanTransferView>> buyPlan = new HashMap<>();
+            for (Long teamId : teamIds) {
+                if (userContext.isHumanTeam(teamId)) continue;
+                Team team = teamRepository.findById(teamId).orElse(new Team());
+                BuyPlanTransferView buyPlanTransferView = compositeTransferStrategy.playersToBuy(team, humanRepository, controllerRef.getMaximumPositionAllowed());
+                if (buyPlanTransferView == null) continue;
 
-        for (Human manager : managers) {
-            if (manager.getTeamId() == null || manager.getTeamId() == 0) continue;
+                for (TransferPlayer clubPlan : buyPlanTransferView.getPositions()) {
+                    List<PlayerTransferView> playersInMarket = transferMarket.get(clubPlan.getPosition());
+                    if (playersInMarket == null) continue;
+                    for (PlayerTransferView player : playersInMarket) {
+                        if (controllerRef.canBeTransfered(player, buyPlanTransferView, clubPlan)) {
+                            if (buyPlan.containsKey(player))
+                                buyPlan.get(player).add(buyPlanTransferView);
+                            else {
+                                List<BuyPlanTransferView> buyPlanTransferViews = new ArrayList<>();
+                                buyPlanTransferViews.add(buyPlanTransferView);
+                                buyPlan.put(player, buyPlanTransferViews);
+                            }
+                        }
+                    }
+                }
+                controllerRef.generateAiOffersForHumanPlayers(team, buyPlanTransferView);
+            }
 
-            long teamId = manager.getTeamId();
-            String teamName = teamRepository.findById(teamId).map(Team::getName).orElse("Unknown");
-
-            // Aggregate stats from all competitions for this team
-            List<TeamCompetitionDetail> details = teamCompetitionDetailRepository.findAll().stream()
-                    .filter(d -> d.getTeamId() == teamId)
-                    .collect(Collectors.toList());
-
-            int totalGames = details.stream().mapToInt(TeamCompetitionDetail::getGames).sum();
-            int totalWins = details.stream().mapToInt(TeamCompetitionDetail::getWins).sum();
-            int totalDraws = details.stream().mapToInt(TeamCompetitionDetail::getDraws).sum();
-            int totalLosses = details.stream().mapToInt(TeamCompetitionDetail::getLoses).sum();
-            int totalGoalsFor = details.stream().mapToInt(TeamCompetitionDetail::getGoalsFor).sum();
-            int totalGoalsAgainst = details.stream().mapToInt(TeamCompetitionDetail::getGoalsAgainst).sum();
-
-            ManagerHistory history = new ManagerHistory();
-            history.setManagerId(manager.getId());
-            history.setManagerName(manager.getName());
-            history.setTeamId(teamId);
-            history.setTeamName(teamName);
-            history.setSeasonNumber(season);
-            history.setGamesPlayed(totalGames);
-            history.setWins(totalWins);
-            history.setDraws(totalDraws);
-            history.setLosses(totalLosses);
-            history.setGoalsFor(totalGoalsFor);
-            history.setGoalsAgainst(totalGoalsAgainst);
-
-            managerHistoryRepository.save(history);
-        }
-    }
-
-    // ==================== MANAGER FIRING ====================
-
-    /**
-     * Check if the human manager should be fired based on failed objectives.
-     * Uses a weighted scoring system where critical objectives count more.
-     *
-     * @return true if the human manager is fired
-     */
-    private boolean checkManagerFiring(int season) {
-        boolean anyFired = false;
-
-        for (long htId : userContext.getAllHumanTeamIds()) {
-            List<SeasonObjective> humanObjectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(htId, season);
-            if (humanObjectives.isEmpty()) continue;
-
-            int firingScore = 0;
-            for (SeasonObjective obj : humanObjectives) {
-                if (!"failed".equals(obj.getStatus())) continue;
-
-                int weight = "critical".equals(obj.getImportance()) ? 3
-                        : "high".equals(obj.getImportance()) ? 2 : 1;
-
-                if ("league_position".equals(obj.getObjectiveType())) {
-                    int miss = obj.getActualValue() - obj.getTargetValue();
-                    firingScore += weight * Math.min(miss, 5);
+            HashMap<PlayerTransferView, BuyPlanTransferView> playerTransfered = new HashMap<>();
+            List<Transfer> transfers = new ArrayList<>();
+            for (Map.Entry<PlayerTransferView, List<BuyPlanTransferView>> pair : buyPlan.entrySet()) {
+                if (pair.getValue().size() == 1) {
+                    playerTransfered.put(pair.getKey(), pair.getValue().get(0));
                 } else {
-                    int miss = obj.getTargetValue() - obj.getActualValue();
-                    firingScore += weight * Math.min(miss, 3);
+                    Collections.shuffle(pair.getValue());
+                    playerTransfered.put(pair.getKey(), pair.getValue().get(0));
+                }
+                PlayerTransferView playerTransferView = pair.getKey();
+                BuyPlanTransferView buyPlanTransferView = playerTransfered.get(playerTransferView);
+
+                Team sellTeam = teamRepository.findById(playerTransferView.getTeamId()).get();
+                Team buyTeam = teamRepository.findById(buyPlanTransferView.getTeamId()).get();
+
+                long transferFee = TransferValueCalculator.calculate(playerTransferView.getAge(), playerTransferView.getPosition(), playerTransferView.getRating());
+                if (transferFee > buyTeam.getTransferBudget()) continue;
+
+                Human human = humanRepository.findById(playerTransferView.getPlayerId()).get();
+                human.setTeamId(buyTeam.getId());
+                human.setSeasonMatchesPlayed(0);
+                human.setConsecutiveBenched(0);
+                humanRepository.save(human);
+
+                // Record transfer as financial transaction
+                financeService.recordExpense(buyTeam.getId(), currentSeasonInt, 0,
+                        "TRANSFER_BUY", "Bought " + human.getName(), transferFee);
+                buyTeam = teamRepository.findById(buyTeam.getId()).orElse(buyTeam);
+                buyTeam.setTransferBudget(buyTeam.getTransferBudget() - transferFee);
+                teamRepository.save(buyTeam);
+
+                financeService.recordTransaction(sellTeam.getId(), currentSeasonInt, 0,
+                        "TRANSFER_SALE", "Sold " + human.getName(), transferFee);
+                sellTeam = teamRepository.findById(sellTeam.getId()).orElse(sellTeam);
+                teamRepository.save(sellTeam);
+
+                Transfer transfer = new Transfer();
+                transfer.setPlayerId(human.getId());
+                transfer.setPlayerName(human.getName());
+                transfer.setPlayerTransferValue(transferFee);
+                transfer.setSellTeamId(sellTeam.getId());
+                transfer.setSellTeamName(sellTeam.getName());
+                transfer.setBuyTeamId(buyTeam.getId());
+                transfer.setBuyTeamName(buyTeam.getName());
+                transfer.setRating(human.getRating());
+                transfer.setSeasonNumber(currentSeason);
+                transfer.setPlayerAge(human.getAge());
+                transferRepository.save(transfer);
+                transfers.add(transfer);
+            }
+
+            // AI Loan Logic
+            Random loanRandom = new Random();
+            List<Team> allTeams = teamRepository.findAll();
+            for (Long teamId : teamIds) {
+                if (userContext.isHumanTeam(teamId)) continue;
+                List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L);
+                if (players.size() <= 18) continue;
+                double avgRating = players.stream().mapToDouble(Human::getRating).average().orElse(0);
+                List<Human> loanCandidates = players.stream()
+                        .filter(p -> p.getAge() <= 22 && p.getRating() < avgRating && !p.isRetired())
+                        .collect(Collectors.toList());
+                Collections.shuffle(loanCandidates);
+                int loansToMake = Math.min(loanCandidates.size(), 2);
+                for (int i = 0; i < loansToMake; i++) {
+                    Human loanPlayer = loanCandidates.get(i);
+                    List<Team> potentialTeams = allTeams.stream()
+                            .filter(t -> t.getId() != teamId && !userContext.isHumanTeam(t.getId()))
+                            .collect(Collectors.toList());
+                    if (potentialTeams.isEmpty()) continue;
+                    Team loanTeam = potentialTeams.get(loanRandom.nextInt(potentialTeams.size()));
+                    Team parentTeam = teamRepository.findById(teamId).orElse(null);
+                    if (parentTeam == null) continue;
+                    long loanFee = (long) (loanPlayer.getTransferValue() * 0.05);
+                    loanPlayer.setTeamId(loanTeam.getId());
+                    humanRepository.save(loanPlayer);
+                    Loan loan = new Loan();
+                    loan.setPlayerId(loanPlayer.getId());
+                    loan.setPlayerName(loanPlayer.getName());
+                    loan.setParentTeamId(parentTeam.getId());
+                    loan.setParentTeamName(parentTeam.getName());
+                    loan.setLoanTeamId(loanTeam.getId());
+                    loan.setLoanTeamName(loanTeam.getName());
+                    loan.setSeasonNumber(currentSeasonInt);
+                    loan.setStatus("active");
+                    loan.setLoanFee(loanFee);
+                    loanRepository.save(loan);
                 }
             }
 
-            if (firingScore >= 12) {
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(htId);
-                inbox.setSeasonNumber(season);
-                inbox.setRoundNumber(0);
-                inbox.setTitle("You Have Been Sacked!");
-                inbox.setContent("The board has lost all confidence in your ability to manage this club. "
-                        + "You have been relieved of your duties with immediate effect. "
-                        + "Check the available jobs to find a new position.");
-                inbox.setCategory("board");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
+            controllerRef.evaluateSeasonObjectives(currentSeasonInt);
 
-                Human humanManager = humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.MANAGER_TYPE)
-                        .stream().findFirst().orElse(null);
-                if (humanManager != null) {
-                    humanManager.setManagerReputation(Math.max(0, humanManager.getManagerReputation() - 100));
-                    humanRepository.save(humanManager);
+            // Notify all human users about AI transfers
+            if (!transfers.isEmpty()) {
+                StringBuilder transferNews = new StringBuilder();
+                for (Transfer transfer : transfers) {
+                    transferNews.append(transfer.getPlayerName())
+                            .append(" (").append(String.format("%.0f", transfer.getRating())).append(")")
+                            .append(": ").append(transfer.getSellTeamName())
+                            .append(" → ").append(transfer.getBuyTeamName())
+                            .append(" (").append(String.format("%,d", transfer.getPlayerTransferValue())).append(")\n");
                 }
-
-                anyFired = true;
-            } else if (firingScore >= 6) {
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(htId);
-                inbox.setSeasonNumber(season);
-                inbox.setRoundNumber(0);
-                inbox.setTitle("Board Warning");
-                inbox.setContent("The board is disappointed with this season's results. "
-                        + "Significant improvement is expected next season or your position will be reconsidered.");
-                inbox.setCategory("board");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
-            }
-        }
-
-        return anyFired;
-    }
-
-    /**
-     * Fire AI managers who have severely underperformed.
-     * AI managers are evaluated more leniently but can be fired for very poor results.
-     */
-    private void fireAIManagers(int season) {
-        List<Human> aiManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE).stream()
-                .filter(m -> m.getTeamId() != null && !userContext.isHumanTeam(m.getTeamId()))
-                .collect(Collectors.toList());
-
-        for (Human manager : aiManagers) {
-            List<SeasonObjective> objectives = seasonObjectiveRepository
-                    .findAllByTeamIdAndSeasonNumber(manager.getTeamId(), season);
-
-            long failedCritical = objectives.stream()
-                    .filter(o -> "failed".equals(o.getStatus()) && "critical".equals(o.getImportance()))
-                    .count();
-
-            // AI managers only get fired for failing critical objectives badly
-            if (failedCritical >= 2) {
-                manager.setManagerReputation(Math.max(0, manager.getManagerReputation() - 50));
-                humanRepository.save(manager);
-                // Note: Full firing logic (reassigning team, generating replacement) is in CompetitionController
-            }
-        }
-    }
-
-    // ==================== CONTRACT EXPIRIES ====================
-
-    /**
-     * Handle contract expiries for the upcoming season.
-     * Players and staff whose contracts expire become free agents.
-     */
-    private void handleContractExpiries(int newSeason) {
-        // Find players whose contracts expire at end of current season
-        List<Team> allTeams = teamRepository.findAll();
-
-        for (Team team : allTeams) {
-            List<Human> expiringPlayers = humanRepository
-                    .findAllByTeamIdAndTypeIdAndContractEndSeasonLessThanEqual(
-                            team.getId(), TypeNames.PLAYER_TYPE, newSeason - 1);
-
-            for (Human player : expiringPlayers) {
-                if (player.isRetired()) continue;
-
-                // For human team, send notification about expiring contracts
-                if (userContext.isHumanTeam(team.getId())) {
+                for (long htId : userContext.getAllHumanTeamIds()) {
                     ManagerInbox inbox = new ManagerInbox();
-                    inbox.setTeamId(team.getId());
-                    inbox.setSeasonNumber(newSeason - 1);
+                    inbox.setTeamId(htId);
+                    inbox.setSeasonNumber(currentSeasonInt);
                     inbox.setRoundNumber(0);
-                    inbox.setTitle("Contract Expired: " + player.getName());
-                    inbox.setContent(player.getName() + " has left the club as their contract has expired.");
+                    inbox.setTitle("Transfer Market Summary - " + transfers.size() + " transfers completed");
+                    inbox.setContent(transferNews.toString().trim());
                     inbox.setCategory("transfer");
                     inbox.setRead(false);
                     inbox.setCreatedAt(System.currentTimeMillis());
                     managerInboxRepository.save(inbox);
                 }
-
-                // Release the player (set teamId to 0 = free agent)
-                player.setTeamId(0L);
-                humanRepository.save(player);
             }
+
+            // Open the transfer window for user transfers
+            controllerRef.setTransferWindowOpen(true);
+
+            endOfSeasonProcessed = true;
+            endOfSeasonProcessedForSeason = season;
+            System.out.println("=== END OF SEASON " + season + " PROCESSED. " + transfers.size() + " AI transfers. Transfer window open. ===");
+        } finally {
+            seasonTransitionInProgress = false;
         }
     }
 
-    // ==================== PLAYER RETIREMENT ====================
+    // ============================================================
+    //  Phase 2 — new-season setup (day 360, after transfer window closes)
+    // ============================================================
 
-    /**
-     * Process end-of-season retirements. Players over a certain age with declining ability
-     * may choose to retire.
-     */
-    private void processRetirements(int season) {
+    @Transactional
+    public synchronized void processNewSeasonSetup(int season) {
+        Round round = roundRepository.findById(1L).orElseThrow();
+        // Guard: if round.season already moved past this season, skip (prevents double transition)
+        if (round.getSeason() > season) {
+            System.out.println("=== processNewSeasonSetup: season " + season + " already transitioned (current=" + round.getSeason() + "), skipping ===");
+            return;
+        }
+        System.out.println("=== processNewSeasonSetup: transitioning from season " + season + " ===");
+
+        List<Long> teamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
+
+        // Note: refreshTeamBudgets is called in processEndOfSeason before AI transfers
+
+        List<Long> allTeamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
+        controllerRef.applyTrainingEffect(allTeamIds);
+
+        Set<Long> competitions = competitionRepository.findAll()
+                .stream()
+                .mapToLong(Competition::getId)
+                .boxed()
+                .collect(Collectors.toSet());
+        for (Long competitionId : competitions)
+            controllerRef.saveHistoricalValues(competitionId, round.getSeason());
+        controllerRef.saveAllPlayerTeamHistoricalRelations(round.getSeason());
+
+        // Return loaned players (handles buy obligations and salary adjustments)
+        processLoanReturns((int) round.getSeason());
+
+        controllerRef.resetCompetitionData();
+        controllerRef.removeCompetitionData(round.getSeason() + 1);
+        controllerRef.addImprovementToOverachievers();
+
+        round.setRound(1);
+        round.setSeason(round.getSeason() + 1);
+        roundRepository.save(round);
+
+        humanService.addOneYearToAge();
+        humanService.retirePlayers();
+        personalizedTacticRepository.deleteAll();
+
+        for (Long teamId : teamIds) {
+            TeamFacilities teamFacilities = teamFacilitiesRepository.findByTeamId(teamId);
+            if (teamFacilities != null)
+                humanService.addRegens(teamFacilities, teamId);
+        }
+
+        for (long teamId : teamIds) {
+            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+            for (Human human : players) {
+                long seasonCreated = human.getSeasonCreated();
+                if (round.getSeason() - seasonCreated <= 2 && seasonCreated != 1L)
+                    human.setCurrentStatus("Junior");
+                else if (round.getSeason() - seasonCreated <= 6 && seasonCreated != 1L)
+                    human.setCurrentStatus("Intermediate");
+                else
+                    human.setCurrentStatus("Senior");
+                human.setTransferValue(TransferValueCalculator.calculate(human.getAge(), human.getPosition(), human.getRating()));
+                human.setSeasonMatchesPlayed(0);
+                human.setConsecutiveBenched(0);
+                // Fresh start: 50% chance to reset wantsTransfer
+                if (human.isWantsTransfer() && new Random().nextDouble() < 0.5) {
+                    human.setWantsTransfer(false);
+                    human.setMorale(Math.min(100, human.getMorale() + 10));
+                }
+            }
+            humanRepository.saveAll(players);
+        }
+
+        // Clear derby cache for new season
+        teamPostMatchService.clearDerbyCache();
+
+        controllerRef.handleContractExpiries((int) round.getSeason());
+        scoutManagementController.processExpiredContracts((int) round.getSeason());
+        controllerRef.generateSeasonObjectives((int) round.getSeason());
+
+        // Generate league fixtures for new season
+        Set<Long> newLeagueCompIds = controllerRef.getCompetitionIdsByCompetitionType(1);
+        Set<Long> newSecondLeagueCompIds = controllerRef.getCompetitionIdsByCompetitionType(3);
+        newLeagueCompIds.addAll(newSecondLeagueCompIds);
+        for (Long competitionId : newLeagueCompIds)
+            controllerRef.getFixturesForRound(String.valueOf(competitionId), "1");
+
+        // Initialize scorers for all players in the new season (batch optimized)
         List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
-        Random random = new Random();
+        Map<Long, List<Human>> playersByTeam = allPlayers.stream()
+                .collect(Collectors.groupingBy(h -> h.getTeamId() != null ? h.getTeamId() : 0L));
 
-        for (Human player : allPlayers) {
-            if (player.isRetired()) continue;
+        List<CompetitionTeamInfo> allNewCompTeamInfos = competitionTeamInfoRepository
+                .findAllBySeasonNumber(round.getSeason());
+        Map<Long, List<CompetitionTeamInfo>> compsByTeam = allNewCompTeamInfos.stream()
+                .collect(Collectors.groupingBy(CompetitionTeamInfo::getTeamId));
 
-            int age = player.getAge();
-            double retirementChance;
+        Map<Long, String> compNameCache = new HashMap<>();
+        Map<Long, Integer> compTypeIdCache = new HashMap<>();
+        for (CompetitionTeamInfo cti : allNewCompTeamInfos) {
+            long cId = cti.getCompetitionId();
+            compNameCache.computeIfAbsent(cId, id -> competitionRepository.findNameById(id));
+            compTypeIdCache.computeIfAbsent(cId, id -> {
+                Long typeId = competitionRepository.findTypeIdById(id);
+                return typeId != null ? typeId.intValue() : 0;
+            });
+        }
 
-            if (age < 33) continue; // Too young to retire
-            else if (age <= 34) retirementChance = 0.10;
-            else if (age <= 36) retirementChance = 0.30;
-            else if (age <= 38) retirementChance = 0.60;
-            else retirementChance = 0.90;
+        Map<Long, String> teamNameCache = new HashMap<>();
+        List<Scorer> allNewScorers = new ArrayList<>();
+        List<ScorerLeaderboardEntry> leaderboardUpdates = new ArrayList<>();
 
-            // Lower rated players retire sooner
-            if (player.getRating() < 60) retirementChance += 0.15;
+        for (Map.Entry<Long, List<Human>> entry : playersByTeam.entrySet()) {
+            long teamId = entry.getKey();
+            if (teamId == 0L) continue;
+            List<Human> players = entry.getValue();
+            List<CompetitionTeamInfo> teamComps = compsByTeam.getOrDefault(teamId, List.of());
+            String teamName = teamNameCache.computeIfAbsent(teamId, id -> {
+                Team t = teamRepository.findById(id).orElse(null);
+                return t != null ? t.getName() : "Unknown";
+            });
 
-            if (random.nextDouble() < retirementChance) {
-                player.setRetired(true);
-                player.setCurrentStatus("Retired");
-                humanRepository.save(player);
+            for (Human human : players) {
+                for (CompetitionTeamInfo cti : teamComps) {
+                    Scorer scorer = new Scorer();
+                    scorer.setPlayerId(human.getId());
+                    scorer.setSeasonNumber((int) round.getSeason());
+                    scorer.setTeamId(teamId);
+                    scorer.setOpponentTeamId(-1);
+                    scorer.setPosition(human.getPosition());
+                    scorer.setTeamScore(-1);
+                    scorer.setOpponentScore(-1);
+                    scorer.setCompetitionId(cti.getCompetitionId());
+                    scorer.setCompetitionTypeId(compTypeIdCache.getOrDefault(cti.getCompetitionId(), 0));
+                    scorer.setTeamName(teamName);
+                    scorer.setOpponentTeamName(null);
+                    scorer.setCompetitionName(compNameCache.get(cti.getCompetitionId()));
+                    scorer.setRating(human.getRating());
+                    scorer.setGoals(0);
+                    allNewScorers.add(scorer);
+                }
 
-                // Notify human team if one of their players retired
-                if (player.getTeamId() != null && userContext.isHumanTeam(player.getTeamId())) {
-                    ManagerInbox inbox = new ManagerInbox();
-                    inbox.setTeamId(player.getTeamId());
-                    inbox.setSeasonNumber(season);
-                    inbox.setRoundNumber(0);
-                    inbox.setTitle("Player Retired: " + player.getName());
-                    inbox.setContent(player.getName() + " (age " + age + ") has announced their retirement from professional football.");
-                    inbox.setCategory("player_news");
-                    inbox.setRead(false);
-                    inbox.setCreatedAt(System.currentTimeMillis());
-                    managerInboxRepository.save(inbox);
+                Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
+                if (optionalScorerLeaderboardEntry.isPresent()) {
+                    leaderboardUpdates.add(CompetitionController.resetCurrentSeasonStats(optionalScorerLeaderboardEntry));
                 }
             }
         }
+        scorerRepository.saveAll(allNewScorers);
+        scorerLeaderboardRepository.saveAll(leaderboardUpdates);
+
+        // Reset end-of-season flag for the next season
+        endOfSeasonProcessed = false;
+
+        // Rebuild cup brackets for the new season — based on last season's standings.
+        // This wipes whatever cup CompetitionTeamInfo/Match rows the legacy per-league
+        // loop wrote earlier and replaces them with a proper full bracket.
+        controllerRef.regenerateAllCupBrackets((int) round.getSeason());
+
+        System.out.println("=== NEW SEASON " + round.getSeason() + " STARTED ===");
     }
 
-    // ==================== YOUTH GENERATION ====================
-
-    /**
-     * Generate youth academy players for each team for the new season.
-     * Stub: will be populated when the youth generation logic is migrated from CompetitionController.
-     */
-    private void generateYouthPlayers(int newSeason) {
-        // Stub: youth player generation logic will be migrated from CompetitionController.
-        // Each team receives 1-3 new youth players per season from their academy.
-    }
-
-    // ==================== SPONSORSHIP ====================
-
-    /**
-     * Apply sponsorship revenue to teams at end of season.
-     * Stub: will be populated when sponsorship logic is migrated.
-     */
-    private void applySponsorshipRevenue(int season) {
-        // Stub: sponsorship revenue application logic will be migrated from CompetitionController.
-    }
-
-    // ==================== PROMOTIONS / RELEGATIONS ====================
-
-    /**
-     * Process promotions and relegations between leagues based on final standings.
-     * Stub: will be populated with full promotion/relegation logic.
-     */
-    private void processPromotionsAndRelegations(int newSeason) {
-        // Stub: promotion/relegation logic will be migrated from CompetitionController.
-        // Involves swapping bottom N teams from league 1 with top N from league 2 (typeId 3).
-    }
-
-    /**
-     * Generate season objectives for all teams in the new season.
-     * Stub: objectives generation logic will be migrated.
-     */
-    private void generateSeasonObjectives(int newSeason) {
-        // Stub: season objectives generation will be migrated from CompetitionController.
-    }
-
-    /**
-     * Reset competition team entries and standings for the new season.
-     */
-    private void resetCompetitionEntries(int newSeason) {
-        // Stub: competition entry reset logic will be migrated from CompetitionController.
-    }
-
-    /**
-     * Clean up data from previous seasons that is no longer needed for active gameplay.
-     */
-    private void cleanupOldSeasonData(int newSeason) {
-        // Clear injuries from old season
-        List<Injury> oldInjuries = injuryRepository.findAll().stream()
-                .filter(i -> i.getSeasonNumber() < newSeason - 1)
-                .collect(Collectors.toList());
-        if (!oldInjuries.isEmpty()) {
-            injuryRepository.deleteAll(oldInjuries);
-        }
-
-        // Clear match events from seasons older than 2 seasons ago
-        matchEventRepository.deleteAllBySeasonNumber(newSeason - 3);
-    }
-
-    // ==================== PRE-CONTRACTS ====================
-
-    /**
-     * Process pre-contract signings: players who agreed a pre-contract move to their new team.
-     */
-    private void processPreContracts(int season) {
-        List<Human> preContractPlayers = humanRepository.findAllByPreContractTeamId(0L);
-        // findAllByPreContractTeamId(0) returns empty; we need all with preContractTeamId > 0
-        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
-
-        for (Human player : allPlayers) {
-            if (player.getPreContractTeamId() <= 0) continue;
-            if (player.isRetired()) continue;
-
-            long newTeamId = player.getPreContractTeamId();
-            Team newTeam = teamRepository.findById(newTeamId).orElse(null);
-            if (newTeam == null) {
-                player.setPreContractTeamId(0L);
-                humanRepository.save(player);
-                continue;
-            }
-
-            // Notify old team
-            if (player.getTeamId() != null && player.getTeamId() > 0 && userContext.isHumanTeam(player.getTeamId())) {
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(player.getTeamId());
-                inbox.setSeasonNumber(season);
-                inbox.setRoundNumber(0);
-                inbox.setTitle("Player Departed: " + player.getName());
-                inbox.setContent(player.getName() + " has left to join " + newTeam.getName() + " on a pre-contract agreement.");
-                inbox.setCategory("transfer");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
-            }
-
-            // Move player
-            long oldWage = player.getWage();
-            Team oldTeam = player.getTeamId() != null && player.getTeamId() > 0 ?
-                    teamRepository.findById(player.getTeamId()).orElse(null) : null;
-            if (oldTeam != null) {
-                oldTeam.setSalaryBudget(oldTeam.getSalaryBudget() - oldWage);
-                teamRepository.save(oldTeam);
-            }
-
-            player.setTeamId(newTeamId);
-            player.setPreContractTeamId(0L);
-            player.setContractEndSeason(season + 3);
-            player.setSeasonMatchesPlayed(0);
-            player.setConsecutiveBenched(0);
-            player.setMorale(75);
-            humanRepository.save(player);
-
-            newTeam.setSalaryBudget(newTeam.getSalaryBudget() + player.getWage());
-            teamRepository.save(newTeam);
-
-            // Notify new team
-            if (userContext.isHumanTeam(newTeamId)) {
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(newTeamId);
-                inbox.setSeasonNumber(season);
-                inbox.setRoundNumber(0);
-                inbox.setTitle("Pre-Contract Player Arrived: " + player.getName());
-                inbox.setContent(player.getName() + " has joined the club on a pre-contract agreement.");
-                inbox.setCategory("transfer");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
-            }
-        }
-    }
-
-    // ==================== COACH CONTRACT EXPIRIES ====================
-
-    /**
-     * Handle coach contract expiries at end of season.
-     * Coaches whose contracts expire become free agents, and the team generates replacements.
-     */
-    private void handleCoachContractExpiries(int newSeason) {
-        List<Team> allTeams = teamRepository.findAll();
-
-        for (Team team : allTeams) {
-            for (long coachType : new long[]{TypeNames.ASSISTANT_MANAGER_TYPE, TypeNames.FIRST_TEAM_COACH_TYPE,
-                    TypeNames.FITNESS_COACH_TYPE, TypeNames.GK_COACH_TYPE, TypeNames.YOUTH_COACH_TYPE, TypeNames.HOYD_TYPE}) {
-                List<Human> expiringCoaches = humanRepository
-                        .findAllByTeamIdAndTypeIdAndContractEndSeasonLessThanEqual(team.getId(), coachType, newSeason - 1);
-
-                for (Human coach : expiringCoaches) {
-                    if (userContext.isHumanTeam(team.getId())) {
-                        ManagerInbox inbox = new ManagerInbox();
-                        inbox.setTeamId(team.getId());
-                        inbox.setSeasonNumber(newSeason - 1);
-                        inbox.setRoundNumber(0);
-                        inbox.setTitle("Staff Contract Expired: " + coach.getName());
-                        inbox.setContent(coach.getName() + " (" + TypeNames.coachTypeName(coach.getTypeId()) +
-                                ") has left the club as their contract has expired.");
-                        inbox.setCategory("staff");
-                        inbox.setRead(false);
-                        inbox.setCreatedAt(System.currentTimeMillis());
-                        managerInboxRepository.save(inbox);
-                    }
-
-                    coach.setTeamId(0L);
-                    humanRepository.save(coach);
-                }
-            }
-
-            // AI teams auto-replace expired coaches
-            if (!userContext.isHumanTeam(team.getId())) {
-                List<Human> currentStaff = staffService.getTeamStaff(team.getId());
-                boolean hasAM = currentStaff.stream().anyMatch(s -> s.getTypeId() == TypeNames.ASSISTANT_MANAGER_TYPE);
-                boolean hasHOYD = currentStaff.stream().anyMatch(s -> s.getTypeId() == TypeNames.HOYD_TYPE);
-
-                if (!hasAM) staffService.generateInitialStaff(team.getId(), newSeason); // will re-generate all
-                else if (!hasHOYD) {
-                    // Generate just the missing HOYD
-                    // For simplicity, AI teams just regenerate any missing positions
-                }
-            }
-        }
-
-        // Generate new free agent coaches each season
-        staffService.generateFreeAgentCoaches(20, newSeason);
+    private long currentSeason() {
+        return roundRepository.findById(1L).map(Round::getSeason).orElse(1L);
     }
 
     // ==================== LOAN RETURNS ====================
