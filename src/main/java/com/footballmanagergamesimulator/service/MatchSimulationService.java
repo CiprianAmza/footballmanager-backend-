@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,8 @@ public class MatchSimulationService {
     private TacticService tacticService;
     @Autowired
     private MatchStatsRepository matchStatsRepository;
+    @Autowired
+    private UserContext userContext;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -245,36 +248,6 @@ public class MatchSimulationService {
             scorerList.add(scorerMap);
         }
         return scorerList;
-    }
-
-    // ==================== COEFFICIENT POINTS ====================
-
-    /**
-     * Determine the competition type IDs for a given competition type.
-     * Type 2 = Cup, Type 4 = League of Champions, Type 5 = Stars Cup.
-     */
-    public Set<Long> getCompetitionIdsByCompetitionType(long typeId) {
-        return competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == typeId)
-                .map(Competition::getId)
-                .collect(Collectors.toSet());
-    }
-
-    /**
-     * Check if a given competition round is a knockout format.
-     */
-    public boolean isKnockoutRound(long competitionId, long roundId) {
-        Set<Long> cupIds = getCompetitionIdsByCompetitionType(2);
-        if (cupIds.contains(competitionId)) return true;
-
-        Set<Long> starsCupIds = getCompetitionIdsByCompetitionType(5);
-        if (starsCupIds.contains(competitionId)) return true;
-
-        // League of Champions: round 1 is qualifying (knockout), rounds 2-7 are group, 8+ knockout
-        Set<Long> locIds = getCompetitionIdsByCompetitionType(4);
-        if (locIds.contains(competitionId) && (roundId == 1 || roundId >= 8)) return true;
-
-        return false;
     }
 
     // ==================== MANAGER REPUTATION ====================
@@ -891,5 +864,249 @@ public class MatchSimulationService {
             else if (teamPowerDifference > -500) return random.nextDouble(-2, 0);
             else return random.nextDouble(-1, 0);                                 // expected loss
         }
+    }
+
+    // ==================== MATCH EVENTS GENERATION ====================
+
+    /**
+     * Synthesize and persist a timeline of {@link MatchEvent} rows from a final
+     * score. Goal minutes are drawn uniformly across 1..90 and split between
+     * the two teams in score-proportional shares; scorers come from the
+     * outfield roster (penalty/free-kick takers honoured via the personalized
+     * tactic when set). Yellow cards, the occasional red, and three subs per
+     * side are appended only for human-team matches so AI vs AI games stay
+     * cheap.
+     */
+    public void generateMatchEvents(long competitionId, int seasonNumber, int roundNumber,
+                                    long teamId1, long teamId2, int teamScore1, int teamScore2,
+                                    String tactic1, String tactic2) {
+
+        Random random = new Random();
+        List<MatchEvent> events = new ArrayList<>();
+
+        boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
+
+        String[] goalDescriptions = {"Tap in", "Header", "Long range shot", "Free kick", "Penalty", "Solo run", "Volley"};
+
+        Optional<PersonalizedTactic> tactic1Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
+        Optional<PersonalizedTactic> tactic2Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
+
+        int totalGoals = teamScore1 + teamScore2;
+        List<Integer> goalMinutes = new ArrayList<>();
+        for (int i = 0; i < totalGoals; i++) {
+            goalMinutes.add(random.nextInt(1, 91));
+        }
+        Collections.sort(goalMinutes);
+
+        List<Integer> team1GoalMinutes = new ArrayList<>();
+        List<Integer> team2GoalMinutes = new ArrayList<>();
+        List<Integer> shuffledIndices = new ArrayList<>();
+        for (int i = 0; i < totalGoals; i++) shuffledIndices.add(i);
+        Collections.shuffle(shuffledIndices);
+
+        for (int i = 0; i < totalGoals; i++) {
+            if (i < teamScore1) {
+                team1GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
+            } else {
+                team2GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
+            }
+        }
+        Collections.sort(team1GoalMinutes);
+        Collections.sort(team2GoalMinutes);
+
+        List<Human> team1Players = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.PLAYER_TYPE);
+        List<Human> team2Players = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.PLAYER_TYPE);
+
+        List<Human> team1Outfield = team1Players.stream().filter(p -> !"GK".equals(p.getPosition())).collect(Collectors.toList());
+        List<Human> team2Outfield = team2Players.stream().filter(p -> !"GK".equals(p.getPosition())).collect(Collectors.toList());
+
+        if (team1Outfield.isEmpty()) team1Outfield = new ArrayList<>(team1Players);
+        if (team2Outfield.isEmpty()) team2Outfield = new ArrayList<>(team2Players);
+
+        for (int minute : team1GoalMinutes) {
+            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
+            Human scorer = resolveGoalScorer(description, team1Outfield, tactic1Opt.orElse(null), random);
+            MatchEvent goalEvent = new MatchEvent();
+            goalEvent.setCompetitionId(competitionId);
+            goalEvent.setSeasonNumber(seasonNumber);
+            goalEvent.setRoundNumber(roundNumber);
+            goalEvent.setTeamId1(teamId1);
+            goalEvent.setTeamId2(teamId2);
+            goalEvent.setMinute(minute);
+            goalEvent.setEventType("goal");
+            goalEvent.setPlayerId(scorer.getId());
+            goalEvent.setPlayerName(scorer.getName());
+            goalEvent.setTeamId(teamId1);
+            goalEvent.setDetails(description);
+            events.add(goalEvent);
+
+            // 70% chance of assist (no assist for penalties)
+            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team1Outfield.size() > 1) {
+                List<Human> possibleAssisters = team1Outfield.stream()
+                        .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
+                if (!possibleAssisters.isEmpty()) {
+                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
+                    MatchEvent assistEvent = new MatchEvent();
+                    assistEvent.setCompetitionId(competitionId);
+                    assistEvent.setSeasonNumber(seasonNumber);
+                    assistEvent.setRoundNumber(roundNumber);
+                    assistEvent.setTeamId1(teamId1);
+                    assistEvent.setTeamId2(teamId2);
+                    assistEvent.setMinute(minute);
+                    assistEvent.setEventType("assist");
+                    assistEvent.setPlayerId(assister.getId());
+                    assistEvent.setPlayerName(assister.getName());
+                    assistEvent.setTeamId(teamId1);
+                    assistEvent.setDetails("Assist");
+                    events.add(assistEvent);
+                }
+            }
+        }
+
+        for (int minute : team2GoalMinutes) {
+            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
+            Human scorer = resolveGoalScorer(description, team2Outfield, tactic2Opt.orElse(null), random);
+            MatchEvent goalEvent = new MatchEvent();
+            goalEvent.setCompetitionId(competitionId);
+            goalEvent.setSeasonNumber(seasonNumber);
+            goalEvent.setRoundNumber(roundNumber);
+            goalEvent.setTeamId1(teamId1);
+            goalEvent.setTeamId2(teamId2);
+            goalEvent.setMinute(minute);
+            goalEvent.setEventType("goal");
+            goalEvent.setPlayerId(scorer.getId());
+            goalEvent.setPlayerName(scorer.getName());
+            goalEvent.setTeamId(teamId2);
+            goalEvent.setDetails(description);
+            events.add(goalEvent);
+
+            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team2Outfield.size() > 1) {
+                List<Human> possibleAssisters = team2Outfield.stream()
+                        .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
+                if (!possibleAssisters.isEmpty()) {
+                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
+                    MatchEvent assistEvent = new MatchEvent();
+                    assistEvent.setCompetitionId(competitionId);
+                    assistEvent.setSeasonNumber(seasonNumber);
+                    assistEvent.setRoundNumber(roundNumber);
+                    assistEvent.setTeamId1(teamId1);
+                    assistEvent.setTeamId2(teamId2);
+                    assistEvent.setMinute(minute);
+                    assistEvent.setEventType("assist");
+                    assistEvent.setPlayerId(assister.getId());
+                    assistEvent.setPlayerName(assister.getName());
+                    assistEvent.setTeamId(teamId2);
+                    assistEvent.setDetails("Assist");
+                    events.add(assistEvent);
+                }
+            }
+        }
+
+        // Cards + subs only for human-team matches.
+        if (isHumanMatch) {
+
+            // Yellow cards: 0-4 per team
+            for (long teamId : new long[]{teamId1, teamId2}) {
+                List<Human> teamPlayers = (teamId == teamId1) ? team1Players : team2Players;
+                if (teamPlayers.isEmpty()) continue;
+                int yellowCards = random.nextInt(5);
+                List<Human> shuffledPlayers = new ArrayList<>(teamPlayers);
+                Collections.shuffle(shuffledPlayers);
+                for (int i = 0; i < Math.min(yellowCards, shuffledPlayers.size()); i++) {
+                    MatchEvent cardEvent = new MatchEvent();
+                    cardEvent.setCompetitionId(competitionId);
+                    cardEvent.setSeasonNumber(seasonNumber);
+                    cardEvent.setRoundNumber(roundNumber);
+                    cardEvent.setTeamId1(teamId1);
+                    cardEvent.setTeamId2(teamId2);
+                    cardEvent.setMinute(random.nextInt(1, 91));
+                    cardEvent.setEventType("yellow_card");
+                    cardEvent.setPlayerId(shuffledPlayers.get(i).getId());
+                    cardEvent.setPlayerName(shuffledPlayers.get(i).getName());
+                    cardEvent.setTeamId(teamId);
+                    cardEvent.setDetails("Yellow card");
+                    events.add(cardEvent);
+                }
+            }
+
+            // 5% chance of red card per match
+            if (random.nextDouble() < 0.05) {
+                long redCardTeamId = random.nextBoolean() ? teamId1 : teamId2;
+                List<Human> redCardPlayers = (redCardTeamId == teamId1) ? team1Players : team2Players;
+                if (!redCardPlayers.isEmpty()) {
+                    Human redCardPlayer = redCardPlayers.get(random.nextInt(redCardPlayers.size()));
+                    MatchEvent redEvent = new MatchEvent();
+                    redEvent.setCompetitionId(competitionId);
+                    redEvent.setSeasonNumber(seasonNumber);
+                    redEvent.setRoundNumber(roundNumber);
+                    redEvent.setTeamId1(teamId1);
+                    redEvent.setTeamId2(teamId2);
+                    redEvent.setMinute(random.nextInt(20, 91));
+                    redEvent.setEventType("red_card");
+                    redEvent.setPlayerId(redCardPlayer.getId());
+                    redEvent.setPlayerName(redCardPlayer.getName());
+                    redEvent.setTeamId(redCardTeamId);
+                    redEvent.setDetails("Red card");
+                    events.add(redEvent);
+                }
+            }
+
+            // 3 substitutions per team (minutes 46-85)
+            for (long teamId : new long[]{teamId1, teamId2}) {
+                List<Human> teamPlayers = (teamId == teamId1) ? team1Players : team2Players;
+                if (teamPlayers.size() < 4) continue;
+                List<Human> shuffledPlayers = new ArrayList<>(teamPlayers);
+                Collections.shuffle(shuffledPlayers);
+                List<Integer> subMinutes = new ArrayList<>();
+                for (int i = 0; i < 3; i++) {
+                    subMinutes.add(random.nextInt(46, 86));
+                }
+                Collections.sort(subMinutes);
+                for (int i = 0; i < 3; i++) {
+                    MatchEvent subEvent = new MatchEvent();
+                    subEvent.setCompetitionId(competitionId);
+                    subEvent.setSeasonNumber(seasonNumber);
+                    subEvent.setRoundNumber(roundNumber);
+                    subEvent.setTeamId1(teamId1);
+                    subEvent.setTeamId2(teamId2);
+                    subEvent.setMinute(subMinutes.get(i));
+                    subEvent.setEventType("substitution");
+                    subEvent.setPlayerId(shuffledPlayers.get(i).getId());
+                    subEvent.setPlayerName(shuffledPlayers.get(i).getName());
+                    subEvent.setTeamId(teamId);
+                    subEvent.setDetails("Substitution");
+                    events.add(subEvent);
+                }
+            }
+        }
+
+        matchEventRepository.saveAll(events);
+    }
+
+    /**
+     * Resolve the goal scorer based on goal type and set piece taker assignments.
+     * - "Penalty" → use designated penalty taker (if set)
+     * - "Free kick" → use designated free kick taker (if set)
+     * - Otherwise → random outfield player
+     */
+    private Human resolveGoalScorer(String goalDescription, List<Human> outfieldPlayers,
+                                    PersonalizedTactic tactic, Random random) {
+        if (tactic != null && outfieldPlayers != null && !outfieldPlayers.isEmpty()) {
+            Long takerId = null;
+            if ("Penalty".equals(goalDescription) && tactic.getPenaltyTakerId() != null) {
+                takerId = tactic.getPenaltyTakerId();
+            } else if ("Free kick".equals(goalDescription) && tactic.getFreeKickTakerId() != null) {
+                takerId = tactic.getFreeKickTakerId();
+            }
+            if (takerId != null) {
+                final long id = takerId;
+                Human taker = outfieldPlayers.stream()
+                        .filter(p -> p.getId() == id)
+                        .findFirst().orElse(null);
+                if (taker != null) return taker;
+                // Taker not in outfield list (may be injured/subbed) — fallback to random
+            }
+        }
+        return outfieldPlayers.get(random.nextInt(outfieldPlayers.size()));
     }
 }

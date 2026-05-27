@@ -107,6 +107,10 @@ public class SeasonTransitionService {
     private UserRepository userRepository;
     @Autowired
     private CompositeNameGenerator compositeNameGenerator;
+    @Autowired
+    private TransferMarketService transferMarketService;
+    @Lazy @Autowired
+    private SeasonObjectiveService seasonObjectiveService;
 
     @Lazy @Autowired
     private CompetitionController controllerRef;
@@ -267,7 +271,7 @@ public class SeasonTransitionService {
                     List<PlayerTransferView> playersInMarket = transferMarket.get(clubPlan.getPosition());
                     if (playersInMarket == null) continue;
                     for (PlayerTransferView player : playersInMarket) {
-                        if (controllerRef.canBeTransfered(player, buyPlanTransferView, clubPlan)) {
+                        if (transferMarketService.canBeTransfered(player, buyPlanTransferView, clubPlan)) {
                             if (buyPlan.containsKey(player))
                                 buyPlan.get(player).add(buyPlanTransferView);
                             else {
@@ -278,7 +282,7 @@ public class SeasonTransitionService {
                         }
                     }
                 }
-                controllerRef.generateAiOffersForHumanPlayers(team, buyPlanTransferView);
+                transferMarketService.generateAiOffersForHumanPlayers(team, buyPlanTransferView);
             }
 
             HashMap<PlayerTransferView, BuyPlanTransferView> playerTransfered = new HashMap<>();
@@ -371,7 +375,7 @@ public class SeasonTransitionService {
                 }
             }
 
-            controllerRef.evaluateSeasonObjectives(currentSeasonInt);
+            seasonObjectiveService.evaluateSeasonObjectives(currentSeasonInt);
 
             // Notify all human users about AI transfers
             if (!transfers.isEmpty()) {
@@ -490,7 +494,7 @@ public class SeasonTransitionService {
 
         handleContractExpiries((int) round.getSeason());
         scoutManagementController.processExpiredContracts((int) round.getSeason());
-        controllerRef.generateSeasonObjectives((int) round.getSeason());
+        seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
 
         // Generate league fixtures for new season
         Set<Long> newLeagueCompIds = controllerRef.getCompetitionIdsByCompetitionType(1);

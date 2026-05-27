@@ -5,11 +5,7 @@ import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
-import com.footballmanagergamesimulator.service.CompetitionService;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
-import com.footballmanagergamesimulator.service.LiveMatchSession;
-import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
-import org.springframework.transaction.annotation.Transactional;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.LeagueConfigService;
 import com.footballmanagergamesimulator.service.BootstrapService;
@@ -20,9 +16,6 @@ import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.service.TeamPostMatchService;
 import com.footballmanagergamesimulator.service.TeamTalkService;
 import com.footballmanagergamesimulator.service.TransferValueCalculator;
-import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
-import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
-import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
@@ -67,8 +60,6 @@ public class CompetitionController {
     @Autowired
     RoundRepository roundRepository;
     @Autowired
-    PersonalizedTacticRepository personalizedTacticRepository;
-    @Autowired
     ScorerRepository scorerRepository;
     @Autowired
     ScorerLeaderboardRepository scorerLeaderboardRepository;
@@ -93,8 +84,6 @@ public class CompetitionController {
     @Autowired
     InjuryRepository injuryRepository;
     @Autowired
-    MatchEventRepository matchEventRepository;
-    @Autowired
     FixtureSchedulingService fixtureSchedulingService;
     @Autowired
     GameCalendarRepository gameCalendarRepository;
@@ -103,21 +92,13 @@ public class CompetitionController {
     @Autowired
     UserRepository userRepository;
     @Autowired
-    LiveMatchSimulationService liveMatchSimulationService;
-    @Autowired
     @org.springframework.context.annotation.Lazy
     com.footballmanagergamesimulator.service.StaffService staffService;
     @Autowired
     @org.springframework.context.annotation.Lazy
     com.footballmanagergamesimulator.service.SeasonTransitionService seasonTransitionService;
     @Autowired
-    com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
-    @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
-    @Autowired
-    com.footballmanagergamesimulator.service.LineupRatingService lineupRatingService;
-
-
 
     Round round;
 
@@ -198,7 +179,7 @@ public class CompetitionController {
         // Generate calendar AFTER league fixtures exist so updateMatchDays can set the day field
         fixtureSchedulingService.generateSeasonCalendar(1);
 
-        generateSeasonObjectives((int) round.getSeason());
+        seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
 
         // Create players and managers for all teams (season 1 only)
         List<Team> teams = teamRepository.findAll();
@@ -1369,12 +1350,12 @@ public class CompetitionController {
 
             if (locIdsForDraw.contains(_competitionId) && (_roundId == 0 || _roundId == 1)) {
                 // LoC preliminary (round 0) or qualifying (round 1): seeded vs unseeded by coefficient
-                drawEuropeanKnockoutSeeded(_competitionId, _roundId, participants);
+                europeanCompetitionService.drawEuropeanKnockoutSeeded(_competitionId, _roundId, participants);
                 return;
             }
             if (starsCupIdsForDraw.contains(_competitionId) && _roundId == 7) {
                 // Stars Cup playoff: LoC 3rd place (seeded) vs SC runners-up (unseeded)
-                drawStarsCupPlayoffSeeded(_competitionId, _roundId, participants);
+                europeanCompetitionService.drawStarsCupPlayoffSeeded(_competitionId, _roundId, participants);
                 return;
             }
 
@@ -1488,245 +1469,6 @@ public class CompetitionController {
         return TransferValueCalculator.calculate(age, position, rating);
     }
 
-    public void generateMatchEvents(long competitionId, int seasonNumber, int roundNumber,
-                                      long teamId1, long teamId2, int teamScore1, int teamScore2,
-                                      String tactic1, String tactic2) {
-
-        Random random = new Random();
-        List<MatchEvent> events = new ArrayList<>();
-
-        boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
-
-        String[] goalDescriptions = {"Tap in", "Header", "Long range shot", "Free kick", "Penalty", "Solo run", "Volley"};
-
-        // Load set piece takers for both teams
-        Optional<PersonalizedTactic> tactic1Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
-        Optional<PersonalizedTactic> tactic2Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
-
-        // Generate random sorted minutes for all goals
-        int totalGoals = teamScore1 + teamScore2;
-        List<Integer> goalMinutes = new ArrayList<>();
-        for (int i = 0; i < totalGoals; i++) {
-            goalMinutes.add(random.nextInt(1, 91));
-        }
-        Collections.sort(goalMinutes);
-
-        // Assign goals to teams
-        List<Integer> team1GoalMinutes = new ArrayList<>();
-        List<Integer> team2GoalMinutes = new ArrayList<>();
-        List<Integer> shuffledIndices = new ArrayList<>();
-        for (int i = 0; i < totalGoals; i++) shuffledIndices.add(i);
-        Collections.shuffle(shuffledIndices);
-
-        for (int i = 0; i < totalGoals; i++) {
-            if (i < teamScore1) {
-                team1GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
-            } else {
-                team2GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
-            }
-        }
-        Collections.sort(team1GoalMinutes);
-        Collections.sort(team2GoalMinutes);
-
-        // Get players for each team
-        List<Human> team1Players = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.PLAYER_TYPE);
-        List<Human> team2Players = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.PLAYER_TYPE);
-
-        List<Human> team1Outfield = team1Players.stream().filter(p -> !"GK".equals(p.getPosition())).collect(Collectors.toList());
-        List<Human> team2Outfield = team2Players.stream().filter(p -> !"GK".equals(p.getPosition())).collect(Collectors.toList());
-
-        if (team1Outfield.isEmpty()) team1Outfield = new ArrayList<>(team1Players);
-        if (team2Outfield.isEmpty()) team2Outfield = new ArrayList<>(team2Players);
-
-        // Generate goal events for team 1
-        for (int minute : team1GoalMinutes) {
-            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
-            Human scorer = resolveGoalScorer(description, team1Outfield, tactic1Opt.orElse(null), random);
-            MatchEvent goalEvent = new MatchEvent();
-            goalEvent.setCompetitionId(competitionId);
-            goalEvent.setSeasonNumber(seasonNumber);
-            goalEvent.setRoundNumber(roundNumber);
-            goalEvent.setTeamId1(teamId1);
-            goalEvent.setTeamId2(teamId2);
-            goalEvent.setMinute(minute);
-            goalEvent.setEventType("goal");
-            goalEvent.setPlayerId(scorer.getId());
-            goalEvent.setPlayerName(scorer.getName());
-            goalEvent.setTeamId(teamId1);
-            goalEvent.setDetails(description);
-            events.add(goalEvent);
-
-            // 70% chance of assist (no assist for penalties)
-            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team1Outfield.size() > 1) {
-                List<Human> possibleAssisters = team1Outfield.stream()
-                        .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
-                if (!possibleAssisters.isEmpty()) {
-                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
-                    MatchEvent assistEvent = new MatchEvent();
-                    assistEvent.setCompetitionId(competitionId);
-                    assistEvent.setSeasonNumber(seasonNumber);
-                    assistEvent.setRoundNumber(roundNumber);
-                    assistEvent.setTeamId1(teamId1);
-                    assistEvent.setTeamId2(teamId2);
-                    assistEvent.setMinute(minute);
-                    assistEvent.setEventType("assist");
-                    assistEvent.setPlayerId(assister.getId());
-                    assistEvent.setPlayerName(assister.getName());
-                    assistEvent.setTeamId(teamId1);
-                    assistEvent.setDetails("Assist");
-                    events.add(assistEvent);
-                }
-            }
-        }
-
-        // Generate goal events for team 2
-        for (int minute : team2GoalMinutes) {
-            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
-            Human scorer = resolveGoalScorer(description, team2Outfield, tactic2Opt.orElse(null), random);
-            MatchEvent goalEvent = new MatchEvent();
-            goalEvent.setCompetitionId(competitionId);
-            goalEvent.setSeasonNumber(seasonNumber);
-            goalEvent.setRoundNumber(roundNumber);
-            goalEvent.setTeamId1(teamId1);
-            goalEvent.setTeamId2(teamId2);
-            goalEvent.setMinute(minute);
-            goalEvent.setEventType("goal");
-            goalEvent.setPlayerId(scorer.getId());
-            goalEvent.setPlayerName(scorer.getName());
-            goalEvent.setTeamId(teamId2);
-            goalEvent.setDetails(description);
-            events.add(goalEvent);
-
-            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team2Outfield.size() > 1) {
-                List<Human> possibleAssisters = team2Outfield.stream()
-                        .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
-                if (!possibleAssisters.isEmpty()) {
-                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
-                    MatchEvent assistEvent = new MatchEvent();
-                    assistEvent.setCompetitionId(competitionId);
-                    assistEvent.setSeasonNumber(seasonNumber);
-                    assistEvent.setRoundNumber(roundNumber);
-                    assistEvent.setTeamId1(teamId1);
-                    assistEvent.setTeamId2(teamId2);
-                    assistEvent.setMinute(minute);
-                    assistEvent.setEventType("assist");
-                    assistEvent.setPlayerId(assister.getId());
-                    assistEvent.setPlayerName(assister.getName());
-                    assistEvent.setTeamId(teamId2);
-                    assistEvent.setDetails("Assist");
-                    events.add(assistEvent);
-                }
-            }
-        }
-
-        // Only generate detailed events (cards, subs) for human team matches
-        if (isHumanMatch) {
-
-            // Yellow cards: 0-4 per team
-            for (long teamId : new long[]{teamId1, teamId2}) {
-                List<Human> teamPlayers = (teamId == teamId1) ? team1Players : team2Players;
-                if (teamPlayers.isEmpty()) continue;
-                int yellowCards = random.nextInt(5);
-                List<Human> shuffledPlayers = new ArrayList<>(teamPlayers);
-                Collections.shuffle(shuffledPlayers);
-                for (int i = 0; i < Math.min(yellowCards, shuffledPlayers.size()); i++) {
-                    MatchEvent cardEvent = new MatchEvent();
-                    cardEvent.setCompetitionId(competitionId);
-                    cardEvent.setSeasonNumber(seasonNumber);
-                    cardEvent.setRoundNumber(roundNumber);
-                    cardEvent.setTeamId1(teamId1);
-                    cardEvent.setTeamId2(teamId2);
-                    cardEvent.setMinute(random.nextInt(1, 91));
-                    cardEvent.setEventType("yellow_card");
-                    cardEvent.setPlayerId(shuffledPlayers.get(i).getId());
-                    cardEvent.setPlayerName(shuffledPlayers.get(i).getName());
-                    cardEvent.setTeamId(teamId);
-                    cardEvent.setDetails("Yellow card");
-                    events.add(cardEvent);
-                }
-            }
-
-            // 5% chance of red card per match
-            if (random.nextDouble() < 0.05) {
-                long redCardTeamId = random.nextBoolean() ? teamId1 : teamId2;
-                List<Human> redCardPlayers = (redCardTeamId == teamId1) ? team1Players : team2Players;
-                if (!redCardPlayers.isEmpty()) {
-                    Human redCardPlayer = redCardPlayers.get(random.nextInt(redCardPlayers.size()));
-                    MatchEvent redEvent = new MatchEvent();
-                    redEvent.setCompetitionId(competitionId);
-                    redEvent.setSeasonNumber(seasonNumber);
-                    redEvent.setRoundNumber(roundNumber);
-                    redEvent.setTeamId1(teamId1);
-                    redEvent.setTeamId2(teamId2);
-                    redEvent.setMinute(random.nextInt(20, 91));
-                    redEvent.setEventType("red_card");
-                    redEvent.setPlayerId(redCardPlayer.getId());
-                    redEvent.setPlayerName(redCardPlayer.getName());
-                    redEvent.setTeamId(redCardTeamId);
-                    redEvent.setDetails("Red card");
-                    events.add(redEvent);
-                }
-            }
-
-            // 3 substitutions per team (minutes 46-85)
-            for (long teamId : new long[]{teamId1, teamId2}) {
-                List<Human> teamPlayers = (teamId == teamId1) ? team1Players : team2Players;
-                if (teamPlayers.size() < 4) continue;
-                List<Human> shuffledPlayers = new ArrayList<>(teamPlayers);
-                Collections.shuffle(shuffledPlayers);
-                List<Integer> subMinutes = new ArrayList<>();
-                for (int i = 0; i < 3; i++) {
-                    subMinutes.add(random.nextInt(46, 86));
-                }
-                Collections.sort(subMinutes);
-                for (int i = 0; i < 3; i++) {
-                    MatchEvent subEvent = new MatchEvent();
-                    subEvent.setCompetitionId(competitionId);
-                    subEvent.setSeasonNumber(seasonNumber);
-                    subEvent.setRoundNumber(roundNumber);
-                    subEvent.setTeamId1(teamId1);
-                    subEvent.setTeamId2(teamId2);
-                    subEvent.setMinute(subMinutes.get(i));
-                    subEvent.setEventType("substitution");
-                    subEvent.setPlayerId(shuffledPlayers.get(i).getId());
-                    subEvent.setPlayerName(shuffledPlayers.get(i).getName());
-                    subEvent.setTeamId(teamId);
-                    subEvent.setDetails("Substitution");
-                    events.add(subEvent);
-                }
-            }
-        }
-
-        matchEventRepository.saveAll(events);
-    }
-
-    /**
-     * Resolve the goal scorer based on goal type and set piece taker assignments.
-     * - "Penalty" → use designated penalty taker (if set)
-     * - "Free kick" → use designated free kick taker (if set)
-     * - Otherwise → random outfield player
-     */
-    private Human resolveGoalScorer(String goalDescription, List<Human> outfieldPlayers,
-                                     PersonalizedTactic tactic, Random random) {
-        if (tactic != null && outfieldPlayers != null && !outfieldPlayers.isEmpty()) {
-            Long takerId = null;
-            if ("Penalty".equals(goalDescription) && tactic.getPenaltyTakerId() != null) {
-                takerId = tactic.getPenaltyTakerId();
-            } else if ("Free kick".equals(goalDescription) && tactic.getFreeKickTakerId() != null) {
-                takerId = tactic.getFreeKickTakerId();
-            }
-            if (takerId != null) {
-                final long id = takerId;
-                Human taker = outfieldPlayers.stream()
-                        .filter(p -> p.getId() == id)
-                        .findFirst().orElse(null);
-                if (taker != null) return taker;
-                // Taker not in outfield list (may be injured/subbed) — fallback to random
-            }
-        }
-        return outfieldPlayers.get(random.nextInt(outfieldPlayers.size()));
-    }
-
     @GetMapping("/getCompetitionInfo/{id}")
     public Map<String, Object> getCompetitionInfo(@PathVariable Long id) {
 
@@ -1800,21 +1542,7 @@ public class CompetitionController {
         return competitionRepository.findNameById(competitionId);
     }
 
-    /** @deprecated thin delegate to {@link TransferMarketService#canBeTransfered};
-     *  remaining for callers that still go through the controller back-ref. */
-    @Deprecated
-    public boolean canBeTransfered(PlayerTransferView playerTransferView, BuyPlanTransferView clubPlan, TransferPlayer desiredPlayer) {
-        return transferMarketService.canBeTransfered(playerTransferView, clubPlan, desiredPlayer);
-    }
-
-    /** @deprecated thin delegate to {@link TransferMarketService#generateAiOffersForHumanPlayers};
-     *  remaining for callers that still go through the controller back-ref. */
-    @Deprecated
-    public void generateAiOffersForHumanPlayers(Team aiTeam, BuyPlanTransferView buyPlanTransferView) {
-        transferMarketService.generateAiOffersForHumanPlayers(aiTeam, buyPlanTransferView);
-    }
-
-    private int getTeamCountForCompetition(long competitionId) {
+    public int getTeamCountForCompetition(long competitionId) {
         long currentSeason = Long.parseLong(getCurrentSeason());
         return (int) competitionTeamInfoRepository
                 .findAllBySeasonNumber(currentSeason).stream()
@@ -1956,45 +1684,9 @@ public class CompetitionController {
 
 
 
-    // ============================================================
-    //  European competition methods — delegate to
-    //  EuropeanCompetitionService. Kept as thin wrappers so the
-    //  controller's internal callers (play() orchestration,
-    //  simulateRound dispatch) don't have to change.
-    // ============================================================
-
-    private void drawEuropeanGroups(long competitionId, int groupStageRound) {
-        europeanCompetitionService.drawEuropeanGroups(competitionId, groupStageRound);
-    }
-
-    private void drawEuropeanKnockoutSeeded(long competitionId, long roundId, List<Long> participants) {
-        europeanCompetitionService.drawEuropeanKnockoutSeeded(competitionId, roundId, participants);
-    }
-
-    private void drawStarsCupPlayoffSeeded(long starsCupCompetitionId, long roundId, List<Long> participants) {
-        europeanCompetitionService.drawStarsCupPlayoffSeeded(starsCupCompetitionId, roundId, participants);
-    }
-
-    private void resetEuropeanStats(long competitionId) {
-        europeanCompetitionService.resetEuropeanStats(competitionId);
-    }
-
-    private void generateGroupStageFixtures(long competitionId) {
-        europeanCompetitionService.generateGroupStageFixtures(competitionId);
-    }
-
-    private void qualifyFromGroupStage(long locCompetitionId) {
-        europeanCompetitionService.qualifyFromGroupStage(locCompetitionId);
-    }
-
-    private void assignLocLosersToStarsCup(long locCompetitionId, int locRound) {
-        europeanCompetitionService.assignLocLosersToStarsCup(locCompetitionId, locRound);
-    }
-
-    private void qualifyFromStarsCupGroupStage(long starsCupCompetitionId) {
-        europeanCompetitionService.qualifyFromStarsCupGroupStage(starsCupCompetitionId);
-    }
-
+    // European competition delegates removed — internal callers
+    // (simulateMatchday dispatch + getFixturesForRound knockout draws)
+    // call europeanCompetitionService.X() directly.
 
     public Set<Long> getCompetitionIdsByCompetitionType(int competitionTypeId) {
 
@@ -2242,401 +1934,28 @@ public class CompetitionController {
         return teamTalkService.getIndividualTalkOptions();
     }
 
-    /** @deprecated thin delegate to {@link SeasonObjectiveService#generateSeasonObjectives};
-     *  remaining for the {@code initializeRound()} bootstrap path. */
-    @Deprecated
-    public void generateSeasonObjectives(int season) {
-        seasonObjectiveService.generateSeasonObjectives(season);
-    }
-
-    /** @deprecated thin delegate to {@link SeasonObjectiveService#evaluateSeasonObjectives};
-     *  remaining for callers that still go through the controller back-ref. */
-    @Deprecated
-    public void evaluateSeasonObjectives(int season) {
-        seasonObjectiveService.evaluateSeasonObjectives(season);
-    }
-
-    /**
-     * Persist a MatchEvent "goal" row for the extra-time decider so the
-     * match-report timeline never shows fewer goals than the final score
-     * after a knockout tiebreaker bumps it.
-     *
-     * Picks an outfield player from the winning team via position+rating
-     * weighting (so a striker is more likely to be credited than a defender)
-     * and writes both a "goal" and an "assist" MatchEvent.
-     */
-    private void appendKnockoutWinnerGoal(long competitionId, int season, int roundNumber,
-                                          long teamId1, long teamId2,
-                                          long winnerTeamId, long loserTeamId) {
-        List<Human> winners = humanRepository.findAllByTeamIdAndTypeId(winnerTeamId, TypeNames.PLAYER_TYPE).stream()
-                .filter(h -> !h.isRetired())
-                .filter(h -> !"GK".equals(h.getPosition()))
-                .toList();
-        if (winners.isEmpty()) return;
-
-        // Position weights mirror the live-sim attacker selection.
-        double totalWeight = 0;
-        double[] weights = new double[winners.size()];
-        for (int i = 0; i < winners.size(); i++) {
-            double posMul = switch (winners.get(i).getPosition()) {
-                case "ST" -> 3.0;
-                case "AMC", "AML", "AMR" -> 2.0;
-                case "MC", "ML", "MR" -> 1.2;
-                case "DC", "DL", "DR", "DM" -> 0.4;
-                default -> 1.0;
-            };
-            weights[i] = winners.get(i).getRating() * posMul;
-            totalWeight += weights[i];
-        }
-        Random rnd = new Random();
-        double r = rnd.nextDouble() * totalWeight;
-        double cum = 0;
-        Human scorer = winners.get(winners.size() - 1);
-        for (int i = 0; i < winners.size(); i++) {
-            cum += weights[i];
-            if (r < cum) { scorer = winners.get(i); break; }
-        }
-
-        MatchEvent goal = new MatchEvent();
-        goal.setCompetitionId(competitionId);
-        goal.setSeasonNumber(season);
-        goal.setRoundNumber(roundNumber);
-        goal.setTeamId1(teamId1);
-        goal.setTeamId2(teamId2);
-        goal.setMinute(120); // extra time
-        goal.setEventType("goal");
-        goal.setPlayerId(scorer.getId());
-        goal.setPlayerName(scorer.getName());
-        goal.setTeamId(winnerTeamId);
-        goal.setDetails("Extra time winner");
-        matchEventRepository.save(goal);
-    }
-
-    /**
-     * Simulates a matchday for a specific competition.
-     * Called by GameAdvanceService when processing MATCH events from the calendar.
-     *
-     * IMPORTANT: matchday is 1-based (from CalendarEvent), but competition rounds differ:
-     *   LoC (typeId 4): 11 matchdays → rounds 0-10 (matchday - 1 = round)
-     *     matchday 1 = round 0 (preliminary), matchday 2 = round 1 (qualifying),
-     *     matchdays 3-8 = rounds 2-7 (groups), matchdays 9-11 = rounds 8-10 (QF/SF/Final)
-     *   Stars Cup (typeId 5): 10 matchdays → rounds 1-10 (matchday = round)
-     *     matchdays 1-6 = rounds 1-6 (groups), matchday 7 = round 7 (playoff),
-     *     matchdays 8-10 = rounds 8-10 (QF/SF/Final)
-     *   Cup (typeId 2): matchday = round (1-based knockout)
-     */
-    @Transactional
+    /** Thin delegate so {@link com.footballmanagergamesimulator.service.GameAdvanceService}
+     *  call sites stay stable. Body lives in {@link MatchSimulationOrchestrator#simulateMatchday}. */
     public void simulateMatchday(long competitionId, int matchday, int season) {
-        long _tMatchdayStart = System.nanoTime();
-        Competition competition = competitionRepository.findById(competitionId).orElse(null);
-        if (competition == null) return;
-
-        int typeId = (int) competition.getTypeId();
-        String compIdStr = String.valueOf(competitionId);
-
-        // Map matchday (1-based) to competition round
-        int round;
-        if (typeId == 4) {
-            round = matchday - 1; // LoC: matchday 1 = round 0
-        } else {
-            round = matchday; // Stars Cup & Cup: matchday = round
-        }
-        String roundStr = String.valueOf(round);
-
-        System.out.println("=== simulateMatchday: comp=" + competitionId + " typeId=" + typeId
-                + " matchday=" + matchday + " → round=" + round + " season=" + season + " ===");
-
-        try {
-
-        // Guard: skip if this round was already simulated
-        List<CompetitionTeamInfoDetail> existing = competitionTeamInfoDetailRepository
-                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, round, season);
-        if (!existing.isEmpty()) {
-            System.out.println("Round " + round + " already simulated, skipping");
-            return;
-        }
-
-        // === LoC (typeId 4) ===
-        if (typeId == 4) {
-            if (round == 0) {
-                // Preliminary: knockout draw + simulate + losers to Stars Cup
-                this.getFixturesForRound(compIdStr, roundStr);
-                this.simulateRound(compIdStr, roundStr);
-                assignLocLosersToStarsCup(competitionId, 0);
-                return;
-            }
-            if (round == 1) {
-                // Qualifying: knockout draw + simulate + losers to Stars Cup
-                this.getFixturesForRound(compIdStr, roundStr);
-                this.simulateRound(compIdStr, roundStr);
-                assignLocLosersToStarsCup(competitionId, 1);
-                return;
-            }
-            if (round >= 2 && round <= 7) {
-                // Group stage
-                if (round == 2) {
-                    // First group matchday: draw groups + generate all group fixtures
-                    drawEuropeanGroups(competitionId, 2);
-                    resetEuropeanStats(competitionId);
-                    generateGroupStageFixtures(competitionId);
-                    // Assign calendar days for remaining group matchdays
-                    for (int md = matchday + 1; md <= matchday + 5; md++) {
-                        fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
-                    }
-                }
-                this.simulateRound(compIdStr, roundStr);
-                if (round == 7) {
-                    // Last group matchday: qualify top 2 to QF, 3rd to Stars Cup playoff
-                    qualifyFromGroupStage(competitionId);
-                }
-                return;
-            }
-            // Knockout rounds 8-10
-            this.getFixturesForRound(compIdStr, roundStr);
-            this.simulateRound(compIdStr, roundStr);
-            // Draw next knockout round
-            if (round < 10) {
-                int nextRound = round + 1;
-                this.getFixturesForRound(compIdStr, String.valueOf(nextRound));
-                fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
-            }
-            return;
-        }
-
-        // === Stars Cup (typeId 5) ===
-        if (typeId == 5) {
-            if (round >= 1 && round <= 6) {
-                // Group stage
-                if (round == 1) {
-                    // First group matchday: draw groups + generate all group fixtures
-                    drawEuropeanGroups(competitionId, 1);
-                    resetEuropeanStats(competitionId);
-                    generateGroupStageFixtures(competitionId);
-                    for (int md = matchday + 1; md <= matchday + 5; md++) {
-                        fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
-                    }
-                }
-                this.simulateRound(compIdStr, roundStr);
-                if (round == 6) {
-                    // Last group matchday: winners to QF, runners-up to playoff
-                    qualifyFromStarsCupGroupStage(competitionId);
-                }
-                return;
-            }
-            // Knockout rounds 7-10 (7 = playoff, 8 = QF, 9 = SF, 10 = Final)
-            this.getFixturesForRound(compIdStr, roundStr);
-            this.simulateRound(compIdStr, roundStr);
-            // Draw next knockout round
-            if (round < 10) {
-                int nextRound = round + 1;
-                this.getFixturesForRound(compIdStr, String.valueOf(nextRound));
-                fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
-            }
-            return;
-        }
-
-        // === League (typeId 1) / Second League (typeId 3) ===
-        // Fixtures are pre-generated at season start. Calling getFixturesForRound
-        // here would duplicate every round in competition_team_info_match and cause
-        // unique-constraint violations on match_stats during simulateRound.
-        if (typeId == 1 || typeId == 3) {
-            this.simulateRound(compIdStr, roundStr);
-            return;
-        }
-
-        // === Cup (typeId 2) ===
-        // Bracket is fully pre-generated at season start by CupBracketService — no
-        // per-round draw, no "draw next round" step. We just simulate this round;
-        // simulateRound propagates winners into the pre-created next-round slots
-        // via cupBracketService.propagateWinner().
-        this.simulateRound(compIdStr, roundStr);
-
-        // Still need to assign a calendar day for the next round if there is one,
-        // so the existing calendar/event flow knows when to fire it.
-        int numTeams = getTeamCountForCompetition(competitionId);
-        int maxRounds = Math.max(1, (int) Math.ceil(Math.log(numTeams) / Math.log(2)));
-        if (round < maxRounds) {
-            fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
-        }
-
-        } finally {
-            long totalMs = (System.nanoTime() - _tMatchdayStart) / 1_000_000;
-            System.out.println(String.format(
-                    "<<< simulateMatchday comp=%d matchday=%d DONE in %dms",
-                    competitionId, matchday, totalMs));
-        }
+        matchSimulationOrchestrator.simulateMatchday(competitionId, matchday, season);
     }
 
-    /**
-     * Gets the human team's match result AFTER all matches have been simulated.
-     * Called once, only for the human team's competition.
-     */
+    /** Thin delegate so {@link com.footballmanagergamesimulator.service.GameAdvanceService}
+     *  call sites stay stable. Body lives in {@link MatchSimulationOrchestrator#getAllMatchResults}. */
     public List<Map<String, Object>> getAllMatchResults(long competitionId, int matchday, int season) {
-        List<Map<String, Object>> results = new ArrayList<>();
-        List<Long> humanTeamIds = userContext.getAllHumanTeamIds();
-        Competition competition = competitionRepository.findById(competitionId).orElse(null);
-        if (competition == null) return results;
-
-        List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository
-                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, matchday, season);
-        for (CompetitionTeamInfoDetail d : details) {
-            // Skip any human team's match (they already see it in the popup)
-            if (humanTeamIds.contains(d.getTeam1Id()) || humanTeamIds.contains(d.getTeam2Id())) continue;
-            if (d.getScore() == null || d.getScore().isEmpty()) continue;
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("competitionName", competition.getName());
-            m.put("team1Name", d.getTeamName1());
-            m.put("team2Name", d.getTeamName2());
-            m.put("score", d.getScore());
-            results.add(m);
-        }
-        return results;
+        return matchSimulationOrchestrator.getAllMatchResults(competitionId, matchday, season);
     }
 
-    /**
-     * Finalize an interactive live match — runs ALL the post-match work that
-     * {@code simulateMatchday} skipped (scorers, stats, injuries, standings,
-     * coefficient points, match report, manager reputation, suspensions, news,
-     * post-match press conference).
-     *
-     * <p>Called by {@code POST /match/live/{key}/commit} when the frontend has
-     * finished polling the engine to full time. The session's final scores
-     * become the source of truth for the round — any manual sub the user made
-     * during playback is now baked into the standings.
-     *
-     * <p>Idempotent: a session already marked as {@code committed} returns
-     * an unchanged result map.
-     */
+    /** Thin delegate so {@code MatchController#commit} stays stable. Body
+     *  lives in {@link MatchSimulationOrchestrator#finalizeInteractiveLiveMatch}. */
     public Map<String, Object> finalizeInteractiveLiveMatch(String liveKey) {
-        LiveMatchSession session = liveMatchSimulationService.getSession(liveKey);
-        if (session == null) {
-            throw new RuntimeException("No interactive session for key=" + liveKey);
-        }
-        if (!session.isFinished()) {
-            throw new RuntimeException("Cannot commit: match is still in progress (currentMinute < totalMinutes).");
-        }
-        if (session.isCommitted()) {
-            // Idempotent — return a result map without re-running side effects.
-            Map<String, Object> already = new LinkedHashMap<>();
-            already.put("alreadyCommitted", true);
-            already.put("homeScore", session.getHomeScore());
-            already.put("awayScore", session.getAwayScore());
-            return already;
-        }
-
-        long teamId1 = session.getTeamId1();
-        long teamId2 = session.getTeamId2();
-        long _competitionId = session.getCompetitionId();
-        long _roundId = session.getRound();
-        int season = session.getSeason();
-        int teamScore1 = session.getHomeScore();
-        int teamScore2 = session.getAwayScore();
-        double teamPower1 = session.getDeferredTeamPower1();
-        double teamPower2 = session.getDeferredTeamPower2();
-        String tactic1 = session.getDeferredTactic1();
-        String tactic2 = session.getDeferredTactic2();
-        boolean knockout = session.isDeferredKnockout();
-
-        // Knockout extra-time decider (mirrors the live path in simulateMatchday)
-        if (knockout && teamScore1 == teamScore2) {
-            double total = teamPower1 + teamPower2;
-            double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
-            boolean homeWins = new Random().nextDouble() < winChance;
-            long winnerTeamId, loserTeamId;
-            if (homeWins) { session.bumpHomeScore(); teamScore1++; winnerTeamId = teamId1; loserTeamId = teamId2; }
-            else          { session.bumpAwayScore(); teamScore2++; winnerTeamId = teamId2; loserTeamId = teamId1; }
-            appendKnockoutWinnerGoal(_competitionId, season, (int) _roundId, teamId1, teamId2, winnerTeamId, loserTeamId);
-        }
-
-        // Scorer tracking + match stats from the live data
-        lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
-        lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
-        matchSimulationService.persistLiveMatchStats(
-                _competitionId, season, (int) _roundId, teamId1, teamId2,
-                session.asLiveMatchData(), teamPower1, teamPower2);
-
-        // The same post-match work the legacy path runs inline
-        processInjuriesForTeam(teamId1);
-        processInjuriesForTeam(teamId2);
-        updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
-        updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
-        europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
-        generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
-        updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
-
-        // Detail record (the simulateMatchday loop skipped this for interactive
-        // matches). Standings + results page now show the real final score.
-        CompetitionTeamInfoDetail detail = new CompetitionTeamInfoDetail();
-        detail.setCompetitionId(_competitionId);
-        detail.setRoundId(_roundId);
-        detail.setTeam1Id(teamId1);
-        detail.setTeam2Id(teamId2);
-        detail.setTeamName1(matchSimulationOrchestrator.roundTeamName(teamId1));
-        detail.setTeamName2(matchSimulationOrchestrator.roundTeamName(teamId2));
-        detail.setScore(teamScore1 + " - " + teamScore2);
-        detail.setSeasonNumber((long) season);
-        competitionTeamInfoDetailRepository.save(detail);
-
-        session.markCommitted();
-
-        // Build result map for the frontend — includes the match result so the
-        // FE can chain into the post-match press conference flow.
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("homeScore", teamScore1);
-        result.put("awayScore", teamScore2);
-        result.put("homeTeamId", teamId1);
-        result.put("awayTeamId", teamId2);
-        result.put("competitionId", _competitionId);
-        result.put("matchday", _roundId);
-        result.put("season", season);
-        // The post-match PC + suspensions + news are wired up by the caller
-        // (MatchController) so this method stays purely "finalize the engine
-        // state" without coupling to GameAdvanceService internals.
-        return result;
+        return matchSimulationOrchestrator.finalizeInteractiveLiveMatch(liveKey);
     }
 
+    /** Thin delegate so {@link com.footballmanagergamesimulator.service.GameAdvanceService}
+     *  call sites stay stable. Body lives in {@link MatchSimulationOrchestrator#getHumanMatchResult}. */
     public Map<String, Object> getHumanMatchResult(long competitionId, int matchday, int season, long humanTeamId) {
-        Map<String, Object> result = new LinkedHashMap<>();
-
-        Competition competition = competitionRepository.findById(competitionId).orElse(null);
-        if (competition == null) return result;
-
-        List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository
-                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, matchday, season)
-                .stream()
-                .filter(d -> d.getTeam1Id() == humanTeamId || d.getTeam2Id() == humanTeamId)
-                .toList();
-
-        if (!details.isEmpty()) {
-            CompetitionTeamInfoDetail detail = details.get(0);
-            result.put("competitionName", competition.getName());
-            result.put("competitionId", competitionId);
-            result.put("matchday", matchday);
-            result.put("team1Id", detail.getTeam1Id());
-            result.put("team2Id", detail.getTeam2Id());
-            result.put("team1Name", detail.getTeamName1());
-            result.put("team2Name", detail.getTeamName2());
-            result.put("score", detail.getScore());
-            result.put("isHome", detail.getTeam1Id() == humanTeamId);
-
-            List<MatchEvent> matchEvents = matchEventRepository
-                    .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
-                            competitionId, season, matchday, detail.getTeam1Id(), detail.getTeam2Id());
-            matchEvents.sort(java.util.Comparator.comparingInt(MatchEvent::getMinute));
-
-            List<Map<String, Object>> eventsList = new ArrayList<>();
-            for (MatchEvent me : matchEvents) {
-                Map<String, Object> eventMap = new LinkedHashMap<>();
-                eventMap.put("minute", me.getMinute());
-                eventMap.put("eventType", me.getEventType());
-                eventMap.put("playerName", me.getPlayerName());
-                eventMap.put("teamId", me.getTeamId());
-                eventMap.put("details", me.getDetails());
-                eventsList.add(eventMap);
-            }
-            result.put("matchEvents", eventsList);
-        }
-
-        return result;
+        return matchSimulationOrchestrator.getHumanMatchResult(competitionId, matchday, season, humanTeamId);
     }
+
 }
