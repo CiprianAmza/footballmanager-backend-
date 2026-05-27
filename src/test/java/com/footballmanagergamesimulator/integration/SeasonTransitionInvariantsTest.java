@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Round;
+import com.footballmanagergamesimulator.model.SeasonObjective;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
@@ -14,6 +15,7 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
+import com.footballmanagergamesimulator.repository.SeasonObjectiveRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.SeasonTransitionService;
@@ -81,6 +83,7 @@ class SeasonTransitionInvariantsTest {
     @Autowired private HumanRepository humanRepository;
     @Autowired private RoundRepository roundRepository;
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
+    @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
 
     // ============================================================
     //  Order 1 — bootstrap shape sanity
@@ -407,6 +410,45 @@ class SeasonTransitionInvariantsTest {
     }
 
     // ============================================================
+    //  Order 15 — SeasonObjectiveService lifecycle.
+    //  Runs after end-of-season (@Order(10)) so evaluate has fired.
+    //  Verifies the contract: bootstrap seeded season-1 objectives,
+    //  evaluate flipped all of them out of "active".
+    // ============================================================
+
+    @Test
+    @Order(15)
+    @DisplayName("SeasonObjectiveService: bootstrap-generated season 1 objectives, all evaluated after end-of-season")
+    void seasonObjectives_lifecycleAcrossEndOfSeason() {
+        List<SeasonObjective> season1 = seasonObjectiveRepository.findAll().stream()
+                .filter(o -> o.getSeasonNumber() == 1)
+                .toList();
+
+        // Bootstrap (initializeRound → generateSeasonObjectives(1)) should have seeded
+        // a meaningful number — every team in every league/cup/european comp gets one.
+        assertTrue(season1.size() >= 50,
+                "bootstrap should have generated >= 50 season-1 objectives, got " + season1.size());
+
+        // Every objective should have non-blank metadata.
+        for (SeasonObjective o : season1) {
+            assertNotNull(o.getObjectiveType(), "objective " + o.getId() + " missing objectiveType");
+            assertNotNull(o.getImportance(),    "objective " + o.getId() + " missing importance");
+            assertNotNull(o.getDescription(),   "objective " + o.getId() + " missing description");
+        }
+
+        // After processEndOfSeason (@Order(10)) ran evaluateSeasonObjectives(1),
+        // no season-1 objective should still be "active" — they're either achieved or failed.
+        long stillActive = season1.stream().filter(o -> "active".equals(o.getStatus())).count();
+        assertEquals(0, stillActive,
+                "evaluateSeasonObjectives should have flipped every season-1 objective out of 'active'; " + stillActive + " still active");
+
+        // And every status must be one of the recognized terminal values.
+        Set<String> statuses = season1.stream().map(SeasonObjective::getStatus).collect(Collectors.toSet());
+        assertTrue(Set.of("achieved", "failed").containsAll(statuses),
+                "all evaluated statuses must be 'achieved' or 'failed', got " + statuses);
+    }
+
+    // ============================================================
     //  Order 20 — new-season setup composite test.
     //  Runs after end-of-season (@Order(10)) so the round.season=1
     //  state is in place. Verifies aging, regens, fixtures, etc.
@@ -492,6 +534,33 @@ class SeasonTransitionInvariantsTest {
         Round afterSecondCall = roundRepository.findById(1L).orElseThrow();
         assertEquals(seasonBefore + 1, afterSecondCall.getSeason(),
                 "second processNewSeasonSetup(seasonBefore) call must be a no-op (round.season already > season)");
+    }
+
+    // ============================================================
+    //  Order 25 — SeasonObjectiveService regenerates for the new season.
+    //  Runs after new-season setup (@Order(20)) to verify generate fired
+    //  for season N+1 as part of the transition.
+    // ============================================================
+
+    @Test
+    @Order(25)
+    @DisplayName("SeasonObjectiveService: new-season setup re-generates objectives for season N+1")
+    void seasonObjectives_regeneratedForNewSeason() {
+        int newSeason = (int) roundRepository.findById(1L).map(Round::getSeason).orElseThrow().longValue();
+        List<SeasonObjective> nextSeasonObjectives = seasonObjectiveRepository.findAll().stream()
+                .filter(o -> o.getSeasonNumber() == newSeason)
+                .toList();
+
+        // After processNewSeasonSetup → generateSeasonObjectives(newSeason), every team
+        // still in a competition should have fresh "active" objectives.
+        assertTrue(nextSeasonObjectives.size() >= 50,
+                "new-season setup should have generated >= 50 objectives for season " + newSeason
+                        + ", got " + nextSeasonObjectives.size());
+
+        // All fresh objectives must start "active".
+        long nonActive = nextSeasonObjectives.stream().filter(o -> !"active".equals(o.getStatus())).count();
+        assertEquals(0, nonActive,
+                "freshly generated objectives must all be 'active', " + nonActive + " were not");
     }
 
     // ============================================================
