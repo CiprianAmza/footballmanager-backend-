@@ -393,7 +393,11 @@ public class SeasonTransitionService {
 
     @Transactional
     public synchronized void processNewSeasonSetup(int season) {
-        Round round = roundRepository.findById(1L).orElseThrow();
+        // Mutate the controller's cached Round so its getCurrentSeason() helper
+        // (used downstream by getFixturesForRound) sees the new season. Using a
+        // freshly loaded entity would leave the controller's cache stale, and
+        // fixture generation would write rows under the OLD season number.
+        Round round = controllerRef.getRoundCache();
         // Guard: if round.season already moved past this season, skip (prevents double transition)
         if (round.getSeason() > season) {
             System.out.println("=== processNewSeasonSetup: season " + season + " already transitioned (current=" + round.getSeason() + "), skipping ===");

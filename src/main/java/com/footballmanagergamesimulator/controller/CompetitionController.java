@@ -161,6 +161,14 @@ public class CompetitionController {
 
 
     Round round;
+
+    /** Exposes the cached {@code round} field for the season-transition service.
+     *  Services hold mutated state through this reference so {@link #getCurrentSeason()}
+     *  (which reads the field directly) stays in sync with what they save. */
+    public Round getRoundCache() {
+        return round;
+    }
+
     private boolean transferWindowOpen = false;
     // managerFired is now per-user on User.fired, not a global boolean
     private boolean teamTalkUsedThisRound = false;
