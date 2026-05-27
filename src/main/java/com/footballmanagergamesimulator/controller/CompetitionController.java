@@ -9,9 +9,9 @@ import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
-import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.service.CompetitionService;
 import com.footballmanagergamesimulator.service.FinanceService;
+import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import org.springframework.transaction.annotation.Transactional;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
@@ -34,7 +34,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.math3.distribution.EnumeratedDistribution;
 import org.apache.commons.math3.util.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -3019,7 +3018,7 @@ public class CompetitionController {
                     // run the same post-match work without re-deriving them.
                     String liveKey = LiveMatchSimulationService.buildKey(
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, teamId2);
-                    LiveMatchSimulationService.LiveMatchSession s = liveMatchSimulationService.getSession(liveKey);
+                    LiveMatchSession s = liveMatchSimulationService.getSession(liveKey);
                     if (s != null) {
                         s.setDeferredContext(teamPower1, teamPower2, tactic1, tactic2,
                                 personalizedTactic1.orElse(null), personalizedTactic2.orElse(null),
@@ -8043,7 +8042,7 @@ public class CompetitionController {
      * an unchanged result map.
      */
     public Map<String, Object> finalizeInteractiveLiveMatch(String liveKey) {
-        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(liveKey);
+        LiveMatchSession session = liveMatchSimulationService.getSession(liveKey);
         if (session == null) {
             throw new RuntimeException("No interactive session for key=" + liveKey);
         }

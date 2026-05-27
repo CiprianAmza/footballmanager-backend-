@@ -4,6 +4,7 @@ import com.footballmanagergamesimulator.frontend.*;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.GoalAnimationService;
+import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import com.footballmanagergamesimulator.service.MatchService;
 import com.footballmanagergamesimulator.service.PressConferenceService;
@@ -385,7 +386,7 @@ public class MatchController {
      */
     @GetMapping("/live/{key}/state")
     public org.springframework.http.ResponseEntity<LiveMatchData> getLiveMatchState(@PathVariable String key) {
-        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSession(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         return org.springframework.http.ResponseEntity.ok(session.snapshot());
     }
@@ -398,7 +399,7 @@ public class MatchController {
     public org.springframework.http.ResponseEntity<LiveMatchData> advanceLiveMatch(
             @PathVariable String key,
             @RequestParam("untilMinute") int untilMinute) {
-        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSession(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         return org.springframework.http.ResponseEntity.ok(session.advanceUntilAndSnapshot(untilMinute));
     }
@@ -412,7 +413,7 @@ public class MatchController {
     public org.springframework.http.ResponseEntity<?> substituteInLiveMatch(
             @PathVariable String key,
             @RequestBody SubstituteRequest body) {
-        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSession(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         try {
             LiveMatchData state = body.atMinute > 0
@@ -444,7 +445,7 @@ public class MatchController {
      */
     @PostMapping("/live/{key}/commit")
     public org.springframework.http.ResponseEntity<?> commitLiveMatch(@PathVariable String key) {
-        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSession(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         if (!session.isFinished()) {
             return org.springframework.http.ResponseEntity.badRequest()
@@ -508,7 +509,7 @@ public class MatchController {
     /** Resolve which side of the session belongs to the human user. Returns
      *  team1 by default if userContext can't tell (interactive matches should
      *  always have at least one human side). */
-    private long userTeamForSession(LiveMatchSimulationService.LiveMatchSession session) {
+    private long userTeamForSession(LiveMatchSession session) {
         if (userContext.isHumanTeam(session.getTeamId1())) return session.getTeamId1();
         if (userContext.isHumanTeam(session.getTeamId2())) return session.getTeamId2();
         return session.getTeamId1();

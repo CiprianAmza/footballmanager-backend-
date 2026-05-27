@@ -2,7 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.repository.*;
-import com.footballmanagergamesimulator.service.LiveMatchSimulationService.LiveMatchSession;
+import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService.InvalidSubstitutionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
