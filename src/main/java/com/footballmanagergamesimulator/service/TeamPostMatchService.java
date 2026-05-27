@@ -19,6 +19,7 @@ import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -58,6 +59,7 @@ public class TeamPostMatchService {
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private PredeterminedScoreRepository predeterminedScoreRepository;
     @Autowired private UserContext userContext;
+    @Autowired @Lazy private MatchSimulationService matchSimulationService;
 
     /** Cache for derby rivals per competition (top 3 teams by reputation).
      *  Populated lazily on first call per competition and reused; cleared
@@ -442,6 +444,121 @@ public class TeamPostMatchService {
         inbox.setCategory(category);
         inbox.setRead(false);
         inbox.setCreatedAt(System.currentTimeMillis());
+        managerInboxRepository.save(inbox);
+    }
+
+    // ============================================================
+    //  Manager reputation after match
+    // ============================================================
+
+    /**
+     * Adjusts both managers' reputations based on the match result. Uses the
+     * shared {@link MatchSimulationService#calculateMatchRepChange} formula
+     * (upset-aware: bigger gain for beating stronger team, bigger penalty for
+     * losing to weaker team). Clamps to [0, 10000].
+     */
+    public void updateManagerReputationAfterMatch(long teamId1, long teamId2, int score1, int score2) {
+        Team team1 = teamRepository.findById(teamId1).orElse(null);
+        Team team2 = teamRepository.findById(teamId2).orElse(null);
+        if (team1 == null || team2 == null) return;
+
+        List<Human> managers1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
+        List<Human> managers2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
+
+        if (!managers1.isEmpty()) {
+            double change = matchSimulationService.calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
+            Human mgr = managers1.get(0);
+            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
+            humanRepository.save(mgr);
+        }
+
+        if (!managers2.isEmpty()) {
+            double change = matchSimulationService.calculateMatchRepChange(score2, score1, team2.getReputation(), team1.getReputation());
+            Human mgr = managers2.get(0);
+            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
+            humanRepository.save(mgr);
+        }
+    }
+
+    // ============================================================
+    //  Match report inbox notifications (human-team only)
+    // ============================================================
+
+    /**
+     * Generates an inbox report after a match. No-op when neither team is
+     * managed by a human user. Builds a per-team report with goal scorers
+     * sourced from {@link ScorerRepository} for that exact (team, opponent,
+     * score) pair.
+     */
+    public void generateMatchReport(long competitionId, long roundId, long teamId1, long teamId2, int teamScore1, int teamScore2) {
+        boolean team1IsHuman = userContext.isHumanTeam(teamId1);
+        boolean team2IsHuman = userContext.isHumanTeam(teamId2);
+        if (!team1IsHuman && !team2IsHuman) return;
+
+        String teamName1 = teamRepository.findById(teamId1).map(Team::getName).orElse("Unknown");
+        String teamName2 = teamRepository.findById(teamId2).map(Team::getName).orElse("Unknown");
+        String competitionName = competitionRepository.findById(competitionId).map(Competition::getName).orElse("Unknown");
+        int seasonNumber = roundRepository.findById(1L).map(Round::getSeason).map(Long::intValue).orElse(1);
+        int roundNumber = (int) roundId;
+
+        if (team1IsHuman) {
+            generateMatchReportForTeam(teamId1, teamName1, teamId2, teamName2, teamScore1, teamScore2,
+                    competitionName, seasonNumber, roundNumber);
+        }
+        if (team2IsHuman) {
+            generateMatchReportForTeam(teamId2, teamName2, teamId1, teamName1, teamScore2, teamScore1,
+                    competitionName, seasonNumber, roundNumber);
+        }
+    }
+
+    private void generateMatchReportForTeam(long teamId, String teamName, long opponentTeamId, String opponentName,
+                                            int teamScore, int opponentScore, String competitionName,
+                                            int seasonNumber, int roundNumber) {
+        String resultPrefix;
+        if (teamScore > opponentScore) {
+            resultPrefix = "Victory! ";
+        } else if (teamScore < opponentScore) {
+            resultPrefix = "Defeat. ";
+        } else {
+            resultPrefix = "Draw. ";
+        }
+
+        String title = resultPrefix + teamName + " " + teamScore + "-" + opponentScore + " " + opponentName;
+
+        StringBuilder content = new StringBuilder();
+        content.append("Competition: ").append(competitionName).append("\n");
+        content.append("Result: ").append(teamName).append(" ").append(teamScore)
+                .append(" - ").append(opponentScore).append(" ").append(opponentName).append("\n");
+
+        List<Scorer> matchScorers = scorerRepository.findAllByTeamIdAndSeasonNumber(teamId, seasonNumber).stream()
+                .filter(s -> s.getOpponentTeamId() == opponentTeamId)
+                .filter(s -> s.getTeamScore() == teamScore)
+                .filter(s -> s.getOpponentScore() == opponentScore)
+                .filter(s -> s.getGoals() > 0)
+                .toList();
+
+        if (!matchScorers.isEmpty()) {
+            content.append("Goals: ");
+            String scorersList = matchScorers.stream()
+                    .map(scorer -> {
+                        String playerName = humanRepository.findById(scorer.getPlayerId())
+                                .map(Human::getName).orElse("Unknown");
+                        return playerName + " (" + scorer.getGoals() + ")";
+                    })
+                    .collect(java.util.stream.Collectors.joining(", "));
+            content.append(scorersList).append("\n");
+        }
+
+        ManagerInbox inbox = new ManagerInbox();
+        inbox.setTeamId(teamId);
+        inbox.setSeasonNumber(seasonNumber);
+        inbox.setRoundNumber(roundNumber);
+        inbox.setTitle(title);
+        inbox.setContent(content.toString());
+        inbox.setCategory("match_result");
+        inbox.setRead(false);
+        inbox.setCreatedAt(System.currentTimeMillis());
+
         managerInboxRepository.save(inbox);
     }
 }

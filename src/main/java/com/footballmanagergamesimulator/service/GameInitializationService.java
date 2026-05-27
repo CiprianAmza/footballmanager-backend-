@@ -1,0 +1,192 @@
+package com.footballmanagergamesimulator.service;
+
+import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
+import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.Round;
+import com.footballmanagergamesimulator.model.Scorer;
+import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
+import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.model.TeamFacilities;
+import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
+import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
+import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
+import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.util.TypeNames;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Service;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+import java.util.Set;
+
+/**
+ * One-time game initialization on cold start: creates the persistent Round
+ * row, runs the hardcoded data seed via {@link BootstrapService}, generates
+ * league fixtures + calendar + season objectives, spawns initial squads and
+ * managers per team, creates free-agent coaches, initializes scorer rows for
+ * every player, and builds cup brackets for season 1.
+ *
+ * <p>Invoked from {@code CompetitionController}'s {@code @PostConstruct}
+ * exactly once when no Round exists in the DB. Returns the seeded Round so
+ * the controller can cache it for runtime use. On warm restart the
+ * controller skips the call entirely and just loads the existing Round.
+ *
+ * <p>Constraint: nothing here may call back into the controller via a Lazy
+ * back-ref — at {@code @PostConstruct} time the controller bean is still
+ * mid-construction and Spring would trip on {@code BeanCurrentlyInCreation}.
+ * Use direct service injections only.
+ */
+@Service
+public class GameInitializationService {
+
+    @Autowired private RoundRepository roundRepository;
+    @Autowired private CompetitionRepository competitionRepository;
+    @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    @Autowired private TeamRepository teamRepository;
+    @Autowired private TeamFacilitiesRepository teamFacilitiesRepository;
+    @Autowired private HumanRepository humanRepository;
+    @Autowired private ScorerRepository scorerRepository;
+    @Autowired private ScorerLeaderboardRepository scorerLeaderboardRepository;
+    @Autowired private BootstrapService bootstrapService;
+    @Autowired private FixtureSchedulingService fixtureSchedulingService;
+    @Autowired private SeasonObjectiveService seasonObjectiveService;
+    @Autowired private SquadGenerationService squadGenerationService;
+    @Autowired private CompositeNameGenerator compositeNameGenerator;
+    @Autowired private TacticService tacticService;
+    @Autowired @Lazy private StaffService staffService;
+    @Autowired @Lazy private SeasonTransitionService seasonTransitionService;
+
+    /**
+     * Resume-aware initialization. If a Round row already exists, returns it
+     * (warm restart on persistent DB). Otherwise runs the full one-time
+     * setup and returns the freshly-created Round (cold start).
+     */
+    public Round initializeRound() {
+        Optional<Round> existing = roundRepository.findById(1L);
+        if (existing.isPresent()) {
+            Round round = existing.get();
+            System.out.println("=== Resuming from season " + round.getSeason()
+                    + ", round " + round.getRound() + " ===");
+            return round;
+        }
+
+        Round round = new Round();
+        round.setId(1L);
+        round.setSeason(1);
+        round.setRound(1);
+        roundRepository.save(round);
+
+        competitionTeamInfoRepository.deleteAll();
+        bootstrapService.initialization();
+
+        Set<Long> leagueCompetitionIds = new HashSet<>(competitionRepository.findIdsByTypeId(1));
+        Set<Long> secondLeagueCompetitionIds = competitionRepository.findIdsByTypeId(3);
+        leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
+        for (Long competitionId : leagueCompetitionIds)
+            fixtureSchedulingService.getFixturesForRound(String.valueOf(competitionId), "1");
+
+        // Calendar must run AFTER league fixtures exist so updateMatchDays can set the day field
+        fixtureSchedulingService.generateSeasonCalendar(1);
+
+        seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
+
+        generateInitialSquadsAndStaff(round);
+
+        staffService.generateFreeAgentCoaches(30, 1);
+
+        initializeScorersForAllPlayers(round);
+
+        System.out.println("=== Initialization complete: teams, players, fixtures, and scorers created ===");
+
+        // Replace per-league cup CompetitionTeamInfo records with bracket-aware fixtures
+        seasonTransitionService.regenerateAllCupBrackets((int) round.getSeason());
+
+        return round;
+    }
+
+    private void generateInitialSquadsAndStaff(Round round) {
+        List<Team> teams = teamRepository.findAll();
+        Random random = new Random();
+        for (Team team : teams) {
+            TeamFacilities teamFacilities = teamFacilitiesRepository.findByTeamId(team.getId());
+            squadGenerationService.generateInitialSquad(team, teamFacilities, 1, 70, random);
+
+            Human manager = new Human();
+            manager.setAge(random.nextInt(35, 70));
+            manager.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
+            manager.setTeamId(team.getId());
+            int reputation = 100;
+            if (teamFacilities != null)
+                reputation = (int) teamFacilities.getSeniorTrainingLevel() * 10;
+            manager.setRating(random.nextInt(reputation - 20, reputation + 20));
+            manager.setPosition("Manager");
+            manager.setSeasonCreated(1L);
+            manager.setTypeId(TypeNames.MANAGER_TYPE);
+            String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), random);
+            manager.setTacticStyle(kit[0]);
+            manager.setKnownTactics(kit[1]);
+            humanRepository.save(manager);
+
+            staffService.generateInitialStaff(team.getId(), 1);
+        }
+    }
+
+    private void initializeScorersForAllPlayers(Round round) {
+        List<Team> allTeams = teamRepository.findAll();
+        for (Team team : allTeams) {
+            List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+            List<CompetitionTeamInfo> competitions = competitionTeamInfoRepository.findAllByTeamIdAndSeasonNumber(team.getId(), round.getSeason());
+
+            for (Human human : allPlayers) {
+                for (CompetitionTeamInfo competitionTeamInfo : competitions) {
+                    Scorer scorer = new Scorer();
+                    scorer.setPlayerId(human.getId());
+                    scorer.setSeasonNumber((int) round.getSeason());
+                    scorer.setTeamId(team.getId());
+                    scorer.setOpponentTeamId(-1);
+                    scorer.setPosition(human.getPosition());
+                    scorer.setTeamScore(-1);
+                    scorer.setOpponentScore(-1);
+                    scorer.setCompetitionId(competitionTeamInfo.getCompetitionId());
+                    Long typeId = competitionRepository.findTypeIdById(competitionTeamInfo.getCompetitionId());
+                    scorer.setCompetitionTypeId(typeId != null ? typeId.intValue() : 0);
+                    scorer.setTeamName(team.getName());
+                    scorer.setOpponentTeamName(null);
+                    scorer.setCompetitionName(competitionRepository.findNameById(competitionTeamInfo.getCompetitionId()));
+                    scorer.setRating(human.getRating());
+                    scorer.setGoals(0);
+                    scorerRepository.save(scorer);
+                }
+
+                if (scorerLeaderboardRepository.findByPlayerId(human.getId()).isEmpty()) {
+                    ScorerLeaderboardEntry scorerLeaderboardEntry = new ScorerLeaderboardEntry();
+                    scorerLeaderboardEntry.setPlayerId(human.getId());
+                    scorerLeaderboardEntry.setAge(human.getAge());
+                    scorerLeaderboardEntry.setName(human.getName());
+                    scorerLeaderboardEntry.setGoals(0);
+                    scorerLeaderboardEntry.setMatches(0);
+                    scorerLeaderboardEntry.setCurrentRating(human.getRating());
+                    scorerLeaderboardEntry.setBestEverRating(human.getRating());
+                    scorerLeaderboardEntry.setSeasonOfBestEverRating((int) round.getSeason());
+                    scorerLeaderboardEntry.setPosition(human.getPosition());
+                    scorerLeaderboardEntry.setTeamId(human.getTeamId());
+                    scorerLeaderboardEntry.setTeamName(team.getName());
+                    scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+                }
+
+                Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
+                ScorerLeaderboardEntry scorerLeaderboardEntry =
+                        SeasonTransitionService.resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
+                scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+            }
+        }
+    }
+}

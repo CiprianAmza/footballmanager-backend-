@@ -1,17 +1,22 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.algorithms.RoundRobin;
 import com.footballmanagergamesimulator.model.CalendarEvent;
 import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
+import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.repository.CalendarEventRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class FixtureSchedulingService {
@@ -34,6 +39,152 @@ public class FixtureSchedulingService {
     @Autowired
     @Lazy
     private FriendlyMatchService friendlyMatchService;
+
+    @Autowired
+    private RoundRobin roundRobin;
+
+    @Autowired
+    private RoundRepository roundRepository;
+
+    @Autowired
+    @Lazy
+    private EuropeanCompetitionService europeanCompetitionService;
+
+    private String currentSeasonStr() {
+        return roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
+    }
+
+    /**
+     * Generates league fixtures (round-robin for league/second league) OR draws
+     * knockout pairings (cup/European) for one competition+round, persisting the
+     * resulting CompetitionTeamInfoMatch rows. League fixtures are generated for
+     * the full season in one shot on round 1; knockouts are drawn round-by-round
+     * with seeded variants for LoC preliminary/qualifying and Stars Cup playoff.
+     * Guarded against duplicate fixture generation (idempotent on re-entry).
+     */
+    public void getFixturesForRound(String competitionId, String roundId) {
+        long _competitionId = Long.parseLong(competitionId);
+        long _roundId = Long.parseLong(roundId);
+        String currentSeasonStr = currentSeasonStr();
+
+        List<Long> participants = getParticipants(_competitionId, _roundId, currentSeasonStr);
+
+        Set<Long> leagueCompetitionIds = competitionIdsByType(1);
+        Set<Long> secondLeagueCompetitionIds = competitionIdsByType(3);
+
+        if (leagueCompetitionIds.contains(_competitionId) || secondLeagueCompetitionIds.contains(_competitionId)) {
+            // Guard: league fixtures are generated once per season (all rounds at once)
+            // from the round=1 entry point. Skip if any round already exists for this
+            // competition+season to prevent duplicating the entire schedule.
+            List<Long> existingRounds = competitionTeamInfoMatchRepository
+                    .findDistinctRoundsByCompetitionIdAndSeasonNumber(_competitionId, currentSeasonStr);
+            if (!existingRounds.isEmpty()) {
+                System.out.println("=== getFixturesForRound league: comp=" + competitionId
+                        + " season=" + currentSeasonStr + " already has " + existingRounds.size()
+                        + " rounds, skipping");
+                return;
+            }
+
+            List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
+            int currentRound = 1;
+
+            String compName = competitionRepository.findNameById(_competitionId);
+            int encounters = leagueConfigService.getEncounters(compName, participants.size());
+            int iterations = encounters / 2;
+
+            boolean reverse = true;
+
+            for (int i = 0; i < iterations; i++) {
+                for (List<List<Long>> round : schedule) {
+                    reverse = !reverse;
+                    for (List<Long> match : round) {
+                        long teamHomeId = match.get(0);
+                        long teamAwayId = match.get(1);
+
+                        CompetitionTeamInfoMatch competitionTeamInfoMatch = new CompetitionTeamInfoMatch();
+                        competitionTeamInfoMatch.setCompetitionId(_competitionId);
+                        competitionTeamInfoMatch.setRound(currentRound);
+                        if (reverse) {
+                            competitionTeamInfoMatch.setTeam1Id(teamHomeId);
+                            competitionTeamInfoMatch.setTeam2Id(teamAwayId);
+                        } else {
+                            competitionTeamInfoMatch.setTeam1Id(teamAwayId);
+                            competitionTeamInfoMatch.setTeam2Id(teamHomeId);
+                        }
+                        competitionTeamInfoMatch.setSeasonNumber(currentSeasonStr);
+                        competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
+                    }
+                    currentRound++;
+                }
+            }
+
+        } else {
+            // Guard: skip if fixtures for this knockout round already exist (prevents duplicates)
+            List<CompetitionTeamInfoMatch> existingKnockout = competitionTeamInfoMatchRepository
+                    .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, currentSeasonStr);
+            if (!existingKnockout.isEmpty()) {
+                System.out.println("=== getFixturesForRound knockout: comp=" + competitionId + " round=" + roundId + " already drawn, skipping");
+                return;
+            }
+
+            System.out.println("=== getFixturesForRound knockout: comp=" + competitionId + " round=" + roundId + " participants=" + participants.size());
+
+            Set<Long> locIdsForDraw = competitionIdsByType(4);
+            Set<Long> starsCupIdsForDraw = competitionIdsByType(5);
+
+            if (locIdsForDraw.contains(_competitionId) && (_roundId == 0 || _roundId == 1)) {
+                europeanCompetitionService.drawEuropeanKnockoutSeeded(_competitionId, _roundId, participants);
+                return;
+            }
+            if (starsCupIdsForDraw.contains(_competitionId) && _roundId == 7) {
+                europeanCompetitionService.drawStarsCupPlayoffSeeded(_competitionId, _roundId, participants);
+                return;
+            }
+
+            Collections.shuffle(participants);
+
+            // If odd number of participants, give the last team a bye to next round
+            if (participants.size() % 2 != 0) {
+                long byeTeamId = participants.remove(participants.size() - 1);
+                long nextRoundForBye = _roundId + 1;
+                CompetitionTeamInfo byeEntry = new CompetitionTeamInfo();
+                byeEntry.setTeamId(byeTeamId);
+                byeEntry.setCompetitionId(_competitionId);
+                byeEntry.setSeasonNumber(Long.parseLong(currentSeasonStr));
+                byeEntry.setRound(nextRoundForBye);
+                competitionTeamInfoRepository.save(byeEntry);
+            }
+
+            for (int i = 0; i < participants.size(); i += 2) {
+                long teamHomeId = participants.get(i);
+                long teamAwayId = participants.get(i + 1);
+
+                CompetitionTeamInfoMatch competitionTeamInfoMatch = new CompetitionTeamInfoMatch();
+                competitionTeamInfoMatch.setCompetitionId(_competitionId);
+                competitionTeamInfoMatch.setRound(_roundId);
+                competitionTeamInfoMatch.setTeam1Id(teamHomeId);
+                competitionTeamInfoMatch.setTeam2Id(teamAwayId);
+                competitionTeamInfoMatch.setSeasonNumber(currentSeasonStr);
+                competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
+            }
+        }
+    }
+
+    private List<Long> getParticipants(long competitionId, long roundId, String seasonStr) {
+        List<CompetitionTeamInfo> competitionTeamInfos = competitionTeamInfoRepository
+                .findAllByRoundAndCompetitionIdAndSeasonNumber(roundId, competitionId, Long.parseLong(seasonStr));
+        return new ArrayList<>(competitionTeamInfos.stream()
+                .mapToLong(CompetitionTeamInfo::getTeamId)
+                .boxed()
+                .collect(Collectors.toSet()));
+    }
+
+    private Set<Long> competitionIdsByType(int competitionTypeId) {
+        return competitionRepository.findAll().stream()
+                .filter(c -> c.getTypeId() == competitionTypeId)
+                .map(Competition::getId)
+                .collect(Collectors.toSet());
+    }
 
     /**
      * Generates all CalendarEvent entries for a full 365-day season.

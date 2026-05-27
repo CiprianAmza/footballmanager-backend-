@@ -297,16 +297,16 @@ public class MatchSimulationOrchestrator {
                 // non-interactive paths). Interactive matches defer ALL of this
                 // to /commit so the user's manual subs change the real result.
                 if (!interactiveMatch) {
-                    controllerRef.processInjuriesForTeam(teamId1);
-                    controllerRef.processInjuriesForTeam(teamId2);
+                    this.processInjuriesForTeam(teamId1);
+                    this.processInjuriesForTeam(teamId2);
 
                     teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
                     teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
 
                     europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
 
-                    controllerRef.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
-                    controllerRef.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
+                    teamPostMatchService.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                    teamPostMatchService.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
                 } else {
                     // Stash team powers + tactics on the session so /commit can
                     // run the same post-match work without re-deriving them.
@@ -574,6 +574,57 @@ public class MatchSimulationOrchestrator {
     }
 
     /**
+     * Per-match injury roll for one team (interactive live-match path + the
+     * non-batched dispatch in {@link #simulateMatchday}). Persists each injury
+     * immediately. The batched twin {@link #processInjuriesForTeamBatched} is
+     * used by AI-only rounds where per-round caches are warm.
+     */
+    public void processInjuriesForTeam(long teamId) {
+        Random random = new Random();
+        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+
+        Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
+                .stream().map(Injury::getPlayerId).collect(java.util.stream.Collectors.toSet());
+
+        String[] injuryTypes = {"Hamstring Strain", "Knee Ligament", "Ankle Sprain", "Muscle Fatigue", "Broken Bone", "Concussion"};
+
+        for (Human player : players) {
+            if (player.isRetired()) continue;
+            if (injuredPlayerIds.contains(player.getId())) continue;
+
+            double injuryChance = 0.002;
+            if (player.getFitness() < 50) injuryChance += 0.001;
+
+            if (random.nextDouble() < injuryChance) {
+                Injury injury = new Injury();
+                injury.setPlayerId(player.getId());
+                injury.setTeamId(teamId);
+                injury.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
+
+                String injuryType = injuryTypes[random.nextInt(injuryTypes.length)];
+                injury.setInjuryType(injuryType);
+
+                double severityRoll = random.nextDouble();
+                if (severityRoll < 0.55) {
+                    injury.setSeverity("Minor");
+                    injury.setDaysRemaining(random.nextInt(1, 4));
+                } else if (severityRoll < 0.85) {
+                    injury.setSeverity("Moderate");
+                    injury.setDaysRemaining(random.nextInt(4, 9));
+                } else {
+                    injury.setSeverity("Serious");
+                    injury.setDaysRemaining(random.nextInt(10, 21));
+                }
+
+                injuryRepository.save(injury);
+
+                player.setCurrentStatus("Injured - " + injuryType);
+                humanRepository.save(player);
+            }
+        }
+    }
+
+    /**
      * Batched injury processing for AI teams.
      * Same logic as processInjuriesForTeam but collects injuries into lists
      * for a single batch save at the end of the round.
@@ -636,13 +687,13 @@ public class MatchSimulationOrchestrator {
         List<Human> managers2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
 
         if (!managers1.isEmpty()) {
-            double change = controllerRef.calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
+            double change = matchSimulationService.calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
             Human mgr = managers1.get(0);
             mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
             batchedManagers.add(mgr);
         }
         if (!managers2.isEmpty()) {
-            double change = controllerRef.calculateMatchRepChange(score2, score1, team2.getReputation(), team1.getReputation());
+            double change = matchSimulationService.calculateMatchRepChange(score2, score1, team2.getReputation(), team1.getReputation());
             Human mgr = managers2.get(0);
             mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
             batchedManagers.add(mgr);
@@ -953,13 +1004,13 @@ public class MatchSimulationOrchestrator {
         // === LoC (typeId 4) ===
         if (typeId == 4) {
             if (round == 0) {
-                controllerRef.getFixturesForRound(compIdStr, roundStr);
+                fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
                 simulateRound(compIdStr, roundStr);
                 europeanCompetitionService.assignLocLosersToStarsCup(competitionId, 0);
                 return;
             }
             if (round == 1) {
-                controllerRef.getFixturesForRound(compIdStr, roundStr);
+                fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
                 simulateRound(compIdStr, roundStr);
                 europeanCompetitionService.assignLocLosersToStarsCup(competitionId, 1);
                 return;
@@ -980,11 +1031,11 @@ public class MatchSimulationOrchestrator {
                 return;
             }
             // Knockout rounds 8-10
-            controllerRef.getFixturesForRound(compIdStr, roundStr);
+            fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
             simulateRound(compIdStr, roundStr);
             if (round < 10) {
                 int nextRound = round + 1;
-                controllerRef.getFixturesForRound(compIdStr, String.valueOf(nextRound));
+                fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
                 fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
             }
             return;
@@ -1008,11 +1059,11 @@ public class MatchSimulationOrchestrator {
                 return;
             }
             // Knockout rounds 7-10 (7 = playoff, 8 = QF, 9 = SF, 10 = Final)
-            controllerRef.getFixturesForRound(compIdStr, roundStr);
+            fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
             simulateRound(compIdStr, roundStr);
             if (round < 10) {
                 int nextRound = round + 1;
-                controllerRef.getFixturesForRound(compIdStr, String.valueOf(nextRound));
+                fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
                 fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
             }
             return;
@@ -1244,13 +1295,13 @@ public class MatchSimulationOrchestrator {
                 session.asLiveMatchData(), teamPower1, teamPower2);
 
         // Same post-match work the legacy path runs inline
-        controllerRef.processInjuriesForTeam(teamId1);
-        controllerRef.processInjuriesForTeam(teamId2);
+        this.processInjuriesForTeam(teamId1);
+        this.processInjuriesForTeam(teamId2);
         teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
         teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
         europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
-        controllerRef.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
-        controllerRef.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
+        teamPostMatchService.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+        teamPostMatchService.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
 
         // Detail row (the simulateMatchday loop skipped this for interactive
         // matches). Standings + results page now show the real final score.

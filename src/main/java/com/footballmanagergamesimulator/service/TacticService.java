@@ -159,5 +159,39 @@ public class TacticService {
         return "Unknown";
     }
 
+    /**
+     * Minimum squad-position counts that AI transfer planning treats as
+     * essential coverage — used by {@code CompositeTransferStrategy.playersToSell}
+     * to refuse selling below these thresholds.
+     */
+    public HashMap<String, Integer> getMinimumPositionNeeded() {
+        HashMap<String, Integer> minimumPositionNeeded = new HashMap<>();
+        minimumPositionNeeded.put("GK", 1);
+        minimumPositionNeeded.put("DL", 1);
+        minimumPositionNeeded.put("DC", 2);
+        minimumPositionNeeded.put("DR", 1);
+        minimumPositionNeeded.put("MC", 2);
+        minimumPositionNeeded.put("ML", 1);
+        minimumPositionNeeded.put("MR", 1);
+        minimumPositionNeeded.put("ST", 2);
+        return minimumPositionNeeded;
+    }
 
+    /**
+     * Per-position upper caps that AI transfer planning treats as roster
+     * saturation — used by {@code CompositeTransferStrategy.playersToBuy}
+     * to skip buying when the position is already maxed out.
+     */
+    public HashMap<String, Integer> getMaximumPositionAllowed() {
+        HashMap<String, Integer> maximumPositionAllowed = new HashMap<>();
+        maximumPositionAllowed.put("GK", 3);
+        maximumPositionAllowed.put("DL", 3);
+        maximumPositionAllowed.put("DC", 5);
+        maximumPositionAllowed.put("DR", 3);
+        maximumPositionAllowed.put("MC", 5);
+        maximumPositionAllowed.put("ML", 3);
+        maximumPositionAllowed.put("MR", 3);
+        maximumPositionAllowed.put("ST", 5);
+        return maximumPositionAllowed;
+    }
 }

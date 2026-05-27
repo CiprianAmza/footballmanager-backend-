@@ -150,8 +150,8 @@ public class SeasonTransitionService {
             List<Long> teamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
 
             // Final standings, relegation/promotion
-            Set<Long> leagueCompetitionIds = controllerRef.getCompetitionIdsByCompetitionType(1);
-            Set<Long> secondLeagueCompetitionIds = controllerRef.getCompetitionIdsByCompetitionType(3);
+            Set<Long> leagueCompetitionIds = competitionRepository.findIdsByTypeId(1);
+            Set<Long> secondLeagueCompetitionIds = competitionRepository.findIdsByTypeId(3);
             leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
 
             Map<Long, Long> leagueToCupMap = new HashMap<>();
@@ -249,7 +249,7 @@ public class SeasonTransitionService {
             for (Long teamId : teamIds) {
                 if (userContext.isHumanTeam(teamId)) continue;
                 Team team = teamRepository.findById(teamId).orElse(new Team());
-                playersForTransferMarket.addAll(compositeTransferStrategy.playersToSell(team, humanRepository, controllerRef.getMinimumPositionNeeded()));
+                playersForTransferMarket.addAll(compositeTransferStrategy.playersToSell(team, humanRepository, tacticService.getMinimumPositionNeeded()));
             }
 
             HashMap<String, List<PlayerTransferView>> transferMarket = new HashMap<>();
@@ -264,7 +264,7 @@ public class SeasonTransitionService {
             for (Long teamId : teamIds) {
                 if (userContext.isHumanTeam(teamId)) continue;
                 Team team = teamRepository.findById(teamId).orElse(new Team());
-                BuyPlanTransferView buyPlanTransferView = compositeTransferStrategy.playersToBuy(team, humanRepository, controllerRef.getMaximumPositionAllowed());
+                BuyPlanTransferView buyPlanTransferView = compositeTransferStrategy.playersToBuy(team, humanRepository, tacticService.getMaximumPositionAllowed());
                 if (buyPlanTransferView == null) continue;
 
                 for (TransferPlayer clubPlan : buyPlanTransferView.getPositions()) {
@@ -497,11 +497,11 @@ public class SeasonTransitionService {
         seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
 
         // Generate league fixtures for new season
-        Set<Long> newLeagueCompIds = controllerRef.getCompetitionIdsByCompetitionType(1);
-        Set<Long> newSecondLeagueCompIds = controllerRef.getCompetitionIdsByCompetitionType(3);
+        Set<Long> newLeagueCompIds = competitionRepository.findIdsByTypeId(1);
+        Set<Long> newSecondLeagueCompIds = competitionRepository.findIdsByTypeId(3);
         newLeagueCompIds.addAll(newSecondLeagueCompIds);
         for (Long competitionId : newLeagueCompIds)
-            controllerRef.getFixturesForRound(String.valueOf(competitionId), "1");
+            fixtureSchedulingService.getFixturesForRound(String.valueOf(competitionId), "1");
 
         // Initialize scorers for all players in the new season (batch optimized)
         List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
@@ -684,7 +684,7 @@ public class SeasonTransitionService {
     // ============================================================
 
     public void regenerateAllCupBrackets(int season) {
-        // Resolve cup IDs locally — calling controllerRef.getCompetitionIdsByCompetitionType
+        // Resolve cup IDs locally — calling competitionRepository.findIdsByTypeId
         // here would re-enter the controller during its @PostConstruct (initializeRound
         // is the upstream caller at first-boot) and trip Spring's circular-reference guard.
         Set<Long> cupIds = competitionRepository.findAll().stream()

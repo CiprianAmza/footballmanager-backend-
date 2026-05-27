@@ -8,11 +8,12 @@ import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.*;
 import com.footballmanagergamesimulator.user.*;
 import com.footballmanagergamesimulator.util.*;
+import com.footballmanagergamesimulator.service.*;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.context.annotation.*;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -22,68 +23,67 @@ import java.util.stream.Collectors;
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class CompetitionController {
 
-    @Autowired
-    private TeamRepository teamRepository;
-    @Autowired
-    private HumanRepository humanRepository;
-    @Autowired
-    private CompetitionTeamInfoRepository competitionTeamInfoRepository;
-    @Autowired
-    private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
-    @Autowired
-    private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
-    @Autowired
-    RoundRobin roundRobin;
-    @Autowired
-    LeagueConfigService leagueConfigService;
-    @Autowired
-    CompetitionRepository competitionRepository;
-    @Autowired
-    TeamFacilitiesRepository _teamFacilitiesRepository;
-    @Autowired
-    TacticService tacticService;
-    @Autowired
-    RoundRepository roundRepository;
-    @Autowired
-    ScorerRepository scorerRepository;
-    @Autowired
-    ScorerLeaderboardRepository scorerLeaderboardRepository;
-    @Autowired
-    SquadGenerationService squadGenerationService;
-    @Autowired
-    EuropeanCompetitionService europeanCompetitionService;
-    @Autowired
-    TransferMarketService transferMarketService;
-    @Autowired
-    SeasonObjectiveService seasonObjectiveService;
-    @Autowired
-    BootstrapService bootstrapService;
-    @Autowired
-    CompositeNameGenerator compositeNameGenerator;
-    @Autowired
-    ManagerInboxRepository managerInboxRepository;
-    @Autowired
-    InjuryRepository injuryRepository;
-    @Autowired
-    FixtureSchedulingService fixtureSchedulingService;
-    @Autowired
-    UserContext userContext;
-    @Autowired
-    @org.springframework.context.annotation.Lazy
-    com.footballmanagergamesimulator.service.StaffService staffService;
-    @Autowired
-    @org.springframework.context.annotation.Lazy
-    com.footballmanagergamesimulator.service.SeasonTransitionService seasonTransitionService;
-    @Autowired
-    com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
-    @Autowired
-    com.footballmanagergamesimulator.service.JobOfferService jobOfferService;
-    @Autowired
-    com.footballmanagergamesimulator.service.CompetitionDisplayService competitionDisplayService;
-    @Autowired
-    com.footballmanagergamesimulator.service.CupBracketService cupBracketService;
+    private final TeamRepository teamRepository;
+    private final HumanRepository humanRepository;
+    private final CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    private final CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
+
+    final CompetitionRepository competitionRepository;
+    final TeamFacilitiesRepository _teamFacilitiesRepository;
+    final TacticService tacticService;
+    final RoundRepository roundRepository;
+    final ScorerRepository scorerRepository;
+    final ScorerLeaderboardRepository scorerLeaderboardRepository;
+    final SquadGenerationService squadGenerationService;
+    final EuropeanCompetitionService europeanCompetitionService;
+    final TransferMarketService transferMarketService;
+    final SeasonObjectiveService seasonObjectiveService;
+    final BootstrapService bootstrapService;
+    final CompositeNameGenerator compositeNameGenerator;
+    final FixtureSchedulingService fixtureSchedulingService;
+    final UserContext userContext;
+    private final TeamTalkService teamTalkService;
+    @Lazy
+    final StaffService staffService;
+    @Lazy
+    final SeasonTransitionService seasonTransitionService;
+    final MatchSimulationOrchestrator matchSimulationOrchestrator;
+    final JobOfferService jobOfferService;
+    final CompetitionDisplayService competitionDisplayService;
+    final CupBracketService cupBracketService;
+    final GameInitializationService gameInitializationService;
 
     Round round;
+
+    public CompetitionController(TeamFacilitiesRepository _teamFacilitiesRepository, TeamRepository teamRepository, HumanRepository humanRepository, CompetitionTeamInfoRepository competitionTeamInfoRepository, BootstrapService bootstrapService, CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository, CompetitionRepository competitionRepository, TacticService tacticService, MatchSimulationOrchestrator matchSimulationOrchestrator, RoundRepository roundRepository, ScorerRepository scorerRepository, SeasonTransitionService seasonTransitionService, ScorerLeaderboardRepository scorerLeaderboardRepository, FixtureSchedulingService fixtureSchedulingService, CompositeNameGenerator compositeNameGenerator, TransferMarketService transferMarketService, SeasonObjectiveService seasonObjectiveService, TeamTalkService teamTalkService, SquadGenerationService squadGenerationService, UserContext userContext, EuropeanCompetitionService europeanCompetitionService, StaffService staffService, CompetitionDisplayService competitionDisplayService, CupBracketService cupBracketService, JobOfferService jobOfferService, GameInitializationService gameInitializationService) {
+
+        this._teamFacilitiesRepository = _teamFacilitiesRepository;
+        this.teamRepository = teamRepository;
+        this.humanRepository = humanRepository;
+        this.competitionTeamInfoRepository = competitionTeamInfoRepository;
+        this.bootstrapService = bootstrapService;
+        this.competitionTeamInfoDetailRepository = competitionTeamInfoDetailRepository;
+        this.competitionRepository = competitionRepository;
+        this.tacticService = tacticService;
+        this.matchSimulationOrchestrator = matchSimulationOrchestrator;
+        this.roundRepository = roundRepository;
+        this.scorerRepository = scorerRepository;
+        this.seasonTransitionService = seasonTransitionService;
+        this.scorerLeaderboardRepository = scorerLeaderboardRepository;
+        this.fixtureSchedulingService = fixtureSchedulingService;
+        this.compositeNameGenerator = compositeNameGenerator;
+        this.transferMarketService = transferMarketService;
+        this.seasonObjectiveService = seasonObjectiveService;
+        this.teamTalkService = teamTalkService;
+        this.squadGenerationService = squadGenerationService;
+        this.userContext = userContext;
+        this.europeanCompetitionService = europeanCompetitionService;
+        this.staffService = staffService;
+        this.competitionDisplayService = competitionDisplayService;
+        this.cupBracketService = cupBracketService;
+        this.jobOfferService = jobOfferService;
+        this.gameInitializationService = gameInitializationService;
+    }
 
     /** Exposes the cached {@code round} field for the season-transition service.
      *  Services hold mutated state through this reference so {@link #getCurrentSeason()}
@@ -126,131 +126,7 @@ public class CompetitionController {
 
     @PostConstruct
     public void initializeRound() {
-
-        // ===== Resume support =====
-        // If a Round already exists (file-based DB carrying over a prior run),
-        // just load it and skip the entire one-time setup below. The previous
-        // implementation always re-ran the full season-1 setup on every boot —
-        // fine with in-memory H2 (table is empty on each restart), but with
-        // persistent storage it created duplicate TeamFacilities/players/etc.
-        Optional<Round> existing = roundRepository.findById(1L);
-        if (existing.isPresent()) {
-            round = existing.get();
-            System.out.println("=== Resuming from season " + round.getSeason()
-                    + ", round " + round.getRound() + " ===");
-            return;
-        }
-
-        // ===== First-time setup =====
-        round = new Round();
-        round.setId(1L);
-        round.setSeason(1);
-        round.setRound(1);
-        roundRepository.save(round);
-
-        // Initialize the game (create teams, competitions, players, etc.)
-        competitionTeamInfoRepository.deleteAll();
-        bootstrapService.initialization();
-
-        // Generate fixtures for all leagues (was previously in play() round==1 block)
-        Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1);
-        Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3);
-        leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
-        for (Long competitionId : leagueCompetitionIds)
-            this.getFixturesForRound(String.valueOf(competitionId), "1");
-
-        // Generate calendar AFTER league fixtures exist so updateMatchDays can set the day field
-        fixtureSchedulingService.generateSeasonCalendar(1);
-
-        seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
-
-        // Create players and managers for all teams (season 1 only)
-        List<Team> teams = teamRepository.findAll();
-        Random random = new Random();
-        for (Team team : teams) {
-            TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(team.getId());
-            squadGenerationService.generateInitialSquad(team, teamFacilities, 1, 70, random);
-
-            // create manager for each team
-            Human manager = new Human();
-            manager.setAge(random.nextInt(35, 70));
-            manager.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
-            manager.setTeamId(team.getId());
-            int reputation = 100;
-            if (teamFacilities != null)
-                reputation = (int) teamFacilities.getSeniorTrainingLevel() * 10;
-            manager.setRating(random.nextInt(reputation - 20, reputation + 20));
-            manager.setPosition("Manager");
-            manager.setSeasonCreated(1L);
-            manager.setTypeId(TypeNames.MANAGER_TYPE);
-            // Assign a real tactical kit (multiple known tactics + a preferred one)
-            // scaled by manager rating instead of the old hardcoded 5-option pick.
-            String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), random);
-            manager.setTacticStyle(kit[0]);
-            manager.setKnownTactics(kit[1]);
-            humanRepository.save(manager);
-
-            // Generate coaching staff for each team
-            staffService.generateInitialStaff(team.getId(), 1);
-        }
-
-        // Generate free agent coaches on the market
-        staffService.generateFreeAgentCoaches(30, 1);
-
-        // Initialize scorers for all players
-        List<Team> allTeams = teamRepository.findAll();
-        for (Team team : allTeams) {
-            List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
-            List<CompetitionTeamInfo> competitions = competitionTeamInfoRepository.findAllByTeamIdAndSeasonNumber(team.getId(), round.getSeason());
-
-            for (Human human : allPlayers) {
-                for (CompetitionTeamInfo competitionTeamInfo : competitions) {
-                    Scorer scorer = new Scorer();
-                    scorer.setPlayerId(human.getId());
-                    scorer.setSeasonNumber((int) round.getSeason());
-                    scorer.setTeamId(team.getId());
-                    scorer.setOpponentTeamId(-1);
-                    scorer.setPosition(human.getPosition());
-                    scorer.setTeamScore(-1);
-                    scorer.setOpponentScore(-1);
-                    scorer.setCompetitionId(competitionTeamInfo.getCompetitionId());
-                    scorer.setCompetitionTypeId(competitionRepository.findTypeIdById(competitionTeamInfo.getCompetitionId()) != null ? competitionRepository.findTypeIdById(competitionTeamInfo.getCompetitionId()).intValue() : 0);
-                    scorer.setTeamName(team.getName());
-                    scorer.setOpponentTeamName(null);
-                    scorer.setCompetitionName(competitionRepository.findNameById(competitionTeamInfo.getCompetitionId()));
-                    scorer.setRating(human.getRating());
-                    scorer.setGoals(0);
-                    scorerRepository.save(scorer);
-                }
-
-                if (scorerLeaderboardRepository.findByPlayerId(human.getId()).isEmpty()) {
-                    ScorerLeaderboardEntry scorerLeaderboardEntry = new ScorerLeaderboardEntry();
-                    scorerLeaderboardEntry.setPlayerId(human.getId());
-                    scorerLeaderboardEntry.setAge(human.getAge());
-                    scorerLeaderboardEntry.setName(human.getName());
-                    scorerLeaderboardEntry.setGoals(0);
-                    scorerLeaderboardEntry.setMatches(0);
-                    scorerLeaderboardEntry.setCurrentRating(human.getRating());
-                    scorerLeaderboardEntry.setBestEverRating(human.getRating());
-                    scorerLeaderboardEntry.setSeasonOfBestEverRating((int) round.getSeason());
-                    scorerLeaderboardEntry.setPosition(human.getPosition());
-                    scorerLeaderboardEntry.setTeamId(human.getTeamId());
-                    scorerLeaderboardEntry.setTeamName(team.getName());
-                    scorerLeaderboardRepository.save(scorerLeaderboardEntry);
-                }
-
-                Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
-                ScorerLeaderboardEntry scorerLeaderboardEntry =
-                        com.footballmanagergamesimulator.service.SeasonTransitionService.resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
-                scorerLeaderboardRepository.save(scorerLeaderboardEntry);
-            }
-        }
-
-        System.out.println("=== Initialization complete: teams, players, fixtures, and scorers created ===");
-
-        // Build proper full cup brackets for season 1 (wipes the legacy per-league
-        // cup CompetitionTeamInfo records and replaces with bracket-aware fixtures).
-        seasonTransitionService.regenerateAllCupBrackets((int) round.getSeason());
+        this.round = gameInitializationService.initializeRound();
     }
 
     /**
@@ -333,55 +209,6 @@ public class CompetitionController {
     // through the controller.
     public void handleContractExpiries(int newSeason) {
         seasonTransitionService.handleContractExpiries(newSeason);
-    }
-
-    /** Per-match manager reputation update, called from {@link
-     *  com.footballmanagergamesimulator.service.MatchSimulationOrchestrator} via
-     *  the lazy controller back-reference. (TODO: candidate for
-     *  {@link TeamPostMatchService} extraction in a later slice.) */
-    public void updateManagerReputationAfterMatch(long teamId1, long teamId2, int score1, int score2) {
-        Team team1 = teamRepository.findById(teamId1).orElse(null);
-        Team team2 = teamRepository.findById(teamId2).orElse(null);
-        if (team1 == null || team2 == null) return;
-
-        List<Human> managers1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
-        List<Human> managers2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
-
-        if (!managers1.isEmpty()) {
-            double change = calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
-            Human mgr = managers1.get(0);
-            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
-            humanRepository.save(mgr);
-        }
-
-        if (!managers2.isEmpty()) {
-            double change = calculateMatchRepChange(score2, score1, team2.getReputation(), team1.getReputation());
-            Human mgr = managers2.get(0);
-            mgr.setManagerReputation((int) Math.max(0, Math.min(10000, mgr.getManagerReputation() + change)));
-            humanRepository.save(mgr);
-        }
-    }
-
-    public double calculateMatchRepChange(int myGoals, int oppGoals, int myTeamRep, int oppTeamRep) {
-        // repDiff positive = opponent stronger
-        double repDiff = oppTeamRep - myTeamRep;
-        // strengthFactor: 0.2x (much weaker opp) to 5x (much stronger opp)
-        double strengthFactor = Math.max(0.2, Math.min(5.0, 1.0 + repDiff / 50.0));
-
-        if (myGoals > oppGoals) {
-            // Win: base +2, big upset (opp 50+ rep stronger) base +10
-            double base = repDiff > 50 ? 10.0 : 2.0;
-            return base * strengthFactor;
-        } else if (myGoals == oppGoals) {
-            // Draw vs stronger: small gain, vs weaker: small loss
-            return repDiff > 0 ? 1.0 * strengthFactor : -1.0;
-        } else {
-            // Loss: base -2, embarrassing (opp 50+ rep weaker) base -10
-            double base = repDiff < -50 ? -10.0 : -2.0;
-            // Invert factor: losing to weaker = bigger penalty
-            double lossFactor = Math.max(0.2, Math.min(5.0, 1.0 - repDiff / 50.0));
-            return base * lossFactor;
-        }
     }
 
     @GetMapping("/historical/getTeams/{seasonNumber}/{competitionId}")
@@ -521,121 +348,7 @@ public class CompetitionController {
 
     @GetMapping("getFixtures/{competitionId}/{roundId}")
     public void getFixturesForRound(@PathVariable(name = "competitionId") String competitionId, @PathVariable(name = "roundId") String roundId) {
-
-        long _competitionId = Long.parseLong(competitionId);
-        long _roundId = Long.parseLong(roundId);
-
-        List<Long> participants = this.getParticipants(competitionId, roundId);
-
-        // we need to get matches and to add them into CompetitionTeamInfoMatch
-        Set<Long> leagueCompetitionIds = getCompetitionIdsByCompetitionType(1);
-        Set<Long> secondLeagueCompetitionIds = getCompetitionIdsByCompetitionType(3);
-
-        if (leagueCompetitionIds.contains(_competitionId) || secondLeagueCompetitionIds.contains(_competitionId)) {
-            // Guard: league fixtures are generated once per season (all rounds at once)
-            // from the round=1 entry point. Skip if any round already exists for this
-            // competition+season to prevent duplicating the entire schedule.
-            List<Long> existingRounds = competitionTeamInfoMatchRepository
-                    .findDistinctRoundsByCompetitionIdAndSeasonNumber(_competitionId, getCurrentSeason());
-            if (!existingRounds.isEmpty()) {
-                System.out.println("=== getFixturesForRound league: comp=" + competitionId
-                        + " season=" + getCurrentSeason() + " already has " + existingRounds.size()
-                        + " rounds, skipping");
-                return;
-            }
-
-            List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
-            int currentRound = 1;
-
-            // Encounters from league-config.json (default: 2 for 18+ teams, 4 for smaller)
-            String compName = competitionRepository.findNameById(_competitionId);
-            int encounters = leagueConfigService.getEncounters(compName, participants.size());
-            int iterations = encounters / 2;
-
-            boolean reverse = true;
-
-            for (int i = 0; i < iterations; i++) {
-
-                for (List<List<Long>> round : schedule) {
-
-                    reverse = !reverse;
-                    for (List<Long> match : round) {
-                        long teamHomeId = match.get(0);
-                        long teamAwayId = match.get(1);
-
-                        CompetitionTeamInfoMatch competitionTeamInfoMatch = new CompetitionTeamInfoMatch();
-                        competitionTeamInfoMatch.setCompetitionId(_competitionId);
-                        competitionTeamInfoMatch.setRound(currentRound);
-                        if (reverse) {
-                            competitionTeamInfoMatch.setTeam1Id(teamHomeId);
-                            competitionTeamInfoMatch.setTeam2Id(teamAwayId);
-                        } else {
-                            competitionTeamInfoMatch.setTeam1Id(teamAwayId);
-                            competitionTeamInfoMatch.setTeam2Id(teamHomeId);
-                        }
-                        competitionTeamInfoMatch.setSeasonNumber(getCurrentSeason());
-                        competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
-                    }
-                    currentRound++;
-                }
-            }
-
-
-        } else {
-
-            // Guard: skip if fixtures for this knockout round already exist (prevents duplicates)
-            List<CompetitionTeamInfoMatch> existingKnockout = competitionTeamInfoMatchRepository
-                    .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, getCurrentSeason());
-            if (!existingKnockout.isEmpty()) {
-                System.out.println("=== getFixturesForRound knockout: comp=" + competitionId + " round=" + roundId + " already drawn, skipping");
-                return;
-            }
-
-            System.out.println("=== getFixturesForRound knockout: comp=" + competitionId + " round=" + roundId + " participants=" + participants.size());
-
-            // European competitions: use seeded draws for specific rounds
-            Set<Long> locIdsForDraw = getCompetitionIdsByCompetitionType(4);
-            Set<Long> starsCupIdsForDraw = getCompetitionIdsByCompetitionType(5);
-
-            if (locIdsForDraw.contains(_competitionId) && (_roundId == 0 || _roundId == 1)) {
-                // LoC preliminary (round 0) or qualifying (round 1): seeded vs unseeded by coefficient
-                europeanCompetitionService.drawEuropeanKnockoutSeeded(_competitionId, _roundId, participants);
-                return;
-            }
-            if (starsCupIdsForDraw.contains(_competitionId) && _roundId == 7) {
-                // Stars Cup playoff: LoC 3rd place (seeded) vs SC runners-up (unseeded)
-                europeanCompetitionService.drawStarsCupPlayoffSeeded(_competitionId, _roundId, participants);
-                return;
-            }
-
-            // Default knockout draw (cups, European QF/SF/Final, etc.)
-            Collections.shuffle(participants);
-
-            // If odd number of participants, give the last team a bye to next round
-            if (participants.size() % 2 != 0) {
-                long byeTeamId = participants.remove(participants.size() - 1);
-                long nextRoundForBye = _roundId + 1;
-                CompetitionTeamInfo byeEntry = new CompetitionTeamInfo();
-                byeEntry.setTeamId(byeTeamId);
-                byeEntry.setCompetitionId(_competitionId);
-                byeEntry.setSeasonNumber(Long.parseLong(getCurrentSeason()));
-                byeEntry.setRound(nextRoundForBye);
-                competitionTeamInfoRepository.save(byeEntry);
-            }
-
-            for (int i = 0; i < participants.size(); i += 2) {
-                long teamHomeId = participants.get(i);
-                long teamAwayId = participants.get(i + 1);
-
-                CompetitionTeamInfoMatch competitionTeamInfoMatch = new CompetitionTeamInfoMatch();
-                competitionTeamInfoMatch.setCompetitionId(_competitionId);
-                competitionTeamInfoMatch.setRound(_roundId);
-                competitionTeamInfoMatch.setTeam1Id(teamHomeId);
-                competitionTeamInfoMatch.setTeam2Id(teamAwayId);
-                competitionTeamInfoMatch.setSeasonNumber(getCurrentSeason());
-                competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
-            }
-        }
+        fixtureSchedulingService.getFixturesForRound(competitionId, roundId);
     }
 
     // simulateRound + its batched AI helpers + per-round caches were extracted
@@ -759,142 +472,7 @@ public class CompetitionController {
                 .collect(Collectors.toSet());
     }
 
-    public void generateMatchReport(long competitionId, long roundId, long teamId1, long teamId2, int teamScore1, int teamScore2) {
-        // Only generate inbox reports for human players' teams
-        boolean team1IsHuman = userContext.isHumanTeam(teamId1);
-        boolean team2IsHuman = userContext.isHumanTeam(teamId2);
-        if (!team1IsHuman && !team2IsHuman) return;
-
-        String teamName1 = teamRepository.findById(teamId1).map(Team::getName).orElse("Unknown");
-        String teamName2 = teamRepository.findById(teamId2).map(Team::getName).orElse("Unknown");
-        String competitionName = competitionRepository.findById(competitionId).map(Competition::getName).orElse("Unknown");
-        int seasonNumber = Integer.parseInt(getCurrentSeason());
-        int roundNumber = (int) roundId;
-
-        if (team1IsHuman) {
-            generateMatchReportForTeam(teamId1, teamName1, teamId2, teamName2, teamScore1, teamScore2,
-                    competitionName, seasonNumber, roundNumber);
-        }
-        if (team2IsHuman) {
-            generateMatchReportForTeam(teamId2, teamName2, teamId1, teamName1, teamScore2, teamScore1,
-                    competitionName, seasonNumber, roundNumber);
-        }
-    }
-
-    private void generateMatchReportForTeam(long teamId, String teamName, long opponentTeamId, String opponentName,
-                                            int teamScore, int opponentScore, String competitionName,
-                                            int seasonNumber, int roundNumber) {
-        String resultPrefix;
-        if (teamScore > opponentScore) {
-            resultPrefix = "Victory! ";
-        } else if (teamScore < opponentScore) {
-            resultPrefix = "Defeat. ";
-        } else {
-            resultPrefix = "Draw. ";
-        }
-
-        String title = resultPrefix + teamName + " " + teamScore + "-" + opponentScore + " " + opponentName;
-
-        // Build content with match details
-        StringBuilder content = new StringBuilder();
-        content.append("Competition: ").append(competitionName).append("\n");
-        content.append("Result: ").append(teamName).append(" ").append(teamScore)
-                .append(" - ").append(opponentScore).append(" ").append(opponentName).append("\n");
-
-        // Find goal scorers for this team in this match (use season-scoped query)
-        List<Scorer> matchScorers = scorerRepository.findAllByTeamIdAndSeasonNumber(teamId, seasonNumber).stream()
-                .filter(s -> s.getOpponentTeamId() == opponentTeamId)
-                .filter(s -> s.getTeamScore() == teamScore)
-                .filter(s -> s.getOpponentScore() == opponentScore)
-                .filter(s -> s.getGoals() > 0)
-                .collect(Collectors.toList());
-
-        if (!matchScorers.isEmpty()) {
-            content.append("Goals: ");
-            String scorersList = matchScorers.stream()
-                    .map(scorer -> {
-                        String playerName = humanRepository.findById(scorer.getPlayerId())
-                                .map(Human::getName).orElse("Unknown");
-                        return playerName + " (" + scorer.getGoals() + ")";
-                    })
-                    .collect(Collectors.joining(", "));
-            content.append(scorersList).append("\n");
-        }
-
-        ManagerInbox inbox = new ManagerInbox();
-        inbox.setTeamId(teamId);
-        inbox.setSeasonNumber(seasonNumber);
-        inbox.setRoundNumber(roundNumber);
-        inbox.setTitle(title);
-        inbox.setContent(content.toString());
-        inbox.setCategory("match_result");
-        inbox.setRead(false);
-        inbox.setCreatedAt(System.currentTimeMillis());
-
-        managerInboxRepository.save(inbox);
-    }
-
-    public void processInjuriesForTeam(long teamId) {
-        Random random = new Random();
-        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-
-        // Pre-load injured player IDs to avoid N+1 queries
-        Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
-                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
-
-        String[] injuryTypes = {"Hamstring Strain", "Knee Ligament", "Ankle Sprain", "Muscle Fatigue", "Broken Bone", "Concussion"};
-
-        for (Human player : players) {
-            if (player.isRetired()) continue;
-            if (injuredPlayerIds.contains(player.getId())) continue;
-
-            // Base injury chance: 0.2%
-            double injuryChance = 0.002;
-
-            // Lower fitness increases injury chance
-            if (player.getFitness() < 50) {
-                injuryChance += 0.001;
-            }
-
-            if (random.nextDouble() < injuryChance) {
-                Injury injury = new Injury();
-                injury.setPlayerId(player.getId());
-                injury.setTeamId(teamId);
-                injury.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
-
-                // Random injury type
-                String injuryType = injuryTypes[random.nextInt(injuryTypes.length)];
-                injury.setInjuryType(injuryType);
-
-                // Determine severity and duration
-                double severityRoll = random.nextDouble();
-                if (severityRoll < 0.55) {
-                    // Minor: 1-3 rounds
-                    injury.setSeverity("Minor");
-                    injury.setDaysRemaining(random.nextInt(1, 4));
-                } else if (severityRoll < 0.85) {
-                    // Moderate: 4-8 rounds
-                    injury.setSeverity("Moderate");
-                    injury.setDaysRemaining(random.nextInt(4, 9));
-                } else {
-                    // Serious: 10-20 rounds
-                    injury.setSeverity("Serious");
-                    injury.setDaysRemaining(random.nextInt(10, 21));
-                }
-
-                injuryRepository.save(injury);
-
-                // Update player status
-                player.setCurrentStatus("Injured - " + injuryType);
-                humanRepository.save(player);
-            }
-        }
-    }
-
     // ==================== TEAM TALK ====================
-
-    @Autowired
-    private TeamTalkService teamTalkService;
 
     public void resetTeamTalkUsed() {
         teamTalkUsedThisRound = false;
