@@ -184,6 +184,14 @@ public class AdminController {
         player.setWage(wage);
         long transferVal = competitionController.calculateTransferValue(age, position, rating);
         player.setReleaseClause(random.nextInt(10) < 3 ? 0 : transferVal * 2);
+
+        // Pick a shirt number that doesn't clash with the team's current squad.
+        if (teamId != null) {
+            List<Human> existing = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L).stream()
+                    .filter(h -> !h.isRetired()).collect(java.util.stream.Collectors.toList());
+            existing.add(player);
+            HumanService.assignShirtNumbers(existing);
+        }
         player = humanRepository.save(player);
 
         // Generate skills
@@ -224,6 +232,31 @@ public class AdminController {
         result.put("transferValue", player.getTransferValue());
 
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Backfill realistic shirt numbers for every player who currently has 0.
+     * One-shot operation for existing savegames generated before the
+     * shirt-number assignment was wired into roster creation.
+     */
+    @PostMapping("/backfillShirtNumbers")
+    public ResponseEntity<Map<String, Object>> backfillShirtNumbers() {
+        List<Team> teams = teamRepository.findAll();
+        int teamsTouched = 0;
+        int playersAssigned = 0;
+        for (Team team : teams) {
+            List<Human> squad = humanRepository.findAllByTeamIdAndTypeId(team.getId(), 1L).stream()
+                    .filter(h -> !h.isRetired()).collect(Collectors.toList());
+            long missingBefore = squad.stream().filter(h -> h.getShirtNumber() <= 0).count();
+            if (missingBefore == 0) continue;
+            HumanService.assignShirtNumbers(squad);
+            humanRepository.saveAll(squad);
+            teamsTouched++;
+            playersAssigned += (int) missingBefore;
+        }
+        return ResponseEntity.ok(Map.of(
+                "teamsTouched", teamsTouched,
+                "playersAssigned", playersAssigned));
     }
 
     /**

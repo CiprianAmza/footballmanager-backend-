@@ -466,6 +466,58 @@ public class HumanService {
         else human.setPreferredFoot("Right");
     }
 
+    /** Position → preferred shirt numbers, in priority order. The best-rated
+     *  player at each position gets their first choice; the next-best player
+     *  at the same position gets the second choice; etc. Best GK always wears 1. */
+    private static final Map<String, int[]> SHIRT_PREFS = Map.ofEntries(
+            Map.entry("GK",  new int[]{1, 12, 13, 25}),
+            Map.entry("DR",  new int[]{2, 22, 16, 26}),
+            Map.entry("DL",  new int[]{3, 14, 23, 27}),
+            Map.entry("DC",  new int[]{4, 5, 6, 15, 28, 29}),
+            Map.entry("DM",  new int[]{6, 4, 24, 30}),
+            Map.entry("MR",  new int[]{7, 17, 22, 31}),
+            Map.entry("MC",  new int[]{8, 6, 16, 24, 32, 33}),
+            Map.entry("ML",  new int[]{11, 14, 19, 34}),
+            Map.entry("AMC", new int[]{10, 21, 14, 35}),
+            Map.entry("AMR", new int[]{7, 17, 11, 36}),
+            Map.entry("AML", new int[]{11, 17, 14, 37}),
+            Map.entry("ST",  new int[]{9, 10, 11, 19, 20, 38, 39})
+    );
+
+    /** Assign realistic shirt numbers to a squad: best GK = 1, best DR = 2,
+     *  etc., falling through to backup numbers as positions fill up. Any
+     *  player whose position isn't recognised — or who runs past their
+     *  position's preferences — falls back to the lowest unused number ≤99.
+     *  Players who already have a non-zero shirt number keep it (so this
+     *  doubles as a backfill: pass a mixed squad and only the 0-shirts get
+     *  assigned). Modifies the {@link Human} entities in place; the caller
+     *  is responsible for persisting them. */
+    public static void assignShirtNumbers(List<Human> squad) {
+        if (squad == null || squad.isEmpty()) return;
+        Set<Integer> used = new HashSet<>();
+        List<Human> toAssign = new ArrayList<>();
+        for (Human p : squad) {
+            int s = p.getShirtNumber();
+            if (s > 0) used.add(s);
+            else toAssign.add(p);
+        }
+        toAssign.sort((a, b) -> Double.compare(b.getRating(), a.getRating()));
+        for (Human p : toAssign) {
+            int[] choices = SHIRT_PREFS.getOrDefault(p.getPosition(), new int[0]);
+            int assigned = 0;
+            for (int n : choices) {
+                if (!used.contains(n)) { assigned = n; break; }
+            }
+            if (assigned == 0) {
+                for (int n = 2; n <= 99; n++) {
+                    if (!used.contains(n)) { assigned = n; break; }
+                }
+            }
+            p.setShirtNumber(assigned);
+            used.add(assigned);
+        }
+    }
+
     private String generatePosition() {
 
       List<String> positions = new ArrayList<>();

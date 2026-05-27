@@ -206,6 +206,7 @@ public class CompetitionController {
         for (Team team : teams) {
             TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(team.getId());
             int nrPlayers = 22;
+            List<Human> generatedSquad = new ArrayList<>(nrPlayers);
             for (int i = 0; i < nrPlayers; i++) {
                 String name = compositeNameGenerator.generateName(team.getCompetitionId());
                 Human player = new Human();
@@ -265,8 +266,13 @@ public class CompetitionController {
                 player.setBestEverRating(computedRating);
                 player.setTransferValue(calculateTransferValue(player.getAge(), player.getPosition(), computedRating));
                 player.setWage((long) (computedRating * 50));
-                humanRepository.save(player);
+                generatedSquad.add(player);
             }
+
+            // Assign realistic shirt numbers once the full squad is generated
+            // (best GK = 1, best DR = 2, best DC = 4, etc.) and persist in one batch.
+            HumanService.assignShirtNumbers(generatedSquad);
+            humanRepository.saveAll(generatedSquad);
 
             // create manager for each team
             Human manager = new Human();
@@ -1718,6 +1724,7 @@ public class CompetitionController {
                 for (Team team : teams) {
                     TeamFacilities teamFacilities = _teamFacilitiesRepository.findByTeamId(team.getId());
                     int nrPlayers = 22;
+                    List<Human> generatedSquad = new ArrayList<>(nrPlayers);
                     for (int i = 0; i < nrPlayers; i++) {
                         String name = compositeNameGenerator.generateName(team.getCompetitionId());
                         Human player = new Human();
@@ -1790,8 +1797,12 @@ public class CompetitionController {
                         player.setBestEverRating(computedRating);
                         player.setTransferValue(calculateTransferValue(player.getAge(), player.getPosition(), computedRating));
                         player.setWage((long) (computedRating * 50));
-                        humanRepository.save(player);
+                        generatedSquad.add(player);
                     }
+
+                    // Assign realistic shirt numbers once the full squad is generated.
+                    HumanService.assignShirtNumbers(generatedSquad);
+                    humanRepository.saveAll(generatedSquad);
 
                     // create manager for each team
                     Human manager = new Human();
@@ -2932,50 +2943,26 @@ public class CompetitionController {
                     useFullMatchEngine = true;
                 }
 
+                boolean interactiveMatch = false;
+
                 if (useFullMatchEngine) {
-                    // --- LIVE MATCH ENGINE: minute-by-minute simulation ---
+                    // --- INTERACTIVE LIVE MATCH (Faza 3 Sesiunea 4) ---
+                    // Create the session but DO NOT advance. Frontend polls
+                    // /advance to drive the engine minute-by-minute, with the
+                    // user able to make manual substitutions that the engine
+                    // actually respects. /commit triggers all post-match work
+                    // (scorers, stats, injuries, standings, suspensions, news,
+                    // post-match PC) once the user finishes the playback.
+                    interactiveMatch = true;
                     boolean generateGoalAnims = humanManager != null && humanManager.isWatchGoalHighlights();
-                    LiveMatchData liveData = liveMatchSimulationService.simulateLiveMatch(
+                    liveMatchSimulationService.createInteractiveSession(
                             teamId1, teamId2, teamPower1, teamPower2,
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
                             generateGoalAnims);
-
-                    teamScore1 = liveData.getHomeScore();
-                    teamScore2 = liveData.getAwayScore();
-
-                    if (knockout && teamScore1 == teamScore2) {
-                        double total = teamPower1 + teamPower2;
-                        double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
-                        boolean homeWins = random.nextDouble() < winChance;
-                        long winnerTeamId;
-                        long loserTeamId;
-                        if (homeWins) {
-                            teamScore1++;
-                            winnerTeamId = teamId1;
-                            loserTeamId = teamId2;
-                        } else {
-                            teamScore2++;
-                            winnerTeamId = teamId2;
-                            loserTeamId = teamId1;
-                        }
-                        // Persist a "goal" MatchEvent for the phantom winner so the match
-                        // report doesn't show fewer goals than the final score. The live
-                        // simulator already saved its events; this is an extra appended
-                        // event for the extra-time decider.
-                        appendKnockoutWinnerGoal(_competitionId, Integer.parseInt(getCurrentSeason()),
-                                (int) _roundId, teamId1, teamId2, winnerTeamId, loserTeamId);
-                    }
-
-                    // Scorer tracking still needed for leaderboard/stats
-                    getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, Long.valueOf(competitionId));
-                    getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, Long.valueOf(competitionId));
-
-                    // MatchEvent records already created by live simulation - skip generateMatchEvents
-
-                    // Persist match stats from live match data
-                    matchSimulationService.persistLiveMatchStats(
-                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            teamId1, teamId2, liveData, teamPower1, teamPower2);
+                    // Placeholder score — /commit overwrites with the real one
+                    // after the user finishes the live playback.
+                    teamScore1 = 0;
+                    teamScore2 = 0;
 
                 } else {
                     // --- INSTANT SIMULATION (original behavior) ---
@@ -3013,17 +3000,32 @@ public class CompetitionController {
                             personalizedTactic1.orElse(null), personalizedTactic2.orElse(null));
                 }
 
-                // Full post-match processing for human matches (same for both modes)
-                processInjuriesForTeam(teamId1);
-                processInjuriesForTeam(teamId2);
+                // Full post-match processing for human matches (same for both
+                // non-interactive paths). Interactive matches defer ALL of this
+                // to /commit so the user's manual subs change the real result.
+                if (!interactiveMatch) {
+                    processInjuriesForTeam(teamId1);
+                    processInjuriesForTeam(teamId2);
 
-                updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
-                updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
+                    updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
+                    updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
 
-                awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                    awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
 
-                generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
-                updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
+                    generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                    updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
+                } else {
+                    // Stash team powers + tactics on the session so /commit can
+                    // run the same post-match work without re-deriving them.
+                    String liveKey = LiveMatchSimulationService.buildKey(
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, teamId2);
+                    LiveMatchSimulationService.LiveMatchSession s = liveMatchSimulationService.getSession(liveKey);
+                    if (s != null) {
+                        s.setDeferredContext(teamPower1, teamPower2, tactic1, tactic2,
+                                personalizedTactic1.orElse(null), personalizedTactic2.orElse(null),
+                                knockout);
+                    }
+                }
 
                 tHumanFull += System.nanoTime() - _tsHuman;
             } else {
@@ -3086,8 +3088,16 @@ public class CompetitionController {
                 tMatchStats += System.nanoTime() - _ts;
             }
 
+            // Interactive matches defer detail-record + KO progression too —
+            // /commit creates them with the real final score once the user has
+            // played the match through the live modal.
+            String _liveKeyCheck = LiveMatchSimulationService.buildKey(
+                    _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, teamId2);
+            var _interactiveSession = liveMatchSimulationService.getSession(_liveKeyCheck);
+            boolean _isInteractivePending = _interactiveSession != null && !_interactiveSession.isCommitted() && !_interactiveSession.isFinished();
+
             // Knockout progression (needed for both human and AI matches)
-            if (knockout) {
+            if (knockout && !_isInteractivePending) {
                 long winnerId = teamScore1 > teamScore2 ? teamId1 : teamId2;
 
                 // National cup: propagate the winner into the pre-created bracket slot.
@@ -3108,18 +3118,20 @@ public class CompetitionController {
             }
 
             // Match result record (needed for both - results page)
-            long _tsDetail = System.nanoTime();
-            CompetitionTeamInfoDetail competitionTeamInfoDetail = new CompetitionTeamInfoDetail();
-            competitionTeamInfoDetail.setCompetitionId(_competitionId);
-            competitionTeamInfoDetail.setRoundId(_roundId);
-            competitionTeamInfoDetail.setTeam1Id(teamId1);
-            competitionTeamInfoDetail.setTeam2Id(teamId2);
-            competitionTeamInfoDetail.setTeamName1(roundTeamName(teamId1));
-            competitionTeamInfoDetail.setTeamName2(roundTeamName(teamId2));
-            competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2);
-            competitionTeamInfoDetail.setSeasonNumber(Long.parseLong(getCurrentSeason()));
-            competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
-            tDetail += System.nanoTime() - _tsDetail;
+            if (!_isInteractivePending) {
+                long _tsDetail = System.nanoTime();
+                CompetitionTeamInfoDetail competitionTeamInfoDetail = new CompetitionTeamInfoDetail();
+                competitionTeamInfoDetail.setCompetitionId(_competitionId);
+                competitionTeamInfoDetail.setRoundId(_roundId);
+                competitionTeamInfoDetail.setTeam1Id(teamId1);
+                competitionTeamInfoDetail.setTeam2Id(teamId2);
+                competitionTeamInfoDetail.setTeamName1(roundTeamName(teamId1));
+                competitionTeamInfoDetail.setTeamName2(roundTeamName(teamId2));
+                competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2);
+                competitionTeamInfoDetail.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+                competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
+                tDetail += System.nanoTime() - _tsDetail;
+            }
 
             // Match day income for home team (team1) — competition cached for the round
             long _tsFin = System.nanoTime();
@@ -8014,6 +8026,108 @@ public class CompetitionController {
             results.add(m);
         }
         return results;
+    }
+
+    /**
+     * Finalize an interactive live match — runs ALL the post-match work that
+     * {@code simulateMatchday} skipped (scorers, stats, injuries, standings,
+     * coefficient points, match report, manager reputation, suspensions, news,
+     * post-match press conference).
+     *
+     * <p>Called by {@code POST /match/live/{key}/commit} when the frontend has
+     * finished polling the engine to full time. The session's final scores
+     * become the source of truth for the round — any manual sub the user made
+     * during playback is now baked into the standings.
+     *
+     * <p>Idempotent: a session already marked as {@code committed} returns
+     * an unchanged result map.
+     */
+    public Map<String, Object> finalizeInteractiveLiveMatch(String liveKey) {
+        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(liveKey);
+        if (session == null) {
+            throw new RuntimeException("No interactive session for key=" + liveKey);
+        }
+        if (!session.isFinished()) {
+            throw new RuntimeException("Cannot commit: match is still in progress (currentMinute < totalMinutes).");
+        }
+        if (session.isCommitted()) {
+            // Idempotent — return a result map without re-running side effects.
+            Map<String, Object> already = new LinkedHashMap<>();
+            already.put("alreadyCommitted", true);
+            already.put("homeScore", session.getHomeScore());
+            already.put("awayScore", session.getAwayScore());
+            return already;
+        }
+
+        long teamId1 = session.getTeamId1();
+        long teamId2 = session.getTeamId2();
+        long _competitionId = session.getCompetitionId();
+        long _roundId = session.getRound();
+        int season = session.getSeason();
+        int teamScore1 = session.getHomeScore();
+        int teamScore2 = session.getAwayScore();
+        double teamPower1 = session.getDeferredTeamPower1();
+        double teamPower2 = session.getDeferredTeamPower2();
+        String tactic1 = session.getDeferredTactic1();
+        String tactic2 = session.getDeferredTactic2();
+        boolean knockout = session.isDeferredKnockout();
+
+        // Knockout extra-time decider (mirrors the live path in simulateMatchday)
+        if (knockout && teamScore1 == teamScore2) {
+            double total = teamPower1 + teamPower2;
+            double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
+            boolean homeWins = new Random().nextDouble() < winChance;
+            long winnerTeamId, loserTeamId;
+            if (homeWins) { session.bumpHomeScore(); teamScore1++; winnerTeamId = teamId1; loserTeamId = teamId2; }
+            else          { session.bumpAwayScore(); teamScore2++; winnerTeamId = teamId2; loserTeamId = teamId1; }
+            appendKnockoutWinnerGoal(_competitionId, season, (int) _roundId, teamId1, teamId2, winnerTeamId, loserTeamId);
+        }
+
+        // Scorer tracking + match stats from the live data
+        getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
+        getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
+        matchSimulationService.persistLiveMatchStats(
+                _competitionId, season, (int) _roundId, teamId1, teamId2,
+                session.asLiveMatchData(), teamPower1, teamPower2);
+
+        // The same post-match work the legacy path runs inline
+        processInjuriesForTeam(teamId1);
+        processInjuriesForTeam(teamId2);
+        updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
+        updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
+        awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+        generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+        updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
+
+        // Detail record (the simulateMatchday loop skipped this for interactive
+        // matches). Standings + results page now show the real final score.
+        CompetitionTeamInfoDetail detail = new CompetitionTeamInfoDetail();
+        detail.setCompetitionId(_competitionId);
+        detail.setRoundId(_roundId);
+        detail.setTeam1Id(teamId1);
+        detail.setTeam2Id(teamId2);
+        detail.setTeamName1(roundTeamName(teamId1));
+        detail.setTeamName2(roundTeamName(teamId2));
+        detail.setScore(teamScore1 + " - " + teamScore2);
+        detail.setSeasonNumber((long) season);
+        competitionTeamInfoDetailRepository.save(detail);
+
+        session.markCommitted();
+
+        // Build result map for the frontend — includes the match result so the
+        // FE can chain into the post-match press conference flow.
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("homeScore", teamScore1);
+        result.put("awayScore", teamScore2);
+        result.put("homeTeamId", teamId1);
+        result.put("awayTeamId", teamId2);
+        result.put("competitionId", _competitionId);
+        result.put("matchday", _roundId);
+        result.put("season", season);
+        // The post-match PC + suspensions + news are wired up by the caller
+        // (MatchController) so this method stays purely "finalize the engine
+        // state" without coupling to GameAdvanceService internals.
+        return result;
     }
 
     public Map<String, Object> getHumanMatchResult(long competitionId, int matchday, int season, long humanTeamId) {

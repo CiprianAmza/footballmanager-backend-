@@ -33,6 +33,27 @@ public class PressConferenceService {
             "Are you happy with recent form?"
     );
 
+    private static final List<String> POST_MATCH_QUESTIONS_WIN = List.of(
+            "How does this win feel?",
+            "Any standout performers today?",
+            "What was the turning point?",
+            "Can you keep this momentum going?"
+    );
+
+    private static final List<String> POST_MATCH_QUESTIONS_DRAW = List.of(
+            "Two points dropped or one earned?",
+            "What did you make of the performance?",
+            "Where did the game slip away?",
+            "What are you taking away from today?"
+    );
+
+    private static final List<String> POST_MATCH_QUESTIONS_LOSS = List.of(
+            "What went wrong out there?",
+            "Is the squad good enough?",
+            "Are you worried about your job?",
+            "How do you respond from this?"
+    );
+
     public PressConference generatePreMatchPressConference(long teamId, long competitionId, int matchday, int season) {
 
         PressConference pressConference = new PressConference();
@@ -51,6 +72,41 @@ public class PressConferenceService {
         sendInboxMessage(teamId, season, matchday,
                 "Press Conference Scheduled",
                 "A pre-match press conference has been scheduled. The media wants to know your thoughts before the upcoming match.",
+                "PRESS_CONFERENCE");
+
+        return pressConference;
+    }
+
+    /**
+     * Generate a post-match press conference. Question pool is chosen by
+     * outcome — winners get celebratory prompts, losers get hostile ones.
+     * Returns the saved PressConference; caller is responsible for surfacing
+     * its id to the frontend so it can be chained after the live-match modal.
+     */
+    public PressConference generatePostMatchPressConference(long teamId, long competitionId,
+                                                            int matchday, int season,
+                                                            int teamScore, int opponentScore) {
+        List<String> questions;
+        String outcome;
+        if (teamScore > opponentScore) { outcome = "WIN"; questions = POST_MATCH_QUESTIONS_WIN; }
+        else if (teamScore < opponentScore) { outcome = "LOSS"; questions = POST_MATCH_QUESTIONS_LOSS; }
+        else { outcome = "DRAW"; questions = POST_MATCH_QUESTIONS_DRAW; }
+
+        PressConference pressConference = new PressConference();
+        pressConference.setTeamId(teamId);
+        pressConference.setSeasonNumber(season);
+        pressConference.setDay(matchday);
+        pressConference.setMatchDay(matchday);
+        pressConference.setTopic("POST_MATCH:" + outcome + "|" + String.join("|", questions));
+        pressConference.setResponseChosen(null);
+        pressConference.setMoraleEffect(0);
+        pressConference.setReputationEffect(0);
+
+        pressConferenceRepository.save(pressConference);
+
+        sendInboxMessage(teamId, season, matchday,
+                "Post-Match Press Conference",
+                "The media are waiting to speak with you after the match (" + teamScore + "-" + opponentScore + ").",
                 "PRESS_CONFERENCE");
 
         return pressConference;

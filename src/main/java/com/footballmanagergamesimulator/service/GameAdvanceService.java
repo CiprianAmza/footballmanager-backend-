@@ -671,26 +671,52 @@ public class GameAdvanceService {
             // Backward compat: also put first result as "matchResult"
             result.put("matchResult", allMatchResults.values().iterator().next());
 
-            // Check if any human team has a live match available
-            for (long htId : htIds) {
-                Map<String, Object> mr = allMatchResults.get(htId);
-                if (mr != null && mr.containsKey("team1Id") && mr.containsKey("team2Id")) {
-                    long t1 = ((Number) mr.get("team1Id")).longValue();
-                    long t2 = ((Number) mr.get("team2Id")).longValue();
-                    for (CalendarEvent event : matchEvents) {
-                        if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
-                        String liveKey = LiveMatchSimulationService.buildKey(
-                                event.getCompetitionId(), event.getSeason(),
-                                event.getMatchday(), t1, t2);
-                        if (liveMatchSimulationService.getLiveMatchData(liveKey) != null) {
-                            result.put("hasLiveMatch", true);
-                            result.put("liveMatchKey", liveKey);
-                            break;
-                        }
+        }
+
+        // Check for a live match session belonging to the human user. We
+        // look this up DIRECTLY on the simulation service (instead of via
+        // allMatchResults) because interactive sessions don't write the
+        // CompetitionTeamInfoDetail row yet — that happens on /commit —
+        // so the user's match wouldn't show up in allMatchResults at all.
+        for (long htId : htIds) {
+            for (CalendarEvent event : matchEvents) {
+                if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
+                var session = liveMatchSimulationService.findSessionForTeam(
+                        event.getCompetitionId(), event.getSeason(), event.getMatchday(), htId);
+                if (session == null || session.isCommitted()) continue;
+
+                String liveKey = LiveMatchSimulationService.buildKey(
+                        session.getCompetitionId(), session.getSeason(), session.getRound(),
+                        session.getTeamId1(), session.getTeamId2());
+                result.put("hasLiveMatch", true);
+                result.put("liveMatchKey", liveKey);
+                boolean interactive = !session.isFinished();
+                result.put("liveMatchInteractive", interactive);
+
+                // For legacy (engine already finished sync — currently no path
+                // produces this since Session 4) schedule the post-match PC
+                // inline. Interactive matches generate the PC on /commit.
+                if (!interactive) {
+                    var liveData = liveMatchSimulationService.getLiveMatchData(liveKey);
+                    List<Human> humanManagers = humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.MANAGER_TYPE);
+                    if (liveData != null && !humanManagers.isEmpty()
+                            && humanManagers.get(0).isViewFullMatch()
+                            && humanManagers.get(0).isAttendPressConferences()) {
+                        boolean isHome = liveData.getHomeTeamId() == htId;
+                        int teamScore = isHome ? liveData.getHomeScore() : liveData.getAwayScore();
+                        int opponentScore = isHome ? liveData.getAwayScore() : liveData.getHomeScore();
+                        PressConference postMatchPc = pressConferenceService.generatePostMatchPressConference(
+                                htId, event.getCompetitionId(), event.getMatchday(),
+                                calendar.getSeason(), teamScore, opponentScore);
+                        result.put("postMatchPressConferenceId", postMatchPc.getId());
+                        result.put("postMatchPressConferenceOutcome",
+                                teamScore > opponentScore ? "WIN"
+                                        : teamScore < opponentScore ? "LOSS" : "DRAW");
                     }
-                    if (result.containsKey("hasLiveMatch")) break;
                 }
+                break;
             }
+            if (result.containsKey("hasLiveMatch")) break;
         }
 
         return result;

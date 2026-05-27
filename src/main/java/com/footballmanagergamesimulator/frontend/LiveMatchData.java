@@ -47,6 +47,26 @@ public class LiveMatchData {
     private int firstHalfStoppage;
     private int secondHalfStoppage;
 
+    // Per-minute stamina snapshots captured every 5 in-game minutes. Frontend
+    // uses these to render fitness bars under each player during playback.
+    private List<StaminaSnapshot> staminaSnapshots;
+
+    // ===== Interactive (Faza 3) — live state for /state, /advance, /substitute =====
+
+    /** Current engine minute (0 at kickoff, totalMinutes when finished). */
+    private int currentMinute;
+    /** True once full-time has fired. */
+    private boolean finished;
+    /** Remaining substitutions per side (0..3). */
+    private int homeSubsRemaining;
+    private int awaySubsRemaining;
+    /** Players currently on the pitch, with up-to-the-minute stamina. */
+    private List<PlayerStaminaInfo> homePitch;
+    private List<PlayerStaminaInfo> awayPitch;
+    /** Players available on the bench (never came on, or were never starters). */
+    private List<PlayerStaminaInfo> homeBench;
+    private List<PlayerStaminaInfo> awayBench;
+
     @Data
     public static class LiveMatchMinute {
         private int minute;
@@ -58,5 +78,22 @@ public class LiveMatchData {
         private long playerId;
         private long teamId;
         private String teamName;
+    }
+
+    @Data
+    public static class StaminaSnapshot {
+        private int minute;
+        private List<PlayerStaminaInfo> homePlayers;
+        private List<PlayerStaminaInfo> awayPlayers;
+    }
+
+    @Data
+    public static class PlayerStaminaInfo {
+        private long playerId;
+        private String name;
+        private String position;
+        private int stamina;        // 0-100, current condition
+        private int minutesPlayed;
+        private boolean onPitch;
     }
 }

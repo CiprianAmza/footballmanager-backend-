@@ -6,6 +6,10 @@ import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.GoalAnimationService;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import com.footballmanagergamesimulator.service.MatchService;
+import com.footballmanagergamesimulator.service.PressConferenceService;
+import com.footballmanagergamesimulator.service.SuspensionService;
+import com.footballmanagergamesimulator.user.UserContext;
+import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,6 +29,12 @@ public class MatchController {
     LiveMatchSimulationService liveMatchSimulationService;
     @Autowired
     CompetitionController competitionController;
+    @Autowired
+    PressConferenceService pressConferenceService;
+    @Autowired
+    SuspensionService suspensionService;
+    @Autowired
+    UserContext userContext;
     @Autowired
     MatchEventRepository matchEventRepository;
     @Autowired
@@ -364,6 +374,144 @@ public class MatchController {
             @PathVariable long teamId1,
             @PathVariable long teamId2) {
         return liveMatchSimulationService.getLiveMatchData(competitionId, season, round, teamId1, teamId2);
+    }
+
+    // ==================== INTERACTIVE LIVE MATCH (Faza 3) ====================
+
+    /**
+     * Read the current state of a live match session — minute, score,
+     * timeline-so-far, pitch + bench lists with stamina, subs remaining.
+     * Returns 404 if the session is gone (e.g. cache evicted, never started).
+     */
+    @GetMapping("/live/{key}/state")
+    public org.springframework.http.ResponseEntity<LiveMatchData> getLiveMatchState(@PathVariable String key) {
+        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        return org.springframework.http.ResponseEntity.ok(session.snapshot());
+    }
+
+    /**
+     * Advance the session up to the given minute (clamped to full time).
+     * Returns the new state including any events that fired during this tick.
+     */
+    @PostMapping("/live/{key}/advance")
+    public org.springframework.http.ResponseEntity<LiveMatchData> advanceLiveMatch(
+            @PathVariable String key,
+            @RequestParam("untilMinute") int untilMinute) {
+        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        return org.springframework.http.ResponseEntity.ok(session.advanceUntilAndSnapshot(untilMinute));
+    }
+
+    /**
+     * Apply a manager-driven substitution to the session. Body is a tiny
+     * {playerOutId, playerInId} pair. Returns 400 with a human-readable error
+     * if the swap is illegal (subs exhausted, GK mismatch, wrong team, etc.).
+     */
+    @PostMapping("/live/{key}/substitute")
+    public org.springframework.http.ResponseEntity<?> substituteInLiveMatch(
+            @PathVariable String key,
+            @RequestBody SubstituteRequest body) {
+        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        try {
+            LiveMatchData state = body.atMinute > 0
+                    ? session.applyUserSubAtMinuteAndSnapshot(body.playerOutId, body.playerInId, body.atMinute)
+                    : session.applyUserSubAndSnapshot(body.playerOutId, body.playerInId);
+            return org.springframework.http.ResponseEntity.ok(state);
+        } catch (LiveMatchSimulationService.InvalidSubstitutionException e) {
+            return org.springframework.http.ResponseEntity.badRequest()
+                    .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** Body for POST /match/live/{key}/substitute. */
+    public static class SubstituteRequest {
+        public long playerOutId;
+        public long playerInId;
+        /** Optional — minute at which the sub should be recorded in the timeline. */
+        public int atMinute;
+    }
+
+    /**
+     * Finalize an interactive live match — runs the post-match work that was
+     * deferred from {@code simulateMatchday} (scorers, stats, standings,
+     * injuries, suspensions, news, post-match press conference). Idempotent.
+     *
+     * <p>Called by the frontend after polling {@code /advance} all the way to
+     * full time. The response includes the match result + the post-match PC
+     * id (when applicable) so the FE can chain straight into the PC modal.
+     */
+    @PostMapping("/live/{key}/commit")
+    public org.springframework.http.ResponseEntity<?> commitLiveMatch(@PathVariable String key) {
+        LiveMatchSimulationService.LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        if (!session.isFinished()) {
+            return org.springframework.http.ResponseEntity.badRequest()
+                    .body(java.util.Map.of("error", "Match is still in progress."));
+        }
+        if (session.isCommitted()) {
+            // Idempotent — return cached snapshot + minimal result block.
+            return org.springframework.http.ResponseEntity.ok(java.util.Map.of(
+                    "alreadyCommitted", true,
+                    "homeScore", session.getHomeScore(),
+                    "awayScore", session.getAwayScore()));
+        }
+
+        // Run the heavy post-match work via CompetitionController.
+        Map<String, Object> result;
+        try {
+            result = competitionController.finalizeInteractiveLiveMatch(key);
+        } catch (RuntimeException e) {
+            return org.springframework.http.ResponseEntity.internalServerError()
+                    .body(java.util.Map.of("error", e.getMessage()));
+        }
+
+        long compId = session.getCompetitionId();
+        int matchday = session.getRound();
+        int season = session.getSeason();
+
+        // Suspensions for the competition+round (now that all scores + cards
+        // are persisted for this match too).
+        try { suspensionService.processMatchCards(compId, matchday, season); }
+        catch (Exception ex) { /* non-fatal */ }
+
+        // Post-match press conference for the manager that watched, if they
+        // attend PCs and didn't delegate to the assistant. Same logic as
+        // GameAdvanceService, but fires here so the FE chains it after the
+        // match-result modal.
+        long userTeamId = userTeamForSession(session);
+        if (userTeamId > 0) {
+            List<Human> humanManagers = humanRepository.findAllByTeamIdAndTypeId(userTeamId, TypeNames.MANAGER_TYPE);
+            if (!humanManagers.isEmpty()
+                    && humanManagers.get(0).isViewFullMatch()
+                    && humanManagers.get(0).isAttendPressConferences()) {
+                boolean isHome = session.getTeamId1() == userTeamId;
+                int teamScore = isHome ? session.getHomeScore() : session.getAwayScore();
+                int opponentScore = isHome ? session.getAwayScore() : session.getHomeScore();
+                try {
+                    PressConference postMatchPc = pressConferenceService.generatePostMatchPressConference(
+                            userTeamId, compId, matchday, season, teamScore, opponentScore);
+                    result.put("postMatchPressConferenceId", postMatchPc.getId());
+                    result.put("postMatchPressConferenceOutcome",
+                            teamScore > opponentScore ? "WIN"
+                                    : teamScore < opponentScore ? "LOSS" : "DRAW");
+                } catch (Exception ex) { /* non-fatal */ }
+            }
+        }
+
+        // Final live-match data so the FE has the canonical post-commit state.
+        result.put("liveMatch", session.snapshot());
+        return org.springframework.http.ResponseEntity.ok(result);
+    }
+
+    /** Resolve which side of the session belongs to the human user. Returns
+     *  team1 by default if userContext can't tell (interactive matches should
+     *  always have at least one human side). */
+    private long userTeamForSession(LiveMatchSimulationService.LiveMatchSession session) {
+        if (userContext.isHumanTeam(session.getTeamId1())) return session.getTeamId1();
+        if (userContext.isHumanTeam(session.getTeamId2())) return session.getTeamId2();
+        return session.getTeamId1();
     }
 
     /**
