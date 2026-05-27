@@ -49,6 +49,14 @@ public class CupBracketService {
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
+    @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
+    @Autowired private RoundRepository roundRepository;
+    @Autowired private EuropeanCompetitionService europeanCompetitionService;
+    @Autowired private CompetitionDisplayService competitionDisplayService;
+
+    private int currentSeason() {
+        return roundRepository.findById(1L).map(Round::getSeason).map(Long::intValue).orElse(1);
+    }
 
     /**
      * (Re)generates the full bracket for one cup in one season.
@@ -363,5 +371,213 @@ public class CupBracketService {
         cti.setRound(round);
         cti.setTeamId(teamId);
         competitionTeamInfoRepository.save(cti);
+    }
+
+    // ============================================================
+    //                    display endpoints
+    // ============================================================
+
+    /**
+     * Cups overview — sister endpoint to /leaguesOverview, one row per national cup
+     * with its current state: which round just played, how many teams remain, and
+     * either the last completed round's results or the upcoming round's pairings.
+     */
+    public Map<String, Object> getCupsOverview() {
+        int currentSeason = currentSeason();
+        String seasonStr = String.valueOf(currentSeason);
+
+        List<Long> sortedLeagueIds = europeanCompetitionService.getLeagueIdsSortedByCoefficient();
+        List<Competition> orderedCups = new ArrayList<>();
+        for (Long leagueId : sortedLeagueIds) {
+            Competition league = competitionRepository.findById(leagueId).orElse(null);
+            if (league == null) continue;
+            competitionRepository.findAll().stream()
+                    .filter(c -> c.getTypeId() == 2L && c.getNationId() == league.getNationId())
+                    .findFirst()
+                    .ifPresent(orderedCups::add);
+        }
+
+        List<Map<String, Object>> cups = new ArrayList<>();
+        int rank = 0;
+        for (Competition cup : orderedCups) {
+            rank++;
+            Map<String, Object> cupInfo = new LinkedHashMap<>();
+            cupInfo.put("competitionId", cup.getId());
+            cupInfo.put("name", cup.getName());
+            cupInfo.put("nationId", cup.getNationId());
+            cupInfo.put("rank", rank);
+
+            List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository.findAll().stream()
+                    .filter(m -> m.getCompetitionId() == cup.getId() && seasonStr.equals(m.getSeasonNumber()))
+                    .sorted(Comparator.comparingLong(CompetitionTeamInfoMatch::getRound)
+                            .thenComparingInt(CompetitionTeamInfoMatch::getMatchIndex))
+                    .toList();
+
+            int totalRounds = matches.stream().mapToInt(m -> (int) m.getRound()).max().orElse(0);
+            cupInfo.put("totalRounds", totalRounds);
+
+            List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository.findAll().stream()
+                    .filter(d -> d.getCompetitionId() == cup.getId() && d.getSeasonNumber() == currentSeason)
+                    .toList();
+            int lastPlayedRound = details.stream().mapToInt(d -> (int) d.getRoundId()).max().orElse(0);
+            cupInfo.put("lastPlayedRound", lastPlayedRound);
+            cupInfo.put("currentRoundName", roundDisplayName(lastPlayedRound > 0 ? lastPlayedRound : 1, totalRounds, matches));
+
+            int focusRound = lastPlayedRound > 0 && lastPlayedRound < totalRounds ? lastPlayedRound + 1 : Math.max(1, lastPlayedRound);
+            List<Map<String, Object>> roundMatches = new ArrayList<>();
+            Set<Long> teamIdsInRound = new HashSet<>();
+            for (CompetitionTeamInfoMatch m : matches) {
+                if (m.getRound() != focusRound) continue;
+                if (m.getTeam1Id() > 0) teamIdsInRound.add(m.getTeam1Id());
+                if (m.getTeam2Id() > 0) teamIdsInRound.add(m.getTeam2Id());
+            }
+            Map<Long, String> nameLookup = teamRepository.findAllById(teamIdsInRound).stream()
+                    .collect(Collectors.toMap(Team::getId, Team::getName));
+            Map<String, String> scoreByKey = new HashMap<>();
+            for (CompetitionTeamInfoDetail d : details) {
+                if (d.getRoundId() != focusRound) continue;
+                scoreByKey.put(d.getTeam1Id() + "-" + d.getTeam2Id(), d.getScore());
+            }
+            for (CompetitionTeamInfoMatch m : matches) {
+                if (m.getRound() != focusRound) continue;
+                Map<String, Object> mr = new LinkedHashMap<>();
+                mr.put("matchIndex", m.getMatchIndex());
+                mr.put("team1Name", m.getTeam1Id() > 0 ? nameLookup.getOrDefault(m.getTeam1Id(), "?") : null);
+                mr.put("team2Name", m.getTeam2Id() > 0 ? nameLookup.getOrDefault(m.getTeam2Id(), "?") : null);
+                mr.put("score", scoreByKey.get(m.getTeam1Id() + "-" + m.getTeam2Id()));
+                roundMatches.add(mr);
+            }
+            cupInfo.put("focusRound", focusRound);
+            cupInfo.put("focusRoundMatches", roundMatches);
+
+            cups.add(cupInfo);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("season", currentSeason);
+        result.put("cups", cups);
+        return result;
+    }
+
+    private String roundDisplayName(int round, int totalRounds, List<CompetitionTeamInfoMatch> allMatches) {
+        if (totalRounds <= 0) return "Round " + round;
+        int fromEnd = totalRounds - round + 1;
+        if (round == 1 && totalRounds >= 2) {
+            long r1Count = allMatches.stream().filter(m -> m.getRound() == 1).count();
+            long r2Count = allMatches.stream().filter(m -> m.getRound() == 2).count();
+            if (r1Count < r2Count) return "Preliminary";
+        }
+        if (fromEnd == 1) return "Final";
+        if (fromEnd == 2) return "Semi-Final";
+        if (fromEnd == 3) return "Quarter-Final";
+        if (fromEnd == 4) return "Round of 16";
+        if (fromEnd == 5) return "Round of 32";
+        return "Round " + round;
+    }
+
+    /**
+     * Returns the full pre-generated cup bracket for the given (cup, season),
+     * grouped by round. team1Id/team2Id == 0 means "winner of the matching
+     * earlier-round slot" (placeholder, not yet decided). Frontend renders this
+     * as a tree so users can see the whole path from day 1.
+     */
+    public Map<String, Object> getCupBracket(long cupId, int season) {
+        String seasonStr = String.valueOf(season);
+
+        List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository.findAll().stream()
+                .filter(m -> m.getCompetitionId() == cupId && seasonStr.equals(m.getSeasonNumber()))
+                .sorted(Comparator.comparingLong(CompetitionTeamInfoMatch::getRound)
+                        .thenComparingInt(CompetitionTeamInfoMatch::getMatchIndex))
+                .toList();
+
+        Set<Long> teamIds = new HashSet<>();
+        for (CompetitionTeamInfoMatch m : matches) {
+            if (m.getTeam1Id() > 0) teamIds.add(m.getTeam1Id());
+            if (m.getTeam2Id() > 0) teamIds.add(m.getTeam2Id());
+        }
+        Map<Long, String> teamNames = teamRepository.findAllById(teamIds).stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
+
+        List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository.findAll().stream()
+                .filter(d -> d.getCompetitionId() == cupId && d.getSeasonNumber() == season)
+                .toList();
+        Map<String, String> scoreByKey = new HashMap<>();
+        for (CompetitionTeamInfoDetail d : details) {
+            scoreByKey.put(d.getCompetitionId() + "-" + d.getRoundId() + "-"
+                    + d.getTeam1Id() + "-" + d.getTeam2Id(), d.getScore());
+        }
+
+        Map<Long, List<Map<String, Object>>> matchesByRound = new LinkedHashMap<>();
+        for (CompetitionTeamInfoMatch m : matches) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("matchIndex", m.getMatchIndex());
+            entry.put("day", m.getDay());
+            entry.put("team1Id", m.getTeam1Id());
+            entry.put("team2Id", m.getTeam2Id());
+            entry.put("team1Name", m.getTeam1Id() > 0 ? teamNames.getOrDefault(m.getTeam1Id(), "?") : null);
+            entry.put("team2Name", m.getTeam2Id() > 0 ? teamNames.getOrDefault(m.getTeam2Id(), "?") : null);
+            String key = m.getCompetitionId() + "-" + m.getRound() + "-" + m.getTeam1Id() + "-" + m.getTeam2Id();
+            entry.put("score", scoreByKey.get(key));
+            matchesByRound.computeIfAbsent(m.getRound(), k -> new ArrayList<>()).add(entry);
+        }
+
+        List<Map<String, Object>> rounds = new ArrayList<>();
+        for (Map.Entry<Long, List<Map<String, Object>>> e : matchesByRound.entrySet()) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("round", e.getKey());
+            r.put("matches", e.getValue());
+            rounds.add(r);
+        }
+
+        Competition cup = competitionRepository.findById(cupId).orElse(null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cupId", cupId);
+        result.put("cupName", cup != null ? cup.getName() : "");
+        result.put("season", season);
+        result.put("rounds", rounds);
+        return result;
+    }
+
+    /**
+     * Round-count metadata per competition type — drives the frontend bracket
+     * renderer (knows how many rounds to draw and which slots are group vs
+     * knockout). Cup (type 2) is computed from team count; LoC (4) and Stars
+     * Cup (5) are fixed-shape.
+     */
+    public Map<String, Object> getCupRoundCount(long competitionId) {
+        Map<String, Object> result = new HashMap<>();
+        Competition comp = competitionRepository.findById(competitionId).orElse(null);
+        if (comp == null) {
+            result.put("totalRounds", 0);
+            result.put("typeId", 0);
+            return result;
+        }
+        result.put("typeId", comp.getTypeId());
+
+        if (comp.getTypeId() == 2) {
+            int numTeams = competitionDisplayService.getTeamCountForCompetition(competitionId);
+            if (numTeams == 0) {
+                long maxRound = competitionTeamInfoDetailRepository.findAll().stream()
+                        .filter(d -> d.getCompetitionId() == competitionId)
+                        .mapToLong(CompetitionTeamInfoDetail::getRoundId)
+                        .max().orElse(0);
+                result.put("totalRounds", (int) maxRound);
+            } else {
+                int numRounds = Math.max(1, (int) Math.ceil(Math.log(numTeams) / Math.log(2)));
+                result.put("totalRounds", numRounds);
+            }
+        } else if (comp.getTypeId() == 5) {
+            result.put("totalRounds", 10);
+            result.put("groupRounds", 6);
+            result.put("playoffRound", 7);
+        } else if (comp.getTypeId() == 4) {
+            result.put("totalRounds", 10);
+            result.put("groupRounds", 7);
+            result.put("qualifyingRounds", 1);
+            result.put("preliminaryRounds", 1);
+        } else {
+            result.put("totalRounds", 0);
+        }
+        return result;
     }
 }

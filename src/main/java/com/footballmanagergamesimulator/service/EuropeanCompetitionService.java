@@ -10,7 +10,9 @@ import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
+import com.footballmanagergamesimulator.model.CompetitionHistory;
 import com.footballmanagergamesimulator.repository.ClubCoefficientRepository;
+import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
@@ -63,6 +65,7 @@ public class EuropeanCompetitionService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private RoundRobin roundRobin;
     @Autowired private ClubCoefficientRepository clubCoefficientRepository;
+    @Autowired private CompetitionHistoryRepository competitionHistoryRepository;
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private UserContext userContext;
     /** Lazy because FinanceService → CompetitionController in some wiring paths.
@@ -1144,5 +1147,230 @@ public class EuropeanCompetitionService {
         List<Long> sorted = new ArrayList<>(leagueCoefficients.keySet());
         sorted.sort((a, b) -> Double.compare(leagueCoefficients.get(b), leagueCoefficients.get(a)));
         return sorted;
+    }
+
+    // ============================================================
+    //  Display / read endpoints — group standings + coefficient
+    //  leaderboards. Bodies live here; the controller keeps the
+    //  REST mapping as a 1-liner delegate.
+    // ============================================================
+
+    /**
+     * Per-team group standings for a European competition + season. Current
+     * season is computed live from match results (rounds 1-6 for Stars Cup,
+     * 2-7 for LoC); past seasons read from {@link CompetitionHistory}.
+     */
+    public List<Map<String, Object>> getEuropeanGroups(long competitionId, long season) {
+
+        long currentSeason = Long.parseLong(currentSeason());
+
+        // CompetitionTeamInfo persists across seasons, so group assignments are always available
+        List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
+                .findAllBySeasonNumber(season).stream()
+                .filter(cti -> cti.getCompetitionId() == competitionId && cti.getGroupNumber() > 0)
+                .toList();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (CompetitionTeamInfo cti : entries) {
+            Map<String, Object> entry = new HashMap<>();
+            Team team = teamRepository.findById(cti.getTeamId()).orElse(null);
+            entry.put("teamId", cti.getTeamId());
+            entry.put("teamName", team != null ? team.getName() : "Unknown");
+            entry.put("groupNumber", cti.getGroupNumber());
+            entry.put("potNumber", cti.getPotNumber());
+
+            if (season == currentSeason) {
+                // Current season: compute group standings from match results (exclude knockout rounds)
+                Competition comp = competitionRepository.findById(competitionId).orElse(null);
+                int groupRoundMin = 2, groupRoundMax = 7; // LoC defaults
+                if (comp != null && comp.getTypeId() == 5) {
+                    groupRoundMin = 1; groupRoundMax = 6; // Stars Cup
+                }
+                int games = 0, wins = 0, draws = 0, loses = 0, goalsFor = 0, goalsAgainst = 0;
+                long teamId = cti.getTeamId();
+                for (int r = groupRoundMin; r <= groupRoundMax; r++) {
+                    List<CompetitionTeamInfoDetail> matchesAsHome = competitionTeamInfoDetailRepository
+                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
+                            .stream().filter(d -> d.getTeam1Id() == teamId).toList();
+                    List<CompetitionTeamInfoDetail> matchesAsAway = competitionTeamInfoDetailRepository
+                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
+                            .stream().filter(d -> d.getTeam2Id() == teamId).toList();
+                    for (CompetitionTeamInfoDetail d : matchesAsHome) {
+                        if (d.getScore() == null) continue;
+                        String[] parts = d.getScore().split("-");
+                        if (parts.length != 2) continue;
+                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
+                        games++; goalsFor += g1; goalsAgainst += g2;
+                        if (g1 > g2) wins++; else if (g1 < g2) loses++; else draws++;
+                    }
+                    for (CompetitionTeamInfoDetail d : matchesAsAway) {
+                        if (d.getScore() == null) continue;
+                        String[] parts = d.getScore().split("-");
+                        if (parts.length != 2) continue;
+                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
+                        games++; goalsFor += g2; goalsAgainst += g1;
+                        if (g2 > g1) wins++; else if (g2 < g1) loses++; else draws++;
+                    }
+                }
+                entry.put("games", games);
+                entry.put("wins", wins);
+                entry.put("draws", draws);
+                entry.put("loses", loses);
+                entry.put("goalsFor", goalsFor);
+                entry.put("goalsAgainst", goalsAgainst);
+                entry.put("goalDifference", goalsFor - goalsAgainst);
+                entry.put("points", wins * 3 + draws);
+            } else {
+                // Previous season: use CompetitionHistory
+                Optional<CompetitionHistory> histOpt = competitionHistoryRepository.findAll().stream()
+                        .filter(h -> h.getTeamId() == cti.getTeamId()
+                                && h.getCompetitionId() == competitionId
+                                && h.getSeasonNumber() == season)
+                        .findFirst();
+                if (histOpt.isPresent()) {
+                    CompetitionHistory hist = histOpt.get();
+                    entry.put("games", hist.getGames());
+                    entry.put("wins", hist.getWins());
+                    entry.put("draws", hist.getDraws());
+                    entry.put("loses", hist.getLoses());
+                    entry.put("goalsFor", hist.getGoalsFor());
+                    entry.put("goalsAgainst", hist.getGoalsAgainst());
+                    entry.put("goalDifference", hist.getGoalDifference());
+                    entry.put("points", hist.getPoints());
+                } else {
+                    entry.put("games", 0); entry.put("wins", 0); entry.put("draws", 0);
+                    entry.put("loses", 0); entry.put("goalsFor", 0); entry.put("goalsAgainst", 0);
+                    entry.put("goalDifference", 0); entry.put("points", 0);
+                }
+            }
+            result.add(entry);
+        }
+        return result;
+    }
+
+    /**
+     * Country coefficient ranking across the last 5 seasons. For each nation:
+     * sum(per-season club coefficients) / count(clubs participating in European
+     * comps that season), summed across seasons. Each entry is then ranked
+     * and gets {@link #assignEuropeanAllocation} attached so the FE can show
+     * "2 LoC spots + 1 SC spot" etc.
+     */
+    public List<Map<String, Object>> getCountryCoefficients() {
+        int curSeason = Integer.parseInt(currentSeason());
+        List<Competition> firstLeagues = competitionRepository.findAll().stream()
+                .filter(c -> c.getTypeId() == 1).toList();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Competition league : firstLeagues) {
+            long leagueId = league.getId();
+            long nationId = league.getNationId();
+
+            double countryCoefficient = 0;
+            Map<Integer, Double> perSeasonValues = new LinkedHashMap<>();
+
+            for (int s = Math.max(1, curSeason - 4); s <= curSeason; s++) {
+                int seasonFinal = s;
+                List<CompetitionTeamInfo> europeanEntries = competitionTeamInfoRepository
+                        .findAllBySeasonNumber(seasonFinal).stream()
+                        .filter(cti -> {
+                            Competition comp = competitionRepository.findById(cti.getCompetitionId()).orElse(null);
+                            if (comp == null) return false;
+                            return (comp.getTypeId() == 4 || comp.getTypeId() == 5);
+                        })
+                        .toList();
+
+                Set<Long> clubsFromNation = new HashSet<>();
+                double seasonPoints = 0;
+                for (CompetitionTeamInfo cti : europeanEntries) {
+                    Team team = teamRepository.findById(cti.getTeamId()).orElse(null);
+                    if (team == null) continue;
+                    Competition teamLeague = competitionRepository.findById(team.getCompetitionId()).orElse(null);
+                    if (teamLeague != null && teamLeague.getNationId() == nationId) {
+                        clubsFromNation.add(cti.getTeamId());
+                    }
+                }
+
+                for (long clubId : clubsFromNation) {
+                    Optional<ClubCoefficient> cc = clubCoefficientRepository.findByTeamIdAndSeasonNumber(clubId, seasonFinal);
+                    if (cc.isPresent()) seasonPoints += cc.get().getPoints();
+                }
+
+                double seasonRatio = clubsFromNation.isEmpty() ? 0 : seasonPoints / clubsFromNation.size();
+                perSeasonValues.put(s, seasonRatio);
+                countryCoefficient += seasonRatio;
+            }
+
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("leagueId", leagueId);
+            entry.put("leagueName", league.getName());
+            entry.put("nationId", nationId);
+            entry.put("coefficient", Math.round(countryCoefficient * 100.0) / 100.0);
+            entry.put("perSeason", perSeasonValues);
+            result.add(entry);
+        }
+
+        result.sort((a, b) -> Double.compare((double) b.get("coefficient"), (double) a.get("coefficient")));
+
+        for (int i = 0; i < result.size(); i++) {
+            int rank = i + 1;
+            Map<String, Object> entry = result.get(i);
+            entry.put("rank", rank);
+            assignEuropeanAllocation(entry, rank);
+        }
+
+        return result;
+    }
+
+    /**
+     * Club coefficient ranking. Every club that participated in European
+     * competition in any of the last 5 seasons gets a row with its
+     * per-season points + 5-year total, sorted descending.
+     */
+    public List<Map<String, Object>> getClubCoefficients() {
+        int curSeason = Integer.parseInt(currentSeason());
+
+        Set<Long> europeanClubIds = new HashSet<>();
+        for (int s = Math.max(1, curSeason - 4); s <= curSeason; s++) {
+            int sFinal = s;
+            competitionTeamInfoRepository.findAllBySeasonNumber(sFinal).stream()
+                    .filter(cti -> {
+                        Competition comp = competitionRepository.findById(cti.getCompetitionId()).orElse(null);
+                        return comp != null && (comp.getTypeId() == 4 || comp.getTypeId() == 5);
+                    })
+                    .forEach(cti -> europeanClubIds.add(cti.getTeamId()));
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (long clubId : europeanClubIds) {
+            Team team = teamRepository.findById(clubId).orElse(null);
+            if (team == null) continue;
+
+            double totalCoeff = 0;
+            Map<Integer, Double> perSeason = new LinkedHashMap<>();
+            for (int s = Math.max(1, curSeason - 4); s <= curSeason; s++) {
+                Optional<ClubCoefficient> cc = clubCoefficientRepository.findByTeamIdAndSeasonNumber(clubId, s);
+                double pts = cc.map(ClubCoefficient::getPoints).orElse(0.0);
+                perSeason.put(s, pts);
+                totalCoeff += pts;
+            }
+
+            Competition league = competitionRepository.findById(team.getCompetitionId()).orElse(null);
+
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("teamId", clubId);
+            entry.put("teamName", team.getName());
+            entry.put("leagueName", league != null ? league.getName() : "");
+            entry.put("coefficient", Math.round(totalCoeff * 100.0) / 100.0);
+            entry.put("perSeason", perSeason);
+            result.add(entry);
+        }
+
+        result.sort((a, b) -> Double.compare((double) b.get("coefficient"), (double) a.get("coefficient")));
+
+        for (int i = 0; i < result.size(); i++) {
+            result.get(i).put("rank", i + 1);
+        }
+
+        return result;
     }
 }

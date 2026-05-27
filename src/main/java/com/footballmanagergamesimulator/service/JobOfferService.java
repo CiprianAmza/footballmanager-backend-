@@ -1,11 +1,14 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.user.User;
+import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +33,11 @@ public class JobOfferService {
     @Autowired private UserRepository userRepository;
     @Autowired private RoundRepository roundRepository;
     @Autowired private HumanService humanService;
+    @Autowired private CompetitionRepository competitionRepository;
+    @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    @Autowired private GameCalendarRepository gameCalendarRepository;
+    @Autowired private UserContext userContext;
+    @Autowired @Lazy private CompetitionController controllerRef;
 
     private static final int OFFER_VALIDITY_DAYS = 7;
 
@@ -265,5 +273,177 @@ public class JobOfferService {
 
     private int currentSeason() {
         return roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
+    }
+
+    // ==================== Vacant/available jobs board ====================
+
+    /**
+     * List jobs the user can apply for (typically when fired). A job is shown if
+     * the team is vacant or the user's manager reputation is at least half of
+     * the team's reputation. Falls back to the 5 weakest teams when nothing else
+     * passes the filter so the user always has something to take.
+     */
+    public List<Map<String, Object>> getAvailableJobs() {
+        List<Team> allTeams = teamRepository.findAll();
+        List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
+
+        Human humanManager = allManagers.stream()
+                .filter(m -> m.getTeamId() != null && m.getTeamId() == 0L && !m.isRetired())
+                .findFirst().orElse(null);
+        int humanRep = humanManager != null ? humanManager.getManagerReputation() : 500;
+
+        List<Map<String, Object>> jobs = new ArrayList<>();
+        for (Team team : allTeams) {
+            Human currentMgr = allManagers.stream()
+                    .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
+                    .findFirst().orElse(null);
+
+            boolean vacant = (currentMgr == null);
+            boolean canApply = vacant || (humanRep >= team.getReputation() / 2);
+
+            if (!canApply) continue;
+
+            Map<String, Object> job = new LinkedHashMap<>();
+            job.put("teamId", team.getId());
+            job.put("teamName", team.getName());
+            job.put("reputation", team.getReputation());
+            job.put("league", getLeagueNameForTeam(team.getId()));
+
+            if (vacant) {
+                job.put("status", "Vacant");
+            } else {
+                job.put("status", "Available");
+                job.put("currentManager", currentMgr.getName());
+            }
+            jobs.add(job);
+        }
+
+        if (jobs.isEmpty()) {
+            List<Team> sortedByRep = allTeams.stream()
+                    .sorted(Comparator.comparingInt(Team::getReputation))
+                    .limit(5)
+                    .toList();
+
+            for (Team team : sortedByRep) {
+                Human currentMgr = allManagers.stream()
+                        .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
+                        .findFirst().orElse(null);
+
+                Map<String, Object> job = new LinkedHashMap<>();
+                job.put("teamId", team.getId());
+                job.put("teamName", team.getName());
+                job.put("reputation", team.getReputation());
+                job.put("league", getLeagueNameForTeam(team.getId()));
+                job.put("status", currentMgr == null ? "Vacant" : "Available");
+                if (currentMgr != null) {
+                    job.put("currentManager", currentMgr.getName());
+                }
+                jobs.add(job);
+            }
+        }
+
+        jobs.sort((a, b) -> Integer.compare((int) b.get("reputation"), (int) a.get("reputation")));
+        return jobs;
+    }
+
+    private String getLeagueNameForTeam(long teamId) {
+        try {
+            List<Competition> comps = competitionRepository.findAll();
+            for (Competition comp : comps) {
+                if (comp.getTypeId() == 1 || comp.getTypeId() == 3) {
+                    List<CompetitionTeamInfo> teams = competitionTeamInfoRepository.findAll().stream()
+                            .filter(c -> c.getCompetitionId() == comp.getId() && c.getTeamId() == teamId)
+                            .toList();
+                    if (!teams.isEmpty()) return comp.getName();
+                }
+            }
+        } catch (Exception e) { /* ignore */ }
+        return "Unknown";
+    }
+
+    /**
+     * Appoint the fired user to a new team. Returns a status message — empty
+     * string-style errors when invariants fail (user not fired, missing team,
+     * etc.) so the REST layer can pass them straight through.
+     *
+     * <p>Mutates the controller's cached Round (humanTeamId) via the lazy
+     * back-ref so subsequent calls to {@code getCurrentSeason}/round reads see
+     * the updated team id without a stale-cache reload.
+     */
+    public String acceptJob(User currentUser, Long newTeamId) {
+        if (currentUser == null || !currentUser.isFired()) {
+            return "You are not currently looking for a job.";
+        }
+        if (newTeamId == null) {
+            return "No teamId provided.";
+        }
+
+        Team newTeam = teamRepository.findById(newTeamId).orElse(null);
+        if (newTeam == null) {
+            return "Team not found.";
+        }
+
+        Human humanManager = null;
+        if (currentUser.getManagerId() != null) {
+            humanManager = humanRepository.findById(currentUser.getManagerId()).orElse(null);
+        }
+        if (humanManager == null) {
+            humanManager = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE).stream()
+                    .filter(m -> m.getTeamId() != null && m.getTeamId() == 0L)
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        if (humanManager == null) {
+            return "Human manager not found.";
+        }
+
+        Human existingManager = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE).stream()
+                .filter(m -> m.getTeamId() != null && m.getTeamId().equals(newTeamId) && !m.isRetired())
+                .findFirst()
+                .orElse(null);
+
+        if (existingManager != null && existingManager.getId() != humanManager.getId()) {
+            existingManager.setTeamId(0L);
+            existingManager.setRetired(true);
+            humanRepository.save(existingManager);
+        }
+
+        humanManager.setTeamId(newTeamId);
+        humanRepository.save(humanManager);
+
+        currentUser.setTeamId(newTeamId);
+        currentUser.setLastTeamId(newTeamId);
+        currentUser.setFired(false);
+        userRepository.save(currentUser);
+
+        // Mutate the shared cached Round so the controller's getCurrentSeason
+        // and humanTeamId reads stay in sync.
+        Round round = controllerRef.getRoundCache();
+        round.setHumanTeamId(newTeamId);
+        roundRepository.save(round);
+
+        if (!userContext.isAnyUserFired()) {
+            List<GameCalendar> calendars = gameCalendarRepository.findAll();
+            for (GameCalendar cal : calendars) {
+                if (cal.isManagerFired()) {
+                    cal.setManagerFired(false);
+                    gameCalendarRepository.save(cal);
+                }
+            }
+        }
+
+        ManagerInbox inbox = new ManagerInbox();
+        inbox.setTeamId(newTeamId);
+        inbox.setSeasonNumber((int) round.getSeason());
+        inbox.setRoundNumber(0);
+        inbox.setTitle("Welcome to " + newTeam.getName() + "!");
+        inbox.setContent("You have been appointed as the new manager of " + newTeam.getName() + ". Good luck!");
+        inbox.setCategory("board");
+        inbox.setRead(false);
+        inbox.setCreatedAt(System.currentTimeMillis());
+        inboxRepository.save(inbox);
+
+        return "You have been appointed as manager of " + newTeam.getName() + "!";
     }
 }
