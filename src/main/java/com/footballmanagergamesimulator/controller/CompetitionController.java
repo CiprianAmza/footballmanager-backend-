@@ -1,9 +1,5 @@
 package com.footballmanagergamesimulator.controller;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
-import com.footballmanagergamesimulator.frontend.FormationData;
-import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
 import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.*;
@@ -11,14 +7,12 @@ import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.CompetitionService;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
-import com.footballmanagergamesimulator.service.FinanceService;
 import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import org.springframework.transaction.annotation.Transactional;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.LeagueConfigService;
 import com.footballmanagergamesimulator.service.BootstrapService;
-import com.footballmanagergamesimulator.service.PlayerInstructionService;
 import com.footballmanagergamesimulator.service.SeasonObjectiveService;
 import com.footballmanagergamesimulator.service.SquadGenerationService;
 import com.footballmanagergamesimulator.service.TransferMarketService;
@@ -35,8 +29,6 @@ import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.*;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
-import org.apache.commons.math3.distribution.EnumeratedDistribution;
-import org.apache.commons.math3.util.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -75,17 +67,11 @@ public class CompetitionController {
     @Autowired
     RoundRepository roundRepository;
     @Autowired
-    PlayerSkillsRepository playerSkillsRepository;
-    @Autowired
-    TacticController tacticController;
-    @Autowired
     PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired
     ScorerRepository scorerRepository;
     @Autowired
     ScorerLeaderboardRepository scorerLeaderboardRepository;
-    @Autowired
-    CompetitionService competitionService;
     @Autowired
     SquadGenerationService squadGenerationService;
     @Autowired
@@ -127,11 +113,10 @@ public class CompetitionController {
     @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
     @Autowired
-    com.footballmanagergamesimulator.service.PlayerRoleService playerRoleService;
-    @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired
+    com.footballmanagergamesimulator.service.LineupRatingService lineupRatingService;
 
-    private final ObjectMapper objectMapper = new ObjectMapper(); // <--- Ai nevoie de asta
 
 
     Round round;
@@ -1432,114 +1417,11 @@ public class CompetitionController {
     }
 
 
-    public double adjustTeamPowerByTacticalProperties(double teamRating, double opponentRating, PersonalizedTactic teamTactic) {
+    // adjustTeamPowerByTacticalProperties + getBestElevenRatingByTactic +
+    // getScorersForTeam + getAssistWeight + getManagerMoraleMultiplier extracted
+    // to LineupRatingService. Orchestrator + interactive-live-match commit path
+    // call the service directly — no controller delegates remain.
 
-        double difference = teamRating - opponentRating;
-        int percentage = 0;
-
-        // 1. SAFETY FIRST: Setăm valori default (scăpăm de NullPointerException)
-        // Aceste string-uri trebuie să fie identice cu ce trimite Frontend-ul
-        String mentality = teamTactic.getMentality() != null ? teamTactic.getMentality() : "Balanced";
-        String timeWasting = teamTactic.getTimeWasting() != null ? teamTactic.getTimeWasting() : "Sometimes";
-        String inPossession = teamTactic.getInPossession() != null ? teamTactic.getInPossession() : "Standard";
-        String passingType = teamTactic.getPassingType() != null ? teamTactic.getPassingType() : "Normal";
-        String tempo = teamTactic.getTempo() != null ? teamTactic.getTempo() : "Standard";
-
-        // --- LOGICA PENTRU MENTALITY VS DIFFERENCE ---
-
-        if (difference > 500) { // Suntem mult mai buni
-            if ("Very Attacking".equals(mentality)) percentage += 25;
-            else if ("Attacking".equals(mentality)) percentage += 10;
-            else if ("Defensive".equals(mentality)) percentage -= 10;
-            else if ("Very Defensive".equals(mentality)) percentage -= 25;
-
-        } else if (difference > 200) { // Suntem puțin mai buni
-            if ("Very Attacking".equals(mentality)) percentage += 15;
-            else if ("Attacking".equals(mentality)) percentage += 5;
-            else if ("Defensive".equals(mentality)) percentage -= 5;
-            else if ("Very Defensive".equals(mentality)) percentage -= 15;
-
-        } else if (difference >= -200 && difference <= 200) { // Meci echilibrat
-            if ("Very Attacking".equals(mentality)) percentage -= 15; // Prea riscant
-            else if ("Attacking".equals(mentality)) percentage += 5;
-            else if ("Defensive".equals(mentality)) percentage += 5;
-            else if ("Very Defensive".equals(mentality)) percentage -= 15; // Prea pasiv
-
-        } else if (difference < -200 && difference > -500) { // Suntem mai slabi
-            if ("Very Attacking".equals(mentality)) percentage -= 15;
-            else if ("Attacking".equals(mentality)) percentage -= 5;
-            else if ("Defensive".equals(mentality)) percentage += 5;
-            else if ("Very Defensive".equals(mentality)) percentage += 15;
-
-        } else if (difference < -500) { // Suntem mult mai slabi
-            if ("Very Attacking".equals(mentality)) percentage -= 25;
-            else if ("Attacking".equals(mentality)) percentage -= 10;
-            else if ("Defensive".equals(mentality)) percentage += 10;
-            else if ("Very Defensive".equals(mentality)) percentage += 25;
-        }
-
-        // --- LOGICA PENTRU TIME WASTING ---
-        // Frontend trimite: 'Never', 'Sometimes', 'Frequently', 'Always'
-        // Mapăm 'Frequently' și 'Always' ca fiind YES (trag de timp)
-
-        if ("Frequently".equals(timeWasting) || "Always".equals(timeWasting)) {
-            if ("Attacking".equals(mentality)) percentage -= 5;
-            else if ("Very Attacking".equals(mentality)) percentage -= 10;
-            else if ("Defensive".equals(mentality)) percentage += 5;
-            else if ("Very Defensive".equals(mentality)) percentage += 10;
-
-        } else if ("Never".equals(timeWasting) || "Sometimes".equals(timeWasting)) {
-            if ("Attacking".equals(mentality)) percentage += 5;
-            else if ("Very Attacking".equals(mentality)) percentage += 10;
-            else if ("Defensive".equals(mentality)) percentage -= 5;
-            else if ("Very Defensive".equals(mentality)) percentage -= 10;
-        }
-
-        // --- LOGICA PENTRU POSSESSION ---
-        // Frontend trimite: 'Keep Ball', 'Free Ball Early' (sau Standard)
-
-        if ("Keep Ball".equals(inPossession)) {
-            if ("Attacking".equals(mentality)) percentage += 10;
-            else if ("Very Attacking".equals(mentality)) percentage -= 15; // Prea lent pentru very attacking
-            else if ("Defensive".equals(mentality)) percentage += 5;
-            else if ("Very Defensive".equals(mentality)) percentage -= 15; // Periculos sa tii mingea in aparare
-
-        } else if ("Free Ball Early".equals(inPossession)) { // Sau 'Direct Passing'
-            if ("Attacking".equals(mentality)) percentage += 5;
-            else if ("Very Attacking".equals(mentality)) percentage += 10;
-            else if ("Defensive".equals(mentality)) percentage -= 5;
-            else if ("Very Defensive".equals(mentality)) percentage += 15; // Degajari lungi
-        }
-
-        // --- LOGICA PENTRU PASSING & TEMPO ---
-        // Aici trebuie mare atenție la string-uri. Presupunem valorile standard.
-        // Frontend Tempo: 'Much Lower', 'Lower', 'Standard', 'Higher', 'Much Higher'
-
-        if ("Short".equals(passingType)) {
-            if ("Much Lower".equals(tempo)) percentage += 5;
-            else if ("Lower".equals(tempo)) percentage += 10;
-            else if ("Standard".equals(tempo)) percentage += 15;
-            else if ("Higher".equals(tempo)) percentage += 20;
-            else if ("Much Higher".equals(tempo)) percentage += 25; // Tiki Taka rapid
-
-        } else if ("Normal".equals(passingType) || "Standard".equals(passingType)) {
-            if ("Much Lower".equals(tempo)) percentage -= 10;
-            else if ("Lower".equals(tempo)) percentage -= 5;
-            else if ("Standard".equals(tempo)) percentage += 0;
-            else if ("Higher".equals(tempo)) percentage += 5;
-            else if ("Much Higher".equals(tempo)) percentage += 10;
-
-        } else if ("Long".equals(passingType) || "Direct".equals(passingType)) {
-            if ("Much Lower".equals(tempo)) percentage -= 30; // Pase lungi lent = pierzi mingea
-            else if ("Lower".equals(tempo)) percentage -= 25;
-            else if ("Standard".equals(tempo)) percentage += 0;
-            else if ("Higher".equals(tempo)) percentage += 25; // Contraatac rapid
-            else if ("Much Higher".equals(tempo)) percentage += 30;
-        }
-
-        // Calcul final
-        return teamRating + (teamRating * percentage / 100D);
-    }
     @GetMapping("/getAllCompetitionTypes")
     public List<CompetitionType> getAllCompetitionTypes() {
 
@@ -1560,16 +1442,12 @@ public class CompetitionController {
         return competitionTypes;
     }
 
-    // Only the 6-arg updateTeam + getManagerMoraleMultiplier still have internal
-    // callers in this file; the other 10 thin wrappers around TeamPostMatchService
-    // were dead after the Stage-1 extraction and got pruned.
+    // Only the 6-arg updateTeam wrapper around TeamPostMatchService still has an
+    // internal caller; the other 10 wrappers + getManagerMoraleMultiplier were
+    // pruned after the Stage-1 and LineupRatingService extractions.
 
     private void updateTeam(long teamId, long competitionId, int scoreHome, int scoreAway, double teamPowerDifference, long opponentTeamId) {
         teamPostMatchService.updateTeam(teamId, competitionId, scoreHome, scoreAway, teamPowerDifference, opponentTeamId);
-    }
-
-    private double getManagerMoraleMultiplier(long teamId) {
-        return teamPostMatchService.getManagerMoraleMultiplier(teamId);
     }
 
     public HashMap<String, Integer> getMinimumPositionNeeded() {
@@ -1608,357 +1486,6 @@ public class CompetitionController {
      *  change. New code should call the calculator directly. */
     public long calculateTransferValue(long age, String position, double rating) {
         return TransferValueCalculator.calculate(age, position, rating);
-    }
-
-    /** Best-eleven rating with morale + fitness + role suitability multipliers.
-     *  Public so {@link com.footballmanagergamesimulator.service.MatchSimulationOrchestrator}
-     *  can call it back through its lazy controller reference. */
-    public double getBestElevenRatingByTactic(long teamId, String tactic) {
-
-        Optional<PersonalizedTactic> personalizedTacticOpt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
-
-        if (personalizedTacticOpt.isPresent()) {
-            PersonalizedTactic personalized = personalizedTacticOpt.get();
-            double rating = 0;
-            Set<Long> injuredIds = matchSimulationOrchestrator.roundInjuredIds(teamId);
-
-            try {
-                // 1. Convertim JSON-ul salvat în List<FormationData>
-                List<FormationData> formationDataList = objectMapper.readValue(
-                        personalized.getFirst11(),
-                        new TypeReference<List<FormationData>>() {}
-                );
-
-                // 2. Iterăm prin listă
-                for (FormationData data : formationDataList) {
-
-                    // Ignorăm rezervele (indecșii >= 30 sunt pe bancă)
-                    if (data.getPositionIndex() >= 30) continue;
-
-                    // Găsim jucătorul
-                    Optional<Human> playerOpt = humanRepository.findById(data.getPlayerId());
-                    if (playerOpt.isEmpty()) continue;
-
-                    Human player = playerOpt.get();
-
-                    // Skip injured players from power calculation
-                    if (injuredIds.contains(player.getId())) continue;
-
-                    // 3. Aflăm ce poziție reprezintă indexul de pe grilă (ex: 27 -> "GK")
-                    String tacticPosition = tacticService.getPositionFromIndex(data.getPositionIndex());
-
-                    // 4. Calculăm rating-ul (cu morale + fitness + role suitability)
-                    // Morale: neutral at 70 (1.0), swing reduced 10x — squad value should
-                    // dominate the result, morale only nudges it. Range now ~0.97..1.012.
-                    double moraleMultiplier = 1.0 + (player.getMorale() - 70) * 0.0004;
-                    double fitnessMultiplier = Math.max(0.7, player.getFitness() / 100D);
-
-                    double playerRating;
-                    // Compare using base positions so AMC≡MC, AML≡ML, AMR≡MR
-                    String basePlayerPos = TacticService.getBasePosition(player.getPosition());
-                    String baseTacticPos = TacticService.getBasePosition(tacticPosition);
-                    if (basePlayerPos.equals(baseTacticPos)) {
-                        // Use role-based effective rating if role is assigned
-                        if (data.getRole() != null && !data.getRole().isEmpty()) {
-                            PlayerSkills skills = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()).orElse(null);
-                            if (skills != null) {
-                                playerRating = playerRoleService.computeEffectiveRating(skills, data.getRole());
-                            } else {
-                                playerRating = player.getRating();
-                            }
-                        } else {
-                            playerRating = player.getRating();
-                        }
-                        // Apply individual instruction multiplier (use base position for lookup)
-                        double instructionMultiplier = PlayerInstructionService.computeInstructionMultiplier(
-                                data.getInstructions(), baseTacticPos, "general");
-                        rating += playerRating * moraleMultiplier * fitnessMultiplier * instructionMultiplier;
-                    } else {
-                        rating += player.getRating() / 2 * moraleMultiplier * fitnessMultiplier;
-                    }
-                }
-
-                // Manager morale influence: low manager morale penalizes team
-                rating *= getManagerMoraleMultiplier(teamId);
-
-                return rating;
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                // Dacă parsarea eșuează, continuăm execuția spre fallback-ul de mai jos
-            }
-        }
-
-        // --- FALLBACK (Dacă nu are tactică salvată sau a crăpat parsarea) ---
-        // Folosește algoritmul automat pentru a determina cel mai bun 11
-        List<PlayerView> playerViews = tacticController.getBestEleven(String.valueOf(teamId), tactic);
-
-        double fallbackRating = playerViews
-                .stream()
-                .mapToDouble(playerView -> {
-                    // Morale nudge (1/10 of previous), fitness unchanged
-                    double moraleMul = 1.0 + (playerView.getMorale() - 70) * 0.0004;
-                    double fitMul = Math.max(0.7, playerView.getFitness() / 100D);
-                    return playerView.getRating() * moraleMul * fitMul;
-                })
-                .sum();
-
-        // Manager morale influence
-        return fallbackRating * getManagerMoraleMultiplier(teamId);
-    }
-
-    public void getScorersForTeam(long teamId, long opponentTeamId, int teamScore, int opponentScore, String tactic, long competitionId) {
-
-        Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
-        long competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
-        String teamName = teamRepository.findNameById(teamId);
-        String opponentName = teamRepository.findNameById(opponentTeamId);
-        String competitionName = competitionRepository.findNameById(competitionId);
-
-        Optional<PersonalizedTactic> personalizedTacticOpt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
-        List<Scorer> possibleScorers = new ArrayList<>();
-        List<Scorer> substitutions = new ArrayList<>();
-
-        boolean loadedSuccessfully = false;
-
-        // 1. ÎNCERCĂM SĂ ÎNCĂRCĂM TACTICA PERSONALIZATĂ (JSON)
-        if (personalizedTacticOpt.isPresent()) {
-            try {
-                PersonalizedTactic personalized = personalizedTacticOpt.get();
-                Set<Long> injuredIds = matchSimulationOrchestrator.roundInjuredIds(teamId);
-
-                // Citim JSON-ul salvat
-                List<FormationData> formationList = objectMapper.readValue(
-                        personalized.getFirst11(),
-                        new TypeReference<List<FormationData>>() {}
-                );
-
-                for (FormationData data : formationList) {
-                    Optional<Human> playerOpt = humanRepository.findById(data.getPlayerId());
-                    if (playerOpt.isEmpty()) continue;
-
-                    Human player = playerOpt.get();
-
-                    // Skip injured players
-                    if (injuredIds.contains(player.getId())) continue;
-
-                    Scorer scorer = new Scorer();
-                    scorer.setPlayerId(player.getId());
-                    scorer.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
-                    scorer.setTeamId(teamId);
-                    scorer.setOpponentTeamId(opponentTeamId);
-                    scorer.setPosition(player.getPosition());
-                    scorer.setTeamScore(teamScore);
-                    scorer.setOpponentScore(opponentScore);
-                    scorer.setCompetitionId(competitionId);
-                    scorer.setCompetitionTypeId((int) competitionTypeId);
-                    scorer.setTeamName(teamName);
-                    scorer.setOpponentTeamName(opponentName);
-                    scorer.setCompetitionName(competitionName);
-                    // Seed the player's base rating so weight = posMul × rating²/70 works
-                    // when we sample scorers below. assignMatchRatings() will overwrite
-                    // this with the actual match performance rating afterwards.
-                    scorer.setRating(player.getRating());
-
-                    // 🔹 LOGICA NOUĂ: Index >= 30 înseamnă Rezervă
-                    if (data.getPositionIndex() >= 30) {
-                        scorer.setSubstitute(true);
-                        substitutions.add(scorer);
-                    } else {
-                        scorer.setSubstitute(false);
-                        possibleScorers.add(scorer);
-                    }
-                }
-
-                if (!possibleScorers.isEmpty()) {
-                    loadedSuccessfully = true;
-                }
-
-            } catch (Exception e) {
-                System.err.println("Error parsing tactic JSON for team " + teamId + ": " + e.getMessage());
-                // Nu dăm throw, ci lăsăm loadedSuccessfully = false ca să intre pe fallback
-            }
-        }
-
-        // 2. FALLBACK: LOGICA STANDARD (Dacă nu are tactică sau a crăpat JSON-ul)
-        if (!loadedSuccessfully) {
-            // Aici e codul tău vechi din blocul "else", neatins
-            List<PlayerView> playerViews = tacticController.getBestEleven(String.valueOf(teamId), tactic);
-            playerViews.stream().map(playerView -> {
-                Scorer scorer = new Scorer();
-                scorer.setPlayerId(playerView.getId());
-                scorer.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
-                scorer.setTeamId(teamId);
-                scorer.setOpponentTeamId(opponentTeamId);
-                scorer.setPosition(playerView.getPosition());
-                scorer.setTeamScore(teamScore);
-                scorer.setOpponentScore(opponentScore);
-                scorer.setCompetitionId(competitionId);
-                scorer.setCompetitionTypeId((int) competitionTypeId);
-                scorer.setTeamName(teamName);
-                scorer.setOpponentTeamName(opponentName);
-                scorer.setCompetitionName(competitionName);
-                // Seed base rating so the scorer-distribution weighting below sees a
-                // meaningful value (otherwise rating² = 0 and the position multiplier
-                // gets clamped to the 0.1 floor — strikers/defenders end up equally likely).
-                scorer.setRating(playerView.getRating());
-                scorer.setSubstitute(false);
-                return scorer;
-            }).forEach(possibleScorers::add);
-
-            List<PlayerView> substitutionViews = tacticController.getSubstitutions(String.valueOf(teamId), tactic);
-            substitutionViews.stream().map(playerView -> {
-                Scorer scorer = new Scorer();
-                scorer.setPlayerId(playerView.getId());
-                scorer.setSeasonNumber(Integer.parseInt(getCurrentSeason()));
-                scorer.setTeamId(teamId);
-                scorer.setOpponentTeamId(opponentTeamId);
-                scorer.setPosition(playerView.getPosition());
-                scorer.setTeamScore(teamScore);
-                scorer.setOpponentScore(opponentScore);
-                scorer.setCompetitionId(competitionId);
-                scorer.setCompetitionTypeId((int) competitionTypeId);
-                scorer.setTeamName(teamName);
-                scorer.setOpponentTeamName(opponentName);
-                scorer.setCompetitionName(competitionName);
-                scorer.setRating(playerView.getRating());
-                scorer.setSubstitute(true);
-                return scorer;
-            }).forEach(substitutions::add);
-        }
-
-        // 3. SIMULARE SCHIMBĂRI ȘI GOLURI (Rămâne la fel)
-        Random random = new Random();
-        int substitutesDone = random.nextInt(0, Math.min(6, substitutions.size() + 1)); // fix bounds check
-        if (!substitutions.isEmpty()) {
-            Collections.shuffle(substitutions);
-            // Asigură-te că nu ceri mai mulți decât ai
-            for (int i = 0; i < Math.min(substitutesDone, substitutions.size()); i++) {
-                possibleScorers.add(substitutions.get(i));
-            }
-        }
-
-        List<Pair<Scorer, Double>> weightedPlayers = new ArrayList<>();
-        for (Scorer scorer: possibleScorers) {
-            if ("GK".equals(scorer.getPosition())) continue;
-            double weight = competitionService.getDifferentValueForScoringBasedOnPosition(scorer);
-            if (weight <= 0) weight = 0.1; // Ensure positive weight
-            weightedPlayers.add(new Pair<>(scorer, weight));
-        }
-
-        if (!weightedPlayers.isEmpty()) {
-            for (int i = 0; i < teamScore; i++) {
-                try {
-                    EnumeratedDistribution<Scorer> distribution = new EnumeratedDistribution<>(weightedPlayers);
-                    Scorer selected = distribution.sample();
-                    selected.setGoals(selected.getGoals() + 1);
-
-                    // Assists: ~75% of goals have an assist; assister is weighted by
-                    // creative-position bias (wide mids and AMs over defenders/strikers)
-                    // and must be a different player from the scorer.
-                    if (random.nextDouble() < 0.75) {
-                        List<Pair<Scorer, Double>> assistCandidates = new ArrayList<>();
-                        for (Scorer s : possibleScorers) {
-                            if (s.getPlayerId() == selected.getPlayerId()) continue;
-                            if ("GK".equals(s.getPosition())) continue;
-                            double w = getAssistWeight(s);
-                            if (w > 0) assistCandidates.add(new Pair<>(s, w));
-                        }
-                        if (!assistCandidates.isEmpty()) {
-                            EnumeratedDistribution<Scorer> assistDist = new EnumeratedDistribution<>(assistCandidates);
-                            Scorer assister = assistDist.sample();
-                            assister.setAssists(assister.getAssists() + 1);
-                        }
-                    }
-                } catch (Exception e) {
-                    System.err.println("Distribution error (negative weights?): " + e.getMessage());
-                }
-            }
-        }
-
-        // Assign match performance ratings (1-10 scale) and determine Man of the Match
-        matchSimulationService.assignMatchRatings(possibleScorers, teamScore, opponentScore);
-
-        for (Scorer scorer: possibleScorers) {
-
-            scorerRepository.save(scorer);
-
-            Optional<Human> possiblePlayer = humanRepository.findById(scorer.getPlayerId());
-            if (possiblePlayer.isPresent()) {
-                Human player = possiblePlayer.get();
-
-                ScorerLeaderboardEntry scorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(player.getId()).orElseGet(() -> {
-                    ScorerLeaderboardEntry newEntry = new ScorerLeaderboardEntry();
-                    newEntry.setPlayerId(player.getId());
-                    newEntry.setName(player.getName());
-                    newEntry.setPosition(player.getPosition());
-                    newEntry.setTeamId(player.getTeamId() != null ? player.getTeamId() : 0);
-                    newEntry.setTeamName(player.getTeamId() != null ? teamRepository.findNameById(player.getTeamId()) : "Free Agent");
-                    newEntry.setActive(true);
-                    newEntry.setCurrentRating(player.getRating());
-                    newEntry.setBestEverRating(player.getRating());
-                    newEntry.setSeasonOfBestEverRating(Integer.parseInt(getCurrentSeason()));
-                    newEntry.setAge(player.getAge());
-                    return scorerLeaderboardRepository.save(newEntry);
-                });
-                scorerLeaderboardEntry.setAge(player.getAge());
-                scorerLeaderboardEntry.setName(player.getName());
-
-                scorerLeaderboardEntry.setName(player.getName());
-                if (player.getTeamId() != null) {
-                    scorerLeaderboardEntry.setTeamName(teamRepository.findNameById(player.getTeamId()));
-                } else {
-                    scorerLeaderboardEntry.setTeamName("Free Agent");
-                }
-                if (player.isRetired()) {
-                    scorerLeaderboardEntry.setTeamName("Retired");
-                }
-                scorerLeaderboardEntry.setPosition(player.getPosition());
-                scorerLeaderboardEntry.setActive(!player.isRetired());
-                if (player.getRating() > scorerLeaderboardEntry.getBestEverRating()) {
-                    scorerLeaderboardEntry.setBestEverRating(player.getRating());
-                    scorerLeaderboardEntry.setSeasonOfBestEverRating(Integer.parseInt(getCurrentSeason()));
-                }
-                scorerLeaderboardEntry.setAge(player.getAge());
-                scorerLeaderboardEntry.setCurrentRating(player.getRating());
-
-                scorerLeaderboardEntry.setMatches(scorerLeaderboardEntry.getMatches() + 1);
-                scorerLeaderboardEntry.setGoals(scorerLeaderboardEntry.getGoals() + scorer.getGoals());
-                scorerLeaderboardEntry.setCurrentSeasonGoals(scorerLeaderboardEntry.getCurrentSeasonGoals() + scorer.getGoals());
-                scorerLeaderboardEntry.setCurrentSeasonGames(scorerLeaderboardEntry.getCurrentSeasonGames() + 1);
-
-                if (cachedLeagueCompIds == null) {
-                    cachedLeagueCompIds = getCompetitionIdsByCompetitionType(1);
-                    cachedCupCompIds = getCompetitionIdsByCompetitionType(2);
-                    cachedSecondLeagueCompIds = getCompetitionIdsByCompetitionType(3);
-                }
-
-                if (cachedLeagueCompIds.contains(competitionId)) {
-
-                    scorerLeaderboardEntry.setLeagueGoals(scorerLeaderboardEntry.getLeagueGoals() + scorer.getGoals());
-                    scorerLeaderboardEntry.setLeagueMatches(scorerLeaderboardEntry.getLeagueMatches() + 1);
-                    scorerLeaderboardEntry.setCurrentSeasonLeagueGoals(scorerLeaderboardEntry.getCurrentSeasonLeagueGoals() + scorer.getGoals());
-                    scorerLeaderboardEntry.setCurrentSeasonLeagueGames(scorerLeaderboardEntry.getCurrentSeasonLeagueGames() + 1);
-
-                } else if (cachedCupCompIds.contains(competitionId)) {
-
-                    scorerLeaderboardEntry.setCupGoals(scorerLeaderboardEntry.getCupGoals() + scorer.getGoals());
-                    scorerLeaderboardEntry.setCupMatches(scorerLeaderboardEntry.getCupMatches() + 1);
-                    scorerLeaderboardEntry.setCurrentSeasonCupGoals(scorerLeaderboardEntry.getCurrentSeasonCupGoals() + scorer.getGoals());
-                    scorerLeaderboardEntry.setCurrentSeasonCupGames(scorerLeaderboardEntry.getCurrentSeasonCupGames() + 1);
-
-                } else if (cachedSecondLeagueCompIds.contains(competitionId)){
-
-                    scorerLeaderboardEntry.setSecondLeagueGoals(scorerLeaderboardEntry.getSecondLeagueGoals() + scorer.getGoals());
-                    scorerLeaderboardEntry.setSecondLeagueMatches(scorerLeaderboardEntry.getSecondLeagueMatches() + 1);
-                    scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGoals(scorerLeaderboardEntry.getCurrentSeasonSecondLeagueGoals() + scorer.getGoals());
-                    scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGames(scorerLeaderboardEntry.getCurrentSeasonSecondLeagueGames() + 1);
-
-                }
-                scorerLeaderboardRepository.save(scorerLeaderboardEntry);
-            }
-        }
-
     }
 
     public void generateMatchEvents(long competitionId, int seasonNumber, int roundNumber,
@@ -2786,31 +2313,6 @@ public class CompetitionController {
     }
 
     /**
-     * Weight for picking an assister. Differs from the goal-weighting: creative
-     * positions (wingers, attacking mids) get the highest share; pure forwards and
-     * defenders contribute less; goalkeepers are excluded upstream.
-     * Rating scales linearly here (not squared) so assists are more evenly spread
-     * across the squad than goals.
-     */
-    private double getAssistWeight(Scorer scorer) {
-        Map<String, Double> positionToValue = Map.of(
-                "GK", 0D,
-                "DL", 0.8,
-                "DR", 0.8,
-                "DC", 0.4,
-                "ML", 2.5,
-                "MR", 2.5,
-                "MC", 2.0,
-                "ST", 1.2);
-        double posMul = positionToValue.getOrDefault(scorer.getPosition(), 1.0);
-        double ratingFactor = Math.max(scorer.getRating(), 1.0);
-        double w = posMul * ratingFactor;
-        if (scorer.isSubstitute()) w /= 2;
-        return Math.max(w, 0);
-    }
-
-
-    /**
      * Simulates a matchday for a specific competition.
      * Called by GameAdvanceService when processing MATCH events from the calendar.
      *
@@ -3047,8 +2549,8 @@ public class CompetitionController {
         }
 
         // Scorer tracking + match stats from the live data
-        getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
-        getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
+        lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
+        lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
         matchSimulationService.persistLiveMatchStats(
                 _competitionId, season, (int) _roundId, teamId1, teamId2,
                 session.asLiveMatchData(), teamPower1, teamPower2);

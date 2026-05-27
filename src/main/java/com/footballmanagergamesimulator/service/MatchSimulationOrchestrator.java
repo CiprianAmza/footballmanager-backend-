@@ -80,6 +80,7 @@ public class MatchSimulationOrchestrator {
     @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private CompetitionService competitionService;
     @Autowired private TeamPostMatchService teamPostMatchService;
+    @Autowired private LineupRatingService lineupRatingService;
     @Autowired private EuropeanCompetitionService europeanCompetitionService;
     @Autowired private CupBracketService cupBracketService;
     @Autowired private TacticController tacticController;
@@ -206,16 +207,16 @@ public class MatchSimulationOrchestrator {
                 String tactic2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE)
                         .stream().findFirst().map(Human::getTacticStyle).orElse("442");
 
-                teamPower1 = controllerRef.getBestElevenRatingByTactic(teamId1, tactic1);
-                teamPower2 = controllerRef.getBestElevenRatingByTactic(teamId2, tactic2);
+                teamPower1 = lineupRatingService.getBestElevenRatingByTactic(teamId1, tactic1);
+                teamPower2 = lineupRatingService.getBestElevenRatingByTactic(teamId2, tactic2);
 
                 Optional<PersonalizedTactic> personalizedTactic1 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
                 Optional<PersonalizedTactic> personalizedTactic2 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
 
                 if (personalizedTactic1.isPresent())
-                    teamPower1 = controllerRef.adjustTeamPowerByTacticalProperties(teamPower1, teamPower2, personalizedTactic1.get());
+                    teamPower1 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower1, teamPower2, personalizedTactic1.get());
                 if (personalizedTactic2.isPresent())
-                    teamPower2 = controllerRef.adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
+                    teamPower2 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
 
                 // Admin override — if a score has been forced for this match, skip the
                 // live engine entirely and use the instant path with the forced score.
@@ -273,8 +274,8 @@ public class MatchSimulationOrchestrator {
                     }
 
                     // Full scorer tracking with weighted distribution
-                    controllerRef.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
-                    controllerRef.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
+                    lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
+                    lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
 
                     // Detailed match events (goals, assists, cards, substitutions)
                     controllerRef.generateMatchEvents(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
