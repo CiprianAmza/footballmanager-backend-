@@ -4,6 +4,8 @@ import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
+import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.Injury;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
@@ -11,9 +13,11 @@ import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -61,6 +65,8 @@ class MatchdayInvariantsTest {
     @Autowired private CompetitionTeamInfoDetailRepository detailRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompDetailRepository;
     @Autowired private ScorerRepository scorerRepository;
+    @Autowired private InjuryRepository injuryRepository;
+    @Autowired private MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     // ============================================================
     //  Pre-simulation invariants (verify bootstrap shape)
@@ -285,6 +291,53 @@ class MatchdayInvariantsTest {
                     "max 9 points after 3 rounds (3 wins × 3); team " + teamId + " has " + tcd.getPoints());
             assertTrue(tcd.getGoalsFor() >= 0 && tcd.getGoalsAgainst() >= 0,
                     "goals must be non-negative");
+        }
+    }
+
+    // ============================================================
+    //  Injury filter contract — regression guard for the dead-cache
+    //  bug noted in REFACTOR_HANDOFF_2026_05_27.md §9.1. Confirms that
+    //  the per-team injury lookup that the human-match flow now relies
+    //  on (getBestElevenRatingByTactic + getScorersForTeam) actually
+    //  returns DB-backed injuries when called outside simulateRound.
+    // ============================================================
+
+    @Test
+    @Order(30)
+    @DisplayName("roundInjuredIds: DB-backed lookup returns active injuries (regression for dead-cache bug)")
+    void roundInjuredIds_returnsDbBackedInjuriesOutsideSimulateRound() {
+        // Pick any team that has at least one player.
+        Team team = teamRepository.findAll().stream()
+                .filter(t -> !humanRepository.findAllByTeamIdAndTypeId(t.getId(), 1L).isEmpty())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("bootstrap should have produced at least one team with players"));
+        Human player = humanRepository.findAllByTeamIdAndTypeId(team.getId(), 1L).get(0);
+
+        // Pre-condition: no active injury for this player → not in the returned set.
+        Set<Long> before = matchSimulationOrchestrator.roundInjuredIds(team.getId());
+        assertFalse(before.contains(player.getId()),
+                "pre-condition: player should not be injured before we add the injury");
+
+        // Insert an active injury directly. We are outside simulateRound here,
+        // so roundInjuredIdsByTeam is null and the lookup must fall through to
+        // the InjuryRepository — that fallback is exactly what the human-match
+        // flow now depends on after the dead-cache fix.
+        Injury inj = new Injury();
+        inj.setPlayerId(player.getId());
+        inj.setTeamId(team.getId());
+        inj.setInjuryType("Test");
+        inj.setSeverity("Minor");
+        inj.setDaysRemaining(7);
+        inj.setSeasonNumber(1);
+        injuryRepository.save(inj);
+
+        try {
+            Set<Long> after = matchSimulationOrchestrator.roundInjuredIds(team.getId());
+            assertTrue(after.contains(player.getId()),
+                    "roundInjuredIds(teamId) must include a player with daysRemaining > 0 — " +
+                            "this is the contract getBestElevenRatingByTactic + getScorersForTeam now rely on");
+        } finally {
+            injuryRepository.delete(inj);
         }
     }
 
