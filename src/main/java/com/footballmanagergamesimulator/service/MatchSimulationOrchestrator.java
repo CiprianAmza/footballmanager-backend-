@@ -87,6 +87,7 @@ public class MatchSimulationOrchestrator {
     @Autowired private LineupRatingService lineupRatingService;
     @Autowired private EuropeanCompetitionService europeanCompetitionService;
     @Autowired private CupBracketService cupBracketService;
+    @Autowired private CompetitionDisplayService competitionDisplayService;
     @Autowired private FixtureSchedulingService fixtureSchedulingService;
     @Autowired private TacticController tacticController;
     @Autowired private UserContext userContext;
@@ -1084,7 +1085,7 @@ public class MatchSimulationOrchestrator {
         // winners into the pre-created next-round slots via cupBracketService.
         simulateRound(compIdStr, roundStr);
 
-        int numTeams = controllerRef.getTeamCountForCompetition(competitionId);
+        int numTeams = competitionDisplayService.getTeamCountForCompetition(competitionId);
         int maxRounds = Math.max(1, (int) Math.ceil(Math.log(numTeams) / Math.log(2)));
         if (round < maxRounds) {
             fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);

@@ -179,10 +179,10 @@ public class AdminController {
         // Generate physical profile
         HumanService.generatePhysicalProfile(player, random);
 
-        player.setTransferValue(competitionController.calculateTransferValue(age, position, rating));
+        player.setTransferValue(com.footballmanagergamesimulator.service.TransferValueCalculator.calculate(age, position, rating));
         player.setContractEndSeason(teamId == null ? 0 : currentSeason + contractLength);
         player.setWage(wage);
-        long transferVal = competitionController.calculateTransferValue(age, position, rating);
+        long transferVal = com.footballmanagergamesimulator.service.TransferValueCalculator.calculate(age, position, rating);
         player.setReleaseClause(random.nextInt(10) < 3 ? 0 : transferVal * 2);
 
         // Pick a shirt number that doesn't clash with the team's current squad.

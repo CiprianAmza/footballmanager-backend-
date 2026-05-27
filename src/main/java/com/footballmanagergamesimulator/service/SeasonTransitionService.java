@@ -402,7 +402,7 @@ public class SeasonTransitionService {
             }
 
             // Open the transfer window for user transfers
-            controllerRef.setTransferWindowOpen(true);
+            transferMarketService.setOpen(true);
 
             endOfSeasonProcessed = true;
             endOfSeasonProcessedForSeason = season;

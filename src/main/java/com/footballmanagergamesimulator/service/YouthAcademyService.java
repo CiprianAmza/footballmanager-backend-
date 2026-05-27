@@ -135,7 +135,7 @@ public class YouthAcademyService {
         human.setWage(youthWage);
         human.setSalary(youthWage);
         human.setReleaseClause(releaseClause);
-        human.setTransferValue(competitionController.calculateTransferValue(
+        human.setTransferValue(com.footballmanagergamesimulator.service.TransferValueCalculator.calculate(
                 yp.getAge(), yp.getPosition(), yp.getCurrentAbility()));
         human.setSeasonCreated(currentSeason);
         human.setShirtNumber(shirtNumber);

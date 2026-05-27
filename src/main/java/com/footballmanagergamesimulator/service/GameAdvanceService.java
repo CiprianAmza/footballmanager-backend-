@@ -34,6 +34,17 @@ public class GameAdvanceService {
     com.footballmanagergamesimulator.controller.TeamTalkController teamTalkController;
 
     @Autowired
+    @Lazy
+    SeasonTransitionService seasonTransitionService;
+
+    @Autowired
+    @Lazy
+    MatchSimulationOrchestrator matchSimulationOrchestrator;
+
+    @Autowired
+    TransferMarketService transferMarketService;
+
+    @Autowired
     FixtureSchedulingService fixtureSchedulingService;
 
     @Autowired
@@ -493,14 +504,14 @@ public class GameAdvanceService {
             case "MATCH_CUP":
             case "MATCH_EUROPEAN":
                 if (event.getCompetitionId() != null && event.getMatchday() > 0) {
-                    competitionController.simulateMatchday(
+                    matchSimulationOrchestrator.simulateMatchday(
                             event.getCompetitionId(), event.getMatchday(), event.getSeason());
                     result.put("details", "Match simulated: " + event.getTitle());
                     // Fetch match results for ALL human teams
                     List<Long> htIds = userContext.getAllHumanTeamIds();
                     Map<Long, Map<String, Object>> allMatchResults = new LinkedHashMap<>();
                     for (long htId : htIds) {
-                        Map<String, Object> matchResult = competitionController.getHumanMatchResult(
+                        Map<String, Object> matchResult = matchSimulationOrchestrator.getHumanMatchResult(
                                 event.getCompetitionId(), event.getMatchday(), event.getSeason(), htId);
                         if (matchResult.containsKey("score")) {
                             allMatchResults.put(htId, matchResult);
@@ -549,7 +560,7 @@ public class GameAdvanceService {
                 }
                 break;
             case "CONTRACT_EXPIRY_CHECK":
-                competitionController.handleContractExpiries((int) calendar.getSeason());
+                seasonTransitionService.handleContractExpiries((int) calendar.getSeason());
                 result.put("details", "Contract expiry check completed - expired contracts processed");
                 break;
             case "ANALYTICS_REPORT":
@@ -558,14 +569,14 @@ public class GameAdvanceService {
             case "TRANSFER_WINDOW_OPEN":
                 calendar.setTransferWindowOpen(true);
                 gameCalendarRepository.save(calendar);
-                competitionController.setTransferWindowOpen(true);
+                transferMarketService.setOpen(true);
                 result.put("details", "Transfer window is now open! You can buy and sell players.");
                 result.put("awaitingInput", true);
                 break;
             case "TRANSFER_WINDOW_CLOSE":
                 calendar.setTransferWindowOpen(false);
                 gameCalendarRepository.save(calendar);
-                competitionController.setTransferWindowOpen(false);
+                transferMarketService.setOpen(false);
                 result.put("details", "Transfer window is now closed.");
                 break;
             case "SEASON_START":
@@ -618,7 +629,7 @@ public class GameAdvanceService {
         long _tBatchStart = System.nanoTime();
         for (CalendarEvent event : matchEvents) {
             if (event.getCompetitionId() != null && event.getMatchday() > 0) {
-                competitionController.simulateMatchday(
+                matchSimulationOrchestrator.simulateMatchday(
                         event.getCompetitionId(), event.getMatchday(), event.getSeason());
                 matchSummaries.add(event.getTitle());
             }
@@ -636,7 +647,7 @@ public class GameAdvanceService {
         for (long htId : htIds) {
             for (CalendarEvent event : matchEvents) {
                 if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
-                Map<String, Object> mr = competitionController.getHumanMatchResult(
+                Map<String, Object> mr = matchSimulationOrchestrator.getHumanMatchResult(
                         event.getCompetitionId(), event.getMatchday(), event.getSeason(), htId);
                 if (mr.containsKey("score")) {
                     allMatchResults.put(htId, mr);
@@ -736,7 +747,7 @@ public class GameAdvanceService {
 
         for (CalendarEvent event : matchEvents) {
             if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
-            List<Map<String, Object>> otherResults = competitionController.getAllMatchResults(
+            List<Map<String, Object>> otherResults = matchSimulationOrchestrator.getAllMatchResults(
                     event.getCompetitionId(), event.getMatchday(), event.getSeason());
             if (otherResults.isEmpty()) continue;
 
@@ -979,7 +990,7 @@ public class GameAdvanceService {
         System.out.println("=== SEASON_END: Processing end of season " + season + " ===");
 
         // Phase 1: standings, relegation, AI transfers
-        competitionController.processEndOfSeason(season);
+        seasonTransitionService.processEndOfSeason(season);
 
         // Set transfer window open on the current calendar
         GameCalendar calendar = calendarService.getOrCreateCalendar(season);
@@ -1008,7 +1019,7 @@ public class GameAdvanceService {
 
         try {
             // Phase 2: aging, regens, fixtures, scorers, budget refresh
-            competitionController.processNewSeasonSetup(season);
+            seasonTransitionService.processNewSeasonSetup(season);
         } catch (Exception e) {
             System.err.println("=== ERROR in processNewSeasonSetup for season " + season + ": " + e.getMessage());
             e.printStackTrace();

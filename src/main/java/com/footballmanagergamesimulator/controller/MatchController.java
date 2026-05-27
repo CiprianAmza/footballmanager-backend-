@@ -54,6 +54,8 @@ public class MatchController {
     GoalAnimationService goalAnimationService;
     @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
+    @Autowired
+    com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     @GetMapping("/getScheduleForSeasonNumber/{seasonNumber}/{teamId}")
     public List<ScheduleView> getScheduleForSeasonNumberAndTeamId(@PathVariable(name = "seasonNumber") int seasonNumber, @PathVariable(name = "teamId") long teamId) {
@@ -462,7 +464,7 @@ public class MatchController {
         // Run the heavy post-match work via CompetitionController.
         Map<String, Object> result;
         try {
-            result = competitionController.finalizeInteractiveLiveMatch(key);
+            result = matchSimulationOrchestrator.finalizeInteractiveLiveMatch(key);
         } catch (RuntimeException e) {
             return org.springframework.http.ResponseEntity.internalServerError()
                     .body(java.util.Map.of("error", e.getMessage()));
