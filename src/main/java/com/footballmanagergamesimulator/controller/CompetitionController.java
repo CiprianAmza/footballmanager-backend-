@@ -15,10 +15,8 @@ import com.footballmanagergamesimulator.service.CupBracketService;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.GameInitializationService;
-import com.footballmanagergamesimulator.service.JobOfferService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import com.footballmanagergamesimulator.service.TransferMarketService;
-import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 
 import jakarta.annotation.PostConstruct;
@@ -26,8 +24,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,7 +47,6 @@ public class CompetitionController {
     private final EuropeanCompetitionService europeanCompetitionService;
     private final FixtureSchedulingService fixtureSchedulingService;
     private final GameInitializationService gameInitializationService;
-    private final JobOfferService jobOfferService;
     private final MatchSimulationOrchestrator matchSimulationOrchestrator;
     private final TransferMarketService transferMarketService;
     private final UserContext userContext;
@@ -70,7 +65,6 @@ public class CompetitionController {
                                  EuropeanCompetitionService europeanCompetitionService,
                                  FixtureSchedulingService fixtureSchedulingService,
                                  GameInitializationService gameInitializationService,
-                                 JobOfferService jobOfferService,
                                  MatchSimulationOrchestrator matchSimulationOrchestrator,
                                  TransferMarketService transferMarketService,
                                  UserContext userContext) {
@@ -82,7 +76,6 @@ public class CompetitionController {
         this.europeanCompetitionService = europeanCompetitionService;
         this.fixtureSchedulingService = fixtureSchedulingService;
         this.gameInitializationService = gameInitializationService;
-        this.jobOfferService = jobOfferService;
         this.matchSimulationOrchestrator = matchSimulationOrchestrator;
         this.transferMarketService = transferMarketService;
         this.userContext = userContext;
@@ -348,20 +341,5 @@ public class CompetitionController {
     @GetMapping("/getClubCoefficients")
     public List<Map<String, Object>> getClubCoefficients() {
         return europeanCompetitionService.getClubCoefficients();
-    }
-
-    // ============================================================
-    //  Job offers
-    // ============================================================
-
-    @GetMapping("/availableJobs")
-    public List<Map<String, Object>> getAvailableJobs() {
-        return jobOfferService.getAvailableJobs();
-    }
-
-    @PostMapping("/acceptJob")
-    public String acceptJob(@RequestBody Map<String, Long> body, HttpServletRequest request) {
-        User currentUser = userContext.getUserOrNull(request);
-        return jobOfferService.acceptJob(currentUser, body.get("teamId"));
     }
 }
