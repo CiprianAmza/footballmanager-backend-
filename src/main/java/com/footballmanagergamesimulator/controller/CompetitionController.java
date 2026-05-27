@@ -42,7 +42,6 @@ public class CompetitionController {
     final CompositeNameGenerator compositeNameGenerator;
     final FixtureSchedulingService fixtureSchedulingService;
     final UserContext userContext;
-    private final TeamTalkService teamTalkService;
     @Lazy
     final StaffService staffService;
     @Lazy
@@ -55,7 +54,7 @@ public class CompetitionController {
 
     Round round;
 
-    public CompetitionController(TeamFacilitiesRepository _teamFacilitiesRepository, TeamRepository teamRepository, HumanRepository humanRepository, CompetitionTeamInfoRepository competitionTeamInfoRepository, BootstrapService bootstrapService, CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository, CompetitionRepository competitionRepository, TacticService tacticService, MatchSimulationOrchestrator matchSimulationOrchestrator, RoundRepository roundRepository, ScorerRepository scorerRepository, SeasonTransitionService seasonTransitionService, ScorerLeaderboardRepository scorerLeaderboardRepository, FixtureSchedulingService fixtureSchedulingService, CompositeNameGenerator compositeNameGenerator, TransferMarketService transferMarketService, SeasonObjectiveService seasonObjectiveService, TeamTalkService teamTalkService, SquadGenerationService squadGenerationService, UserContext userContext, EuropeanCompetitionService europeanCompetitionService, StaffService staffService, CompetitionDisplayService competitionDisplayService, CupBracketService cupBracketService, JobOfferService jobOfferService, GameInitializationService gameInitializationService) {
+    public CompetitionController(TeamFacilitiesRepository _teamFacilitiesRepository, TeamRepository teamRepository, HumanRepository humanRepository, CompetitionTeamInfoRepository competitionTeamInfoRepository, BootstrapService bootstrapService, CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository, CompetitionRepository competitionRepository, TacticService tacticService, MatchSimulationOrchestrator matchSimulationOrchestrator, RoundRepository roundRepository, ScorerRepository scorerRepository, SeasonTransitionService seasonTransitionService, ScorerLeaderboardRepository scorerLeaderboardRepository, FixtureSchedulingService fixtureSchedulingService, CompositeNameGenerator compositeNameGenerator, TransferMarketService transferMarketService, SeasonObjectiveService seasonObjectiveService, SquadGenerationService squadGenerationService, UserContext userContext, EuropeanCompetitionService europeanCompetitionService, StaffService staffService, CompetitionDisplayService competitionDisplayService, CupBracketService cupBracketService, JobOfferService jobOfferService, GameInitializationService gameInitializationService) {
 
         this._teamFacilitiesRepository = _teamFacilitiesRepository;
         this.teamRepository = teamRepository;
@@ -74,7 +73,6 @@ public class CompetitionController {
         this.compositeNameGenerator = compositeNameGenerator;
         this.transferMarketService = transferMarketService;
         this.seasonObjectiveService = seasonObjectiveService;
-        this.teamTalkService = teamTalkService;
         this.squadGenerationService = squadGenerationService;
         this.userContext = userContext;
         this.europeanCompetitionService = europeanCompetitionService;
@@ -93,7 +91,6 @@ public class CompetitionController {
     }
 
     // managerFired is now per-user on User.fired, not a global boolean
-    private boolean teamTalkUsedThisRound = false;
 
     // Cached competition type ID sets to avoid repeated DB queries
     private Set<Long> cachedLeagueCompIds = null;
@@ -470,104 +467,6 @@ public class CompetitionController {
                 .filter(competition -> competition.getTypeId() == competitionTypeId)
                 .map(Competition::getId)
                 .collect(Collectors.toSet());
-    }
-
-    // ==================== TEAM TALK ====================
-
-    public void resetTeamTalkUsed() {
-        teamTalkUsedThisRound = false;
-        teamTalkService.resetAllForNewMatch();
-    }
-
-    @GetMapping("/teamTalkStatus")
-    public Map<String, Object> getTeamTalkStatus() {
-        Map<String, Object> status = new HashMap<>();
-        status.put("used", teamTalkUsedThisRound);
-        status.put("round", round.getRound());
-        return status;
-    }
-
-    /**
-     * Legacy team talk endpoint (backward compatible).
-     * Maps old types (calm, motivated, aggressive, no_pressure) to new PRE_MATCH phase.
-     */
-    @PostMapping("/teamTalk")
-    public Map<String, Object> giveTeamTalk(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        if (teamTalkUsedThisRound) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "Team talk already used this round.");
-            return response;
-        }
-
-        String type = body.get("type");
-        // Map legacy types to new types
-        String mappedType = switch (type) {
-            case "calm" -> "focus";
-            case "motivated" -> "show_passion";
-            case "aggressive" -> "expect_win";
-            case "no_pressure" -> "no_pressure";
-            default -> type;
-        };
-
-        long teamId = userContext.getTeamId(request);
-        int season = Integer.parseInt(getCurrentSeason());
-        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, "PRE_MATCH", mappedType, null, season);
-
-        if (Boolean.TRUE.equals(result.get("success"))) {
-            teamTalkUsedThisRound = true;
-        }
-        return result;
-    }
-
-    /**
-     * Expanded team talk endpoint with phase support (PRE_MATCH, HALF_TIME, POST_MATCH).
-     */
-    @PostMapping("/teamTalkExpanded")
-    public Map<String, Object> giveExpandedTeamTalk(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        String phase = body.getOrDefault("phase", "PRE_MATCH");
-        String type = body.get("type");
-        String matchContext = body.get("matchContext"); // "winning", "losing", "drawing"
-        long teamId = userContext.getTeamId(request);
-        int season = Integer.parseInt(getCurrentSeason());
-
-        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, phase, type, matchContext, season);
-
-        // Legacy flag for PRE_MATCH
-        if ("PRE_MATCH".equals(phase) && Boolean.TRUE.equals(result.get("success"))) {
-            teamTalkUsedThisRound = true;
-        }
-        return result;
-    }
-
-    /**
-     * Get available talk options for a phase.
-     */
-    @GetMapping("/teamTalkOptions/{phase}")
-    public List<Map<String, Object>> getTeamTalkOptions(
-            @PathVariable String phase,
-            @RequestParam(required = false, defaultValue = "") String matchContext) {
-        return teamTalkService.getAvailableTalks(phase, matchContext);
-    }
-
-    /**
-     * Individual player talk.
-     */
-    @PostMapping("/playerTalk")
-    public Map<String, Object> givePlayerTalk(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        long teamId = userContext.getTeamId(request);
-        long playerId = ((Number) body.get("playerId")).longValue();
-        String type = (String) body.get("type");
-        int season = Integer.parseInt(getCurrentSeason());
-        return teamTalkService.giveIndividualTalk(teamId, playerId, type, season);
-    }
-
-    /**
-     * Get available individual talk options.
-     */
-    @GetMapping("/playerTalkOptions")
-    public List<Map<String, Object>> getPlayerTalkOptions() {
-        return teamTalkService.getIndividualTalkOptions();
     }
 
     // Thin delegate — body in MatchSimulationOrchestrator.simulateMatchday (called by GameAdvanceService).

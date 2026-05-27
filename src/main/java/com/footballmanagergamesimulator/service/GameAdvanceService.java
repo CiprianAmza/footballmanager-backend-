@@ -31,6 +31,9 @@ public class GameAdvanceService {
     CompetitionController competitionController;
 
     @Autowired
+    com.footballmanagergamesimulator.controller.TeamTalkController teamTalkController;
+
+    @Autowired
     FixtureSchedulingService fixtureSchedulingService;
 
     @Autowired
@@ -278,7 +281,7 @@ public class GameAdvanceService {
                 }
 
                 // Reset team talk so it can be used again before next match
-                competitionController.resetTeamTalkUsed();
+                teamTalkController.resetTeamTalkUsed();
             }
 
             // Advance to next phase (MORNING→AFTERNOON→EVENING→next day MORNING)
