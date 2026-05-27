@@ -181,12 +181,23 @@ public class LiveMatchSimulationService {
         // Make sure the two teams don't claim the same minute.
         team2BigChanceMinutes.removeAll(team1BigChanceMinutes);
 
+        // Added time per half — random 0-5 minutes each, like real football.
+        // First half runs 1..(45+firstHalfStoppage); second half runs
+        // (45+firstHalfStoppage+1)..(90+totalStoppage). Goal animations need
+        // the first-half stoppage value so the mirror logic still classifies
+        // stoppage-time goals as first half.
+        int firstHalfStoppage = random.nextInt(6);
+        int secondHalfStoppage = random.nextInt(6);
+        int halfTimeMinute = 45 + firstHalfStoppage;
+        int totalMinutes = 90 + firstHalfStoppage + secondHalfStoppage;
+        goalAnimationService.setMatchStoppage(firstHalfStoppage);
+
         // Kickoff
         timeline.add(createMinuteEvent(1, 0, 0, "kickoff",
                 "The referee blows the whistle! " + homeTeamName + " vs " + awayTeamName + " is underway!",
                 0, null, 0, null));
 
-        for (int min = 1; min <= 90; min++) {
+        for (int min = 1; min <= totalMinutes; min++) {
             // Big chances are pre-scheduled per team. On those minutes we force the
             // possession to the scheduled team and force the per-minute roll into
             // the ATTACK branch so the key moment actually lands.
@@ -424,18 +435,22 @@ public class LiveMatchSimulationService {
                 }
             }
 
-            // Half time
-            if (min == 45) {
-                timeline.add(createMinuteEvent(45, homeScore, awayScore, "half_time",
+            // Half time fires after the first-half stoppage minutes elapse.
+            if (min == halfTimeMinute) {
+                timeline.add(createMinuteEvent(min, homeScore, awayScore, "half_time",
                         "HALF TIME! " + homeTeamName + " " + homeScore + " - " + awayScore + " " + awayTeamName,
                         0, null, 0, null));
             }
         }
 
-        // Full time
-        timeline.add(createMinuteEvent(90, homeScore, awayScore, "full_time",
+        // Full time after all stoppage minutes elapse.
+        timeline.add(createMinuteEvent(totalMinutes, homeScore, awayScore, "full_time",
                 "FULL TIME! " + homeTeamName + " " + homeScore + " - " + awayScore + " " + awayTeamName,
                 0, null, 0, null));
+
+        // Always reset the ThreadLocal once we're done — animations triggered
+        // by a different match shouldn't inherit this one's stoppage value.
+        goalAnimationService.clearMatchStoppage();
 
         // Save match events to DB
         if (!dbEvents.isEmpty()) {
@@ -473,6 +488,8 @@ public class LiveMatchSimulationService {
         data.setAwayRedCards(awayRedCards);
         data.setHomeOffsides(homeOffsides);
         data.setAwayOffsides(awayOffsides);
+        data.setFirstHalfStoppage(firstHalfStoppage);
+        data.setSecondHalfStoppage(secondHalfStoppage);
 
         // Store in cache
         String key = buildKey(competitionId, season, round, teamId1, teamId2);

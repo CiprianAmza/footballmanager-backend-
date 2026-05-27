@@ -41,6 +41,12 @@ public class LiveMatchData {
     private int homeOffsides;
     private int awayOffsides;
 
+    // Added time per half, generated randomly per match (0-5 minutes each).
+    // The frontend uses these to display minutes in "45+X" / "90+X" form
+    // during the stoppage portions of each half.
+    private int firstHalfStoppage;
+    private int secondHalfStoppage;
+
     @Data
     public static class LiveMatchMinute {
         private int minute;

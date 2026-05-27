@@ -33,6 +33,41 @@ public class HumanService {
     TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
     @Autowired
     StaffService staffService;
+    @Autowired
+    TacticService tacticService;
+
+    /**
+     * Spawn a fresh AI manager for {@code teamId} if no manager is currently
+     * assigned. Used after the human user leaves a team (via resign or job-offer
+     * acceptance) so the match simulator never hits {@code .get(0)} on an empty
+     * manager list. Idempotent — does nothing if the team already has a manager.
+     */
+    public void ensureTeamHasManager(long teamId) {
+        if (teamId <= 0) return;
+        boolean alreadyHasOne = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                .stream().anyMatch(m -> !m.isRetired());
+        if (alreadyHasOne) return;
+
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team == null) return;
+
+        Random random = new Random();
+        Human mgr = new Human();
+        mgr.setName(compositeNameGenerator.generateName(1L));
+        mgr.setTypeId(TypeNames.MANAGER_TYPE);
+        mgr.setTeamId(teamId);
+        mgr.setManagerReputation(team.getReputation() / 3);
+        mgr.setAge(35 + random.nextInt(20));
+        Round round = roundRepository.findById(1L).orElse(null);
+        mgr.setSeasonCreated(round != null ? (int) round.getSeason() : 1);
+        mgr.setMorale(100D);
+        mgr.setFitness(100D);
+        mgr.setRating(0);
+        String[] kit = tacticService.buildManagerTacticKit((int) mgr.getRating(), random);
+        mgr.setTacticStyle(kit[0]);
+        mgr.setKnownTactics(kit[1]);
+        humanRepository.save(mgr);
+    }
 
     public Human trainPlayer(Human human, TeamFacilities teamFacilities, int currentSeason) {
 

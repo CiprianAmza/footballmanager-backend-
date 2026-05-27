@@ -13,6 +13,12 @@ public class GoalAnimationData {
     private long homeTeamId;
     private int totalFrames;
 
+    // First-half stoppage time for the parent match. The mirror logic needs
+    // it so a stoppage-time goal scored at e.g. minute 47 is still treated as
+    // first half. The frontend uses it to format the minute as "45+2'" instead
+    // of "47'" on the animation header.
+    private int firstHalfStoppage;
+
     // Team kits used by the frontend to colour outfield players + goalkeepers.
     // Backend resolves conflicts (e.g. both teams in blue → defending side swaps to its secondary)
     // and picks GK kits that contrast against BOTH outfield kits.

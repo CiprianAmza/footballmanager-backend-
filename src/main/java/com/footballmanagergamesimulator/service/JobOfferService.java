@@ -29,6 +29,7 @@ public class JobOfferService {
     @Autowired private ManagerInboxRepository inboxRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private RoundRepository roundRepository;
+    @Autowired private HumanService humanService;
 
     private static final int OFFER_VALIDITY_DAYS = 7;
 
@@ -180,12 +181,17 @@ public class JobOfferService {
             });
         }
 
-        // 3. Update the user's owned team. The old team becomes managerless and the
-        //    end-of-day AI replacement loop will spawn a new AI for it next tick.
+        // 3. Update the user's owned team. The old team becomes managerless,
+        //    so we spawn a fresh AI manager for it immediately. Without this
+        //    the match simulator can hit findAllByTeamIdAndTypeId(...).get(0)
+        //    on an empty list and crash the whole round — the previous comment
+        //    claimed an "end-of-day AI replacement loop" handled it, but that
+        //    loop never existed.
         user.setTeamId(newTeamId);
         user.setLastTeamId(oldTeamId);
         user.setFired(false);
         userRepository.save(user);
+        if (oldTeamId > 0) humanService.ensureTeamHasManager(oldTeamId);
 
         // 4. Auto-decline every other pending offer for this user (we accepted one)
         for (JobOffer other : jobOfferRepository.findAllByUserIdAndStatus(offer.getUserId(), "PENDING")) {

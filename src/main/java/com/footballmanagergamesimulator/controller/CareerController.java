@@ -5,6 +5,7 @@ import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.JobOfferRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
+import com.footballmanagergamesimulator.service.HumanService;
 import com.footballmanagergamesimulator.service.JobOfferService;
 import com.footballmanagergamesimulator.user.CurrentUserService;
 import com.footballmanagergamesimulator.user.User;
@@ -30,6 +31,7 @@ public class CareerController {
     @Autowired private UserRepository userRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private ManagerInboxRepository inboxRepository;
+    @Autowired private HumanService humanService;
 
     /** Identity payload for the logged-in user — managerId + teamId, plus pending-offer flag. */
     @GetMapping("/me")
@@ -90,8 +92,10 @@ public class CareerController {
         }
         long oldTeamId = user.getTeamId();
 
-        // Detach the user's manager Human from the team so the end-of-day AI
-        // replacement loop fills the vacancy with a new AI manager.
+        // Detach the user's manager Human from the team, then immediately spawn
+        // a fresh AI manager for the team they left. Without that replacement
+        // the next round can crash on findAllByTeamIdAndTypeId(...).get(0) for
+        // the now-managerless team.
         if (user.getManagerId() != null) {
             humanRepository.findById(user.getManagerId()).ifPresent(mgr -> {
                 mgr.setTeamId(0L);
@@ -102,6 +106,7 @@ public class CareerController {
         user.setLastTeamId(oldTeamId);
         user.setTeamId(null);
         userRepository.save(user);
+        humanService.ensureTeamHasManager(oldTeamId);
 
         // Inbox confirmation on the old team's feed (so they can still see it).
         ManagerInbox msg = new ManagerInbox();

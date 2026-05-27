@@ -14,6 +14,22 @@ import java.util.stream.Collectors;
 @Service
 public class GoalAnimationService {
 
+    /**
+     * Open-play attack scenarios. Each one varies the pass chain composition
+     * and the scorer's path through the 6 keyframes, so the same engine
+     * produces visually different attacks instead of every goal looking like
+     * a generic 3-pass build-up.
+     */
+    private enum OpenPlayScenario {
+        BUILD_UP,          // 2-3 pases through midfield (the historic default)
+        QUICK_COUNTER,     // recovery in own half, fast diagonal to scorer in space
+        LONG_BALL,         // GK/DC plays a single long ball to scorer making a deep run
+        INDIVIDUAL_DRIBBLE,// scorer carries from midfield with minimal passing
+        CROSS_AND_FINISH,  // pass out wide → cross from flank → striker finish in box
+        ONE_TWO,           // scorer ↔ assister give-and-go near the box
+        LONG_RANGE_SHOT    // mid-range build-up, scorer shoots from outside the box
+    }
+
     @Autowired
     private TeamRepository teamRepository;
 
@@ -25,6 +41,9 @@ public class GoalAnimationService {
      *  Safe to call with null data (no-op) so callers don't need to null-check. */
     private void attachKits(GoalAnimationData data, long scoringTeamId, long defendingTeamId) {
         if (data == null) return;
+        // Propagate the match-level stoppage flag onto the result so the
+        // frontend can format minute display correctly ("45+2'" not "47'").
+        data.setFirstHalfStoppage(firstHalfStoppage());
         Team scoring = teamRepository.findById(scoringTeamId).orElse(null);
         Team defending = teamRepository.findById(defendingTeamId).orElse(null);
         if (scoring == null || defending == null) return;
@@ -32,6 +51,24 @@ public class GoalAnimationService {
         data.setScoringTeamKit(kits[0]);
         data.setDefendingTeamKit(kits[1]);
     }
+
+    /** Per-match stoppage time stash. Set by LiveMatchSimulationService at the
+     *  start of a match (via {@link #setMatchStoppage}) and read by the three
+     *  generate*() methods below for their mirror logic. Using a ThreadLocal is
+     *  cleaner than threading the value through 6+ method signatures and the
+     *  helper {@link #buildAttackAnimation}. Reset to 0 between matches. */
+    private final ThreadLocal<Integer> firstHalfStoppageTl = ThreadLocal.withInitial(() -> 0);
+
+    /** Tell the animation service how many minutes of first-half stoppage this
+     *  match has. Anything generated until {@link #clearMatchStoppage} treats
+     *  minutes ≤ {@code 45 + firstHalfStoppage} as first half. */
+    public void setMatchStoppage(int firstHalfStoppage) {
+        firstHalfStoppageTl.set(Math.max(0, firstHalfStoppage));
+    }
+
+    public void clearMatchStoppage() { firstHalfStoppageTl.remove(); }
+
+    private int firstHalfStoppage() { return firstHalfStoppageTl.get(); }
 
     private static final int TOTAL_FRAMES = 150;
     private static final int BALL_FLIGHT_FRAMES = 8;
@@ -171,17 +208,22 @@ public class GoalAnimationService {
         Map<Long, double[]> atkBase = assignPositions(atk11, false);
         Map<Long, double[]> defBase = assignPositions(def11, true);
 
-        // 3. Build pass chain: [buildup1, buildup2?, assister?, scorer]
-        List<Human> chain = buildPassChain(atk11, scorer, assister, rng);
+        // 3. Pick a scenario flavour for this attack — counter, cross, dribble, etc.
+        // Each scenario shapes the pass chain + the scorer's path differently so
+        // the engine produces visually different goals from the same components.
+        OpenPlayScenario scenario = selectScenario(scorer, assister, rng);
+
+        // 4. Build pass chain shaped by the scenario
+        List<Human> chain = buildPassChain(atk11, scorer, assister, scenario, rng);
         Set<Long> chainIds = chain.stream().map(Human::getId).collect(Collectors.toSet());
 
-        // 4. Compute pass event timings
+        // 5. Compute pass event timings
         int numPasses = chain.size() - 1;
         int[] passFrames = computePassFrames(numPasses);
 
-        // 5. Generate 6 keyframes with target positions for all 22 players
+        // 6. Generate 6 keyframes with target positions for all 22 players
         List<Map<Long, double[]>> keyframes = generateKeyframes(
-                atk11, def11, atkBase, defBase, scorer, assister, rng);
+                atk11, def11, atkBase, defBase, scorer, assister, scenario, rng);
 
         // 6. Ordered player list (attacking first, then defending)
         List<Human> allPlayers = new ArrayList<>(atk11);
@@ -191,10 +233,14 @@ public class GoalAnimationService {
         // shows "GOAL!" / "SAVED!" / "MISSED!" text accurately).
         List<AnimationEvent> events = buildEvents(chain, scorer, passFrames, outcome);
 
-        // 8. Goal target Y — depends on outcome:
-        //    GOAL: ball lands inside the net (Y in 40-60)
-        //    SAVE: ball is on target but GK gets to it (Y in 35-65, GK matches)
-        //    MISS: ball goes wide or over (Y outside 0-25 or 75-100)
+        // 8. Goal target Y — depends on outcome. Y bounds must match the goal
+        // posts drawn on the canvas: pitch height h * 0.12 centred at h/2,
+        // so the goal mouth in world coordinates is roughly Y ∈ [44, 56].
+        //    GOAL: ball lands INSIDE the posts (Y in 45-55 — slight inset so it
+        //          never looks like the ball clipped the woodwork on the way in)
+        //    SAVE: ball is on target somewhere across the goalmouth (Y in 40-60,
+        //          a touch wider so saves at the post still look believable)
+        //    MISS: ball goes wide or over (Y outside [0,22] or [78,100])
         double goalY;
         switch (outcome) {
             case "MISS":
@@ -203,11 +249,11 @@ public class GoalAnimationService {
                         : 78 + rng.nextDouble() * 22;             // wide right
                 break;
             case "SAVE":
-                goalY = 35 + rng.nextDouble() * 30;               // on target
+                goalY = 40 + rng.nextDouble() * 20;               // on target
                 break;
             case "GOAL":
             default:
-                goalY = 40 + rng.nextDouble() * 20;
+                goalY = 45 + rng.nextDouble() * 10;               // inside the posts
                 break;
         }
 
@@ -432,7 +478,7 @@ public class GoalAnimationService {
         // 13. Half-aware mirroring
         // First half: home attacks right (x=100), away attacks left (x=0)
         // Second half: sides swap
-        boolean isFirstHalf = minute <= 45;
+        boolean isFirstHalf = minute <= (45 + firstHalfStoppage());
         boolean scorerIsHome = scoringTeamId == homeTeamId;
         boolean homeAttacksRight = isFirstHalf; // first half → right, second half → left
         // The animation was generated with scoring team attacking RIGHT.
@@ -706,7 +752,7 @@ public class GoalAnimationService {
         for (Human p : def11) playerInfos.add(toAnimPlayer(p, defendingTeamId));
 
         // Half-aware mirroring
-        boolean isFirstHalf = minute <= 45;
+        boolean isFirstHalf = minute <= (45 + firstHalfStoppage());
         boolean scorerIsHome = scoringTeamId == homeTeamId;
         boolean homeAttacksRight = isFirstHalf;
         boolean needsMirror = isFirstHalf != scorerIsHome;
@@ -1013,7 +1059,7 @@ public class GoalAnimationService {
         for (Human p : def11) playerInfos.add(toAnimPlayer(p, defendingTeamId));
 
         // Half-aware mirroring
-        boolean isFirstHalf = minute <= 45;
+        boolean isFirstHalf = minute <= (45 + firstHalfStoppage());
         boolean scorerIsHome = scoringTeamId == homeTeamId;
         boolean homeAttacksRight = isFirstHalf;
         boolean needsMirror = isFirstHalf != scorerIsHome;
@@ -1052,6 +1098,23 @@ public class GoalAnimationService {
             List<Human> atk11, List<Human> def11,
             Map<Long, double[]> atkBase, Map<Long, double[]> defBase,
             Human scorer, Human assister, Random rng) {
+        return generateKeyframes(atk11, def11, atkBase, defBase, scorer, assister,
+                OpenPlayScenario.BUILD_UP, rng);
+    }
+
+    /**
+     * Build the 6 keyframes for an attack. The scenario dictates where the
+     * scorer (and, where relevant, the assister) ends up at each keyframe —
+     * for a long-range shot the scorer stops at ~70 instead of pressing into
+     * the six-yard box; for a dribble they start deeper and carry the ball
+     * across keyframes; for a cross the assister hugs the touchline and the
+     * scorer arrives at the back post.
+     */
+    private List<Map<Long, double[]>> generateKeyframes(
+            List<Human> atk11, List<Human> def11,
+            Map<Long, double[]> atkBase, Map<Long, double[]> defBase,
+            Human scorer, Human assister,
+            OpenPlayScenario scenario, Random rng) {
 
         List<Map<Long, double[]>> keyframes = new ArrayList<>();
 
@@ -1065,16 +1128,19 @@ public class GoalAnimationService {
                 double x = base[0] + ATK_PUSH[kf][g];
                 double y = base[1] + (rng.nextDouble() - 0.5) * 4;
 
-                // Scorer moves to shooting position in later keyframes
+                // Scenario-specific scorer path. Each branch is purposely
+                // a few lines so the variations are auditable side-by-side.
                 if (p.getId() == scorer.getId()) {
-                    if (kf == 3) { x = Math.max(x, 80 + rng.nextDouble() * 4); y = 33 + rng.nextDouble() * 34; }
-                    if (kf >= 4) { x = 86 + rng.nextDouble() * 6; y = 35 + rng.nextDouble() * 30; }
+                    double[] scorerXY = scorerKeyframe(scenario, kf, base, rng);
+                    x = scorerXY[0]; y = scorerXY[1];
                 }
 
-                // Assister moves to creative position
-                if (assister != null && p.getId() == assister.getId() && kf >= 2) {
-                    x = Math.max(x, 68 + kf * 2.5);
-                    if (kf >= 3) y = 15 + rng.nextDouble() * 70;
+                // Assister path. For most scenarios they drift into a creative
+                // zone past the half-line; CROSS_AND_FINISH pins them to the
+                // touchline; ONE_TWO keeps them next to the scorer.
+                if (assister != null && p.getId() == assister.getId()) {
+                    double[] assisterXY = assisterKeyframe(scenario, kf, base, rng);
+                    if (assisterXY != null) { x = assisterXY[0]; y = assisterXY[1]; }
                 }
 
                 pos.put(p.getId(), new double[]{clamp(x, 1, 99), clamp(y, 2, 98)});
@@ -1128,13 +1194,19 @@ public class GoalAnimationService {
             }
         }
 
-        // Fill remaining by rating
+        // Fill remaining by rating — skip backup goalkeepers since one is already
+        // in the squad. Without this filter, a high-rated backup GK could be added
+        // and assignPositions would put both at the same goal-area X, visually
+        // looking like the team has two keepers (one of which "wanders forward"
+        // because of patrol oscillation). Scorer/assister are always outfielders
+        // (the simulation never picks GKs as attackers), so we can't get a surplus
+        // GK via the must-include path either.
         for (Human p : sorted) {
             if (result.size() >= 11) break;
-            if (!used.contains(p.getId())) {
-                result.add(p);
-                used.add(p.getId());
-            }
+            if (used.contains(p.getId())) continue;
+            if ("GK".equals(p.getPosition())) continue;
+            result.add(p);
+            used.add(p.getId());
         }
         return result;
     }
@@ -1177,11 +1249,273 @@ public class GoalAnimationService {
 
     // ==================== PASS CHAIN ====================
 
-    private List<Human> buildPassChain(List<Human> team, Human scorer, Human assister, Random rng) {
-        List<Human> chain = new ArrayList<>();
+    /**
+     * Scorer's [x, y] at a given keyframe under the chosen scenario. The default
+     * (BUILD_UP) presses the scorer into the six-yard box late in the attack;
+     * other scenarios re-shape that path so the visual differs noticeably.
+     */
+    private double[] scorerKeyframe(OpenPlayScenario scenario, int kf, double[] base, Random rng) {
+        switch (scenario) {
+            case LONG_RANGE_SHOT -> {
+                // Scorer pulls up well outside the box — shot launched from
+                // x≈68 (≈25-30m from goal in real-world terms). The longer
+                // ball travel is what sells the "long range" feel.
+                if (kf == 2) return new double[]{Math.max(base[0], 55), 38 + rng.nextDouble() * 24};
+                if (kf == 3) return new double[]{Math.max(base[0], 62 + rng.nextDouble() * 4), 36 + rng.nextDouble() * 28};
+                if (kf >= 4) return new double[]{66 + rng.nextDouble() * 5, 40 + rng.nextDouble() * 20};
+            }
+            case QUICK_COUNTER -> {
+                // Already advanced from the start (caught defenders flat).
+                if (kf == 1) return new double[]{Math.max(base[0], 60), 38 + rng.nextDouble() * 24};
+                if (kf == 2) return new double[]{Math.max(base[0], 72), 36 + rng.nextDouble() * 28};
+                if (kf == 3) return new double[]{82 + rng.nextDouble() * 4, 35 + rng.nextDouble() * 30};
+                if (kf >= 4) return new double[]{87 + rng.nextDouble() * 5, 38 + rng.nextDouble() * 24};
+            }
+            case LONG_BALL -> {
+                // Deep run: starts on halfway line, sprints in behind.
+                if (kf == 1) return new double[]{Math.max(base[0], 50), 35 + rng.nextDouble() * 30};
+                if (kf == 2) return new double[]{Math.max(base[0], 70), 35 + rng.nextDouble() * 30};
+                if (kf == 3) return new double[]{Math.max(base[0], 82), 40 + rng.nextDouble() * 20};
+                if (kf >= 4) return new double[]{88 + rng.nextDouble() * 6, 40 + rng.nextDouble() * 20};
+            }
+            case INDIVIDUAL_DRIBBLE -> {
+                // Carrier dribbles past several defenders — Y zig-zags between
+                // ~30 and ~70 across keyframes so the path visibly cuts left
+                // and right as if beating opponents, instead of a straight
+                // diagonal line. The X marches steadily toward the goal.
+                if (kf == 1) return new double[]{Math.max(base[0], 48), 32 + rng.nextDouble() * 6};
+                if (kf == 2) return new double[]{Math.max(base[0], 60), 60 + rng.nextDouble() * 8};
+                if (kf == 3) return new double[]{Math.max(base[0], 74), 36 + rng.nextDouble() * 6};
+                if (kf == 4) return new double[]{Math.max(base[0], 84), 58 + rng.nextDouble() * 6};
+                if (kf >= 5) return new double[]{88 + rng.nextDouble() * 4, 46 + rng.nextDouble() * 8};
+            }
+            case CROSS_AND_FINISH -> {
+                // Striker arrives at the centre of the box late, for the header/volley.
+                if (kf == 3) return new double[]{Math.max(base[0], 84), 42 + rng.nextDouble() * 16};
+                if (kf >= 4) return new double[]{88 + rng.nextDouble() * 5, 43 + rng.nextDouble() * 14};
+            }
+            case ONE_TWO -> {
+                // Combo lands near the penalty spot.
+                if (kf == 3) return new double[]{Math.max(base[0], 82), 40 + rng.nextDouble() * 20};
+                if (kf >= 4) return new double[]{87 + rng.nextDouble() * 4, 42 + rng.nextDouble() * 16};
+            }
+            default /* BUILD_UP */ -> {
+                if (kf == 3) return new double[]{Math.max(base[0], 80 + rng.nextDouble() * 4), 33 + rng.nextDouble() * 34};
+                if (kf >= 4) return new double[]{86 + rng.nextDouble() * 6, 35 + rng.nextDouble() * 30};
+            }
+        }
+        // Early keyframes (0-1-2 for build-up) fall through to the base + push value
+        // which is computed by the caller.
+        return new double[]{base[0] + (rng.nextDouble() - 0.5) * 2, base[1] + (rng.nextDouble() - 0.5) * 4};
+    }
 
-        // Find midfielders not involved as scorer/assister
-        List<Human> mids = team.stream()
+    /**
+     * Assister's [x, y] at a given keyframe under the chosen scenario.
+     * Returns {@code null} to mean "no scenario-specific override; use the
+     * default base + push computed by the caller".
+     */
+    private double[] assisterKeyframe(OpenPlayScenario scenario, int kf, double[] base, Random rng) {
+        if (kf < 2) return null;
+        switch (scenario) {
+            case CROSS_AND_FINISH -> {
+                // Wide and deep — hugs the touchline for the cross. Y picks the
+                // closer wing based on the assister's base position.
+                boolean leftWing = base[1] < 50;
+                double wingY = leftWing ? 8 + rng.nextDouble() * 8 : 84 + rng.nextDouble() * 8;
+                if (kf == 2) return new double[]{Math.max(base[0], 70), wingY};
+                if (kf >= 3) return new double[]{82 + rng.nextDouble() * 6, wingY};
+            }
+            case ONE_TWO -> {
+                // Plays the give-and-go right alongside the scorer.
+                if (kf >= 2) return new double[]{Math.max(base[0], 70 + kf * 3), 35 + rng.nextDouble() * 30};
+            }
+            case QUICK_COUNTER -> {
+                // Drives forward in support of the counter.
+                if (kf == 2) return new double[]{Math.max(base[0], 55), 30 + rng.nextDouble() * 40};
+                if (kf >= 3) return new double[]{Math.max(base[0], 70 + kf * 2), 25 + rng.nextDouble() * 50};
+            }
+            case LONG_BALL, LONG_RANGE_SHOT -> {
+                // Stays in support but doesn't push forward (the pass is going past them).
+                return null;
+            }
+            case INDIVIDUAL_DRIBBLE -> {
+                // Decoy run — stays wide so defenders can't double-team the carrier.
+                if (kf >= 3) return new double[]{Math.max(base[0], 72), base[1] < 50 ? 18 : 82};
+            }
+            default /* BUILD_UP */ -> {
+                if (kf >= 2) {
+                    double x = Math.max(base[0], 68 + kf * 2.5);
+                    double y = kf >= 3 ? 15 + rng.nextDouble() * 70 : base[1] + (rng.nextDouble() - 0.5) * 4;
+                    return new double[]{x, y};
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Pick a scenario based on the scorer's position. Each position has a small
+     * weighted distribution favouring the scenarios that look natural for that
+     * role: strikers get crosses and counters more than midfielders; central
+     * midfielders score from long range; defenders only ever get build-ups.
+     */
+    private OpenPlayScenario selectScenario(Human scorer, Human assister, Random rng) {
+        String pos = scorer.getPosition() != null ? scorer.getPosition() : "MC";
+        // Weights are tiny lookup tables — keep BUILD_UP common as the safe default.
+        double[] weights;
+        OpenPlayScenario[] menu;
+        switch (pos) {
+            case "ST", "AMC":
+                // Strikers get the widest menu — every visually distinct scenario
+                // is in here so the user actually sees them across a season.
+                menu = new OpenPlayScenario[]{
+                        OpenPlayScenario.BUILD_UP, OpenPlayScenario.CROSS_AND_FINISH,
+                        OpenPlayScenario.ONE_TWO,  OpenPlayScenario.QUICK_COUNTER,
+                        OpenPlayScenario.INDIVIDUAL_DRIBBLE, OpenPlayScenario.LONG_BALL };
+                weights = new double[]{0.25, 0.22, 0.18, 0.15, 0.12, 0.08};
+                break;
+            case "AML", "AMR":
+                menu = new OpenPlayScenario[]{
+                        OpenPlayScenario.BUILD_UP, OpenPlayScenario.INDIVIDUAL_DRIBBLE,
+                        OpenPlayScenario.CROSS_AND_FINISH, OpenPlayScenario.QUICK_COUNTER };
+                weights = new double[]{0.30, 0.35, 0.20, 0.15};
+                break;
+            case "MC", "ML", "MR", "DM":
+                menu = new OpenPlayScenario[]{
+                        OpenPlayScenario.BUILD_UP, OpenPlayScenario.LONG_RANGE_SHOT,
+                        OpenPlayScenario.INDIVIDUAL_DRIBBLE, OpenPlayScenario.ONE_TWO };
+                weights = new double[]{0.35, 0.35, 0.15, 0.15};
+                break;
+            default: // DC, DL, DR or unknown
+                menu = new OpenPlayScenario[]{ OpenPlayScenario.BUILD_UP };
+                weights = new double[]{1.0};
+                break;
+        }
+        // ONE_TWO requires an assister — fall back to BUILD_UP if there isn't one.
+        double r = rng.nextDouble();
+        double cum = 0;
+        for (int i = 0; i < menu.length; i++) {
+            cum += weights[i];
+            if (r <= cum) {
+                if (menu[i] == OpenPlayScenario.ONE_TWO && assister == null) return OpenPlayScenario.BUILD_UP;
+                return menu[i];
+            }
+        }
+        return OpenPlayScenario.BUILD_UP;
+    }
+
+    private List<Human> buildPassChain(List<Human> team, Human scorer, Human assister, Random rng) {
+        return buildPassChain(team, scorer, assister, OpenPlayScenario.BUILD_UP, rng);
+    }
+
+    /**
+     * Build the chain of players the ball flows through before the shot. Each
+     * scenario shapes the chain differently — a counter has just 1-2 passes
+     * starting deep, a build-up has 3-4 through midfield, a dribble has effectively
+     * one carrier. The scorer is always last in the chain.
+     */
+    private List<Human> buildPassChain(List<Human> team, Human scorer, Human assister,
+                                       OpenPlayScenario scenario, Random rng) {
+        List<Human> chain = new ArrayList<>();
+        List<Human> mids = midfielders(team, scorer, assister);
+        List<Human> defs = team.stream()
+                .filter(h -> {
+                    String p = h.getPosition();
+                    return "DC".equals(p) || "DL".equals(p) || "DR".equals(p);
+                })
+                .filter(h -> h.getId() != scorer.getId() &&
+                        (assister == null || h.getId() != assister.getId()))
+                .collect(Collectors.toList());
+        List<Human> wideMids = team.stream()
+                .filter(h -> {
+                    String p = h.getPosition();
+                    return "ML".equals(p) || "MR".equals(p) || "AML".equals(p) || "AMR".equals(p);
+                })
+                .filter(h -> h.getId() != scorer.getId() &&
+                        (assister == null || h.getId() != assister.getId()))
+                .collect(Collectors.toList());
+        Human gk = team.stream()
+                .filter(h -> "GK".equals(h.getPosition()))
+                .findFirst().orElse(null);
+
+        switch (scenario) {
+            case QUICK_COUNTER -> {
+                // Recovery in own half: 1 midfielder pings the scorer running in.
+                if (!mids.isEmpty()) chain.add(mids.get(rng.nextInt(mids.size())));
+                if (assister != null) chain.add(assister);
+            }
+            case LONG_BALL -> {
+                // GK or centre-back launches it: single long pass to scorer.
+                Human starter = !defs.isEmpty()
+                        ? defs.get(rng.nextInt(defs.size()))
+                        : gk;
+                if (starter != null) chain.add(starter);
+            }
+            case INDIVIDUAL_DRIBBLE -> {
+                // Scorer carries from deep — at most one short release to them.
+                if (!mids.isEmpty() && rng.nextDouble() < 0.5) {
+                    chain.add(mids.get(rng.nextInt(mids.size())));
+                }
+            }
+            case CROSS_AND_FINISH -> {
+                // 1 mid → wide player → scorer (the cross is the last pass).
+                if (!mids.isEmpty()) chain.add(mids.get(rng.nextInt(mids.size())));
+                if (!wideMids.isEmpty()) {
+                    chain.add(wideMids.get(rng.nextInt(wideMids.size())));
+                } else if (assister != null) {
+                    chain.add(assister);
+                }
+            }
+            case ONE_TWO -> {
+                // scorer → assister → scorer. Encoded as [assister, scorer] with
+                // the assister opening as the first carrier (the give-and-go's
+                // first leg is implicit; the chain shows the "go back to assister
+                // → return to scorer" portion which is the visually interesting bit).
+                if (!mids.isEmpty()) chain.add(mids.get(rng.nextInt(mids.size())));
+                if (assister != null) chain.add(assister);
+            }
+            case LONG_RANGE_SHOT -> {
+                // Build-up through midfield, scorer shoots from distance later.
+                if (!mids.isEmpty()) chain.add(mids.get(rng.nextInt(mids.size())));
+                if (assister != null) chain.add(assister);
+            }
+            default /* BUILD_UP */ -> {
+                // Multi-stage build-up: ball played out from a centre-back,
+                // through two distinct midfielders, then to the assister and
+                // finally the scorer. Aims for 4-5 visible passes so the user
+                // sees a proper team move, not just a one-touch combo.
+                if (!defs.isEmpty()) chain.add(defs.get(rng.nextInt(defs.size())));
+                if (!mids.isEmpty()) {
+                    chain.add(mids.get(rng.nextInt(mids.size())));
+                    // Add a second distinct midfielder ~80% of the time so the
+                    // chain reliably feels like a multi-step build-up.
+                    if (mids.size() > 1 && rng.nextDouble() < 0.8) {
+                        Human second;
+                        int attempts = 0;
+                        do { second = mids.get(rng.nextInt(mids.size())); attempts++; }
+                        while (second.getId() == chain.get(chain.size() - 1).getId() && attempts < 5);
+                        if (second.getId() != chain.get(chain.size() - 1).getId()) chain.add(second);
+                    }
+                }
+                if (assister != null) chain.add(assister);
+            }
+        }
+
+        // Scorer always last (the shot finalises every scenario).
+        chain.add(scorer);
+
+        // Safety net: chain must be at least 2 so we have one pass to draw.
+        if (chain.size() < 2) {
+            Human fallback = team.stream()
+                    .filter(h -> h.getId() != scorer.getId() && !h.isRetired())
+                    .findFirst().orElse(null);
+            if (fallback != null) chain.add(0, fallback);
+        }
+        return chain;
+    }
+
+    private List<Human> midfielders(List<Human> team, Human scorer, Human assister) {
+        return team.stream()
                 .filter(h -> {
                     String p = h.getPosition();
                     return "MC".equals(p) || "ML".equals(p) || "MR".equals(p) ||
@@ -1190,35 +1524,6 @@ public class GoalAnimationService {
                 .filter(h -> h.getId() != scorer.getId() &&
                         (assister == null || h.getId() != assister.getId()))
                 .collect(Collectors.toList());
-
-        // 1-2 buildup midfielders
-        if (!mids.isEmpty()) {
-            chain.add(mids.get(rng.nextInt(mids.size())));
-            if (mids.size() > 1 && rng.nextDouble() < 0.7) {
-                Human second;
-                do {
-                    second = mids.get(rng.nextInt(mids.size()));
-                } while (second.getId() == chain.get(0).getId());
-                chain.add(second);
-            }
-        }
-
-        // Assister (if present)
-        if (assister != null) {
-            chain.add(assister);
-        }
-
-        // Scorer always last
-        chain.add(scorer);
-
-        // Ensure at least 2 players in chain
-        if (chain.size() < 2) {
-            Human fallback = team.stream()
-                    .filter(h -> h.getId() != scorer.getId() && !h.isRetired())
-                    .findFirst().orElse(null);
-            if (fallback != null) chain.add(0, fallback);
-        }
-        return chain;
     }
 
     // ==================== EVENTS ====================

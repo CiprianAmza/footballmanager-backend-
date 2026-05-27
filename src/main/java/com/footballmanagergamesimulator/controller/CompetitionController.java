@@ -2899,8 +2899,14 @@ public class CompetitionController {
                 humanMatches++;
                 long _tsHuman = System.nanoTime();
                 // --- FULL SIMULATION for human team matches ---
-                String tactic1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE).get(0).getTacticStyle();
-                String tactic2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE).get(0).getTacticStyle();
+                // Defensive lookup: a team could temporarily be without a manager
+                // (e.g. moments after a resign / job-offer transfer if some path
+                // forgot to spawn a replacement). Default to "442" rather than
+                // crashing the whole round on .get(0).
+                String tactic1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE)
+                        .stream().findFirst().map(Human::getTacticStyle).orElse("442");
+                String tactic2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE)
+                        .stream().findFirst().map(Human::getTacticStyle).orElse("442");
 
                 teamPower1 = getBestElevenRatingByTactic(teamId1, tactic1);
                 teamPower2 = getBestElevenRatingByTactic(teamId2, tactic2);
