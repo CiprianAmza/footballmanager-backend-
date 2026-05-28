@@ -51,7 +51,7 @@ public class CupBracketService {
     @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
     @Autowired private RoundRepository roundRepository;
-    @Autowired private EuropeanCompetitionService europeanCompetitionService;
+    @Autowired private EuropeanCoefficientService europeanCoefficientService;
     @Autowired private CompetitionDisplayService competitionDisplayService;
 
     private int currentSeason() {
@@ -386,7 +386,7 @@ public class CupBracketService {
         int currentSeason = currentSeason();
         String seasonStr = String.valueOf(currentSeason);
 
-        List<Long> sortedLeagueIds = europeanCompetitionService.getLeagueIdsSortedByCoefficient();
+        List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
         List<Competition> orderedCups = new ArrayList<>();
         for (Long leagueId : sortedLeagueIds) {
             Competition league = competitionRepository.findById(leagueId).orElse(null);

@@ -8,7 +8,7 @@ import com.footballmanagergamesimulator.model.CompetitionType;
 import com.footballmanagergamesimulator.service.CompetitionDisplayService;
 import com.footballmanagergamesimulator.service.CompetitionQueryService;
 import com.footballmanagergamesimulator.service.CupBracketService;
-import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
+import com.footballmanagergamesimulator.service.EuropeanDisplayService;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.GameStateService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
@@ -34,7 +34,7 @@ public class CompetitionController {
     private final CompetitionDisplayService competitionDisplayService;
     private final CompetitionQueryService competitionQueryService;
     private final CupBracketService cupBracketService;
-    private final EuropeanCompetitionService europeanCompetitionService;
+    private final EuropeanDisplayService europeanDisplayService;
     private final FixtureSchedulingService fixtureSchedulingService;
     private final GameStateService gameStateService;
     private final MatchSimulationOrchestrator matchSimulationOrchestrator;
@@ -44,7 +44,7 @@ public class CompetitionController {
     public CompetitionController(CompetitionDisplayService competitionDisplayService,
                                  CompetitionQueryService competitionQueryService,
                                  CupBracketService cupBracketService,
-                                 EuropeanCompetitionService europeanCompetitionService,
+                                 EuropeanDisplayService europeanDisplayService,
                                  FixtureSchedulingService fixtureSchedulingService,
                                  GameStateService gameStateService,
                                  MatchSimulationOrchestrator matchSimulationOrchestrator,
@@ -53,7 +53,7 @@ public class CompetitionController {
         this.competitionDisplayService = competitionDisplayService;
         this.competitionQueryService = competitionQueryService;
         this.cupBracketService = cupBracketService;
-        this.europeanCompetitionService = europeanCompetitionService;
+        this.europeanDisplayService = europeanDisplayService;
         this.fixtureSchedulingService = fixtureSchedulingService;
         this.gameStateService = gameStateService;
         this.matchSimulationOrchestrator = matchSimulationOrchestrator;
@@ -218,26 +218,26 @@ public class CompetitionController {
     @GetMapping("/getEuropeanGroups/{competitionId}/{season}")
     public List<Map<String, Object>> getEuropeanGroups(@PathVariable long competitionId,
                                                         @PathVariable long season) {
-        return europeanCompetitionService.getEuropeanGroups(competitionId, season);
+        return europeanDisplayService.getEuropeanGroups(competitionId, season);
     }
 
     @GetMapping("/getEuropeanSummary")
     public Map<String, Object> getEuropeanSummary() {
-        return europeanCompetitionService.getEuropeanSummary();
+        return europeanDisplayService.getEuropeanSummary();
     }
 
     @GetMapping("/getCoefficients")
     public List<Map<String, Object>> getCoefficients() {
-        return europeanCompetitionService.getCountryCoefficients();
+        return europeanDisplayService.getCountryCoefficients();
     }
 
     @GetMapping("/getCountryCoefficients")
     public List<Map<String, Object>> getCountryCoefficients() {
-        return europeanCompetitionService.getCountryCoefficients();
+        return europeanDisplayService.getCountryCoefficients();
     }
 
     @GetMapping("/getClubCoefficients")
     public List<Map<String, Object>> getClubCoefficients() {
-        return europeanCompetitionService.getClubCoefficients();
+        return europeanDisplayService.getClubCoefficients();
     }
 }

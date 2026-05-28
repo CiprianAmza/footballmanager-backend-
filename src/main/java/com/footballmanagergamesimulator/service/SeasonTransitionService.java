@@ -90,6 +90,8 @@ public class SeasonTransitionService {
     @Autowired
     private EuropeanCompetitionService europeanCompetitionService;
     @Autowired
+    private EuropeanCoefficientService europeanCoefficientService;
+    @Autowired
     private CupBracketService cupBracketService;
     @Autowired
     private FixtureSchedulingService fixtureSchedulingService;
@@ -952,7 +954,7 @@ public class SeasonTransitionService {
         List<TeamCompetitionDetail> allDetails = teamCompetitionDetailRepository.findAll();
         Set<Long> processedTeamIds = new HashSet<>();
 
-        List<Long> sortedLeagueIds = europeanCompetitionService.getLeagueIdsSortedByCoefficient();
+        List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
         Map<Long, Integer> leagueTierMap = new HashMap<>();
         for (int i = 0; i < sortedLeagueIds.size(); i++) {
             int tier;

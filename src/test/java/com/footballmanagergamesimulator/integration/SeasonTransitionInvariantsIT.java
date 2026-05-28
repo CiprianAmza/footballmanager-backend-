@@ -71,7 +71,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @DisplayName("Season-transition invariants — knockout + end-of-season + new-season-setup")
-class SeasonTransitionInvariantsTest {
+class SeasonTransitionInvariantsIT {
 
     @Autowired private CompetitionController competitionController;
     @Autowired private SeasonTransitionService seasonTransitionService;

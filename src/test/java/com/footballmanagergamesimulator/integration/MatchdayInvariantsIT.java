@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @DisplayName("Matchday invariants — round-1 league simulation")
-class MatchdayInvariantsTest {
+class MatchdayInvariantsIT {
 
     @Autowired private CompetitionController competitionController;
     @Autowired private TeamRepository teamRepository;

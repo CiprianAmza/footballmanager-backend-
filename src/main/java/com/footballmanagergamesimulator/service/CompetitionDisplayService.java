@@ -52,7 +52,7 @@ public class CompetitionDisplayService {
     @Autowired private CompetitionHistoryRepository competitionHistoryRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private RoundRepository roundRepository;
-    @Autowired private EuropeanCompetitionService europeanCompetitionService;
+    @Autowired private EuropeanCoefficientService europeanCoefficientService;
 
     private String currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
@@ -68,7 +68,7 @@ public class CompetitionDisplayService {
      */
     public Map<String, Object> getLeaguesOverview(int topN) {
         int curSeason = Integer.parseInt(currentSeason());
-        List<Long> sortedLeagueIds = europeanCompetitionService.getLeagueIdsSortedByCoefficient();
+        List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
 
         List<Map<String, Object>> leagues = new ArrayList<>();
         for (int i = 0; i < sortedLeagueIds.size(); i++) {
@@ -331,7 +331,7 @@ public class CompetitionDisplayService {
         int starsCupEnd = 0;
 
         if (comp.getTypeId() == 1) {
-            List<Long> sortedLeagueIds = europeanCompetitionService.getLeagueIdsSortedByCoefficient();
+            List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
             int rank = sortedLeagueIds.indexOf(comp.getId()) + 1;
 
             if (rank >= 1 && rank <= 7) {

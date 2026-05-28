@@ -86,6 +86,7 @@ public class MatchSimulationOrchestrator {
     @Autowired private TeamPostMatchService teamPostMatchService;
     @Autowired private LineupRatingService lineupRatingService;
     @Autowired private EuropeanCompetitionService europeanCompetitionService;
+    @Autowired private EuropeanCoefficientService europeanCoefficientService;
     @Autowired private CupBracketService cupBracketService;
     @Autowired private CompetitionDisplayService competitionDisplayService;
     @Autowired private FixtureSchedulingService fixtureSchedulingService;
@@ -303,7 +304,7 @@ public class MatchSimulationOrchestrator {
                     teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
                     teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
 
-                    europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                    europeanCoefficientService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
 
                     teamPostMatchService.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
                     teamPostMatchService.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
@@ -366,7 +367,7 @@ public class MatchSimulationOrchestrator {
                 tMorale += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
-                europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                europeanCoefficientService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
                 tCoeff += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
@@ -1299,7 +1300,7 @@ public class MatchSimulationOrchestrator {
         this.processInjuriesForTeam(teamId2);
         teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
         teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
-        europeanCompetitionService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+        europeanCoefficientService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
         teamPostMatchService.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
         teamPostMatchService.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
 

@@ -1,29 +1,21 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
-import com.footballmanagergamesimulator.model.ClubCoefficient;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
-import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
-import com.footballmanagergamesimulator.model.CompetitionHistory;
-import com.footballmanagergamesimulator.repository.ClubCoefficientRepository;
-import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
-import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
-import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -39,19 +31,22 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * European competition mechanics — LoC + Stars Cup group draws, group-stage
+ * European competition lifecycle — LoC + Stars Cup group draws, group-stage
  * fixture generation, post-group qualification (LoC top-2 → QF, 3rd → SC
  * playoff; SC winner → QF, runner-up → playoff), seeded knockout draws, and
- * the LoC-losers-drop-to-SC handoff. Lifted out of
- * {@link CompetitionController} as the first slice of the controller-shrink
- * effort (~530 lines moved); the controller now delegates via thin wrappers
- * so its callers (the {@code play()} orchestrator + the simulate-round
- * dispatch) need no changes.
+ * the LoC-losers-drop-to-SC handoff.
  *
- * <p>Cross-cutting helpers (current season, club coefficient) are accessed
- * back through {@link CompetitionController} via a {@code @Lazy} reference —
- * intentional pragmatic shortcut; a future slice can extract those helpers
- * into their own service to break the back-reference.
+ * <p>Originally lifted out of {@link CompetitionController} (sesiunile 1-5);
+ * in sesiunea 6 (§6.1) the coefficient/prize-money math was split out to
+ * {@link EuropeanCoefficientService} and the read-only display surface to
+ * {@link EuropeanDisplayService}. This class is now strictly the in-season
+ * European lifecycle — anything that creates or mutates CTI/CTIM/TCD entries
+ * during European matchdays.
+ *
+ * <p>Dependency: this service calls {@link EuropeanCoefficientService} for
+ * seeded-draw ranking ({@code getClubCoefficientRolling}) and end-of-season
+ * league allocation ({@code getLeagueIdsSortedByCoefficient}). The reverse
+ * direction does not exist.
  */
 @Service
 public class EuropeanCompetitionService {
@@ -64,13 +59,7 @@ public class EuropeanCompetitionService {
     @Autowired private TeamRepository teamRepository;
     @Autowired private RoundRepository roundRepository;
     @Autowired private RoundRobin roundRobin;
-    @Autowired private ClubCoefficientRepository clubCoefficientRepository;
-    @Autowired private CompetitionHistoryRepository competitionHistoryRepository;
-    @Autowired private ManagerInboxRepository managerInboxRepository;
-    @Autowired private UserContext userContext;
-    /** Lazy because FinanceService → CompetitionController in some wiring paths.
-     *  Used by the per-match European prize payouts. */
-    @Lazy @Autowired private FinanceService financeService;
+    @Autowired private EuropeanCoefficientService coefficientService;
 
     // ============================================================
     //  Round classification
@@ -141,8 +130,8 @@ public class EuropeanCompetitionService {
         if (entries.size() < 4) return;
 
         entries.sort((a, b) -> {
-            double coeffA = getClubCoefficientRolling(a.getTeamId(), coeffSeason);
-            double coeffB = getClubCoefficientRolling(b.getTeamId(), coeffSeason);
+            double coeffA = coefficientService.getClubCoefficientRolling(a.getTeamId(), coeffSeason);
+            double coeffB = coefficientService.getClubCoefficientRolling(b.getTeamId(), coeffSeason);
             if (coeffA != coeffB) return Double.compare(coeffB, coeffA);
             Team teamA = teamRepository.findById(a.getTeamId()).orElse(new Team());
             Team teamB = teamRepository.findById(b.getTeamId()).orElse(new Team());
@@ -224,8 +213,8 @@ public class EuropeanCompetitionService {
         int coeffSeason = Integer.parseInt(currentSeason()) - 1;
 
         participants.sort((a, b) -> {
-            double coeffA = getClubCoefficientRolling(a, coeffSeason);
-            double coeffB = getClubCoefficientRolling(b, coeffSeason);
+            double coeffA = coefficientService.getClubCoefficientRolling(a, coeffSeason);
+            double coeffB = coefficientService.getClubCoefficientRolling(b, coeffSeason);
             if (coeffA != coeffB) return Double.compare(coeffB, coeffA);
             Team teamA = teamRepository.findById(a).orElse(new Team());
             Team teamB = teamRepository.findById(b).orElse(new Team());
@@ -600,7 +589,7 @@ public class EuropeanCompetitionService {
         long starsCupCompetitionId = starsCupOpt.get().getId();
 
         // Sort leagues by country coefficient (with reputation fallback for early seasons)
-        List<Long> sortedLeagueIds = getLeagueIdsSortedByCoefficient();
+        List<Long> sortedLeagueIds = coefficientService.getLeagueIdsSortedByCoefficient();
 
         int numLeagues = sortedLeagueIds.size();
         if (numLeagues == 0) return;
@@ -791,586 +780,4 @@ public class EuropeanCompetitionService {
         competitionTeamInfoRepository.save(cti);
     }
 
-    // ============================================================
-    //  Coefficient + prize money per European match
-    // ============================================================
-
-    public void awardCoefficientPoints(long competitionId, long roundId, long team1Id, long team2Id, int score1, int score2) {
-        Set<Long> locIds = competitionIdsByType(4);
-        Set<Long> starsCupIds = competitionIdsByType(5);
-
-        if (!locIds.contains(competitionId) && !starsCupIds.contains(competitionId)) return;
-
-        boolean isLoC = locIds.contains(competitionId);
-        int season = Integer.parseInt(currentSeason());
-
-        double winPoints;
-        double drawPoints;
-
-        if (isLoC) {
-            if (roundId <= 1) { winPoints = 1.0; drawPoints = 0; }           // Preliminary/QR (knockout)
-            else if (roundId <= 7) { winPoints = 2.0; drawPoints = 1.0; }    // Group stage
-            else if (roundId == 8) { winPoints = 3.0; drawPoints = 0; }      // QF
-            else if (roundId == 9) { winPoints = 4.0; drawPoints = 0; }      // SF
-            else { winPoints = 5.0; drawPoints = 0; }                        // Final
-        } else {
-            // Stars Cup
-            if (roundId <= 6) { winPoints = 1.0; drawPoints = 0.5; }         // Group stage
-            else if (roundId == 7) { winPoints = 1.0; drawPoints = 0; }      // Playoff
-            else if (roundId == 8) { winPoints = 1.5; drawPoints = 0; }      // QF
-            else if (roundId == 9) { winPoints = 2.0; drawPoints = 0; }      // SF
-            else { winPoints = 2.5; drawPoints = 0; }                        // Final
-        }
-
-        if (score1 > score2) {
-            addClubCoefficient(team1Id, season, winPoints);
-        } else if (score2 > score1) {
-            addClubCoefficient(team2Id, season, winPoints);
-        } else {
-            // Draw (only possible in LoC group stage)
-            addClubCoefficient(team1Id, season, drawPoints);
-            addClubCoefficient(team2Id, season, drawPoints);
-        }
-
-        // Award per-match European prize money
-        awardEuropeanMatchPrizeMoney(competitionId, roundId, team1Id, team2Id, score1, score2, isLoC, season);
-    }
-
-    private void awardEuropeanMatchPrizeMoney(long competitionId, long roundId, long team1Id, long team2Id,
-                                               int score1, int score2, boolean isLoC, int season) {
-        Round currentRound = roundRepository.findById(1L).orElse(new Round());
-        int roundNumber = (int) currentRound.getRound();
-        String compName = isLoC ? "League of Champions" : "Stars Cup";
-
-        if (isLoC) {
-            // LoC Group Stage participation bonus (awarded once at round 2, first group match)
-            if (roundId == 2) {
-                awardPrizeMoney(team1Id, 20_000_000L, season, roundNumber,
-                        compName + " Group Stage Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 20_000_000L, season, roundNumber,
-                        compName + " Group Stage Qualification", "european_prize");
-            }
-
-            // LoC per-match results
-            if (roundId >= 2 && roundId <= 7) {
-                // Group stage: win = 5M, draw = 1.5M
-                if (score1 > score2) {
-                    awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
-                            compName + " Group Stage Win", "european_prize");
-                } else if (score2 > score1) {
-                    awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
-                            compName + " Group Stage Win", "european_prize");
-                } else {
-                    awardPrizeMoney(team1Id, 1_500_000L, season, roundNumber,
-                            compName + " Group Stage Draw", "european_prize");
-                    awardPrizeMoney(team2Id, 1_500_000L, season, roundNumber,
-                            compName + " Group Stage Draw", "european_prize");
-                }
-            } else if (roundId == 8) {
-                // QF qualification bonus (both teams qualified to play QF)
-                awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
-                        compName + " Quarter-Final Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
-                        compName + " Quarter-Final Qualification", "european_prize");
-            } else if (roundId == 9) {
-                // SF qualification bonus
-                awardPrizeMoney(team1Id, 40_000_000L, season, roundNumber,
-                        compName + " Semi-Final Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 40_000_000L, season, roundNumber,
-                        compName + " Semi-Final Qualification", "european_prize");
-            } else if (roundId == 10) {
-                // Final: winner gets 100M, runner-up gets 50M
-                if (score1 > score2) {
-                    awardPrizeMoney(team1Id, 100_000_000L, season, roundNumber,
-                            compName + " Winner", "european_prize");
-                    awardPrizeMoney(team2Id, 50_000_000L, season, roundNumber,
-                            compName + " Runner-Up", "european_prize");
-                } else {
-                    awardPrizeMoney(team2Id, 100_000_000L, season, roundNumber,
-                            compName + " Winner", "european_prize");
-                    awardPrizeMoney(team1Id, 50_000_000L, season, roundNumber,
-                            compName + " Runner-Up", "european_prize");
-                }
-            }
-        } else {
-            // Stars Cup prizes (with group stage)
-            if (roundId == 1) {
-                // Group stage participation bonus (first matchday only)
-                awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
-                        compName + " Group Stage Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
-                        compName + " Group Stage Qualification", "european_prize");
-            }
-            if (roundId >= 1 && roundId <= 6) {
-                // Group stage: win = 1.5M, draw = 500K
-                if (score1 > score2) {
-                    awardPrizeMoney(team1Id, 1_500_000L, season, roundNumber,
-                            compName + " Group Stage Win", "european_prize");
-                } else if (score2 > score1) {
-                    awardPrizeMoney(team2Id, 1_500_000L, season, roundNumber,
-                            compName + " Group Stage Win", "european_prize");
-                } else {
-                    awardPrizeMoney(team1Id, 500_000L, season, roundNumber,
-                            compName + " Group Stage Draw", "european_prize");
-                    awardPrizeMoney(team2Id, 500_000L, season, roundNumber,
-                            compName + " Group Stage Draw", "european_prize");
-                }
-            } else if (roundId == 8) {
-                // QF qualification
-                awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
-                        compName + " Quarter-Final Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
-                        compName + " Quarter-Final Qualification", "european_prize");
-            } else if (roundId == 9) {
-                // SF qualification
-                awardPrizeMoney(team1Id, 10_000_000L, season, roundNumber,
-                        compName + " Semi-Final Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 10_000_000L, season, roundNumber,
-                        compName + " Semi-Final Qualification", "european_prize");
-            } else if (roundId == 10) {
-                // Final: winner 15M, runner-up 8M
-                if (score1 > score2) {
-                    awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
-                            compName + " Winner", "european_prize");
-                    awardPrizeMoney(team2Id, 8_000_000L, season, roundNumber,
-                            compName + " Runner-Up", "european_prize");
-                } else {
-                    awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
-                            compName + " Winner", "european_prize");
-                    awardPrizeMoney(team1Id, 8_000_000L, season, roundNumber,
-                            compName + " Runner-Up", "european_prize");
-                }
-            }
-        }
-    }
-
-    private void awardPrizeMoney(long teamId, long amount, int season, int roundNumber, String reason, String category) {
-        financeService.recordTransaction(teamId, season, roundNumber, "PRIZE_MONEY", reason, amount);
-
-        // Send inbox notification only for human teams
-        if (userContext.isHumanTeam(teamId)) {
-            String formattedAmount = formatPrizeMoney(amount);
-            ManagerInbox inbox = new ManagerInbox();
-            inbox.setTeamId(teamId);
-            inbox.setSeasonNumber(season);
-            inbox.setRoundNumber(roundNumber);
-            inbox.setTitle(reason);
-            inbox.setContent("Your club has received " + formattedAmount + " for " + reason + ".");
-            inbox.setCategory(category);
-            inbox.setRead(false);
-            inbox.setCreatedAt(System.currentTimeMillis());
-            managerInboxRepository.save(inbox);
-        }
-    }
-
-    private String formatPrizeMoney(long amount) {
-        if (amount >= 1_000_000L) {
-            double millions = amount / 1_000_000.0;
-            if (millions == (long) millions) return (long) millions + "M";
-            return String.format("%.1fM", millions);
-        } else if (amount >= 1_000L) {
-            return (amount / 1_000) + "K";
-        }
-        return String.valueOf(amount);
-    }
-
-    private void addClubCoefficient(long teamId, int season, double points) {
-        if (points <= 0) return;
-        Optional<ClubCoefficient> existing = clubCoefficientRepository.findByTeamIdAndSeasonNumber(teamId, season);
-        if (existing.isPresent()) {
-            ClubCoefficient cc = existing.get();
-            cc.setPoints(cc.getPoints() + points);
-            clubCoefficientRepository.save(cc);
-        } else {
-            ClubCoefficient cc = new ClubCoefficient();
-            cc.setTeamId(teamId);
-            cc.setSeasonNumber(season);
-            cc.setPoints(points);
-            clubCoefficientRepository.save(cc);
-        }
-    }
-
-    /** Rolling 5-season sum of a club's European coefficient points. */
-    public double getClubCoefficientRolling(long teamId, int currentSeason) {
-        double total = 0;
-        for (int s = Math.max(1, currentSeason - 4); s <= currentSeason; s++) {
-            Optional<ClubCoefficient> cc = clubCoefficientRepository.findByTeamIdAndSeasonNumber(teamId, s);
-            if (cc.isPresent()) total += cc.get().getPoints();
-        }
-        return total;
-    }
-
-    // ============================================================
-    //  Summary + allocation display (used by REST endpoints)
-    // ============================================================
-
-    public Map<String, Object> getEuropeanSummary() {
-        Map<String, Object> summary = new LinkedHashMap<>();
-
-        // LoC allocation totals
-        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
-        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
-        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
-        int numLeagues = (int) competitionRepository.findAll().stream().filter(c -> c.getTypeId() == 1).count();
-        int totalRanks = Math.min(numLeagues, 7);
-
-        int totalDirect = 0, totalQualifying = 0, totalPreliminary = 0;
-        for (int i = 0; i < totalRanks; i++) {
-            totalDirect += directSpots[i];
-            totalQualifying += qualifyingSpots[i];
-            totalPreliminary += preliminarySpots[i];
-        }
-        int locTotal = totalDirect + totalQualifying + totalPreliminary;
-
-        Map<String, Object> loc = new LinkedHashMap<>();
-        loc.put("totalTeams", locTotal);
-        loc.put("directToGroups", totalDirect);
-        loc.put("qualifyingTeams", totalQualifying);
-        loc.put("preliminaryTeams", totalPreliminary);
-        loc.put("groupStageTeams", 16);
-        loc.put("groups", 4);
-        loc.put("teamsPerGroup", 4);
-        loc.put("advancePerGroup", 2);
-        summary.put("loc", loc);
-
-        Map<String, Object> sc = new LinkedHashMap<>();
-        sc.put("totalTeams", 16);
-        sc.put("groups", 4);
-        sc.put("teamsPerGroup", 4);
-        sc.put("format", "Group winners to QF, runners-up play LoC 3rd place in Playoff, then QF → SF → Final");
-        summary.put("starsCup", sc);
-
-        // Points system
-        Map<String, Object> locPoints = new LinkedHashMap<>();
-        locPoints.put("Preliminary/Qualifying win", "1 pt");
-        locPoints.put("Group stage win", "2 pts");
-        locPoints.put("Group stage draw", "1 pt");
-        locPoints.put("Quarter-Final win", "3 pts");
-        locPoints.put("Semi-Final win", "4 pts");
-        locPoints.put("Final win", "5 pts");
-        summary.put("locPoints", locPoints);
-
-        Map<String, Object> scPoints = new LinkedHashMap<>();
-        scPoints.put("Group stage win", "1 pt");
-        scPoints.put("Group stage draw", "0.5 pts");
-        scPoints.put("Playoff win", "1 pt");
-        scPoints.put("Quarter-Final win", "1.5 pts");
-        scPoints.put("Semi-Final win", "2 pts");
-        scPoints.put("Final win", "2.5 pts");
-        summary.put("starsCupPoints", scPoints);
-
-        return summary;
-    }
-
-    public void assignEuropeanAllocation(Map<String, Object> entry, int rank) {
-        // LoC direct + qualifying + preliminary spots per rank (non-increasing)
-        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
-        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
-        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
-        // Stars Cup: league spots + 1 cup reserved per nation (non-increasing)
-        int[] scLeagueSpots = {1, 1, 1, 1, 0, 0, 0};
-        int[] scCupSpots =    {1, 1, 1, 1, 1, 1, 1};
-
-        if (rank >= 1 && rank <= 7) {
-            int idx = rank - 1;
-            int locTotal = directSpots[idx] + qualifyingSpots[idx] + preliminarySpots[idx];
-            entry.put("locSpots", locTotal);
-
-            String locEntry;
-            if (directSpots[idx] > 0 && qualifyingSpots[idx] > 0) {
-                locEntry = directSpots[idx] + " Group Stage + " + qualifyingSpots[idx] + " Qualifying";
-            } else if (preliminarySpots[idx] > 0) {
-                locEntry = preliminarySpots[idx] + " Preliminary Qualifying";
-            } else if (directSpots[idx] > 0) {
-                locEntry = directSpots[idx] + " Group Stage";
-            } else {
-                locEntry = "None";
-            }
-            entry.put("locEntry", locEntry);
-            entry.put("starsCupSpots", scLeagueSpots[idx] + scCupSpots[idx]);
-        } else {
-            entry.put("locSpots", 0);
-            entry.put("locEntry", "None");
-            entry.put("starsCupSpots", 0);
-        }
-    }
-
-    public List<Long> getLeagueIdsSortedByCoefficient() {
-        int currentSeason = Integer.parseInt(currentSeason());
-        List<Competition> firstLeagues = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1).toList();
-
-        Map<Long, Double> leagueCoefficients = new HashMap<>();
-        for (Competition league : firstLeagues) {
-            long leagueId = league.getId();
-            long nationId = league.getNationId();
-            double countryCoefficient = 0;
-
-            for (int s = Math.max(1, currentSeason - 4); s <= currentSeason; s++) {
-                int sFinal = s;
-                List<CompetitionTeamInfo> europeanEntries = competitionTeamInfoRepository
-                        .findAllBySeasonNumber(sFinal).stream()
-                        .filter(cti -> {
-                            Competition comp = competitionRepository.findById(cti.getCompetitionId()).orElse(null);
-                            return comp != null && (comp.getTypeId() == 4 || comp.getTypeId() == 5);
-                        })
-                        .toList();
-
-                Set<Long> clubsFromNation = new HashSet<>();
-                double seasonPoints = 0;
-                for (CompetitionTeamInfo cti : europeanEntries) {
-                    Team team = teamRepository.findById(cti.getTeamId()).orElse(null);
-                    if (team == null) continue;
-                    Competition teamLeague = competitionRepository.findById(team.getCompetitionId()).orElse(null);
-                    if (teamLeague != null && teamLeague.getNationId() == nationId) {
-                        clubsFromNation.add(cti.getTeamId());
-                    }
-                }
-                for (long clubId : clubsFromNation) {
-                    Optional<ClubCoefficient> cc = clubCoefficientRepository.findByTeamIdAndSeasonNumber(clubId, sFinal);
-                    if (cc.isPresent()) seasonPoints += cc.get().getPoints();
-                }
-                double seasonRatio = clubsFromNation.isEmpty() ? 0 : seasonPoints / clubsFromNation.size();
-                countryCoefficient += seasonRatio;
-            }
-
-            // Fallback: if no coefficient data yet, use avg reputation
-            if (countryCoefficient == 0) {
-                List<Team> teams = teamRepository.findAll().stream()
-                        .filter(t -> t.getCompetitionId() == leagueId).toList();
-                countryCoefficient = teams.stream().mapToInt(Team::getReputation).average().orElse(0) / 100.0;
-            }
-
-            leagueCoefficients.put(leagueId, countryCoefficient);
-        }
-
-        List<Long> sorted = new ArrayList<>(leagueCoefficients.keySet());
-        sorted.sort((a, b) -> Double.compare(leagueCoefficients.get(b), leagueCoefficients.get(a)));
-        return sorted;
-    }
-
-    // ============================================================
-    //  Display / read endpoints — group standings + coefficient
-    //  leaderboards. Bodies live here; the controller keeps the
-    //  REST mapping as a 1-liner delegate.
-    // ============================================================
-
-    /**
-     * Per-team group standings for a European competition + season. Current
-     * season is computed live from match results (rounds 1-6 for Stars Cup,
-     * 2-7 for LoC); past seasons read from {@link CompetitionHistory}.
-     */
-    public List<Map<String, Object>> getEuropeanGroups(long competitionId, long season) {
-
-        long currentSeason = Long.parseLong(currentSeason());
-
-        // CompetitionTeamInfo persists across seasons, so group assignments are always available
-        List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
-                .findAllBySeasonNumber(season).stream()
-                .filter(cti -> cti.getCompetitionId() == competitionId && cti.getGroupNumber() > 0)
-                .toList();
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (CompetitionTeamInfo cti : entries) {
-            Map<String, Object> entry = new HashMap<>();
-            Team team = teamRepository.findById(cti.getTeamId()).orElse(null);
-            entry.put("teamId", cti.getTeamId());
-            entry.put("teamName", team != null ? team.getName() : "Unknown");
-            entry.put("groupNumber", cti.getGroupNumber());
-            entry.put("potNumber", cti.getPotNumber());
-
-            if (season == currentSeason) {
-                // Current season: compute group standings from match results (exclude knockout rounds)
-                Competition comp = competitionRepository.findById(competitionId).orElse(null);
-                int groupRoundMin = 2, groupRoundMax = 7; // LoC defaults
-                if (comp != null && comp.getTypeId() == 5) {
-                    groupRoundMin = 1; groupRoundMax = 6; // Stars Cup
-                }
-                int games = 0, wins = 0, draws = 0, loses = 0, goalsFor = 0, goalsAgainst = 0;
-                long teamId = cti.getTeamId();
-                for (int r = groupRoundMin; r <= groupRoundMax; r++) {
-                    List<CompetitionTeamInfoDetail> matchesAsHome = competitionTeamInfoDetailRepository
-                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
-                            .stream().filter(d -> d.getTeam1Id() == teamId).toList();
-                    List<CompetitionTeamInfoDetail> matchesAsAway = competitionTeamInfoDetailRepository
-                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
-                            .stream().filter(d -> d.getTeam2Id() == teamId).toList();
-                    for (CompetitionTeamInfoDetail d : matchesAsHome) {
-                        if (d.getScore() == null) continue;
-                        String[] parts = d.getScore().split("-");
-                        if (parts.length != 2) continue;
-                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
-                        games++; goalsFor += g1; goalsAgainst += g2;
-                        if (g1 > g2) wins++; else if (g1 < g2) loses++; else draws++;
-                    }
-                    for (CompetitionTeamInfoDetail d : matchesAsAway) {
-                        if (d.getScore() == null) continue;
-                        String[] parts = d.getScore().split("-");
-                        if (parts.length != 2) continue;
-                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
-                        games++; goalsFor += g2; goalsAgainst += g1;
-                        if (g2 > g1) wins++; else if (g2 < g1) loses++; else draws++;
-                    }
-                }
-                entry.put("games", games);
-                entry.put("wins", wins);
-                entry.put("draws", draws);
-                entry.put("loses", loses);
-                entry.put("goalsFor", goalsFor);
-                entry.put("goalsAgainst", goalsAgainst);
-                entry.put("goalDifference", goalsFor - goalsAgainst);
-                entry.put("points", wins * 3 + draws);
-            } else {
-                // Previous season: use CompetitionHistory
-                Optional<CompetitionHistory> histOpt = competitionHistoryRepository.findAll().stream()
-                        .filter(h -> h.getTeamId() == cti.getTeamId()
-                                && h.getCompetitionId() == competitionId
-                                && h.getSeasonNumber() == season)
-                        .findFirst();
-                if (histOpt.isPresent()) {
-                    CompetitionHistory hist = histOpt.get();
-                    entry.put("games", hist.getGames());
-                    entry.put("wins", hist.getWins());
-                    entry.put("draws", hist.getDraws());
-                    entry.put("loses", hist.getLoses());
-                    entry.put("goalsFor", hist.getGoalsFor());
-                    entry.put("goalsAgainst", hist.getGoalsAgainst());
-                    entry.put("goalDifference", hist.getGoalDifference());
-                    entry.put("points", hist.getPoints());
-                } else {
-                    entry.put("games", 0); entry.put("wins", 0); entry.put("draws", 0);
-                    entry.put("loses", 0); entry.put("goalsFor", 0); entry.put("goalsAgainst", 0);
-                    entry.put("goalDifference", 0); entry.put("points", 0);
-                }
-            }
-            result.add(entry);
-        }
-        return result;
-    }
-
-    /**
-     * Country coefficient ranking across the last 5 seasons. For each nation:
-     * sum(per-season club coefficients) / count(clubs participating in European
-     * comps that season), summed across seasons. Each entry is then ranked
-     * and gets {@link #assignEuropeanAllocation} attached so the FE can show
-     * "2 LoC spots + 1 SC spot" etc.
-     */
-    public List<Map<String, Object>> getCountryCoefficients() {
-        int curSeason = Integer.parseInt(currentSeason());
-        List<Competition> firstLeagues = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1).toList();
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Competition league : firstLeagues) {
-            long leagueId = league.getId();
-            long nationId = league.getNationId();
-
-            double countryCoefficient = 0;
-            Map<Integer, Double> perSeasonValues = new LinkedHashMap<>();
-
-            for (int s = Math.max(1, curSeason - 4); s <= curSeason; s++) {
-                int seasonFinal = s;
-                List<CompetitionTeamInfo> europeanEntries = competitionTeamInfoRepository
-                        .findAllBySeasonNumber(seasonFinal).stream()
-                        .filter(cti -> {
-                            Competition comp = competitionRepository.findById(cti.getCompetitionId()).orElse(null);
-                            if (comp == null) return false;
-                            return (comp.getTypeId() == 4 || comp.getTypeId() == 5);
-                        })
-                        .toList();
-
-                Set<Long> clubsFromNation = new HashSet<>();
-                double seasonPoints = 0;
-                for (CompetitionTeamInfo cti : europeanEntries) {
-                    Team team = teamRepository.findById(cti.getTeamId()).orElse(null);
-                    if (team == null) continue;
-                    Competition teamLeague = competitionRepository.findById(team.getCompetitionId()).orElse(null);
-                    if (teamLeague != null && teamLeague.getNationId() == nationId) {
-                        clubsFromNation.add(cti.getTeamId());
-                    }
-                }
-
-                for (long clubId : clubsFromNation) {
-                    Optional<ClubCoefficient> cc = clubCoefficientRepository.findByTeamIdAndSeasonNumber(clubId, seasonFinal);
-                    if (cc.isPresent()) seasonPoints += cc.get().getPoints();
-                }
-
-                double seasonRatio = clubsFromNation.isEmpty() ? 0 : seasonPoints / clubsFromNation.size();
-                perSeasonValues.put(s, seasonRatio);
-                countryCoefficient += seasonRatio;
-            }
-
-            Map<String, Object> entry = new HashMap<>();
-            entry.put("leagueId", leagueId);
-            entry.put("leagueName", league.getName());
-            entry.put("nationId", nationId);
-            entry.put("coefficient", Math.round(countryCoefficient * 100.0) / 100.0);
-            entry.put("perSeason", perSeasonValues);
-            result.add(entry);
-        }
-
-        result.sort((a, b) -> Double.compare((double) b.get("coefficient"), (double) a.get("coefficient")));
-
-        for (int i = 0; i < result.size(); i++) {
-            int rank = i + 1;
-            Map<String, Object> entry = result.get(i);
-            entry.put("rank", rank);
-            assignEuropeanAllocation(entry, rank);
-        }
-
-        return result;
-    }
-
-    /**
-     * Club coefficient ranking. Every club that participated in European
-     * competition in any of the last 5 seasons gets a row with its
-     * per-season points + 5-year total, sorted descending.
-     */
-    public List<Map<String, Object>> getClubCoefficients() {
-        int curSeason = Integer.parseInt(currentSeason());
-
-        Set<Long> europeanClubIds = new HashSet<>();
-        for (int s = Math.max(1, curSeason - 4); s <= curSeason; s++) {
-            int sFinal = s;
-            competitionTeamInfoRepository.findAllBySeasonNumber(sFinal).stream()
-                    .filter(cti -> {
-                        Competition comp = competitionRepository.findById(cti.getCompetitionId()).orElse(null);
-                        return comp != null && (comp.getTypeId() == 4 || comp.getTypeId() == 5);
-                    })
-                    .forEach(cti -> europeanClubIds.add(cti.getTeamId()));
-        }
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (long clubId : europeanClubIds) {
-            Team team = teamRepository.findById(clubId).orElse(null);
-            if (team == null) continue;
-
-            double totalCoeff = 0;
-            Map<Integer, Double> perSeason = new LinkedHashMap<>();
-            for (int s = Math.max(1, curSeason - 4); s <= curSeason; s++) {
-                Optional<ClubCoefficient> cc = clubCoefficientRepository.findByTeamIdAndSeasonNumber(clubId, s);
-                double pts = cc.map(ClubCoefficient::getPoints).orElse(0.0);
-                perSeason.put(s, pts);
-                totalCoeff += pts;
-            }
-
-            Competition league = competitionRepository.findById(team.getCompetitionId()).orElse(null);
-
-            Map<String, Object> entry = new HashMap<>();
-            entry.put("teamId", clubId);
-            entry.put("teamName", team.getName());
-            entry.put("leagueName", league != null ? league.getName() : "");
-            entry.put("coefficient", Math.round(totalCoeff * 100.0) / 100.0);
-            entry.put("perSeason", perSeason);
-            result.add(entry);
-        }
-
-        result.sort((a, b) -> Double.compare((double) b.get("coefficient"), (double) a.get("coefficient")));
-
-        for (int i = 0; i < result.size(); i++) {
-            result.get(i).put("rank", i + 1);
-        }
-
-        return result;
-    }
 }
