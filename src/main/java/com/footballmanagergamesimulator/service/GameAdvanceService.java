@@ -39,6 +39,10 @@ public class GameAdvanceService {
 
     @Autowired
     @Lazy
+    EndOfSeasonProcessor endOfSeasonProcessor;
+
+    @Autowired
+    @Lazy
     MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     @Autowired
@@ -560,7 +564,7 @@ public class GameAdvanceService {
                 }
                 break;
             case "CONTRACT_EXPIRY_CHECK":
-                seasonTransitionService.handleContractExpiries((int) calendar.getSeason());
+                endOfSeasonProcessor.handleContractExpiries((int) calendar.getSeason());
                 result.put("details", "Contract expiry check completed - expired contracts processed");
                 break;
             case "ANALYTICS_REPORT":

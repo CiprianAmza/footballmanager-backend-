@@ -62,7 +62,7 @@ public class GameInitializationService {
     @Autowired private CompositeNameGenerator compositeNameGenerator;
     @Autowired private TacticService tacticService;
     @Autowired @Lazy private StaffService staffService;
-    @Autowired @Lazy private SeasonTransitionService seasonTransitionService;
+    @Autowired @Lazy private NewSeasonSetupProcessor newSeasonSetupProcessor;
 
     /**
      * Resume-aware initialization. If a Round row already exists, returns it
@@ -107,7 +107,7 @@ public class GameInitializationService {
         System.out.println("=== Initialization complete: teams, players, fixtures, and scorers created ===");
 
         // Replace per-league cup CompetitionTeamInfo records with bracket-aware fixtures
-        seasonTransitionService.regenerateAllCupBrackets((int) round.getSeason());
+        newSeasonSetupProcessor.regenerateAllCupBrackets((int) round.getSeason());
 
         return round;
     }
@@ -184,7 +184,7 @@ public class GameInitializationService {
 
                 Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
                 ScorerLeaderboardEntry scorerLeaderboardEntry =
-                        SeasonTransitionService.resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
+                        NewSeasonSetupProcessor.resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
                 scorerLeaderboardRepository.save(scorerLeaderboardEntry);
             }
         }

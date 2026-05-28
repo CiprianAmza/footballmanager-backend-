@@ -12,7 +12,6 @@ import com.footballmanagergamesimulator.repository.SeasonObjectiveRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -28,10 +27,10 @@ import java.util.stream.Collectors;
  * ({@link #evaluateSeasonObjectives}).
  *
  * <p>Evaluation also triggers the manager-history record + manager-firing
- * checks, which remain on {@link CompetitionController} because they touch
- * many cross-cutting concerns (User.fired, GameCalendar.managerFired,
- * ManagerHistory creation, AI manager replacement). The service calls back
- * through a {@code @Lazy} controller reference for those two steps.
+ * checks via {@link ManagerCareerService} — cross-cutting end-of-season
+ * concerns (ManagerHistory, User.fired, GameCalendar.managerFired, AI
+ * manager replacement) live in that dedicated service since sesiunea 6
+ * Pass A.
  */
 @Service
 public class SeasonObjectiveService {
@@ -42,7 +41,7 @@ public class SeasonObjectiveService {
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
 
-    @Autowired @Lazy private SeasonTransitionService seasonTransitionService;
+    @Autowired private ManagerCareerService managerCareerService;
 
     /** Per-team, per-competition objective rows seeded at season start.
      *  Objectives scale with predicted league position (ranked by team reputation
@@ -250,10 +249,10 @@ public class SeasonObjectiveService {
             seasonObjectiveRepository.save(objective);
         }
 
-        // Manager history record + firing decisions live in SeasonTransitionService
+        // Manager history record + firing decisions live in ManagerCareerService
         // (cross-cutting end-of-season concerns: ManagerHistory, User.fired, GameCalendar).
-        seasonTransitionService.recordManagerHistory(season, allDetails);
-        seasonTransitionService.checkManagerFiring(season);
+        managerCareerService.recordManagerHistory(season, allDetails);
+        managerCareerService.checkManagerFiring(season);
 
         System.out.println("=== SEASON OBJECTIVES EVALUATED FOR SEASON " + season + " ===");
     }
