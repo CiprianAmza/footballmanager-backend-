@@ -73,6 +73,9 @@ public class GameController {
     HumanRepository humanRepository;
 
     @Autowired
+    JobOfferService jobOfferService;
+
+    @Autowired
     CompetitionHistoryRepository competitionHistoryRepository;
 
     @Autowired
@@ -150,7 +153,21 @@ public class GameController {
                     }
                     return result;
                 } else {
-                    // User exists but has no team — either new user or was fired
+                    // User exists but has no team. Three sub-cases:
+                    //   1) Fresh user, never went through setup → setupComplete=false (show team picker)
+                    //   2) Free agent (signed up without a team, never managed) → setupComplete=true + freeAgent flag
+                    //   3) Fired veteran (was managing, got sacked) → setupComplete=false + managerFired (legacy UI flow)
+                    if (user.isFired() && user.getManagerId() != null && !user.isEverManaged()) {
+                        // Free agent path — surface as completed setup with the freeAgent flag.
+                        result.put("setupComplete", true);
+                        result.put("freeAgent", true);
+                        result.put("managerFired", true); // reuses fired-state FE UI (job-search menu)
+                        List<Round> rounds = roundRepository.findAll();
+                        if (!rounds.isEmpty()) {
+                            result.put("managerName", rounds.get(0).getManagerName());
+                        }
+                        return result;
+                    }
                     result.put("setupComplete", false);
                     if (user.isFired()) {
                         result.put("managerFired", true);
@@ -225,6 +242,7 @@ public class GameController {
         String managerName = (String) body.get("managerName");
         Integer managerAge = body.get("managerAge") != null ? ((Number) body.get("managerAge")).intValue() : 35;
         Long selectedTeamId = body.get("teamId") != null ? ((Number) body.get("teamId")).longValue() : null;
+        boolean freeAgent = Boolean.TRUE.equals(body.get("freeAgent")) || selectedTeamId == null || selectedTeamId <= 0;
 
         Map<String, Object> result = new LinkedHashMap<>();
 
@@ -233,12 +251,61 @@ public class GameController {
             result.put("error", "Manager name is required");
             return result;
         }
-        if (selectedTeamId == null || selectedTeamId <= 0) {
-            result.put("success", false);
-            result.put("error", "Please select a team");
+
+        Integer userId = body.get("userId") != null ? ((Number) body.get("userId")).intValue() : null;
+
+        if (freeAgent) {
+            // ============== Free agent path ==============
+            // No team selected. We create a Human manager attached to no team (teamId=0L)
+            // and mark the user as "fired" so the existing job-search UI lights up.
+            Human freeAgentManager = new Human();
+            freeAgentManager.setName(managerName);
+            freeAgentManager.setAge(managerAge);
+            freeAgentManager.setTeamId(0L);
+            freeAgentManager.setTypeId(TypeNames.MANAGER_TYPE);
+            freeAgentManager.setManagerReputation(500); // starter reputation
+            humanRepository.save(freeAgentManager);
+
+            // Round stays untouched (humanTeamId = 0). We persist the manager name/age
+            // so any Round-based fallback still has it.
+            List<Round> rounds = roundRepository.findAll();
+            Round round = rounds.isEmpty() ? new Round() : rounds.get(0);
+            if (round.getManagerName() == null || round.getManagerName().isBlank()) {
+                round.setManagerName(managerName);
+                round.setManagerAge(managerAge);
+                roundRepository.save(round);
+            }
+
+            if (userId != null) {
+                Optional<User> userOpt = userRepository.findById(userId);
+                if (userOpt.isPresent()) {
+                    User user = userOpt.get();
+                    user.setTeamId(null);
+                    user.setLastTeamId(null);
+                    user.setManagerId(freeAgentManager.getId());
+                    user.setFired(true);          // reuses fired-state UI → shows job-search
+                    user.setEverManaged(false);   // distinguishes from "fired veteran"
+                    user.setInitialOffersGenerated(false);
+                    userRepository.save(user);
+
+                    // Spawn welcome batch of 3 offers immediately so the inbox isn't empty.
+                    try {
+                        jobOfferService.generateInitialFreeAgentOffers(user.getId(), 3);
+                        user.setInitialOffersGenerated(true);
+                        userRepository.save(user);
+                    } catch (Exception ex) {
+                        System.err.println("Failed to seed initial free-agent offers: " + ex);
+                    }
+                }
+            }
+
+            result.put("success", true);
+            result.put("freeAgent", true);
+            result.put("managerName", managerName);
             return result;
         }
 
+        // ============== Standard team-selection path ==============
         Team selectedTeam = teamRepository.findById(selectedTeamId).orElse(null);
         if (selectedTeam == null) {
             result.put("success", false);
@@ -266,7 +333,6 @@ public class GameController {
         }
 
         // Persist user-team association if userId is provided
-        Integer userId = body.get("userId") != null ? ((Number) body.get("userId")).intValue() : null;
         if (userId != null) {
             Optional<User> userOpt = userRepository.findById(userId);
             if (userOpt.isPresent()) {
@@ -275,6 +341,7 @@ public class GameController {
                 user.setLastTeamId(selectedTeamId);
                 user.setManagerId(managerId > 0 ? managerId : null);
                 user.setFired(false);
+                user.setEverManaged(true);
                 userRepository.save(user);
             }
         }

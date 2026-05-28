@@ -1,166 +1,55 @@
 package com.footballmanagergamesimulator.service;
 
-import com.footballmanagergamesimulator.controller.CompetitionController;
-import com.footballmanagergamesimulator.model.*;
-import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.controller.AdminController;
+import com.footballmanagergamesimulator.controller.TeamTalkController;
+import com.footballmanagergamesimulator.model.CalendarEvent;
+import com.footballmanagergamesimulator.model.GameCalendar;
+import com.footballmanagergamesimulator.repository.CalendarEventRepository;
+import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.user.UserContext;
-import com.footballmanagergamesimulator.util.TypeNames;
-import java.util.stream.Collectors;
+import com.footballmanagergamesimulator.user.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 
+/**
+ * Thin advance-loop orchestrator. Pumps the calendar one day at a time,
+ * delegating per-event work to {@link CalendarEventDispatcher} and per-day
+ * match batches to {@link MatchdayBatchProcessor}.
+ *
+ * <p>Surface preserved as before so {@link com.footballmanagergamesimulator.controller.GameController}
+ * doesn't churn: {@link #advance}, {@link #getGameState}, {@link #advanceToDay}.
+ *
+ * <p>Job-offer pause + opportunistic offer generation also stay here because
+ * they wrap the advance pump (a pending offer blocks CONTINUE).
+ */
 @Service
 public class GameAdvanceService {
 
-    @Autowired
-    UserContext userContext;
+    @Autowired private UserContext userContext;
+    @Autowired private CalendarService calendarService;
+    @Autowired private GameCalendarRepository gameCalendarRepository;
+    @Autowired private CalendarEventRepository calendarEventRepository;
+    @Autowired private TeamTalkController teamTalkController;
+    @Autowired private UserRepository userRepository;
+    @Autowired @Lazy private JobOfferService jobOfferService;
+    @Autowired @Lazy private AdminController adminController;
 
-    @Autowired
-    CalendarService calendarService;
+    @Autowired private CalendarEventDispatcher calendarEventDispatcher;
+    @Autowired private MatchdayBatchProcessor matchdayBatchProcessor;
+    @Autowired @Lazy private LiveMatchSimulationService liveMatchSimulationService;
 
-    @Autowired
-    GameCalendarRepository gameCalendarRepository;
+    private final Random random = new Random();
 
-    @Autowired
-    CalendarEventRepository calendarEventRepository;
-
-    @Autowired
-    CompetitionController competitionController;
-
-    @Autowired
-    com.footballmanagergamesimulator.controller.TeamTalkController teamTalkController;
-
-    @Autowired
-    @Lazy
-    SeasonTransitionService seasonTransitionService;
-
-    @Autowired
-    @Lazy
-    EndOfSeasonProcessor endOfSeasonProcessor;
-
-    @Autowired
-    @Lazy
-    MatchSimulationOrchestrator matchSimulationOrchestrator;
-
-    @Autowired
-    TransferMarketService transferMarketService;
-
-    @Autowired
-    FixtureSchedulingService fixtureSchedulingService;
-
-    @Autowired
-    InjuryRepository injuryRepository;
-
-    @Autowired
-    HumanRepository humanRepository;
-
-    @Autowired
-    TeamRepository teamRepository;
-
-    @Autowired
-    TeamFacilitiesRepository teamFacilitiesRepository;
-
-    @Autowired
-    @Lazy
-    TrainingService trainingService;
-
-    @Autowired
-    @Lazy
-    YouthAcademyService youthAcademyService;
-
-    @Autowired
-    @Lazy
-    PressConferenceService pressConferenceService;
-
-    @Autowired
-    @Lazy
-    BoardRequestService boardRequestService;
-
-    @Autowired
-    @Lazy
-    AwardService awardService;
-
-    @Autowired
-    @Lazy
-    SponsorshipService sponsorshipService;
-
-    @Autowired
-    @Lazy
-    FacilityUpgradeService facilityUpgradeService;
-
-    @Autowired
-    @Lazy
-    NationalTeamService nationalTeamService;
-
-    @Autowired
-    @Lazy
-    SuspensionService suspensionService;
-
-    @Autowired
-    @Lazy
-    com.footballmanagergamesimulator.controller.ScoutManagementController scoutManagementController;
-
-    @Autowired
-    HumanService humanService;
-
-    @Autowired
-    @Lazy
-    JobOfferService jobOfferService;
-
-    @Autowired
-    @Lazy
-    com.footballmanagergamesimulator.controller.AdminController adminController;
-
-    @Autowired
-    com.footballmanagergamesimulator.user.UserRepository userRepository;
-
-    private final java.util.Random random = new java.util.Random();
-
-    @Autowired
-    LiveMatchSimulationService liveMatchSimulationService;
-
-    @Autowired
-    @Lazy
-    FinanceService financeService;
-
-    @Autowired
-    @Lazy
-    FriendlyMatchService friendlyMatchService;
-
-    @Autowired
-    CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
-
-    @Autowired
-    PlayerSkillsRepository playerSkillsRepository;
-
-    @Autowired
-    ScoutRepository scoutRepository;
-
-    // Cache of competition IDs all human teams participate in (per season)
-    private Set<Long> humanTeamCompetitionIds = null;
-    private int humanTeamCompetitionIdsSeason = -1;
-
-    private Set<Long> getHumanTeamCompetitionIds(int season) {
-        if (humanTeamCompetitionIds != null && humanTeamCompetitionIdsSeason == season) {
-            return humanTeamCompetitionIds;
-        }
-        Set<Long> allCompIds = new HashSet<>();
-        for (long htId : userContext.getAllHumanTeamIds()) {
-            List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
-                    .findAllBySeasonNumberAndTeamId(String.valueOf(season), htId);
-            matches.stream()
-                    .map(CompetitionTeamInfoMatch::getCompetitionId)
-                    .forEach(allCompIds::add);
-        }
-        humanTeamCompetitionIds = allCompIds;
-        humanTeamCompetitionIdsSeason = season;
-        return humanTeamCompetitionIds;
-    }
-
-    private static final Set<Integer> MONTH_START_DAYS = Set.of(1, 32, 62, 93, 123, 154, 185, 213, 244, 274, 305, 335);
+    private static final java.util.Set<Integer> MONTH_START_DAYS = Set.of(
+            1, 32, 62, 93, 123, 154, 185, 213, 244, 274, 305, 335);
 
     /**
      * Important event types that should stop auto-advancing and show to the user.
@@ -206,6 +95,14 @@ public class GameAdvanceService {
         Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar);
         if (jobOfferBlock != null) return jobOfferBlock;
 
+        // Hard pause: an uncommitted live-match session exists for a human user
+        // (typically because the user refreshed the browser mid-match). Block
+        // advance and signal the FE to resume the live modal — without this,
+        // the calendar would silently roll past the matchday with no result
+        // for the human team.
+        Map<String, Object> liveMatchBlock = checkLiveMatchPause(season, calendar);
+        if (liveMatchBlock != null) return liveMatchBlock;
+
         // Clear pause flag - pressing CONTINUE is the user input that unpauses
         if (calendar.isPaused()) {
             calendar.setPaused(false);
@@ -249,7 +146,7 @@ public class GameAdvanceService {
             for (CalendarEvent event : otherEvents) {
                 Map<String, Object> eventResult;
                 try {
-                    eventResult = processEvent(event, calendar);
+                    eventResult = calendarEventDispatcher.processEvent(event, calendar);
                 } catch (RuntimeException ex) {
                     // Don't leave the event stuck in PROCESSING — release it so the next
                     // advance() retries instead of silently skipping it forever.
@@ -278,7 +175,7 @@ public class GameAdvanceService {
             if (!matchEvents.isEmpty() && !calendar.isPaused()) {
                 Map<String, Object> batchResult;
                 try {
-                    batchResult = processBatchMatches(matchEvents, calendar);
+                    batchResult = matchdayBatchProcessor.processBatchMatches(matchEvents, calendar);
                 } catch (RuntimeException ex) {
                     for (CalendarEvent me : matchEvents) {
                         calendarService.releaseEvent(me.getId());
@@ -308,7 +205,7 @@ public class GameAdvanceService {
 
         // Monthly wage processing: if we moved to a new day that's a month start
         if (calendar.getCurrentDay() != startDay && MONTH_START_DAYS.contains(calendar.getCurrentDay())) {
-            processMonthlyWages(season);
+            calendarEventDispatcher.processMonthlyWages(season);
         }
 
         // Safety net: if we're past day 355 with no pending events, trigger season transition
@@ -319,7 +216,7 @@ public class GameAdvanceService {
                 List<GameCalendar> nextSeasonCal = gameCalendarRepository.findBySeason(season + 1);
                 if (nextSeasonCal.isEmpty()) {
                     System.out.println("=== SAFETY NET: No pending events and no next season. Triggering season transition. ===");
-                    processSeasonTransition(season);
+                    calendarEventDispatcher.processSeasonTransition(season);
                     // Re-read calendar state
                     List<GameCalendar> newCals = gameCalendarRepository.findBySeason(season + 1);
                     if (!newCals.isEmpty()) {
@@ -371,684 +268,6 @@ public class GameAdvanceService {
         }
 
         return result;
-    }
-
-    private void processMonthlyWages(int season) {
-        GameCalendar calendar = calendarService.getOrCreateCalendar(season);
-        int currentDay = calendar.getCurrentDay();
-
-        List<Team> allTeams = teamRepository.findAll();
-        for (Team team : allTeams) {
-            // Process wages through finance service (records transaction + updates totalFinances)
-            long wagesPaid = financeService.processTeamMonthlyWages(team, season, currentDay);
-
-            // Process monthly merchandising income for all teams
-            financeService.processMerchandisingIncome(team.getId(), season, currentDay);
-
-            // Process debt interest if applicable
-            financeService.processDebtInterest(team.getId(), season, currentDay);
-
-            // Check if finances went negative -> create debt
-            financeService.checkAndCreateDebt(team.getId());
-
-            // Send financial report to human managers
-            if (userContext.isHumanTeam(team.getId())) {
-                financeService.sendMonthlyFinancialReport(team.getId(), season, currentDay, wagesPaid);
-            }
-        }
-        System.out.println("=== Monthly wages processed for season " + season + " ===");
-    }
-
-    private Map<String, Object> processEvent(CalendarEvent event, GameCalendar calendar) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", event.getEventType());
-        result.put("title", event.getTitle());
-        result.put("day", event.getDay());
-
-        switch (event.getEventType()) {
-            case "TRAINING_SESSION":
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    trainingService.processTrainingSession(htId, calendar.getSeason());
-                }
-                // Train AI teams using the original trainPlayer logic
-                trainAllAITeams(calendar.getSeason());
-                result.put("details", "Training session completed");
-                break;
-            case "YOUTH_ACADEMY_REPORT":
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    youthAcademyService.generateYouthReport(htId, calendar.getSeason());
-                    youthAcademyService.developYouthPlayers(htId);
-                }
-                result.put("details", "Youth academy report generated");
-                break;
-            case "PRESS_CONFERENCE":
-                // Find the first human team that plays in this competition/round and show press conference for them
-                long pressCompId = event.getCompetitionId() != null ? event.getCompetitionId() : 0;
-                Set<Long> humanCompIds = getHumanTeamCompetitionIds(calendar.getSeason());
-
-                if (pressCompId > 0 && !humanCompIds.contains(pressCompId)) {
-                    result.put("details", "Press conference skipped (not in competition)");
-                    break;
-                }
-
-                Long pressHumanTeamId = null;
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    // Check if manager has delegated press conferences to assistant
-                    List<Human> humanManagers = humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.MANAGER_TYPE);
-                    if (!humanManagers.isEmpty() && !humanManagers.get(0).isAttendPressConferences()) {
-                        continue;
-                    }
-
-                    // Check if this human team actually plays in this round of this competition
-                    if (pressCompId > 0 && event.getMatchday() > 0) {
-                        List<CompetitionTeamInfoMatch> roundMatches = competitionTeamInfoMatchRepository
-                                .findAllByCompetitionIdAndRoundAndSeasonNumber(pressCompId, event.getMatchday(), String.valueOf(calendar.getSeason()));
-                        boolean humanPlaysInRound = roundMatches.stream()
-                                .anyMatch(m -> m.getTeam1Id() == htId || m.getTeam2Id() == htId);
-                        if (humanPlaysInRound) {
-                            pressHumanTeamId = htId;
-                            break;
-                        }
-                    }
-                }
-
-                if (pressHumanTeamId == null) {
-                    result.put("details", "Press conference skipped (team not playing in this round)");
-                    break;
-                }
-
-                PressConference pc = pressConferenceService.generatePreMatchPressConference(pressHumanTeamId,
-                        pressCompId, event.getMatchday(), calendar.getSeason());
-                result.put("details", "Press conference available");
-                result.put("pressConferenceId", pc.getId());
-                result.put("awaitingInput", true);
-                // Mark all other PRESS_CONFERENCE events for this day as completed
-                // so only one press conference modal appears per day
-                List<CalendarEvent> otherPressConfs = calendarEventRepository
-                        .findAllBySeasonAndDayAndStatus(calendar.getSeason(), calendar.getCurrentDay(), "PENDING")
-                        .stream()
-                        .filter(e -> "PRESS_CONFERENCE".equals(e.getEventType()) && e.getId() != event.getId())
-                        .toList();
-                for (CalendarEvent other : otherPressConfs) {
-                    calendarService.markEventCompleted(other.getId());
-                }
-                break;
-            case "BOARD_MEETING":
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    boardRequestService.processBoardMeeting(htId, calendar.getSeason());
-                }
-                result.put("details", "Board meeting completed");
-                break;
-            case "AWARDS_CEREMONY":
-                List<Award> awards = awardService.processAwardsCeremony(calendar.getSeason());
-                result.put("details", "Awards ceremony completed");
-                result.put("awards", awards);
-                break;
-            case "SPONSOR_OFFER":
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    sponsorshipService.generateSponsorOffer(htId, calendar.getSeason());
-                }
-                result.put("details", "Sponsorship offer received");
-                break;
-            case "NATIONAL_TEAM_CALL":
-                nationalTeamService.processInternationalBreak(calendar.getSeason(), calendar.getCurrentDay());
-                result.put("details", "International break - players called up");
-                break;
-            case "INJURY_UPDATE":
-                processInjuryUpdate();
-                // Also check facility upgrade completion for all human teams
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    facilityUpgradeService.checkUpgradeCompletion(htId, calendar.getCurrentDay(), calendar.getSeason());
-                }
-                // Process completed scouting assignments
-                scoutManagementController.processCompletedAssignments(calendar.getSeason(), calendar.getCurrentDay());
-                result.put("details", "Injuries and facilities updated");
-                break;
-            case "MATCH_LEAGUE":
-            case "MATCH_CUP":
-            case "MATCH_EUROPEAN":
-                if (event.getCompetitionId() != null && event.getMatchday() > 0) {
-                    matchSimulationOrchestrator.simulateMatchday(
-                            event.getCompetitionId(), event.getMatchday(), event.getSeason());
-                    result.put("details", "Match simulated: " + event.getTitle());
-                    // Fetch match results for ALL human teams
-                    List<Long> htIds = userContext.getAllHumanTeamIds();
-                    Map<Long, Map<String, Object>> allMatchResults = new LinkedHashMap<>();
-                    for (long htId : htIds) {
-                        Map<String, Object> matchResult = matchSimulationOrchestrator.getHumanMatchResult(
-                                event.getCompetitionId(), event.getMatchday(), event.getSeason(), htId);
-                        if (matchResult.containsKey("score")) {
-                            allMatchResults.put(htId, matchResult);
-                        }
-                    }
-                    if (!allMatchResults.isEmpty()) {
-                        result.put("allMatchResults", allMatchResults);
-                        // Backward compat: also put first result as "matchResult"
-                        result.put("matchResult", allMatchResults.values().iterator().next());
-
-                        // Check if any human team has a live match available
-                        for (long htId : htIds) {
-                            Map<String, Object> mr = allMatchResults.get(htId);
-                            if (mr != null && mr.containsKey("team1Id") && mr.containsKey("team2Id")) {
-                                long t1 = ((Number) mr.get("team1Id")).longValue();
-                                long t2 = ((Number) mr.get("team2Id")).longValue();
-                                String liveKey = LiveMatchSimulationService.buildKey(
-                                        event.getCompetitionId(), event.getSeason(),
-                                        event.getMatchday(), t1, t2);
-                                if (liveMatchSimulationService.getLiveMatchData(liveKey) != null) {
-                                    result.put("hasLiveMatch", true);
-                                    result.put("liveMatchKey", liveKey);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    result.put("details", "Match day - missing competition data");
-                }
-                // After match, process suspensions
-                suspensionService.processMatchCards(event.getCompetitionId(), event.getMatchday(), calendar.getSeason());
-                break;
-            case "MATCH_FRIENDLY":
-                List<Map<String, Object>> friendlyResults = friendlyMatchService.simulateFriendliesForDay(
-                        calendar.getSeason(), calendar.getCurrentDay());
-                if (!friendlyResults.isEmpty()) {
-                    result.put("details", "Friendly match completed");
-                    result.put("friendlyResults", friendlyResults);
-                    // Show first result as summary
-                    Map<String, Object> first = friendlyResults.get(0);
-                    result.put("title", "Friendly: " + first.get("homeTeam") + " " +
-                            first.get("score") + " " + first.get("awayTeam"));
-                } else {
-                    result.put("details", "Pre-season friendly day (no matches scheduled)");
-                }
-                break;
-            case "CONTRACT_EXPIRY_CHECK":
-                endOfSeasonProcessor.handleContractExpiries((int) calendar.getSeason());
-                result.put("details", "Contract expiry check completed - expired contracts processed");
-                break;
-            case "ANALYTICS_REPORT":
-                result.put("details", "Analytics report available");
-                break;
-            case "TRANSFER_WINDOW_OPEN":
-                calendar.setTransferWindowOpen(true);
-                gameCalendarRepository.save(calendar);
-                transferMarketService.setOpen(true);
-                result.put("details", "Transfer window is now open! You can buy and sell players.");
-                result.put("awaitingInput", true);
-                break;
-            case "TRANSFER_WINDOW_CLOSE":
-                calendar.setTransferWindowOpen(false);
-                gameCalendarRepository.save(calendar);
-                transferMarketService.setOpen(false);
-                result.put("details", "Transfer window is now closed.");
-                break;
-            case "SEASON_START":
-                processSeasonStart(event.getSeason());
-                result.put("details", "Season " + event.getSeason() + " initialized - calendar generated");
-                break;
-            case "SEASON_END":
-                processSeasonEnd(event.getSeason());
-                result.put("details", "Season " + event.getSeason() + " has ended. AI transfers completed. Transfer window is now open!");
-                result.put("awaitingInput", true);
-                break;
-            case "SEASON_TRANSITION":
-                processSeasonTransition(event.getSeason());
-                result.put("details", "New season " + (event.getSeason() + 1) + " is starting!");
-                result.put("newSeason", event.getSeason() + 1);
-                result.put("awaitingInput", true);
-                break;
-            default:
-                result.put("details", event.getDescription());
-                break;
-        }
-
-        return result;
-    }
-
-    /**
-     * Batch-processes all match events for a single phase.
-     * Simulates all competitions at once instead of one-by-one.
-     */
-    private Map<String, Object> processBatchMatches(List<CalendarEvent> matchEvents, GameCalendar calendar) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", "MATCH_DAY");
-        result.put("day", calendar.getCurrentDay());
-
-        List<String> matchSummaries = new ArrayList<>();
-        Map<String, Object> humanMatchResult = null;
-
-        // Find which competition the human team plays in (to fetch result after simulation)
-        Long humanCompetitionId = null;
-        int humanMatchday = 0;
-
-        // Check which competitions have the human team
-        for (CalendarEvent event : matchEvents) {
-            if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
-            // We'll determine the human competition after simulating
-            // For now just track all competitions
-        }
-
-        // Simulate ALL competitions (just simulateRound, same as old play())
-        long _tBatchStart = System.nanoTime();
-        for (CalendarEvent event : matchEvents) {
-            if (event.getCompetitionId() != null && event.getMatchday() > 0) {
-                matchSimulationOrchestrator.simulateMatchday(
-                        event.getCompetitionId(), event.getMatchday(), event.getSeason());
-                matchSummaries.add(event.getTitle());
-            }
-        }
-        long batchMs = (System.nanoTime() - _tBatchStart) / 1_000_000;
-        System.out.println(String.format(
-                "=== processBatchMatches: %d competitions in %dms (avg %dms/comp) ===",
-                matchEvents.size(), batchMs, matchEvents.isEmpty() ? 0 : batchMs / matchEvents.size()));
-
-        // AFTER all simulations: find match results for ALL human teams
-        List<Long> htIds = userContext.getAllHumanTeamIds();
-        Map<Long, Map<String, Object>> allMatchResults = new LinkedHashMap<>();
-        Set<Long> humanCompetitionIds = new HashSet<>();
-
-        for (long htId : htIds) {
-            for (CalendarEvent event : matchEvents) {
-                if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
-                Map<String, Object> mr = matchSimulationOrchestrator.getHumanMatchResult(
-                        event.getCompetitionId(), event.getMatchday(), event.getSeason(), htId);
-                if (mr.containsKey("score")) {
-                    allMatchResults.put(htId, mr);
-                    humanCompetitionIds.add(event.getCompetitionId());
-                    if (humanMatchday == 0) {
-                        humanCompetitionId = event.getCompetitionId();
-                        humanMatchday = event.getMatchday();
-                    }
-                    break;
-                }
-            }
-        }
-        if (!allMatchResults.isEmpty()) {
-            humanMatchResult = allMatchResults.values().iterator().next();
-        }
-
-        // Process suspensions for all competitions where human teams played
-        for (Long compId : humanCompetitionIds) {
-            for (CalendarEvent event : matchEvents) {
-                if (compId.equals(event.getCompetitionId()) && event.getMatchday() > 0) {
-                    suspensionService.processMatchCards(compId, event.getMatchday(), calendar.getSeason());
-                    break;
-                }
-            }
-        }
-
-        // Generate inbox news with other match results
-        generateMatchDayNews(matchEvents, calendar);
-
-        result.put("title", "Match Day - " + matchSummaries.size() + " competitions");
-        result.put("details", String.join(", ", matchSummaries));
-
-        if (!allMatchResults.isEmpty()) {
-            result.put("allMatchResults", allMatchResults);
-            // Backward compat: also put first result as "matchResult"
-            result.put("matchResult", allMatchResults.values().iterator().next());
-
-        }
-
-        // Check for a live match session belonging to the human user. We
-        // look this up DIRECTLY on the simulation service (instead of via
-        // allMatchResults) because interactive sessions don't write the
-        // CompetitionTeamInfoDetail row yet — that happens on /commit —
-        // so the user's match wouldn't show up in allMatchResults at all.
-        for (long htId : htIds) {
-            for (CalendarEvent event : matchEvents) {
-                if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
-                var session = liveMatchSimulationService.findSessionForTeam(
-                        event.getCompetitionId(), event.getSeason(), event.getMatchday(), htId);
-                if (session == null || session.isCommitted()) continue;
-
-                String liveKey = LiveMatchSimulationService.buildKey(
-                        session.getCompetitionId(), session.getSeason(), session.getRound(),
-                        session.getTeamId1(), session.getTeamId2());
-                result.put("hasLiveMatch", true);
-                result.put("liveMatchKey", liveKey);
-                boolean interactive = !session.isFinished();
-                result.put("liveMatchInteractive", interactive);
-
-                // For legacy (engine already finished sync — currently no path
-                // produces this since Session 4) schedule the post-match PC
-                // inline. Interactive matches generate the PC on /commit.
-                if (!interactive) {
-                    var liveData = liveMatchSimulationService.getLiveMatchData(liveKey);
-                    List<Human> humanManagers = humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.MANAGER_TYPE);
-                    if (liveData != null && !humanManagers.isEmpty()
-                            && humanManagers.get(0).isViewFullMatch()
-                            && humanManagers.get(0).isAttendPressConferences()) {
-                        boolean isHome = liveData.getHomeTeamId() == htId;
-                        int teamScore = isHome ? liveData.getHomeScore() : liveData.getAwayScore();
-                        int opponentScore = isHome ? liveData.getAwayScore() : liveData.getHomeScore();
-                        PressConference postMatchPc = pressConferenceService.generatePostMatchPressConference(
-                                htId, event.getCompetitionId(), event.getMatchday(),
-                                calendar.getSeason(), teamScore, opponentScore);
-                        result.put("postMatchPressConferenceId", postMatchPc.getId());
-                        result.put("postMatchPressConferenceOutcome",
-                                teamScore > opponentScore ? "WIN"
-                                        : teamScore < opponentScore ? "LOSS" : "DRAW");
-                    }
-                }
-                break;
-            }
-            if (result.containsKey("hasLiveMatch")) break;
-        }
-
-        return result;
-    }
-
-    @Autowired
-    ManagerInboxRepository managerInboxRepository;
-
-    private void generateMatchDayNews(List<CalendarEvent> matchEvents, GameCalendar calendar) {
-        List<Long> humanTeamIds = userContext.getAllHumanTeamIds();
-
-        // Group results by competition so each competition gets its own inbox message
-        Map<String, StringBuilder> resultsByCompetition = new LinkedHashMap<>();
-
-        for (CalendarEvent event : matchEvents) {
-            if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
-            List<Map<String, Object>> otherResults = matchSimulationOrchestrator.getAllMatchResults(
-                    event.getCompetitionId(), event.getMatchday(), event.getSeason());
-            if (otherResults.isEmpty()) continue;
-
-            String competitionName = (String) otherResults.get(0).get("competitionName");
-            StringBuilder sb = resultsByCompetition.computeIfAbsent(competitionName, k -> new StringBuilder());
-            for (Map<String, Object> mr : otherResults) {
-                sb.append(mr.get("team1Name")).append(" ")
-                        .append(mr.get("score")).append(" ")
-                        .append(mr.get("team2Name")).append("\n");
-            }
-        }
-
-        for (Map.Entry<String, StringBuilder> entry : resultsByCompetition.entrySet()) {
-            String content = entry.getValue().toString().trim();
-            if (content.isEmpty()) continue;
-
-            for (long htId : humanTeamIds) {
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(htId);
-                inbox.setSeasonNumber(calendar.getSeason());
-                inbox.setRoundNumber(calendar.getCurrentDay());
-                inbox.setTitle("Match Day Results - " + entry.getKey());
-                inbox.setContent(content);
-                inbox.setCategory("league_news");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
-            }
-        }
-    }
-
-    /**
-     * Processes a daily training session: slightly improves fitness for all players.
-     * Players who are not injured get a small fitness boost.
-     */
-    private void processTrainingSession() {
-        Random random = new Random();
-        // Train all human teams' players
-        List<Human> players = new ArrayList<>();
-        for (long htId : userContext.getAllHumanTeamIds()) {
-            players.addAll(humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.PLAYER_TYPE));
-        }
-
-        Set<Long> injuredPlayerIds = new HashSet<>();
-        List<Injury> activeInjuries = injuryRepository.findAllByDaysRemainingGreaterThan(0);
-        for (Injury injury : activeInjuries) {
-            injuredPlayerIds.add(injury.getPlayerId());
-        }
-
-        List<Human> toSave = new ArrayList<>();
-        for (Human player : players) {
-            if (player.isRetired()) continue;
-            if (injuredPlayerIds.contains(player.getId())) continue;
-
-            double fitnessBoost = 0.1 + random.nextDouble() * 0.4;
-            player.setRating(player.getRating() + fitnessBoost);
-            toSave.add(player);
-        }
-        if (!toSave.isEmpty()) humanRepository.saveAll(toSave);
-    }
-
-    /**
-     * Processes daily injury updates: decrements daysRemaining by 1 for all active injuries.
-     * When an injury heals (daysRemaining reaches 0), the player status is set back to "Available".
-     *
-     * @return number of players who fully recovered
-     */
-    private int processInjuryUpdate() {
-        List<Injury> activeInjuries = injuryRepository.findAllByDaysRemainingGreaterThan(0);
-        int healed = 0;
-        List<Human> playersToSave = new ArrayList<>();
-
-        for (Injury injury : activeInjuries) {
-            injury.setDaysRemaining(injury.getDaysRemaining() - 1);
-
-            if (injury.getDaysRemaining() <= 0) {
-                Optional<Human> playerOpt = humanRepository.findById(injury.getPlayerId());
-                if (playerOpt.isPresent()) {
-                    Human player = playerOpt.get();
-                    player.setCurrentStatus("Available");
-                    playersToSave.add(player);
-                    healed++;
-                }
-            }
-        }
-        if (!activeInjuries.isEmpty()) injuryRepository.saveAll(activeInjuries);
-        if (!playersToSave.isEmpty()) humanRepository.saveAll(playersToSave);
-
-        return healed;
-    }
-
-    private int aiTrainingCounter = 0;
-    // Original: ~11 trainings/season (every 3rd round of 34).
-    // Now: ~265 sessions/season, every 3rd = ~88 trainings/season.
-    // Scale factor = 11/88 ≈ 0.125 to keep same total rating change per season.
-    private static final int AI_TRAINING_FREQUENCY = 3; // every 3rd session (~88/season)
-    private static final double AI_TRAINING_SCALE = 11.0 / 88.0; // ~0.125
-
-    /**
-     * Trains all AI team players using batch-loaded data.
-     * Runs every 3rd training session with scaled-down rating changes.
-     * Uses bulk queries instead of per-player/per-team queries (~5 queries total vs ~10,000).
-     */
-    private void trainAllAITeams(int season) {
-        aiTrainingCounter++;
-        if (aiTrainingCounter % AI_TRAINING_FREQUENCY != 0) return;
-
-        // 1. Determine which teams are AI teams
-        List<Team> allTeams = teamRepository.findAll();
-        Set<Long> aiTeamIds = new HashSet<>();
-        for (Team team : allTeams) {
-            if (!userContext.isHumanTeam(team.getId())) {
-                aiTeamIds.add(team.getId());
-            }
-        }
-        if (aiTeamIds.isEmpty()) return;
-
-        // 2. Bulk load all facilities (1 query)
-        List<TeamFacilities> allFacilities = teamFacilitiesRepository.findAll();
-        Map<Long, TeamFacilities> facilitiesMap = new HashMap<>();
-        for (TeamFacilities f : allFacilities) {
-            facilitiesMap.put(f.getTeamId(), f);
-        }
-
-        // 3. Bulk load all AI team players (1 query)
-        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
-        List<Human> aiPlayers = new ArrayList<>();
-        for (Human p : allPlayers) {
-            if (p.getTeamId() != null && aiTeamIds.contains(p.getTeamId()) && !p.isRetired()) {
-                aiPlayers.add(p);
-            }
-        }
-        if (aiPlayers.isEmpty()) return;
-
-        // 4. Bulk load all PlayerSkills for AI players (1 query)
-        List<Long> aiPlayerIds = aiPlayers.stream().map(Human::getId).collect(Collectors.toList());
-        List<PlayerSkills> allSkills = playerSkillsRepository.findAllByPlayerIdIn(aiPlayerIds);
-        Map<Long, PlayerSkills> skillsMap = new HashMap<>();
-        for (PlayerSkills ps : allSkills) {
-            skillsMap.put(ps.getPlayerId(), ps);
-        }
-
-        // 5. Bulk load all coaching staff and pre-compute multiplier per team (1 query per coach type = 6 queries)
-        Map<Long, Double> coachingMultiplierCache = new HashMap<>();
-        // Pre-load all staff in one pass by loading all humans with coach types
-        Map<Long, List<Human>> staffByTeam = new HashMap<>();
-        for (long coachType : new long[]{TypeNames.ASSISTANT_MANAGER_TYPE, TypeNames.FIRST_TEAM_COACH_TYPE,
-                TypeNames.FITNESS_COACH_TYPE, TypeNames.GK_COACH_TYPE,
-                TypeNames.YOUTH_COACH_TYPE, TypeNames.HOYD_TYPE}) {
-            for (Human staff : humanRepository.findAllByTypeId(coachType)) {
-                if (staff.getTeamId() != null && aiTeamIds.contains(staff.getTeamId())) {
-                    staffByTeam.computeIfAbsent(staff.getTeamId(), k -> new ArrayList<>()).add(staff);
-                }
-            }
-        }
-
-        for (long teamId : aiTeamIds) {
-            List<Human> staff = staffByTeam.getOrDefault(teamId, List.of());
-            if (staff.isEmpty()) {
-                coachingMultiplierCache.put(teamId, 0.5);
-            } else {
-                double avg = staff.stream()
-                        .mapToDouble(c -> (c.getCoachingAttacking() + c.getCoachingDefending() +
-                                c.getCoachingTactical() + c.getCoachingTechnical() +
-                                c.getCoachingMental() + c.getCoachingFitness()) / 6.0)
-                        .average().orElse(5.0);
-                coachingMultiplierCache.put(teamId, 0.5 + (avg / 20.0));
-            }
-        }
-
-        // 6. Train all players in memory
-        Random random = new Random();
-        List<Human> modifiedPlayers = new ArrayList<>();
-        List<PlayerSkills> modifiedSkills = new ArrayList<>();
-
-        for (Human player : aiPlayers) {
-            long teamId = player.getTeamId();
-            TeamFacilities facilities = facilitiesMap.get(teamId);
-            if (facilities == null) continue;
-
-            double staffMult = coachingMultiplierCache.getOrDefault(teamId, 0.5);
-            double facilityBase = 0.5 + (facilities.getSeniorTrainingLevel() / 20.0);
-            double facilityMultiplier = staffMult * 0.6 + facilityBase * 0.4;
-
-            PlayerSkills skills = skillsMap.get(player.getId());
-            double ratingBefore = player.getRating();
-
-            PlayerSkills changedSkills = humanService.trainPlayerBatch(
-                    player, facilities, facilityMultiplier, skills, season, random);
-
-            // Scale down the rating change
-            double ratingChange = player.getRating() - ratingBefore;
-            if (ratingChange != 0) {
-                double scaledRating = ratingBefore + (ratingChange * AI_TRAINING_SCALE);
-                player.setRating(scaledRating);
-                if (scaledRating > player.getBestEverRating()) {
-                    player.setBestEverRating(scaledRating);
-                    player.setSeasonOfBestEverRating(season);
-                }
-            }
-
-            modifiedPlayers.add(player);
-            if (changedSkills != null) {
-                modifiedSkills.add(changedSkills);
-            }
-        }
-
-        // 7. Batch save (2 queries)
-        if (!modifiedPlayers.isEmpty()) humanRepository.saveAll(modifiedPlayers);
-        if (!modifiedSkills.isEmpty()) playerSkillsRepository.saveAll(modifiedSkills);
-    }
-
-    /**
-     * Processes SEASON_START event: generates the full season calendar with all fixtures,
-     * training sessions, injury updates, and other periodic events.
-     */
-    private void processSeasonStart(int season) {
-        System.out.println("=== SEASON_START: Generating calendar for season " + season + " ===");
-
-        // Check if calendar events already exist for this season (avoid duplicates)
-        List<CalendarEvent> existingEvents = calendarEventRepository.findAllBySeasonAndDayAndStatus(season, 1, "PENDING");
-        // Only generate if we don't already have a full set of events
-        // (the SEASON_START event itself exists, so check for more than just a few events)
-        long totalEvents = calendarEventRepository.findAllBySeasonAndDayAndStatus(season, 2, "PENDING").size();
-        if (totalEvents == 0) {
-            fixtureSchedulingService.generateSeasonCalendar(season);
-            System.out.println("=== Season " + season + " calendar generated ===");
-        } else {
-            System.out.println("=== Season " + season + " calendar already exists, skipping generation ===");
-        }
-    }
-
-    /**
-     * Processes SEASON_END event (day 340): Phase 1 of season transition.
-     * Handles final standings, relegation/promotion, AI transfers, and loans.
-     * The game pauses here so the user can make transfers (days 341-355).
-     * The new season is NOT created yet — that happens at SEASON_TRANSITION (day 360).
-     */
-    private void processSeasonEnd(int season) {
-        System.out.println("=== SEASON_END: Processing end of season " + season + " ===");
-
-        // Phase 1: standings, relegation, AI transfers
-        seasonTransitionService.processEndOfSeason(season);
-
-        // Set transfer window open on the current calendar
-        GameCalendar calendar = calendarService.getOrCreateCalendar(season);
-        calendar.setTransferWindowOpen(true);
-        gameCalendarRepository.save(calendar);
-
-        System.out.println("=== Season " + season + " ended. Transfer window open for user transfers. ===");
-    }
-
-    /**
-     * Processes SEASON_TRANSITION event (day 360): Phase 2 of season transition.
-     * Called AFTER the transfer window closes. Sets up the new season:
-     * budget refresh, aging, regens, fixtures, scorers, new calendar.
-     */
-    private void processSeasonTransition(int season) {
-        System.out.println("=== SEASON_TRANSITION: Creating new season from " + season + " ===");
-
-        int newSeason = season + 1;
-
-        // Guard: check if the new season calendar already exists (prevents double processing)
-        List<GameCalendar> existingNewCal = gameCalendarRepository.findBySeason(newSeason);
-        if (!existingNewCal.isEmpty()) {
-            System.out.println("=== Season " + newSeason + " calendar already exists, skipping ===");
-            return;
-        }
-
-        try {
-            // Phase 2: aging, regens, fixtures, scorers, budget refresh
-            seasonTransitionService.processNewSeasonSetup(season);
-        } catch (Exception e) {
-            System.err.println("=== ERROR in processNewSeasonSetup for season " + season + ": " + e.getMessage());
-            e.printStackTrace();
-            // Continue to create the new calendar anyway so the game doesn't get stuck
-        }
-
-        // Create a new GameCalendar for the new season
-        GameCalendar newCalendar = new GameCalendar();
-        newCalendar.setSeason(newSeason);
-        newCalendar.setCurrentDay(1);
-        newCalendar.setCurrentPhase("MORNING");
-        newCalendar.setSeasonPhase("PRE_SEASON");
-        newCalendar.setTransferWindowOpen(false);
-        newCalendar.setManagerFired(false);
-        newCalendar.setPaused(false);
-        gameCalendarRepository.save(newCalendar);
-
-        // Generate the calendar events for the new season
-        fixtureSchedulingService.generateSeasonCalendar(newSeason);
-
-        // Invalidate cached competition IDs since season changed
-        humanTeamCompetitionIds = null;
-        humanTeamCompetitionIdsSeason = -1;
-
-        System.out.println("=== Season transition complete. New season " + newSeason + " started. ===");
     }
 
     @SuppressWarnings("unchecked")
@@ -1113,6 +332,37 @@ public class GameAdvanceService {
      * the frontend blocks CONTINUE until they accept/decline. Returns null
      * if there's nothing blocking.
      */
+    /**
+     * If any human user has an uncommitted live-match session lying around
+     * (browser refresh, server-side session still cached), return a paused
+     * response with the live-match signal so the FE re-opens the modal where
+     * it was. Without this, the next CONTINUE press would advance the calendar
+     * past the matchday and silently lose the result.
+     */
+    private Map<String, Object> checkLiveMatchPause(int season, GameCalendar calendar) {
+        for (var u : userRepository.findAll()) {
+            if (u.getTeamId() == null) continue;
+            var session = liveMatchSimulationService.findAnyUncommittedSessionForTeam(u.getTeamId());
+            if (session == null) continue;
+
+            String liveKey = LiveMatchSimulationService.buildKey(
+                    session.getCompetitionId(), session.getSeason(), session.getRound(),
+                    session.getTeamId1(), session.getTeamId2());
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("paused", true);
+            result.put("reason", "LIVE_MATCH_PENDING");
+            result.put("hasLiveMatch", true);
+            result.put("liveMatchKey", liveKey);
+            result.put("liveMatchInteractive", !session.isFinished());
+            result.put("season", season);
+            result.put("day", calendar.getCurrentDay());
+            result.put("phase", calendar.getCurrentPhase());
+            result.put("dateDisplay", calendarService.getDateDisplay(calendar.getCurrentDay()));
+            return result;
+        }
+        return null;
+    }
+
     private Map<String, Object> checkJobOfferPause(int season, GameCalendar calendar) {
         boolean anyPending = false;
         List<Integer> usersWithOffers = new ArrayList<>();
@@ -1147,10 +397,18 @@ public class GameAdvanceService {
         if (!forced && !adminController.areJobOffersEnabled()) return;
 
         for (var u : userRepository.findAll()) {
-            if (u.getTeamId() == null) continue;            // jobless user — skip
-            if (u.isFired()) continue;                       // separate flow
             if (jobOfferService.userHasPendingOffer(u.getId())) continue;
-            if (!forced && random.nextDouble() > 0.02) continue; // 2% per advance per user
+
+            // Free agents (no team) get help finding work: spawn fresh offers more
+            // aggressively than the standard 2% so they're not stuck after declining
+            // the welcome batch. Fired veterans share this path.
+            boolean isFreeAgent = (u.getTeamId() == null) && u.isFired();
+            double chance = isFreeAgent ? 0.15 : 0.02;
+            if (!forced && random.nextDouble() > chance) continue;
+
+            // Employed users with a managerId opt out of generated offers
+            // — they should only see opportunistic offers (handled by 2% above).
+            if (u.getTeamId() != null && u.isFired()) continue; // shouldn't happen, but guard
 
             try {
                 jobOfferService.generateOpportunisticOffer(u.getId());

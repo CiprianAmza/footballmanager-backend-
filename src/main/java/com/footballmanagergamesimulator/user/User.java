@@ -22,8 +22,10 @@ public class User {
     private boolean active;
     private String roles = "USER";
 
-    private Long teamId;       // the team this user manages (null = not yet selected)
+    private Long teamId;       // the team this user manages (null = not yet selected OR free agent)
     private Long lastTeamId;   // the last team managed (preserved when fired, for inbox access)
     private Long managerId;    // the Human entity ID for this user's manager
-    private boolean fired;     // true if this user's manager was sacked (per-user, not global)
+    private boolean fired;     // true if user has no team (sacked OR started as free agent — drives FE job-search UI)
+    private boolean everManaged; // true once the user has accepted any team. Distinguishes "fired veteran" from "fresh free agent".
+    private boolean initialOffersGenerated; // true once we've spawned the welcome batch of offers for a free agent (prevents re-spam).
 }

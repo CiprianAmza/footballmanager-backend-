@@ -728,6 +728,8 @@ public class LiveMatchSimulationService {
             info.setStamina((int) Math.round(s.currentStamina));
             info.setMinutesPlayed(s.minutesPlayed);
             info.setOnPitch(s.isOnPitch);
+            info.setYellowCardMinute(s.yellowCardMinute);
+            info.setRedCardMinute(s.redCardMinute);
             out.add(info);
         }
         return out;
@@ -774,6 +776,10 @@ public class LiveMatchSimulationService {
         int staminaAttr;       // 1-20
         int naturalFitness;    // 1-20
         int pace;              // 1-20
+        /** Minute when this player picked up a yellow card; 0 = never. */
+        int yellowCardMinute;
+        /** Minute when this player was sent off with a red; 0 = never. */
+        int redCardMinute;
     }
 
     /** Result of a substitution: the player who came off and the player who came on. */
@@ -817,6 +823,21 @@ public class LiveMatchSimulationService {
                     && (s.getTeamId1() == teamId || s.getTeamId2() == teamId)) {
                 return s;
             }
+        }
+        return null;
+    }
+
+    /**
+     * Find any uncommitted live session involving the given team — used by the
+     * day-advance safety net to detect a match the user abandoned (e.g. by
+     * refreshing the browser mid-match). If something turns up, the advance
+     * pauses with the live-match signal so the frontend resumes the modal
+     * instead of silently rolling past it with no result.
+     */
+    public LiveMatchSession findAnyUncommittedSessionForTeam(long teamId) {
+        for (LiveMatchSession s : liveMatchSessions.values()) {
+            if (s.isCommitted()) continue;
+            if (s.getTeamId1() == teamId || s.getTeamId2() == teamId) return s;
         }
         return null;
     }

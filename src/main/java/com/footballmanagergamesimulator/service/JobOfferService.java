@@ -147,6 +147,61 @@ public class JobOfferService {
     }
 
     /**
+     * Seed a fresh free agent with a small batch of welcome offers so the inbox
+     * is never empty. Picks teams from the lower-to-middle reputation tier (where
+     * a 500-rep newcomer can realistically land a job), prioritising teams that
+     * are already vacant. Called once at signup time from {@code GameController.setupGame}.
+     *
+     * @param userId the free agent user
+     * @param count  how many offers to seed (typically 2-3)
+     * @return the list of offers actually created (may be shorter than {@code count}
+     *         if there are too few candidates)
+     */
+    @Transactional
+    public List<JobOffer> generateInitialFreeAgentOffers(int userId, int count) {
+        List<JobOffer> created = new ArrayList<>();
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return created;
+
+        // Candidates: teams not managed by ANY human user, sorted by "best fit for newcomer".
+        Set<Long> humanManagedTeamIds = new HashSet<>();
+        for (User u : userRepository.findAll()) {
+            if (u.getTeamId() != null) humanManagedTeamIds.add(u.getTeamId());
+        }
+
+        List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
+        Set<Long> teamsWithManager = new HashSet<>();
+        for (Human m : allManagers) {
+            if (m.getTeamId() != null && m.getTeamId() > 0 && !m.isRetired()) {
+                teamsWithManager.add(m.getTeamId());
+            }
+        }
+
+        // Score: vacant teams first, then lower reputation (= more realistic landing spot).
+        // Cap at rep 5000 so we don't dangle Real Madrid in front of a 500-rep newcomer.
+        List<Team> candidates = teamRepository.findAll().stream()
+                .filter(t -> !humanManagedTeamIds.contains(t.getId()))
+                .filter(t -> t.getReputation() <= 5000)
+                .sorted((a, b) -> {
+                    boolean aVacant = !teamsWithManager.contains(a.getId());
+                    boolean bVacant = !teamsWithManager.contains(b.getId());
+                    if (aVacant != bVacant) return aVacant ? -1 : 1;
+                    // Mid-tier preferred over rock-bottom: target rep ~2500
+                    return Integer.compare(
+                            Math.abs(2500 - a.getReputation()),
+                            Math.abs(2500 - b.getReputation()));
+                })
+                .toList();
+
+        for (Team t : candidates) {
+            if (created.size() >= count) break;
+            JobOffer off = generateOffer(userId, t.getId());
+            if (off != null) created.add(off);
+        }
+        return created;
+    }
+
+    /**
      * Accept the offer: move the user's manager Human to the new team, demote
      * the old AI manager from the new team to free-agent status, and mark the
      * old team needing a fresh AI manager (existing replacement logic handles
@@ -198,8 +253,26 @@ public class JobOfferService {
         user.setTeamId(newTeamId);
         user.setLastTeamId(oldTeamId);
         user.setFired(false);
+        user.setEverManaged(true);
         userRepository.save(user);
         if (oldTeamId > 0) humanService.ensureTeamHasManager(oldTeamId);
+
+        // For free-agent → first-job, the canonical Round.humanTeamId is still 0.
+        // Sync it now so all the team-scoped reads (getCurrentSeason, etc.) line up.
+        Round round = gameStateService.getRound();
+        if (round != null && round.getHumanTeamId() != newTeamId) {
+            round.setHumanTeamId(newTeamId);
+            roundRepository.save(round);
+        }
+        // Clear any calendar-level managerFired flag from the old fired/free-agent state.
+        if (!userContext.isAnyUserFired()) {
+            for (GameCalendar cal : gameCalendarRepository.findAll()) {
+                if (cal.isManagerFired()) {
+                    cal.setManagerFired(false);
+                    gameCalendarRepository.save(cal);
+                }
+            }
+        }
 
         // 4. Auto-decline every other pending offer for this user (we accepted one)
         for (JobOffer other : jobOfferRepository.findAllByUserIdAndStatus(offer.getUserId(), "PENDING")) {
@@ -415,6 +488,7 @@ public class JobOfferService {
         currentUser.setTeamId(newTeamId);
         currentUser.setLastTeamId(newTeamId);
         currentUser.setFired(false);
+        currentUser.setEverManaged(true);
         userRepository.save(currentUser);
 
         // Mutate the shared cached Round so the controller's getCurrentSeason

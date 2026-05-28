@@ -55,6 +55,8 @@ public class MatchController {
     @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
     @Autowired
+    com.footballmanagergamesimulator.service.MatchStatsService matchStatsService;
+    @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
     @Autowired
     com.footballmanagergamesimulator.service.GameStateService gameStateService;
@@ -338,7 +340,7 @@ public class MatchController {
 
         // Use real match stats if available, otherwise estimate from power ratio
         Optional<com.footballmanagergamesimulator.model.MatchStats> matchStats =
-                matchSimulationService.getMatchStats(competitionId, season, round, teamId1, teamId2);
+                matchStatsService.getMatchStats(competitionId, season, round, teamId1, teamId2);
         if (matchStats.isPresent()) {
             summary.setHomePossession(matchStats.get().getHomePossession());
             summary.setAwayPossession(matchStats.get().getAwayPossession());
@@ -593,7 +595,7 @@ public class MatchController {
             @PathVariable long teamId2) {
 
         Optional<com.footballmanagergamesimulator.model.MatchStats> statsOpt =
-                matchSimulationService.getMatchStats(competitionId, season, round, teamId1, teamId2);
+                matchStatsService.getMatchStats(competitionId, season, round, teamId1, teamId2);
 
         if (statsOpt.isEmpty()) {
             return Map.of("available", false);
@@ -676,7 +678,7 @@ public class MatchController {
     public Map<String, Object> getTeamSeasonStats(
             @PathVariable long teamId,
             @PathVariable int season) {
-        return matchSimulationService.getTeamSeasonStats(teamId, season);
+        return matchStatsService.getTeamSeasonStats(teamId, season);
     }
 
     private Map<String, Object> statRow(Object home, String label, Object away) {

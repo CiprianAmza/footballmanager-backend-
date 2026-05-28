@@ -506,6 +506,13 @@ public class LiveMatchSession {
                     fouler.getId(), fouler.getName(), foulerTeamId, foulerTeamName));
             dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
                     min, "yellow_card", fouler.getId(), fouler.getName(), foulerTeamId, "Yellow card"));
+            PlayerMatchState ycState = matchStates.get(fouler.getId());
+            // First yellow only — the per-player snapshot just needs to know
+            // they're carrying one. A second yellow would normally promote to
+            // red, but the engine handles red as a separate path below.
+            if (ycState != null && ycState.yellowCardMinute == 0) {
+                ycState.yellowCardMinute = min;
+            }
         } else if (cardRoll < 0.24) {
             if (team1HasBall) awayRedCards++; else homeRedCards++;
             timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "red_card",
@@ -514,7 +521,10 @@ public class LiveMatchSession {
             dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
                     min, "red_card", fouler.getId(), fouler.getName(), foulerTeamId, "Red card"));
             PlayerMatchState rcState = matchStates.get(fouler.getId());
-            if (rcState != null) rcState.isOnPitch = false;
+            if (rcState != null) {
+                rcState.isOnPitch = false;
+                rcState.redCardMinute = min;
+            }
         } else if (min % 4 == 0) {
             String foulDesc = LiveMatchSimulationService.FOUL_DESCRIPTIONS[
                     random.nextInt(LiveMatchSimulationService.FOUL_DESCRIPTIONS.length)];

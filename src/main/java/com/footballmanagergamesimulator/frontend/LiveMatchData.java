@@ -95,5 +95,9 @@ public class LiveMatchData {
         private int stamina;        // 0-100, current condition
         private int minutesPlayed;
         private boolean onPitch;
+        /** Minute when this player picked up a yellow card; 0 = never. */
+        private int yellowCardMinute;
+        /** Minute when this player was sent off with a red; 0 = never. */
+        private int redCardMinute;
     }
 }
