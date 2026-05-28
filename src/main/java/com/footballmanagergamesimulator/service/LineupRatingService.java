@@ -67,7 +67,7 @@ public class LineupRatingService {
     @Autowired private TeamPostMatchService teamPostMatchService;
 
     @Autowired @Lazy private TacticController tacticController;
-    @Autowired @Lazy private CompetitionController controllerRef;
+    @Autowired private GameStateService gameStateService;
     @Autowired @Lazy private MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -295,7 +295,7 @@ public class LineupRatingService {
 
                     Scorer scorer = new Scorer();
                     scorer.setPlayerId(player.getId());
-                    scorer.setSeasonNumber(Integer.parseInt(controllerRef.getCurrentSeason()));
+                    scorer.setSeasonNumber(gameStateService.currentSeason());
                     scorer.setTeamId(teamId);
                     scorer.setOpponentTeamId(opponentTeamId);
                     scorer.setPosition(player.getPosition());
@@ -333,7 +333,7 @@ public class LineupRatingService {
             playerViews.stream().map(playerView -> {
                 Scorer scorer = new Scorer();
                 scorer.setPlayerId(playerView.getId());
-                scorer.setSeasonNumber(Integer.parseInt(controllerRef.getCurrentSeason()));
+                scorer.setSeasonNumber(gameStateService.currentSeason());
                 scorer.setTeamId(teamId);
                 scorer.setOpponentTeamId(opponentTeamId);
                 scorer.setPosition(playerView.getPosition());
@@ -353,7 +353,7 @@ public class LineupRatingService {
             substitutionViews.stream().map(playerView -> {
                 Scorer scorer = new Scorer();
                 scorer.setPlayerId(playerView.getId());
-                scorer.setSeasonNumber(Integer.parseInt(controllerRef.getCurrentSeason()));
+                scorer.setSeasonNumber(gameStateService.currentSeason());
                 scorer.setTeamId(teamId);
                 scorer.setOpponentTeamId(opponentTeamId);
                 scorer.setPosition(playerView.getPosition());
@@ -418,9 +418,9 @@ public class LineupRatingService {
 
         matchSimulationService.assignMatchRatings(possibleScorers, teamScore, opponentScore);
 
-        Set<Long> leagueCompIds = controllerRef.getLeagueCompetitionIdsCached();
-        Set<Long> cupCompIds = controllerRef.getCupCompetitionIdsCached();
-        Set<Long> secondLeagueCompIds = controllerRef.getSecondLeagueCompetitionIdsCached();
+        Set<Long> leagueCompIds = gameStateService.getLeagueCompetitionIdsCached();
+        Set<Long> cupCompIds = gameStateService.getCupCompetitionIdsCached();
+        Set<Long> secondLeagueCompIds = gameStateService.getSecondLeagueCompetitionIdsCached();
 
         for (Scorer scorer : possibleScorers) {
 
@@ -440,7 +440,7 @@ public class LineupRatingService {
                     newEntry.setActive(true);
                     newEntry.setCurrentRating(player.getRating());
                     newEntry.setBestEverRating(player.getRating());
-                    newEntry.setSeasonOfBestEverRating(Integer.parseInt(controllerRef.getCurrentSeason()));
+                    newEntry.setSeasonOfBestEverRating(gameStateService.currentSeason());
                     newEntry.setAge(player.getAge());
                     return scorerLeaderboardRepository.save(newEntry);
                 });
@@ -459,7 +459,7 @@ public class LineupRatingService {
                 scorerLeaderboardEntry.setActive(!player.isRetired());
                 if (player.getRating() > scorerLeaderboardEntry.getBestEverRating()) {
                     scorerLeaderboardEntry.setBestEverRating(player.getRating());
-                    scorerLeaderboardEntry.setSeasonOfBestEverRating(Integer.parseInt(controllerRef.getCurrentSeason()));
+                    scorerLeaderboardEntry.setSeasonOfBestEverRating(gameStateService.currentSeason());
                 }
                 scorerLeaderboardEntry.setAge(player.getAge());
                 scorerLeaderboardEntry.setCurrentRating(player.getRating());

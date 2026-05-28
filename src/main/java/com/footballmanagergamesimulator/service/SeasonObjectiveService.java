@@ -42,10 +42,6 @@ public class SeasonObjectiveService {
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
 
-    @Autowired @Lazy private CompetitionController controllerRef;
-    /** @Lazy avoids a startup cycle: SeasonTransitionService.processEndOfSeason
-     *  calls evaluateSeasonObjectives on us via controllerRef, so the reverse
-     *  edge has to be lazy too. */
     @Autowired @Lazy private SeasonTransitionService seasonTransitionService;
 
     /** Per-team, per-competition objective rows seeded at season start.

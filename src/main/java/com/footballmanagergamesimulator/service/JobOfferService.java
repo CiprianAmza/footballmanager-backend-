@@ -37,7 +37,7 @@ public class JobOfferService {
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private GameCalendarRepository gameCalendarRepository;
     @Autowired private UserContext userContext;
-    @Autowired @Lazy private CompetitionController controllerRef;
+    @Autowired private GameStateService gameStateService;
 
     private static final int OFFER_VALIDITY_DAYS = 7;
 
@@ -419,7 +419,7 @@ public class JobOfferService {
 
         // Mutate the shared cached Round so the controller's getCurrentSeason
         // and humanTeamId reads stay in sync.
-        Round round = controllerRef.getRoundCache();
+        Round round = gameStateService.getRound();
         round.setHumanTeamId(newTeamId);
         roundRepository.save(round);
 

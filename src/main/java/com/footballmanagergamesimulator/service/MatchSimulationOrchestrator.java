@@ -91,8 +91,7 @@ public class MatchSimulationOrchestrator {
     @Autowired private FixtureSchedulingService fixtureSchedulingService;
     @Autowired private TacticController tacticController;
     @Autowired private UserContext userContext;
-
-    @Autowired @Lazy private CompetitionController controllerRef;
+    @Autowired private GameStateService gameStateService;
 
     // ===== AI rating caches (lifetime: app, mirrors original controller behavior). =====
     private final Map<Long, Double> simpleRatingCache = new HashMap<>();
@@ -135,11 +134,11 @@ public class MatchSimulationOrchestrator {
         List<Human> batchedManagers = new ArrayList<>();
 
         // Pre-cache competition type IDs (avoids repeated findAll per match)
-        Set<Long> cachedLeagueCompIds = controllerRef.getLeagueCompetitionIdsCached();
-        Set<Long> cachedCupCompIds = controllerRef.getCupCompetitionIdsCached();
+        Set<Long> cachedLeagueCompIds = gameStateService.getLeagueCompetitionIdsCached();
+        Set<Long> cachedCupCompIds = gameStateService.getCupCompetitionIdsCached();
         // cached second-league set kept warm even if unused below — keeps controller's
         // legacy lazy-initialization sequence intact.
-        controllerRef.getSecondLeagueCompetitionIdsCached();
+        gameStateService.getSecondLeagueCompetitionIdsCached();
 
         // ===== Per-round pre-load: one IN-query per entity type instead of
         // re-querying inside every helper for every match. =====
@@ -880,9 +879,9 @@ public class MatchSimulationOrchestrator {
             leaderboardMap.put(lb.getPlayerId(), lb);
         }
 
-        Set<Long> cachedLeagueCompIds = controllerRef.getLeagueCompetitionIdsCached();
-        Set<Long> cachedCupCompIds = controllerRef.getCupCompetitionIdsCached();
-        Set<Long> cachedSecondLeagueCompIds = controllerRef.getSecondLeagueCompetitionIdsCached();
+        Set<Long> cachedLeagueCompIds = gameStateService.getLeagueCompetitionIdsCached();
+        Set<Long> cachedCupCompIds = gameStateService.getCupCompetitionIdsCached();
+        Set<Long> cachedSecondLeagueCompIds = gameStateService.getSecondLeagueCompetitionIdsCached();
 
         List<ScorerLeaderboardEntry> leaderboardToSave = new ArrayList<>();
         for (Scorer scorer : possibleScorers) {

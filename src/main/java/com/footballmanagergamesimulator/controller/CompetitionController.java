@@ -3,23 +3,18 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
 import com.footballmanagergamesimulator.frontend.TeamMatchView;
 import com.footballmanagergamesimulator.model.Competition;
-import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionType;
-import com.footballmanagergamesimulator.model.Round;
-import com.footballmanagergamesimulator.repository.CompetitionRepository;
-import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
-import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.service.CompetitionDisplayService;
+import com.footballmanagergamesimulator.service.CompetitionQueryService;
 import com.footballmanagergamesimulator.service.CupBracketService;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
-import com.footballmanagergamesimulator.service.GameInitializationService;
+import com.footballmanagergamesimulator.service.GameStateService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import com.footballmanagergamesimulator.service.TransferMarketService;
 import com.footballmanagergamesimulator.user.UserContext;
 
-import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,96 +23,42 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/competition")
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class CompetitionController {
 
-    private final CompetitionRepository competitionRepository;
-    private final CompetitionTeamInfoRepository competitionTeamInfoRepository;
-    private final CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
-
     private final CompetitionDisplayService competitionDisplayService;
+    private final CompetitionQueryService competitionQueryService;
     private final CupBracketService cupBracketService;
     private final EuropeanCompetitionService europeanCompetitionService;
     private final FixtureSchedulingService fixtureSchedulingService;
-    private final GameInitializationService gameInitializationService;
+    private final GameStateService gameStateService;
     private final MatchSimulationOrchestrator matchSimulationOrchestrator;
     private final TransferMarketService transferMarketService;
     private final UserContext userContext;
 
-    Round round;
-
-    private Set<Long> cachedLeagueCompIds = null;
-    private Set<Long> cachedCupCompIds = null;
-    private Set<Long> cachedSecondLeagueCompIds = null;
-
-    public CompetitionController(CompetitionRepository competitionRepository,
-                                 CompetitionTeamInfoRepository competitionTeamInfoRepository,
-                                 CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository,
-                                 CompetitionDisplayService competitionDisplayService,
+    public CompetitionController(CompetitionDisplayService competitionDisplayService,
+                                 CompetitionQueryService competitionQueryService,
                                  CupBracketService cupBracketService,
                                  EuropeanCompetitionService europeanCompetitionService,
                                  FixtureSchedulingService fixtureSchedulingService,
-                                 GameInitializationService gameInitializationService,
+                                 GameStateService gameStateService,
                                  MatchSimulationOrchestrator matchSimulationOrchestrator,
                                  TransferMarketService transferMarketService,
                                  UserContext userContext) {
-        this.competitionRepository = competitionRepository;
-        this.competitionTeamInfoRepository = competitionTeamInfoRepository;
-        this.competitionTeamInfoDetailRepository = competitionTeamInfoDetailRepository;
         this.competitionDisplayService = competitionDisplayService;
+        this.competitionQueryService = competitionQueryService;
         this.cupBracketService = cupBracketService;
         this.europeanCompetitionService = europeanCompetitionService;
         this.fixtureSchedulingService = fixtureSchedulingService;
-        this.gameInitializationService = gameInitializationService;
+        this.gameStateService = gameStateService;
         this.matchSimulationOrchestrator = matchSimulationOrchestrator;
         this.transferMarketService = transferMarketService;
         this.userContext = userContext;
-    }
-
-    @PostConstruct
-    public void initializeRound() {
-        this.round = gameInitializationService.initializeRound();
-    }
-
-    // ============================================================
-    //  State accessors (used by services via @Lazy back-reference)
-    // ============================================================
-
-    /** Exposes the in-memory Round so services see the same value
-     *  {@link #getCurrentSeason()} reads. */
-    public Round getRoundCache() {
-        return round;
-    }
-
-    /** Lazily populated competition-type ID caches exposed for
-     *  {@link MatchSimulationOrchestrator} and {@link com.footballmanagergamesimulator.service.LineupRatingService}
-     *  to share a single warm set per type. */
-    public Set<Long> getLeagueCompetitionIdsCached() {
-        if (cachedLeagueCompIds == null) {
-            cachedLeagueCompIds = competitionRepository.findIdsByTypeId(1);
-        }
-        return cachedLeagueCompIds;
-    }
-
-    public Set<Long> getCupCompetitionIdsCached() {
-        if (cachedCupCompIds == null) {
-            cachedCupCompIds = competitionRepository.findIdsByTypeId(2);
-        }
-        return cachedCupCompIds;
-    }
-
-    public Set<Long> getSecondLeagueCompetitionIdsCached() {
-        if (cachedSecondLeagueCompIds == null) {
-            cachedSecondLeagueCompIds = competitionRepository.findIdsByTypeId(3);
-        }
-        return cachedSecondLeagueCompIds;
     }
 
     // ============================================================
@@ -126,12 +67,12 @@ public class CompetitionController {
 
     @GetMapping("/getCurrentSeason")
     public String getCurrentSeason() {
-        return String.valueOf(round.getSeason());
+        return String.valueOf(gameStateService.currentSeason());
     }
 
     @GetMapping("/getCurrentRound")
     public String getCurrentRound() {
-        return String.valueOf(round.getRound());
+        return String.valueOf(gameStateService.currentRound());
     }
 
     @GetMapping("/isTransferWindowOpen")
@@ -150,45 +91,27 @@ public class CompetitionController {
 
     @GetMapping("/getAllCompetitions")
     public List<Competition> getAllCompetitions() {
-        return competitionRepository.findAll();
+        return competitionQueryService.getAllCompetitions();
     }
 
     @GetMapping("/getAllCompetitions/{typeId}")
     public List<Competition> getAllCompetitionsByTypeId(@PathVariable long typeId) {
-        return competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == typeId)
-                .toList();
+        return competitionQueryService.getAllCompetitionsByTypeId(typeId);
     }
 
     @GetMapping("/getAllCompetitionTypes")
     public List<CompetitionType> getAllCompetitionTypes() {
-        List<CompetitionType> competitionTypes = new ArrayList<>();
-
-        CompetitionType championship = new CompetitionType();
-        championship.setId(1);
-        championship.setTypeName("Championship");
-        championship.setTypeId(1);
-        competitionTypes.add(championship);
-
-        CompetitionType cup = new CompetitionType();
-        cup.setId(2);
-        cup.setTypeName("Cup");
-        cup.setTypeId(2);
-        competitionTypes.add(cup);
-
-        return competitionTypes;
+        return competitionQueryService.getAllCompetitionTypes();
     }
 
     @GetMapping("/getCompetitionName/{competitionId}")
     public String getCompetitionName(@PathVariable long competitionId) {
-        return competitionRepository.findById(competitionId)
-                .map(Competition::getName)
-                .orElse("Unknown Competition");
+        return competitionQueryService.getCompetitionName(competitionId);
     }
 
     @GetMapping("/getCompetitionNameById/{competitionId}")
-    public String getTeamNameByTeamId(@PathVariable long competitionId) {
-        return competitionRepository.findNameById(competitionId);
+    public String getCompetitionNameById(@PathVariable long competitionId) {
+        return competitionQueryService.getCompetitionNameById(competitionId);
     }
 
     @GetMapping("/getCompetitionInfo/{id}")
@@ -228,7 +151,7 @@ public class CompetitionController {
 
     @GetMapping("/historical/getTeams/{seasonNumber}/{competitionId}")
     public List<TeamCompetitionView> getHistoricalTeamDetails(@PathVariable long competitionId,
-                                                              @PathVariable long seasonNumber) {
+                                                               @PathVariable long seasonNumber) {
         return competitionDisplayService.getHistoricalTeamDetails(competitionId, seasonNumber);
     }
 
@@ -243,57 +166,32 @@ public class CompetitionController {
 
     @GetMapping("getResults/{competitionId}/{roundId}")
     public List<CompetitionTeamInfoDetail> getResults(@PathVariable String competitionId,
-                                                      @PathVariable String roundId) {
-        long _competitionId = Long.parseLong(competitionId);
-        long _roundId = Long.parseLong(roundId);
-        long currentSeason = round.getSeason();
-
-        return competitionTeamInfoDetailRepository.findAll().stream()
-                .filter(d -> d.getRoundId() == _roundId)
-                .filter(d -> d.getCompetitionId() == _competitionId)
-                .filter(d -> d.getSeasonNumber() == currentSeason)
-                .toList();
+                                                       @PathVariable String roundId) {
+        return competitionQueryService.getResults(Long.parseLong(competitionId), Long.parseLong(roundId));
     }
 
     @GetMapping("getResults/{competitionId}/{roundId}/{season}")
     public List<CompetitionTeamInfoDetail> getResultsBySeason(@PathVariable String competitionId,
-                                                              @PathVariable String roundId,
-                                                              @PathVariable long season) {
-        long _competitionId = Long.parseLong(competitionId);
-        long _roundId = Long.parseLong(roundId);
-
-        return competitionTeamInfoDetailRepository.findAll().stream()
-                .filter(d -> d.getRoundId() == _roundId)
-                .filter(d -> d.getCompetitionId() == _competitionId)
-                .filter(d -> d.getSeasonNumber() == season)
-                .toList();
+                                                               @PathVariable String roundId,
+                                                               @PathVariable long season) {
+        return competitionQueryService.getResultsBySeason(Long.parseLong(competitionId), Long.parseLong(roundId), season);
     }
 
     @GetMapping("/getMatchesByCompetitionAndSeason/{competitionId}/{season}")
     public List<CompetitionTeamInfoDetail> getMatchesByCompetitionAndSeason(@PathVariable long competitionId,
-                                                                            @PathVariable long season) {
-        return competitionTeamInfoDetailRepository.findAll().stream()
-                .filter(d -> d.getCompetitionId() == competitionId && d.getSeasonNumber() == season)
-                .toList();
+                                                                             @PathVariable long season) {
+        return competitionQueryService.getMatchesByCompetitionAndSeason(competitionId, season);
     }
 
     @GetMapping("getParticipants/{competitionId}/{roundId}")
     public List<Long> getParticipants(@PathVariable String competitionId,
-                                      @PathVariable String roundId) {
-        long _competitionId = Long.parseLong(competitionId);
-        long _roundId = Long.parseLong(roundId);
-
-        List<CompetitionTeamInfo> rows = competitionTeamInfoRepository
-                .findAllByRoundAndCompetitionIdAndSeasonNumber(_roundId, _competitionId, round.getSeason());
-
-        return rows.stream()
-                .mapToLong(CompetitionTeamInfo::getTeamId)
-                .boxed().distinct().collect(java.util.stream.Collectors.toList());
+                                       @PathVariable String roundId) {
+        return competitionQueryService.getParticipants(Long.parseLong(competitionId), Long.parseLong(roundId));
     }
 
     @GetMapping("getFuturesMatches/{competitionId}/{roundId}")
     public List<TeamMatchView> getNotPlayedMatches(@PathVariable String competitionId,
-                                                   @PathVariable String roundId) {
+                                                    @PathVariable String roundId) {
         return competitionDisplayService.getNotPlayedMatches(Long.parseLong(competitionId), Long.parseLong(roundId));
     }
 
@@ -303,13 +201,13 @@ public class CompetitionController {
 
     @GetMapping("getFixtures/{competitionId}/{roundId}")
     public void getFixturesForRound(@PathVariable String competitionId,
-                                    @PathVariable String roundId) {
+                                     @PathVariable String roundId) {
         fixtureSchedulingService.getFixturesForRound(competitionId, roundId);
     }
 
     @GetMapping("simulateRound/{competitionId}/{roundId}")
     public void simulateRound(@PathVariable String competitionId,
-                              @PathVariable String roundId) {
+                               @PathVariable String roundId) {
         matchSimulationOrchestrator.simulateRound(competitionId, roundId);
     }
 
@@ -319,7 +217,7 @@ public class CompetitionController {
 
     @GetMapping("/getEuropeanGroups/{competitionId}/{season}")
     public List<Map<String, Object>> getEuropeanGroups(@PathVariable long competitionId,
-                                                       @PathVariable long season) {
+                                                        @PathVariable long season) {
         return europeanCompetitionService.getEuropeanGroups(competitionId, season);
     }
 

@@ -56,6 +56,8 @@ public class MatchController {
     com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
     @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired
+    com.footballmanagergamesimulator.service.GameStateService gameStateService;
 
     @GetMapping("/getScheduleForSeasonNumber/{seasonNumber}/{teamId}")
     public List<ScheduleView> getScheduleForSeasonNumberAndTeamId(@PathVariable(name = "seasonNumber") int seasonNumber, @PathVariable(name = "teamId") long teamId) {
@@ -68,7 +70,7 @@ public class MatchController {
     @GetMapping("/getScheduleForCurrentSeasonAndTeamId/{teamId}")
     public List<ScheduleView> getScheduleForCurrentSeasonAndTeamId(@PathVariable(name = "teamId") long teamId) {
 
-        long currentSeason = Long.parseLong(competitionController.getCurrentSeason());
+        long currentSeason = gameStateService.currentSeason();
         List<CompetitionTeamInfoMatch> competitionTeamInfoMatches = competitionTeamInfoMatchRepository.findAllBySeasonNumberAndTeamId(String.valueOf(currentSeason), teamId);
 
         return matchService.getScheduleViewsFromCompetitionTeamInfoMatchesAndTeamId(competitionTeamInfoMatches, teamId, currentSeason);
@@ -106,7 +108,7 @@ public class MatchController {
     @GetMapping("/preview/{teamId}")
     public MatchPreviewView getMatchPreview(@PathVariable(name = "teamId") long teamId) {
 
-        long currentSeason = Long.parseLong(competitionController.getCurrentSeason());
+        long currentSeason = gameStateService.currentSeason();
         List<CompetitionTeamInfoMatch> allMatches = competitionTeamInfoMatchRepository
                 .findAllBySeasonNumberAndTeamId(String.valueOf(currentSeason), teamId);
 
