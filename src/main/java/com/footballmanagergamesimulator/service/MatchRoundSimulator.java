@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.model.Competition;
@@ -85,6 +86,26 @@ public class MatchRoundSimulator {
     @Autowired private TacticController tacticController;
     @Autowired private UserContext userContext;
     @Autowired private GameStateService gameStateService;
+    @Autowired private MatchEngineConfig engineConfig;
+
+    /**
+     * Shared RNG used by simulateRound + AI helpers + injury batched paths.
+     * Held as a field so determinism IT (seed → reproducible round) can swap
+     * in a seeded {@link Random} via {@link #setRandomForTesting(Random)}.
+     * Production code never touches this — it stays the default
+     * non-seeded {@link Random} so AI matches feel random as before.
+     */
+    private Random random = new Random();
+
+    /**
+     * Test-only seam: swap the RNG for determinism / fuzz tests so the same
+     * seed produces the same simulateRound output. Public so fuzz tests in
+     * {@code integration/fuzz/} (different package) can call it — production
+     * code MUST NOT use this method.
+     */
+    public void setRandomForTesting(Random random) {
+        this.random = random;
+    }
 
     // ===== AI rating caches (lifetime: app, mirrors original controller behavior). =====
     private final Map<Long, Double> simpleRatingCache = new HashMap<>();
@@ -115,7 +136,8 @@ public class MatchRoundSimulator {
         long _roundId = Long.parseLong(roundId);
         long nextRound = _roundId + 1;
 
-        Random random = new Random();
+        // Field-level RNG so determinism IT holds across simulateRound.
+        Random random = this.random;
         List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
                 .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, getCurrentSeason());
 
@@ -263,7 +285,10 @@ public class MatchRoundSimulator {
 
                     if (knockout && teamScore1 == teamScore2) {
                         double total = teamPower1 + teamPower2;
-                        double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
+                        double winChance = total > 0
+                            ? engineConfig.getKnockout().getAetWinChanceBase()
+                                + engineConfig.getKnockout().getAetWinChanceWeight() * (teamPower1 / total)
+                            : 0.5;
                         if (random.nextDouble() < winChance) {
                             teamScore1++;
                         } else {
@@ -335,7 +360,10 @@ public class MatchRoundSimulator {
 
                 if (knockout && teamScore1 == teamScore2) {
                     double total = teamPower1 + teamPower2;
-                    double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
+                    double winChance = total > 0
+                            ? engineConfig.getKnockout().getAetWinChanceBase()
+                                + engineConfig.getKnockout().getAetWinChanceWeight() * (teamPower1 / total)
+                            : 0.5;
                     if (random.nextDouble() < winChance) {
                         teamScore1++;
                     } else {
@@ -525,19 +553,29 @@ public class MatchRoundSimulator {
             playedIds.add(pv.getId());
         }
 
+        MatchEngineConfig.Morale moraleCfg = engineConfig.getMorale();
+        double indVariance = moraleCfg.getIndividualVariance();
+        int benchThreshold = moraleCfg.getBenchConsecutiveThreshold();
+        double benchExtra = moraleCfg.getBenchConsecutiveExtra();
+        int contentMinMatches = moraleCfg.getMinMatchesContent();
+        double contentDrop = moraleCfg.getContentmentDropChance();
+        double demand7 = moraleCfg.getTransferDemandChance7Plus();
+        double demand5 = moraleCfg.getTransferDemandChance5Plus();
+        double demand3 = moraleCfg.getTransferDemandChance3Plus();
+
         for (Human player : allPlayers) {
             if (player.isRetired()) continue;
             double moraleChange;
 
             if (playedIds.contains(player.getId())) {
                 // Player participated
-                moraleChange = baseMoraleChange + random.nextDouble(-1, 1);
+                moraleChange = baseMoraleChange + random.nextDouble(-indVariance, indVariance);
                 player.setSeasonMatchesPlayed(player.getSeasonMatchesPlayed() + 1);
                 player.setConsecutiveBenched(0);
 
                 // AI player calms down if getting regular game time
-                if (player.isWantsTransfer() && player.getSeasonMatchesPlayed() > 5) {
-                    if (random.nextDouble() < 0.3) {
+                if (player.isWantsTransfer() && player.getSeasonMatchesPlayed() > contentMinMatches) {
+                    if (random.nextDouble() < contentDrop) {
                         player.setWantsTransfer(false);
                     }
                 }
@@ -545,16 +583,17 @@ public class MatchRoundSimulator {
                 // Benched
                 player.setConsecutiveBenched(player.getConsecutiveBenched() + 1);
                 switch (result) {
-                    case "W": moraleChange = -2; break;
-                    case "D": moraleChange = -4; break;
-                    case "L": moraleChange = -3; break;
+                    case "W": moraleChange = moraleCfg.getBenchWinPenalty(); break;
+                    case "D": moraleChange = moraleCfg.getBenchDrawPenalty(); break;
+                    case "L": moraleChange = moraleCfg.getBenchLossPenalty(); break;
                     default: moraleChange = 0;
                 }
                 int benched = player.getConsecutiveBenched();
-                if (benched >= 5) moraleChange -= 2;
-                // AI players also request transfers when benched too long
-                if (benched >= 3 && player.getRating() > 50 && !player.isWantsTransfer()) {
-                    double demandChance = (benched >= 7) ? 0.5 : (benched >= 5) ? 0.3 : 0.1;
+                if (benched >= benchThreshold) moraleChange += benchExtra;
+                // AI players also request transfers when benched too long.
+                // 150 = scaled-up 50 for the 1-300 rating range (mid-tier or better).
+                if (benched >= 3 && player.getRating() > 150 && !player.isWantsTransfer()) {
+                    double demandChance = (benched >= 7) ? demand7 : (benched >= benchThreshold) ? demand5 : demand3;
                     if (random.nextDouble() < demandChance) {
                         player.setWantsTransfer(true);
                     }
@@ -574,7 +613,7 @@ public class MatchRoundSimulator {
      * per-round caches are warm.
      */
     public void processInjuriesForTeam(long teamId) {
-        Random random = new Random();
+        Random random = this.random;
         List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
 
         Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
@@ -586,8 +625,9 @@ public class MatchRoundSimulator {
             if (player.isRetired()) continue;
             if (injuredPlayerIds.contains(player.getId())) continue;
 
-            double injuryChance = 0.002;
-            if (player.getFitness() < 50) injuryChance += 0.001;
+            double injuryChance = engineConfig.getInjuries().getBaseChance();
+            if (player.getFitness() < engineConfig.getInjuries().getLowFitnessThreshold())
+                injuryChance += engineConfig.getInjuries().getLowFitnessBonus();
 
             if (random.nextDouble() < injuryChance) {
                 Injury injury = new Injury();
@@ -598,16 +638,17 @@ public class MatchRoundSimulator {
                 String injuryType = injuryTypes[random.nextInt(injuryTypes.length)];
                 injury.setInjuryType(injuryType);
 
+                MatchEngineConfig.Injuries inj = engineConfig.getInjuries();
                 double severityRoll = random.nextDouble();
-                if (severityRoll < 0.55) {
+                if (severityRoll < inj.getMinorThreshold()) {
                     injury.setSeverity("Minor");
-                    injury.setDaysRemaining(random.nextInt(1, 4));
-                } else if (severityRoll < 0.85) {
+                    injury.setDaysRemaining(random.nextInt(inj.getMinorMinDays(), inj.getMinorMaxDays() + 1));
+                } else if (severityRoll < inj.getModerateThreshold()) {
                     injury.setSeverity("Moderate");
-                    injury.setDaysRemaining(random.nextInt(4, 9));
+                    injury.setDaysRemaining(random.nextInt(inj.getModerateMinDays(), inj.getModerateMaxDays() + 1));
                 } else {
                     injury.setSeverity("Serious");
-                    injury.setDaysRemaining(random.nextInt(10, 21));
+                    injury.setDaysRemaining(random.nextInt(inj.getSeriousMinDays(), inj.getSeriousMaxDays() + 1));
                 }
 
                 injuryRepository.save(injury);
@@ -635,8 +676,9 @@ public class MatchRoundSimulator {
             if (player.isRetired()) continue;
             if (injuredPlayerIds.contains(player.getId())) continue;
 
-            double injuryChance = 0.002;
-            if (player.getFitness() < 50) injuryChance += 0.001;
+            double injuryChance = engineConfig.getInjuries().getBaseChance();
+            if (player.getFitness() < engineConfig.getInjuries().getLowFitnessThreshold())
+                injuryChance += engineConfig.getInjuries().getLowFitnessBonus();
 
             if (random.nextDouble() < injuryChance) {
                 Injury injury = new Injury();
@@ -647,16 +689,17 @@ public class MatchRoundSimulator {
                 String injuryType = injuryTypes[random.nextInt(injuryTypes.length)];
                 injury.setInjuryType(injuryType);
 
+                MatchEngineConfig.Injuries inj = engineConfig.getInjuries();
                 double severityRoll = random.nextDouble();
-                if (severityRoll < 0.55) {
+                if (severityRoll < inj.getMinorThreshold()) {
                     injury.setSeverity("Minor");
-                    injury.setDaysRemaining(random.nextInt(1, 4));
-                } else if (severityRoll < 0.85) {
+                    injury.setDaysRemaining(random.nextInt(inj.getMinorMinDays(), inj.getMinorMaxDays() + 1));
+                } else if (severityRoll < inj.getModerateThreshold()) {
                     injury.setSeverity("Moderate");
-                    injury.setDaysRemaining(random.nextInt(4, 9));
+                    injury.setDaysRemaining(random.nextInt(inj.getModerateMinDays(), inj.getModerateMaxDays() + 1));
                 } else {
                     injury.setSeverity("Serious");
-                    injury.setDaysRemaining(random.nextInt(10, 21));
+                    injury.setDaysRemaining(random.nextInt(inj.getSeriousMinDays(), inj.getSeriousMaxDays() + 1));
                 }
 
                 batchedInjuries.add(injury);
@@ -809,9 +852,10 @@ public class MatchRoundSimulator {
             substitutions.add(scorer);
         }
 
-        // 2. Simulate substitutions (0-5 subs enter the match)
-        Random random = new Random();
-        int substitutesDone = random.nextInt(0, Math.min(6, substitutions.size() + 1));
+        // 2. Simulate substitutions (0..max-1 subs enter the match)
+        Random random = this.random;
+        int subMaxExcl = engineConfig.getEvents().getSubInsertionsExclusiveMax();
+        int substitutesDone = random.nextInt(0, Math.min(subMaxExcl, substitutions.size() + 1));
         if (!substitutions.isEmpty()) {
             Collections.shuffle(substitutions);
             for (int i = 0; i < Math.min(substitutesDone, substitutions.size()); i++) {

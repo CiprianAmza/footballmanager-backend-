@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.frontend.GoalAnimationData;
 import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.frontend.LiveMatchData.LiveMatchMinute;
@@ -37,13 +38,14 @@ public class LiveMatchSimulationService {
     GoalAnimationService goalAnimationService;
     @Autowired
     PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    MatchEngineConfig engineConfig;
 
-    // --- Stamina model tuning (Faza 1) ---
     // Per-minute stamina drain for a "default" player (stamina=10, naturalFitness=10)
     // at a position with multiplier 1.0 lands around 0.35 stamina/min after
     // recovery, i.e. ~31 points over 90 minutes — close to the friendly-match
     // fitness loss range (7-14 ratio after the post-match dampening).
-    static final double STAMINA_BASE_COST = 0.5;
+    // Base cost now sourced from MatchEngineConfig.stamina.baseCostPerMinute.
     static final int STAMINA_SNAPSHOT_INTERVAL = 5;
 
     private final Map<String, LiveMatchData> liveMatchCache = new ConcurrentHashMap<>();
@@ -176,9 +178,10 @@ public class LiveMatchSimulationService {
      * <p>Distribution (miss): ~35% free kick, ~65% open play.
      */
     String pickAttackPlayType(String outcome, Random random) {
+        MatchEngineConfig.Live lv = engineConfig.getLive();
         double typeRoll = random.nextDouble();
-        if (!"MISS".equals(outcome) && typeRoll < 0.15) return "PENALTY";
-        if (typeRoll < 0.35) return "FREE_KICK";
+        if (!"MISS".equals(outcome) && typeRoll < lv.getPenaltyShare()) return "PENALTY";
+        if (typeRoll < lv.getFreeKickShare()) return "FREE_KICK";
         return "OPEN_PLAY";
     }
 
@@ -232,11 +235,12 @@ public class LiveMatchSimulationService {
      * stop goal counts ballooning above ~3/match average.
      */
     int computeBigChances(double rawRatio, Random random) {
-        double expected = 0.5 + rawRatio * 3.0;        // 0.5→2.0 ; 1.0→3.5 ; 0.25→1.25
+        MatchEngineConfig.Live lv = engineConfig.getLive();
+        double expected = lv.getBigChancesBaseline() + rawRatio * lv.getBigChancesScale();
         int floor = (int) Math.floor(expected);
         double frac = expected - floor;
         int extra = random.nextDouble() < frac ? 1 : 0;
-        return Math.max(0, Math.min(4, floor + extra));
+        return Math.max(0, Math.min(lv.getBigChancesHardCap(), floor + extra));
     }
 
     /** Pick {@code count} distinct minutes in [minMinute, maxMinute]. */
@@ -281,9 +285,9 @@ public class LiveMatchSimulationService {
                 PlayerMatchState st = states.get(p.getId());
                 if (st != null) {
                     stamFactor = staminaFactor(st.currentStamina);
-                    // Pace tilts the shot toward quicker attackers: pace 20 →
-                    // ×1.2, pace 10 → ×1.0, pace 1 → ~×0.82.
-                    paceFactor = 0.8 + 0.4 * (st.pace / 20.0);
+                    // Pace tilts the shot toward quicker attackers (config-controlled curve).
+                    MatchEngineConfig.Live lv = engineConfig.getLive();
+                    paceFactor = lv.getAttackerPaceFloor() + lv.getAttackerPaceRange() * (st.pace / 20.0);
                 }
             }
             weights[i] = p.getRating() * posWeight * stamFactor * paceFactor;
@@ -326,8 +330,8 @@ public class LiveMatchSimulationService {
         for (int i = 0; i < defenders.size(); i++) {
             PlayerMatchState st = states.get(defenders.get(i).getId());
             int pace = (st != null) ? st.pace : 10;
-            // pace 20 → 0.2 (rarely fouls); pace 10 → 0.7; pace 1 → 1.15.
-            weights[i] = Math.max(0.1, 1.2 - pace / 20.0);
+            // pace 20 → low weight (rarely fouls); pace 1 → high weight. Base from config.
+            weights[i] = Math.max(0.1, engineConfig.getLive().getFoulerPaceInverseBase() - pace / 20.0);
             total += weights[i];
         }
         if (total <= 0) return defenders.get(random.nextInt(defenders.size()));
@@ -416,7 +420,9 @@ public class LiveMatchSimulationService {
             s.name = p.getName();
             // Start from current fitness, clamped — a knackered player still
             // shows up but with reduced stamina ceiling.
-            double startCondition = Math.max(20.0, Math.min(100.0, p.getFitness()));
+            MatchEngineConfig.Stamina stCfg = engineConfig.getStamina();
+            double startCondition = Math.max(stCfg.getStartStaminaMin(),
+                    Math.min(stCfg.getStartStaminaMax(), p.getFitness()));
             s.startFitness = p.getFitness();
             s.currentStamina = startCondition;
             s.minutesPlayed = 0;
@@ -456,58 +462,62 @@ public class LiveMatchSimulationService {
     void applyStaminaTick(Map<Long, PlayerMatchState> states,
                                    Set<Long> team1Ids, Set<Long> team2Ids,
                                    double tempoMult1, double tempoMult2) {
+        MatchEngineConfig.Stamina stCfg = engineConfig.getStamina();
+        double baseCost = stCfg.getBaseCostPerMinute();
+        double minAttrMult = stCfg.getMinAttributeMultiplier();
+        double paceDiscount = stCfg.getPaceDiscountOnTempo();
+        double recoveryMax = stCfg.getNaturalFitnessRecoveryMax();
         for (PlayerMatchState s : states.values()) {
             if (!s.isOnPitch) continue;
             s.minutesPlayed++;
             double posMult = positionStaminaMultiplier(s.position);
-            // Stamina attribute scales cost: stamina=20 → cost × 0.2 (barely
-            // tires); stamina=10 → × 0.7; stamina=5 → × 0.95.
-            double attrMult = Math.max(0.15, 1.2 - s.staminaAttr / 20.0);
-            double cost = STAMINA_BASE_COST * posMult * attrMult;
+            // Stamina attribute scales cost: high stamina → cost barely tires.
+            double attrMult = Math.max(minAttrMult, 1.2 - s.staminaAttr / 20.0);
+            double cost = baseCost * posMult * attrMult;
 
             double teamTempo = team1Ids.contains(s.playerId) ? tempoMult1
                              : team2Ids.contains(s.playerId) ? tempoMult2 : 1.0;
             double extra = cost * (teamTempo - 1.0);
-            // Fast players absorb high-tempo cost better: pace 20 → 50% of the
-            // extra cost waived; pace 10 → 25%; pace 1 → ~2%. Low-tempo
-            // discount applies uniformly (no pace effect when extra < 0).
-            if (extra > 0) extra *= (1.0 - 0.5 * (s.pace / 20.0));
+            // Fast players absorb high-tempo cost better (config-controlled discount).
+            if (extra > 0) extra *= (1.0 - paceDiscount * (s.pace / 20.0));
             cost += extra;
 
-            // Natural fitness gives a small per-minute recovery — helps elite
-            // athletes sustain late in the match.
-            double recovery = (s.naturalFitness / 20.0) * 0.15;
+            // Natural fitness gives a small per-minute recovery.
+            double recovery = (s.naturalFitness / 20.0) * recoveryMax;
             double netLoss = Math.max(0.0, cost - recovery);
             s.currentStamina = Math.max(0.0, s.currentStamina - netLoss);
         }
     }
 
-    /** "Low" / "Standard" / "High" → 0.85 / 1.0 / 1.25. Null-safe. */
-    static double tempoMultiplier(String tempo) {
-        if ("High".equalsIgnoreCase(tempo)) return 1.25;
-        if ("Low".equalsIgnoreCase(tempo)) return 0.85;
+    /** "Low" / "Standard" / "High" → configured multipliers. Null-safe. */
+    double tempoMultiplier(String tempo) {
+        MatchEngineConfig.Tactic t = engineConfig.getTactic();
+        if ("High".equalsIgnoreCase(tempo)) return t.getTempoHighMultiplier();
+        if ("Low".equalsIgnoreCase(tempo)) return t.getTempoLowMultiplier();
         return 1.0;
     }
 
     /** Attack-chance multiplier for a team based on how many of its players
      *  are on the pitch. 11+ = no penalty; each missing man trims attacking
      *  output sharply once a team is down to 9. */
-    static double manAdvantageAttackMultiplier(int onPitch) {
-        if (onPitch >= 11) return 1.0;
-        if (onPitch == 10) return 0.7;
-        if (onPitch == 9)  return 0.5;
-        return 0.35;
+    double manAdvantageAttackMultiplier(int onPitch) {
+        MatchEngineConfig.Tactic t = engineConfig.getTactic();
+        if (onPitch >= 11) return t.getManAdvantageAttackEleven();
+        if (onPitch == 10) return t.getManAdvantageAttackTen();
+        if (onPitch == 9)  return t.getManAdvantageAttackNine();
+        return t.getManAdvantageAttackEight();
     }
 
     private double positionStaminaMultiplier(String pos) {
         if (pos == null) return 1.0;
+        MatchEngineConfig.Stamina st = engineConfig.getStamina();
         return switch (pos) {
-            case "GK" -> 0.4;
-            case "DC", "DL", "DR" -> 0.75;
-            case "DM" -> 1.0;
-            case "MC", "ML", "MR" -> 1.15;
-            case "AMC", "AML", "AMR" -> 1.05;
-            case "ST" -> 0.85;
+            case "GK" -> st.getPositionGoalkeeper();
+            case "DC", "DL", "DR" -> st.getPositionDefender();
+            case "DM" -> st.getPositionDefMid();
+            case "MC", "ML", "MR" -> st.getPositionMidfielder();
+            case "AMC", "AML", "AMR" -> st.getPositionAttMid();
+            case "ST" -> st.getPositionStriker();
             default -> 1.0;
         };
     }
@@ -519,7 +529,8 @@ public class LiveMatchSimulationService {
      */
     private double staminaFactor(double currentStamina) {
         double s = Math.max(0.0, Math.min(100.0, currentStamina));
-        return 0.5 + 0.5 * (s / 100.0);
+        MatchEngineConfig.Stamina st = engineConfig.getStamina();
+        return st.getStaminaPickFloor() + st.getStaminaPickRange() * (s / 100.0);
     }
 
     /** Drop bench players from a pool. Returns a new list. */
@@ -651,10 +662,11 @@ public class LiveMatchSimulationService {
     SubReason decideSubReason(int min, int ownScore, int oppScore,
                                        Map<Long, PlayerMatchState> states,
                                        Set<Long> teamIds) {
-        if (min < 35) return null;
+        MatchEngineConfig.Live lv = engineConfig.getLive();
+        if (min < lv.getSubEarliestMinute()) return null;
         int diff = ownScore - oppScore;
-        if (min >= 75 && diff <= -2) return SubReason.OFFENSIVE;
-        if (min >= 80 && diff >= 1) return SubReason.DEFENSIVE;
+        if (min >= lv.getSubOffensiveMinute() && diff <= lv.getSubOffensiveGoalDiff()) return SubReason.OFFENSIVE;
+        if (min >= lv.getSubDefensiveMinute() && diff >= lv.getSubDefensiveGoalDiff()) return SubReason.DEFENSIVE;
 
         double threshold = staminaSubThreshold(min);
         boolean anyTired = states.values().stream()
@@ -670,11 +682,12 @@ public class LiveMatchSimulationService {
      * anyone slowed down in the final 10 minutes).
      */
     private double staminaSubThreshold(int min) {
-        if (min < 35) return 0;
-        if (min < 55) return 60;
-        if (min < 70) return 70;
-        if (min < 80) return 78;
-        return 85;
+        MatchEngineConfig.Live lv = engineConfig.getLive();
+        if (min < lv.getSubEarliestMinute()) return 0;
+        if (min < lv.getSubMinuteBoundary2()) return lv.getSubStaminaPhase2();
+        if (min < lv.getSubMinuteBoundary3()) return lv.getSubStaminaPhase3();
+        if (min < lv.getSubMinuteBoundary4()) return lv.getSubStaminaPhase4();
+        return lv.getSubStaminaPhase5();
     }
 
     /** Build a short, reason-flavoured commentary line for a substitution. */
@@ -751,11 +764,12 @@ public class LiveMatchSimulationService {
             if (s.minutesPlayed == 0) continue;
             Human p = byId.get(s.playerId);
             if (p == null) continue;
+            MatchEngineConfig.Stamina stCfg = engineConfig.getStamina();
             double drop = Math.max(0.0, s.startFitness - s.currentStamina);
             // Dampen — the in-match stamina value is "right now"; the
             // multi-day recovery between matches softens that.
-            double fitnessLoss = drop * 0.7;
-            double newFitness = Math.max(20.0, p.getFitness() - fitnessLoss);
+            double fitnessLoss = drop * stCfg.getPostMatchDampening();
+            double newFitness = Math.max(stCfg.getPostMatchFloor(), p.getFitness() - fitnessLoss);
             p.setFitness(newFitness);
             toSave.add(p);
         }

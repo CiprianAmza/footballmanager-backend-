@@ -86,7 +86,9 @@ public class LiveMatchSession {
     final int firstHalfStoppage, secondHalfStoppage, halfTimeMinute, totalMinutes;
 
     // --- Engine state ---
-    final Random random;
+    // Non-final so determinism IT can swap in a seeded Random via
+    // setRandomForTesting() after construction.
+    Random random;
     int currentMinute = 0;
     boolean finished = false;
     /** Flipped to true by {@link #markCommitted()} once the post-match
@@ -154,6 +156,21 @@ public class LiveMatchSession {
                      double power1, double power2,
                      long competitionId, int season, int round,
                      boolean generateGoalAnimations) {
+        this(svc, teamId1, teamId2, power1, power2, competitionId, season, round,
+                generateGoalAnimations, new Random());
+    }
+
+    /**
+     * Seeded constructor — used by determinism IT / fuzz tests to make a live
+     * match reproducible given a fixed seed. Same (seed, config, inputs) →
+     * identical event timeline + score.
+     */
+    LiveMatchSession(LiveMatchSimulationService svc,
+                     long teamId1, long teamId2,
+                     double power1, double power2,
+                     long competitionId, int season, int round,
+                     boolean generateGoalAnimations,
+                     Random random) {
         this.svc = svc;
         this.teamId1 = teamId1;
         this.teamId2 = teamId2;
@@ -161,7 +178,7 @@ public class LiveMatchSession {
         this.season = season;
         this.round = round;
         this.generateGoalAnimations = generateGoalAnimations;
-        this.random = new Random();
+        this.random = random;
 
         this.homeTeamName = svc.teamRepository.findNameById(teamId1);
         this.awayTeamName = svc.teamRepository.findNameById(teamId2);
@@ -293,7 +310,7 @@ public class LiveMatchSession {
         } else {
             double base = team1HasBall ? team1AttackChance : team2AttackChance;
             int attackerOnPitch = team1HasBall ? team1OnPitch : team2OnPitch;
-            currentAttackChance = base * LiveMatchSimulationService.manAdvantageAttackMultiplier(attackerOnPitch);
+            currentAttackChance = base * svc.manAdvantageAttackMultiplier(attackerOnPitch);
         }
         double attackEnd     = currentAttackChance;
         double possessionEnd = attackEnd + 0.38;
@@ -319,9 +336,9 @@ public class LiveMatchSession {
         // Stamina tick + snapshot — tempo from deferred tactics (set by
         // CompetitionController right after createInteractiveSession). Falls
         // back to Standard tempo when tactics weren't stashed (legacy path).
-        double tempoMult1 = LiveMatchSimulationService.tempoMultiplier(
+        double tempoMult1 = svc.tempoMultiplier(
                 deferredPersonalizedTactic1 != null ? deferredPersonalizedTactic1.getTempo() : null);
-        double tempoMult2 = LiveMatchSimulationService.tempoMultiplier(
+        double tempoMult2 = svc.tempoMultiplier(
                 deferredPersonalizedTactic2 != null ? deferredPersonalizedTactic2.getTempo() : null);
         svc.applyStaminaTick(matchStates, team1Ids, team2Ids, tempoMult1, tempoMult2);
         if (min % LiveMatchSimulationService.STAMINA_SNAPSHOT_INTERVAL == 0 || min == totalMinutes) {

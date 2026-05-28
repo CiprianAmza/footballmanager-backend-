@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Injury;
@@ -47,6 +48,7 @@ public class MatchSimulationService {
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired private InjuryRepository injuryRepository;
     @Autowired private UserContext userContext;
+    @Autowired private MatchEngineConfig engineConfig;
 
     /**
      * Shared RNG used by {@link #calculateScores} and other scoring helpers.
@@ -88,34 +90,33 @@ public class MatchSimulationService {
         double ratio2 = power2 / total;
 
         // Amplify power difference: raise ratio to power N then renormalize.
-        // Tuning notes (S14): exponent 1.5 produced ~86% win rate for power
-        // 10k vs 4k (MatchEngineRepStrengthFuzzIT target ≥97%). Bumped to 2.0
-        // to widen the goal-expectation gap and trim the draw rate. Test
-        // 2 (championship) is also expected to improve because top-2 teams
-        // with close ratings will swap less often.
-        double amp1 = Math.pow(ratio1, 2.0);
-        double amp2 = Math.pow(ratio2, 2.0);
+        // Exponent sourced from MatchEngineConfig.power.ratioExponent so fuzz
+        // tests can sweep without recompiling.
+        double exp = engineConfig.getPower().getRatioExponent();
+        double amp1 = Math.pow(ratio1, exp);
+        double amp2 = Math.pow(ratio2, exp);
         double ampTotal = amp1 + amp2;
         double adjRatio1 = amp1 / ampTotal;
         double adjRatio2 = amp2 / ampTotal;
 
-        // Total expected goals per match: ~3.0 (distributed by power)
-        double expected1 = 3.0 * adjRatio1;
-        double expected2 = 3.0 * adjRatio2;
+        double totalExpectedGoals = engineConfig.getPower().getExpectedGoalsTotal();
+        double expected1 = totalExpectedGoals * adjRatio1;
+        double expected2 = totalExpectedGoals * adjRatio2;
 
         // Uses the field-level RNG so fuzz tests can inject a seeded Random
         // via setRandomForTesting(...). See javadoc on the `random` field.
-        int score1 = poissonGoals(this.random, expected1);
-        int score2 = poissonGoals(this.random, expected2);
+        int maxGoals = engineConfig.getPower().getMaxGoalsPerTeam();
+        int score1 = poissonGoals(this.random, expected1, maxGoals);
+        int score2 = poissonGoals(this.random, expected2, maxGoals);
 
         return List.of(score1, score2);
     }
 
     /**
      * Poisson distribution sampling using Knuth's algorithm.
-     * Capped at 7 goals maximum per team per match.
+     * Capped at {@code maxGoals} per team per match.
      */
-    private int poissonGoals(Random random, double expectedGoals) {
+    private int poissonGoals(Random random, double expectedGoals, int maxGoals) {
         double L = Math.exp(-expectedGoals);
         double p = 1.0;
         int k = 0;
@@ -123,7 +124,7 @@ public class MatchSimulationService {
             k++;
             p *= random.nextDouble();
         } while (p > L);
-        return Math.min(k - 1, 7);
+        return Math.min(k - 1, maxGoals);
     }
 
     // ==================== PLAYER AVAILABILITY ====================
@@ -257,17 +258,22 @@ public class MatchSimulationService {
      * @return reputation change (positive for gain, negative for loss)
      */
     public double calculateMatchRepChange(int myGoals, int oppGoals, int myTeamRep, int oppTeamRep) {
+        MatchEngineConfig.Reputation rep = engineConfig.getReputation();
         double repDiff = oppTeamRep - myTeamRep;
-        double strengthFactor = Math.max(0.2, Math.min(5.0, 1.0 + repDiff / 50.0));
+        double divisor = rep.getStrengthFactorDivisor();
+        double sfMin = rep.getStrengthFactorMin();
+        double sfMax = rep.getStrengthFactorMax();
+        double strengthFactor = Math.max(sfMin, Math.min(sfMax, 1.0 + repDiff / divisor));
+        double shockThreshold = rep.getShockingThreshold();
 
         if (myGoals > oppGoals) {
-            double base = repDiff > 50 ? 10.0 : 2.0;
+            double base = repDiff > shockThreshold ? rep.getWinShockingBase() : rep.getWinExpectedBase();
             return base * strengthFactor;
         } else if (myGoals == oppGoals) {
-            return repDiff > 0 ? 1.0 * strengthFactor : -1.0;
+            return repDiff > 0 ? rep.getDrawFavoredOpp() * strengthFactor : rep.getDrawDisfavoredOpp();
         } else {
-            double base = repDiff < -50 ? -10.0 : -2.0;
-            double lossFactor = Math.max(0.2, Math.min(5.0, 1.0 - repDiff / 50.0));
+            double base = repDiff < -shockThreshold ? rep.getLossShockingBase() : rep.getLossExpectedBase();
+            double lossFactor = Math.max(sfMin, Math.min(sfMax, 1.0 - repDiff / divisor));
             return base * lossFactor;
         }
     }
@@ -289,30 +295,26 @@ public class MatchSimulationService {
     public double computeMatchRating(String position, int goals, int assists,
                                       boolean isCleanSheet, boolean isWin, boolean isDraw,
                                       boolean isSubstitute) {
-        Random rng = new Random();
-        double rating = 6.0; // base
+        MatchEngineConfig.Ratings r = engineConfig.getRatings();
+        // Uses field-level RNG so determinism IT (seed → reproducible output) holds.
+        double rating = r.getBase();
 
-        // Goal contributions
-        rating += Math.min(goals * 1.0, 3.0);
-        rating += Math.min(assists * 0.5, 1.5);
+        rating += Math.min(goals * r.getPerGoal(), r.getGoalContributionMax());
+        rating += Math.min(assists * r.getPerAssist(), r.getAssistContributionMax());
 
-        // Clean sheet bonus for GK and defenders
         if (isCleanSheet && ("GK".equals(position) || "DC".equals(position)
                 || "DL".equals(position) || "DR".equals(position))) {
-            rating += 0.5;
+            rating += r.getCleanSheetBonus();
         }
 
-        // Result bonus
-        if (isWin) rating += 0.3;
-        else if (!isDraw) rating -= 0.3;
+        if (isWin) rating += r.getWinBonus();
+        else if (!isDraw) rating += r.getLossPenalty();
 
-        // Substitutes get slightly less base
-        if (isSubstitute) rating -= 0.2;
+        if (isSubstitute) rating += r.getSubstitutePenalty();
 
-        // Random variance for realism
-        rating += rng.nextGaussian() * 0.4;
+        rating += this.random.nextGaussian() * r.getVarianceSigma();
 
-        return Math.round(Math.max(1.0, Math.min(10.0, rating)) * 10.0) / 10.0;
+        return Math.round(Math.max(r.getMin(), Math.min(r.getMax(), rating)) * 10.0) / 10.0;
     }
 
     /**
@@ -374,32 +376,41 @@ public class MatchSimulationService {
      * @return base morale change value
      */
     public double calculateMoraleChangeForResult(String result, double teamPowerDifference) {
-        Random random = new Random();
+        MatchEngineConfig.Morale m = engineConfig.getMorale();
+        // Uses field-level RNG so determinism IT holds across morale-aware tests.
+        Random random = this.random;
+        double bigDiff = m.getTierBigDiff();
+        double midDiff = m.getTierMidDiff();
+        double smallDiff = m.getTierSmallDiff();
 
         if ("W".equals(result)) {
             // Win: bigger morale boost when beating stronger teams
-            if (teamPowerDifference > 500) return random.nextDouble(0, 1);       // expected win
-            else if (teamPowerDifference > 200) return random.nextDouble(1, 2);
-            else if (teamPowerDifference > 0) return random.nextDouble(1, 3);
-            else if (teamPowerDifference > -200) return random.nextDouble(2, 5);
-            else if (teamPowerDifference > -500) return random.nextDouble(4, 7);
-            else return random.nextDouble(5, 10);                                 // giant killing
+            if (teamPowerDifference > bigDiff)        return rangeSample(random, m.getWinFavoriteBig());
+            else if (teamPowerDifference > midDiff)   return rangeSample(random, m.getWinFavorite());
+            else if (teamPowerDifference > smallDiff) return rangeSample(random, m.getWinSlightFavorite());
+            else if (teamPowerDifference > -midDiff)  return rangeSample(random, m.getWinSlightUnderdog());
+            else if (teamPowerDifference > -bigDiff)  return rangeSample(random, m.getWinUnderdog());
+            else                                       return rangeSample(random, m.getWinGiantKilling());
         } else if ("D".equals(result)) {
-            if (teamPowerDifference > 500) return random.nextDouble(-6, -2);      // disappointing
-            else if (teamPowerDifference > 200) return random.nextDouble(-4, 0);
-            else if (teamPowerDifference > 0) return random.nextDouble(-2, 1);
-            else if (teamPowerDifference > -200) return random.nextDouble(1, 3);
-            else if (teamPowerDifference > -500) return random.nextDouble(2, 5);
-            else return random.nextDouble(3, 7);                                  // great result
+            if (teamPowerDifference > bigDiff)        return rangeSample(random, m.getDrawFavoriteBig());
+            else if (teamPowerDifference > midDiff)   return rangeSample(random, m.getDrawFavorite());
+            else if (teamPowerDifference > smallDiff) return rangeSample(random, m.getDrawSlightFavorite());
+            else if (teamPowerDifference > -midDiff)  return rangeSample(random, m.getDrawSlightUnderdog());
+            else if (teamPowerDifference > -bigDiff)  return rangeSample(random, m.getDrawUnderdog());
+            else                                       return rangeSample(random, m.getDrawGiantHold());
         } else {
             // Loss: bigger penalty when losing as favorites
-            if (teamPowerDifference > 500) return random.nextDouble(-15, -5);     // shocking loss
-            else if (teamPowerDifference > 200) return random.nextDouble(-8, -3);
-            else if (teamPowerDifference > 0) return random.nextDouble(-5, -2);
-            else if (teamPowerDifference > -200) return random.nextDouble(-3, -1);
-            else if (teamPowerDifference > -500) return random.nextDouble(-2, 0);
-            else return random.nextDouble(-1, 0);                                 // expected loss
+            if (teamPowerDifference > bigDiff)        return rangeSample(random, m.getLossFavoriteBig());
+            else if (teamPowerDifference > midDiff)   return rangeSample(random, m.getLossFavorite());
+            else if (teamPowerDifference > smallDiff) return rangeSample(random, m.getLossSlightFavorite());
+            else if (teamPowerDifference > -midDiff)  return rangeSample(random, m.getLossSlightUnderdog());
+            else if (teamPowerDifference > -bigDiff)  return rangeSample(random, m.getLossUnderdog());
+            else                                       return rangeSample(random, m.getLossExpected());
         }
+    }
+
+    private static double rangeSample(Random rng, MatchEngineConfig.SwingRange range) {
+        return rng.nextDouble(range.getMin(), range.getMax());
     }
 
     // ==================== MATCH EVENTS GENERATION ====================
@@ -417,7 +428,8 @@ public class MatchSimulationService {
                                     long teamId1, long teamId2, int teamScore1, int teamScore2,
                                     String tactic1, String tactic2) {
 
-        Random random = new Random();
+        // Field-level RNG so determinism IT holds.
+        Random random = this.random;
         List<MatchEvent> events = new ArrayList<>();
 
         boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
@@ -427,10 +439,12 @@ public class MatchSimulationService {
         Optional<PersonalizedTactic> tactic1Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
         Optional<PersonalizedTactic> tactic2Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
 
+        MatchEngineConfig.Events ev = engineConfig.getEvents();
+        MatchEngineConfig.Fouls fl = engineConfig.getFouls();
         int totalGoals = teamScore1 + teamScore2;
         List<Integer> goalMinutes = new ArrayList<>();
         for (int i = 0; i < totalGoals; i++) {
-            goalMinutes.add(random.nextInt(1, 91));
+            goalMinutes.add(random.nextInt(ev.getGoalMinuteMin(), ev.getGoalMinuteMax()));
         }
         Collections.sort(goalMinutes);
 
@@ -476,8 +490,8 @@ public class MatchSimulationService {
             goalEvent.setDetails(description);
             events.add(goalEvent);
 
-            // 70% chance of assist (no assist for penalties)
-            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team1Outfield.size() > 1) {
+            // Assist chance (no assist for penalties)
+            if (!"Penalty".equals(description) && random.nextDouble() < ev.getAssistProbability() && team1Outfield.size() > 1) {
                 List<Human> possibleAssisters = team1Outfield.stream()
                         .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
                 if (!possibleAssisters.isEmpty()) {
@@ -516,7 +530,7 @@ public class MatchSimulationService {
             goalEvent.setDetails(description);
             events.add(goalEvent);
 
-            if (!"Penalty".equals(description) && random.nextDouble() < 0.7 && team2Outfield.size() > 1) {
+            if (!"Penalty".equals(description) && random.nextDouble() < ev.getAssistProbability() && team2Outfield.size() > 1) {
                 List<Human> possibleAssisters = team2Outfield.stream()
                         .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
                 if (!possibleAssisters.isEmpty()) {
@@ -541,11 +555,11 @@ public class MatchSimulationService {
         // Cards + subs only for human-team matches.
         if (isHumanMatch) {
 
-            // Yellow cards: 0-4 per team
+            // Yellow cards: 0..(syntheticMaxYellowCardsPerTeam-1) per team
             for (long teamId : new long[]{teamId1, teamId2}) {
                 List<Human> teamPlayers = (teamId == teamId1) ? team1Players : team2Players;
                 if (teamPlayers.isEmpty()) continue;
-                int yellowCards = random.nextInt(5);
+                int yellowCards = random.nextInt(fl.getSyntheticMaxYellowCardsPerTeam());
                 List<Human> shuffledPlayers = new ArrayList<>(teamPlayers);
                 Collections.shuffle(shuffledPlayers);
                 for (int i = 0; i < Math.min(yellowCards, shuffledPlayers.size()); i++) {
@@ -555,7 +569,7 @@ public class MatchSimulationService {
                     cardEvent.setRoundNumber(roundNumber);
                     cardEvent.setTeamId1(teamId1);
                     cardEvent.setTeamId2(teamId2);
-                    cardEvent.setMinute(random.nextInt(1, 91));
+                    cardEvent.setMinute(random.nextInt(ev.getYellowCardMinuteMin(), ev.getYellowCardMinuteMax()));
                     cardEvent.setEventType("yellow_card");
                     cardEvent.setPlayerId(shuffledPlayers.get(i).getId());
                     cardEvent.setPlayerName(shuffledPlayers.get(i).getName());
@@ -565,8 +579,8 @@ public class MatchSimulationService {
                 }
             }
 
-            // 5% chance of red card per match
-            if (random.nextDouble() < 0.05) {
+            // Red card chance per match
+            if (random.nextDouble() < fl.getSyntheticRedCardChance()) {
                 long redCardTeamId = random.nextBoolean() ? teamId1 : teamId2;
                 List<Human> redCardPlayers = (redCardTeamId == teamId1) ? team1Players : team2Players;
                 if (!redCardPlayers.isEmpty()) {
@@ -577,7 +591,7 @@ public class MatchSimulationService {
                     redEvent.setRoundNumber(roundNumber);
                     redEvent.setTeamId1(teamId1);
                     redEvent.setTeamId2(teamId2);
-                    redEvent.setMinute(random.nextInt(20, 91));
+                    redEvent.setMinute(random.nextInt(fl.getSyntheticRedCardMinMinute(), fl.getSyntheticRedCardMaxMinute()));
                     redEvent.setEventType("red_card");
                     redEvent.setPlayerId(redCardPlayer.getId());
                     redEvent.setPlayerName(redCardPlayer.getName());
@@ -587,18 +601,19 @@ public class MatchSimulationService {
                 }
             }
 
-            // 3 substitutions per team (minutes 46-85)
+            // Substitutions per team (configurable count + minute range)
+            int subsPerTeam = ev.getSubstitutionsPerTeam();
             for (long teamId : new long[]{teamId1, teamId2}) {
                 List<Human> teamPlayers = (teamId == teamId1) ? team1Players : team2Players;
-                if (teamPlayers.size() < 4) continue;
+                if (teamPlayers.size() < subsPerTeam + 1) continue;
                 List<Human> shuffledPlayers = new ArrayList<>(teamPlayers);
                 Collections.shuffle(shuffledPlayers);
                 List<Integer> subMinutes = new ArrayList<>();
-                for (int i = 0; i < 3; i++) {
-                    subMinutes.add(random.nextInt(46, 86));
+                for (int i = 0; i < subsPerTeam; i++) {
+                    subMinutes.add(random.nextInt(ev.getSubstitutionMinuteMin(), ev.getSubstitutionMinuteMax()));
                 }
                 Collections.sort(subMinutes);
-                for (int i = 0; i < 3; i++) {
+                for (int i = 0; i < subsPerTeam; i++) {
                     MatchEvent subEvent = new MatchEvent();
                     subEvent.setCompetitionId(competitionId);
                     subEvent.setSeasonNumber(seasonNumber);

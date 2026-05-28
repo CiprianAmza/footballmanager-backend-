@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.model.MatchStats;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
@@ -26,6 +27,20 @@ public class MatchStatsService {
 
     @Autowired
     private MatchStatsRepository matchStatsRepository;
+    @Autowired
+    private MatchEngineConfig engineConfig;
+
+    /**
+     * Shared RNG used by stat generators. Held as a field so determinism IT
+     * (seed → reproducible stat line) can swap in a seeded {@link Random} via
+     * {@link #setRandomForTesting(Random)}.
+     */
+    private Random random = new Random();
+
+    /** Test-only seam: swap the RNG for determinism / fuzz tests. */
+    public void setRandomForTesting(Random random) {
+        this.random = random;
+    }
 
     // ==================== MATCH STATS GENERATION ====================
 
@@ -50,7 +65,7 @@ public class MatchStatsService {
         // ratio and ~30% noise. Old version had σ values that overwhelmed the
         // power signal, so two top teams looked statistically the same as two
         // relegation candidates. Now squad value visibly drives the line.
-        Random rng = new Random();
+        Random rng = this.random;
         MatchStats stats = new MatchStats();
         stats.setCompetitionId(competitionId);
         stats.setSeasonNumber(season);
@@ -60,43 +75,47 @@ public class MatchStatsService {
         stats.setHomeGoals(homeGoals);
         stats.setAwayGoals(awayGoals);
 
+        MatchEngineConfig.Stats sc = engineConfig.getStats();
         double totalPower = homePower + awayPower;
         double homeRatio = totalPower > 0 ? homePower / totalPower : 0.5;
         // Edge factor amplifies "ratio - 0.5" so big mismatches read in the stats
         // instead of being smoothed away by noise.
-        double edge = (homeRatio - 0.5); // negative when away is stronger
+        double edge = (homeRatio - 0.5);
 
         // --- POSSESSION ---
-        // Range widened (was clamped 30-70 → now 25-75). Noise σ 4 → 2.
-        double basePoss = 50 + edge * 30; // ±15 points from pure power split alone
-        basePoss += 2; // slight home advantage
+        double basePoss = sc.getPossessionBase() + edge * sc.getPossessionEdgeScale();
+        basePoss += sc.getHomePossessionBoost();
         basePoss += getTacticalPossessionBonus(homeTactic) - getTacticalPossessionBonus(awayTactic);
-        basePoss = Math.max(25, Math.min(75, basePoss + rng.nextGaussian() * 2));
+        basePoss = Math.max(25, Math.min(75, basePoss + rng.nextGaussian() * sc.getPossessionNoiseSigma()));
         int homePoss = (int) Math.round(basePoss);
         stats.setHomePossession(homePoss);
         stats.setAwayPossession(100 - homePoss);
 
-        // --- PASSES --- (σ 40 → 20)
+        // --- PASSES ---
         double possRatioHome = homePoss / 50.0;
         double possRatioAway = (100 - homePoss) / 50.0;
-        int homePasses = (int) (450 * possRatioHome + rng.nextGaussian() * 20);
-        int awayPasses = (int) (450 * possRatioAway + rng.nextGaussian() * 20);
+        int homePasses = (int) (sc.getPassesBase() * possRatioHome + rng.nextGaussian() * sc.getPassesNoiseSigma());
+        int awayPasses = (int) (sc.getPassesBase() * possRatioAway + rng.nextGaussian() * sc.getPassesNoiseSigma());
         stats.setHomePasses(Math.max(200, Math.min(750, homePasses)));
         stats.setAwayPasses(Math.max(200, Math.min(750, awayPasses)));
 
-        // --- PASS ACCURACY --- (power range 20 → 30, σ 3 → 1.5)
-        double homePassAcc = 78 + edge * 30 + rng.nextGaussian() * 1.5;
-        double awayPassAcc = 78 - edge * 30 + rng.nextGaussian() * 1.5;
-        if (homeTactic != null && "Keep Ball".equals(homeTactic.getInPossession())) homePassAcc += 3;
-        if (awayTactic != null && "Keep Ball".equals(awayTactic.getInPossession())) awayPassAcc += 3;
-        if (homeTactic != null && "Long Ball".equals(homeTactic.getPassingType())) homePassAcc -= 5;
-        if (awayTactic != null && "Long Ball".equals(awayTactic.getPassingType())) awayPassAcc -= 5;
+        // --- PASS ACCURACY ---
+        double homePassAcc = sc.getPassAccuracyBase() + edge * sc.getPassAccuracyEdgeScale()
+                + rng.nextGaussian() * sc.getPassAccuracyNoiseSigma();
+        double awayPassAcc = sc.getPassAccuracyBase() - edge * sc.getPassAccuracyEdgeScale()
+                + rng.nextGaussian() * sc.getPassAccuracyNoiseSigma();
+        if (homeTactic != null && "Keep Ball".equals(homeTactic.getInPossession())) homePassAcc += sc.getPassAccuracyKeepBallBonus();
+        if (awayTactic != null && "Keep Ball".equals(awayTactic.getInPossession())) awayPassAcc += sc.getPassAccuracyKeepBallBonus();
+        if (homeTactic != null && "Long Ball".equals(homeTactic.getPassingType())) homePassAcc += sc.getPassAccuracyLongBallPenalty();
+        if (awayTactic != null && "Long Ball".equals(awayTactic.getPassingType())) awayPassAcc += sc.getPassAccuracyLongBallPenalty();
         stats.setHomePassAccuracy(clamp((int) homePassAcc, 55, 96));
         stats.setAwayPassAccuracy(clamp((int) awayPassAcc, 55, 96));
 
-        // --- SHOTS --- (power coefficient 12 → 16, σ 2 → 1)
-        double homeBaseShots = 6 + (homeRatio) * 16 + homeGoals * 1.5 + rng.nextGaussian() * 1.0;
-        double awayBaseShots = 6 + (1 - homeRatio) * 16 + awayGoals * 1.5 + rng.nextGaussian() * 1.0;
+        // --- SHOTS ---
+        double homeBaseShots = sc.getShotsBase() + homeRatio * sc.getShotsEdgeScale()
+                + homeGoals * sc.getShotsGoalsBonus() + rng.nextGaussian() * 1.0;
+        double awayBaseShots = sc.getShotsBase() + (1 - homeRatio) * sc.getShotsEdgeScale()
+                + awayGoals * sc.getShotsGoalsBonus() + rng.nextGaussian() * 1.0;
         homeBaseShots += getAttackingMentalityShotBonus(homeTactic);
         awayBaseShots += getAttackingMentalityShotBonus(awayTactic);
         int homeShots = clamp((int) homeBaseShots, 2, 30);
@@ -104,110 +123,105 @@ public class MatchStatsService {
         stats.setHomeShots(homeShots);
         stats.setAwayShots(awayShots);
 
-        // Shots on target: stronger teams convert more shots into SoT
-        // Base accuracy 35-45%, plus up to ±5% from power edge.
-        double homeSoTRate = 0.40 + edge * 0.10 + rng.nextDouble() * 0.08;
-        double awaySoTRate = 0.40 - edge * 0.10 + rng.nextDouble() * 0.08;
+        // Shots on target
+        double homeSoTRate = sc.getShotsOnTargetBase() + edge * sc.getShotsOnTargetEdgeSpan()
+                + rng.nextDouble() * sc.getShotsOnTargetNoise();
+        double awaySoTRate = sc.getShotsOnTargetBase() - edge * sc.getShotsOnTargetEdgeSpan()
+                + rng.nextDouble() * sc.getShotsOnTargetNoise();
         int homeSoT = Math.max(homeGoals, clamp((int) (homeShots * homeSoTRate), 0, homeShots));
         int awaySoT = Math.max(awayGoals, clamp((int) (awayShots * awaySoTRate), 0, awayShots));
         stats.setHomeShotsOnTarget(homeSoT);
         stats.setAwayShotsOnTarget(awaySoT);
 
-        // Blocked shots: 20-30% of total
-        int homeBlocked = clamp((int) (homeShots * (0.22 + rng.nextDouble() * 0.08)), 0, homeShots - homeSoT);
-        int awayBlocked = clamp((int) (awayShots * (0.22 + rng.nextDouble() * 0.08)), 0, awayShots - awaySoT);
+        // Blocked shots
+        int homeBlocked = clamp((int) (homeShots * (sc.getBlockedShotsBase() + rng.nextDouble() * sc.getBlockedShotsNoiseSpan())), 0, homeShots - homeSoT);
+        int awayBlocked = clamp((int) (awayShots * (sc.getBlockedShotsBase() + rng.nextDouble() * sc.getBlockedShotsNoiseSpan())), 0, awayShots - awaySoT);
         stats.setHomeShotsBlocked(homeBlocked);
         stats.setAwayShotsBlocked(awayBlocked);
 
-        // --- CORNERS --- (σ 1.5 → 1)
-        int homeCorners = clamp((int) (3 + homeShots * 0.3 + rng.nextGaussian() * 1.0), 0, 15);
-        int awayCorners = clamp((int) (3 + awayShots * 0.3 + rng.nextGaussian() * 1.0), 0, 15);
+        // --- CORNERS ---
+        int homeCorners = clamp((int) (sc.getCornersBase() + homeShots * sc.getCornersPerShot() + rng.nextGaussian() * sc.getCornersNoise()), 0, 15);
+        int awayCorners = clamp((int) (sc.getCornersBase() + awayShots * sc.getCornersPerShot() + rng.nextGaussian() * sc.getCornersNoise()), 0, 15);
         stats.setHomeCorners(homeCorners);
         stats.setAwayCorners(awayCorners);
 
-        // --- FOULS --- (power weight 6 → 8, σ 2 → 1)
-        double homeFoulBase = 12 - edge * 8 + rng.nextGaussian() * 1.0;
-        double awayFoulBase = 12 + edge * 8 + rng.nextGaussian() * 1.0;
-        if (homeTactic != null && "Very Defensive".equals(homeTactic.getMentality())) homeFoulBase += 3;
-        if (awayTactic != null && "Very Defensive".equals(awayTactic.getMentality())) awayFoulBase += 3;
+        // --- FOULS ---
+        double homeFoulBase = sc.getFoulsBase() - edge * sc.getFoulsEdgeSpan() + rng.nextGaussian() * 1.0;
+        double awayFoulBase = sc.getFoulsBase() + edge * sc.getFoulsEdgeSpan() + rng.nextGaussian() * 1.0;
+        if (homeTactic != null && "Very Defensive".equals(homeTactic.getMentality())) homeFoulBase += sc.getVeryDefensiveFoulBonus();
+        if (awayTactic != null && "Very Defensive".equals(awayTactic.getMentality())) awayFoulBase += sc.getVeryDefensiveFoulBonus();
         int homeFouls = clamp((int) homeFoulBase, 4, 22);
         int awayFouls = clamp((int) awayFoulBase, 4, 22);
         stats.setHomeFouls(homeFouls);
         stats.setAwayFouls(awayFouls);
 
-        // Free kicks tied to opponent fouls (unchanged — already deterministic)
         stats.setHomeFreeKicks(awayFouls);
         stats.setAwayFreeKicks(homeFouls);
 
         // --- CARDS ---
-        // Yellow: 14-22% of fouls become cards (slightly narrowed)
-        int homeYellow = clamp((int) (homeFouls * (0.14 + rng.nextDouble() * 0.08)), 0, 6);
-        int awayYellow = clamp((int) (awayFouls * (0.14 + rng.nextDouble() * 0.08)), 0, 6);
+        MatchEngineConfig.Fouls fc = engineConfig.getFouls();
+        int homeYellow = clamp((int) (homeFouls * (fc.getLiveYellowCardRateMin() + rng.nextDouble() * fc.getLiveYellowCardRateSpread())), 0, 6);
+        int awayYellow = clamp((int) (awayFouls * (fc.getLiveYellowCardRateMin() + rng.nextDouble() * fc.getLiveYellowCardRateSpread())), 0, 6);
         stats.setHomeYellowCards(homeYellow);
         stats.setAwayYellowCards(awayYellow);
 
-        // Red card chance scales with fouls so dirty / underdog teams see more
-        double homeRedChance = 0.005 + homeFouls * 0.002;
-        double awayRedChance = 0.005 + awayFouls * 0.002;
+        double homeRedChance = fc.getLiveRedCardBase() + homeFouls * fc.getLiveRedCardPerFoul();
+        double awayRedChance = fc.getLiveRedCardBase() + awayFouls * fc.getLiveRedCardPerFoul();
         stats.setHomeRedCards(rng.nextDouble() < homeRedChance ? 1 : 0);
         stats.setAwayRedCards(rng.nextDouble() < awayRedChance ? 1 : 0);
 
-        // --- OFFSIDES --- (σ 1.0 → 0.7)
-        double homeOffsBase = 1.5 + (homeRatio - 0.3) * 4 + rng.nextGaussian() * 0.7;
-        double awayOffsBase = 1.5 + ((1 - homeRatio) - 0.3) * 4 + rng.nextGaussian() * 0.7;
+        // --- OFFSIDES ---
+        double homeOffsBase = sc.getOffsidesBase() + (homeRatio - sc.getOffsidesPivotRatio()) * sc.getOffsidesScale() + rng.nextGaussian() * 0.7;
+        double awayOffsBase = sc.getOffsidesBase() + ((1 - homeRatio) - sc.getOffsidesPivotRatio()) * sc.getOffsidesScale() + rng.nextGaussian() * 0.7;
         stats.setHomeOffsides(clamp((int) homeOffsBase, 0, 8));
         stats.setAwayOffsides(clamp((int) awayOffsBase, 0, 8));
 
-        // --- TACKLES --- (σ 3 → 1.5, power factor 0.15 → 0.25)
-        double homeTackleBase = 18 + (50 - homePoss) * 0.25 + rng.nextGaussian() * 1.5;
-        double awayTackleBase = 18 + (homePoss - 50) * 0.25 + rng.nextGaussian() * 1.5;
+        // --- TACKLES ---
+        double homeTackleBase = sc.getTacklesBase() + (50 - homePoss) * sc.getTacklesPossessionCoefficient() + rng.nextGaussian() * 1.5;
+        double awayTackleBase = sc.getTacklesBase() + (homePoss - 50) * sc.getTacklesPossessionCoefficient() + rng.nextGaussian() * 1.5;
         stats.setHomeTackles(clamp((int) homeTackleBase, 8, 35));
         stats.setAwayTackles(clamp((int) awayTackleBase, 8, 35));
 
-        // --- INTERCEPTIONS --- (σ 2 → 1, power factor 0.1 → 0.18)
-        int homeInterceptions = clamp((int) (11 + (50 - homePoss) * 0.18 + rng.nextGaussian()), 3, 22);
-        int awayInterceptions = clamp((int) (11 + (homePoss - 50) * 0.18 + rng.nextGaussian()), 3, 22);
+        // --- INTERCEPTIONS ---
+        int homeInterceptions = clamp((int) (sc.getInterceptionsBase() + (50 - homePoss) * sc.getInterceptionsPossessionCoefficient() + rng.nextGaussian()), 3, 22);
+        int awayInterceptions = clamp((int) (sc.getInterceptionsBase() + (homePoss - 50) * sc.getInterceptionsPossessionCoefficient() + rng.nextGaussian()), 3, 22);
         stats.setHomeInterceptions(homeInterceptions);
         stats.setAwayInterceptions(awayInterceptions);
 
-        // --- CLEARANCES --- (σ 3 → 1.5)
-        int homeClearances = clamp((int) (18 + (50 - homePoss) * 0.2 + awayShots * 0.5 + rng.nextGaussian() * 1.5), 5, 40);
-        int awayClearances = clamp((int) (18 + (homePoss - 50) * 0.2 + homeShots * 0.5 + rng.nextGaussian() * 1.5), 5, 40);
+        // --- CLEARANCES ---
+        int homeClearances = clamp((int) (sc.getClearancesBase() + (50 - homePoss) * sc.getClearancesPossessionCoefficient() + awayShots * sc.getClearancesShotBonus() + rng.nextGaussian() * 1.5), 5, 40);
+        int awayClearances = clamp((int) (sc.getClearancesBase() + (homePoss - 50) * sc.getClearancesPossessionCoefficient() + homeShots * sc.getClearancesShotBonus() + rng.nextGaussian() * 1.5), 5, 40);
         stats.setHomeClearances(homeClearances);
         stats.setAwayClearances(awayClearances);
 
-        // Saves: opponent's shots on target - goals conceded (unchanged)
         stats.setHomeSaves(Math.max(0, awaySoT - awayGoals));
         stats.setAwaySaves(Math.max(0, homeSoT - homeGoals));
 
         // --- BIG CHANCES ---
-        // Now driven by shots-on-target (a team with many SoT created more
-        // dangerous moments), not pure RNG on top of goals.
-        int homeBigChances = Math.max(homeGoals, clamp((int) (homeSoT * 0.6 + rng.nextGaussian() * 0.8), 0, 8));
-        int awayBigChances = Math.max(awayGoals, clamp((int) (awaySoT * 0.6 + rng.nextGaussian() * 0.8), 0, 8));
+        int homeBigChances = Math.max(homeGoals, clamp((int) (homeSoT * sc.getBigChancesSoTRatio() + rng.nextGaussian() * 0.8), 0, 8));
+        int awayBigChances = Math.max(awayGoals, clamp((int) (awaySoT * sc.getBigChancesSoTRatio() + rng.nextGaussian() * 0.8), 0, 8));
         stats.setHomeBigChances(homeBigChances);
         stats.setAwayBigChances(awayBigChances);
         stats.setHomeBigChancesMissed(Math.max(0, homeBigChances - homeGoals));
         stats.setAwayBigChancesMissed(Math.max(0, awayBigChances - awayGoals));
 
-        // --- xG --- (σ 0.15 → 0.08)
-        double homeXg = homeBigChances * 0.35
-                + (homeSoT - homeGoals) * 0.12
-                + (homeShots - homeSoT) * 0.05
+        // --- xG ---
+        double homeXg = homeBigChances * sc.getXgPerBigChance()
+                + (homeSoT - homeGoals) * sc.getXgPerSotMiss()
+                + (homeShots - homeSoT) * sc.getXgPerWideShot()
                 + rng.nextGaussian() * 0.08;
-        double awayXg = awayBigChances * 0.35
-                + (awaySoT - awayGoals) * 0.12
-                + (awayShots - awaySoT) * 0.05
+        double awayXg = awayBigChances * sc.getXgPerBigChance()
+                + (awaySoT - awayGoals) * sc.getXgPerSotMiss()
+                + (awayShots - awaySoT) * sc.getXgPerWideShot()
                 + rng.nextGaussian() * 0.08;
         stats.setHomeXg(Math.max(0, (int) (homeXg * 100)));
         stats.setAwayXg(Math.max(0, (int) (awayXg * 100)));
 
-        // --- CROSSES --- (σ 4 → 2)
+        // --- CROSSES ---
         int homeCrosses = clamp((int) (18 + rng.nextGaussian() * 2 + homeCorners * 0.5), 5, 40);
         int awayCrosses = clamp((int) (18 + rng.nextGaussian() * 2 + awayCorners * 0.5), 5, 40);
-        // Cross accuracy now also nudged by team strength (better wingers cross better)
-        double homeCrossRate = 0.28 + edge * 0.08 + rng.nextDouble() * 0.08;
-        double awayCrossRate = 0.28 - edge * 0.08 + rng.nextDouble() * 0.08;
+        double homeCrossRate = sc.getCrossAccuracyBase() + edge * sc.getCrossAccuracyEdgeScale() + rng.nextDouble() * sc.getCrossAccuracyNoise();
+        double awayCrossRate = sc.getCrossAccuracyBase() - edge * sc.getCrossAccuracyEdgeScale() + rng.nextDouble() * sc.getCrossAccuracyNoise();
         int homeCrossAcc = clamp((int) (homeCrosses * homeCrossRate), 0, homeCrosses);
         int awayCrossAcc = clamp((int) (awayCrosses * awayCrossRate), 0, awayCrosses);
         stats.setHomeCrosses(homeCrosses);
@@ -215,17 +229,17 @@ public class MatchStatsService {
         stats.setHomeCrossesAccurate(homeCrossAcc);
         stats.setAwayCrossesAccurate(awayCrossAcc);
 
-        // --- DUELS --- (σ 8 → 4 on totals, win-rate range 0.2 → 0.35, σ 0.05 → 0.025)
-        int homeDuels = clamp((int) (55 + rng.nextGaussian() * 4), 35, 85);
-        int awayDuels = clamp((int) (55 + rng.nextGaussian() * 4), 35, 85);
-        double homeDuelWinPct = 0.50 + edge * 0.35 + rng.nextGaussian() * 0.025;
+        // --- DUELS ---
+        int homeDuels = clamp((int) (sc.getDuelsBase() + rng.nextGaussian() * sc.getDuelsNoise()), 35, 85);
+        int awayDuels = clamp((int) (sc.getDuelsBase() + rng.nextGaussian() * sc.getDuelsNoise()), 35, 85);
+        double homeDuelWinPct = sc.getDuelWinBase() + edge * sc.getDuelWinEdgeScale() + rng.nextGaussian() * sc.getDuelWinNoise();
         homeDuelWinPct = Math.max(0.30, Math.min(0.70, homeDuelWinPct));
         stats.setHomeDuelsWon(clamp((int) (homeDuels * homeDuelWinPct), 15, 60));
         stats.setAwayDuelsWon(clamp((int) (awayDuels * (1 - homeDuelWinPct)), 15, 60));
 
-        // Aerial duels: now power-biased instead of pure noise (σ 3 → 1.5)
-        int homeAerial = clamp((int) (14 + edge * 8 + rng.nextGaussian() * 1.5), 5, 25);
-        int awayAerial = clamp((int) (14 - edge * 8 + rng.nextGaussian() * 1.5), 5, 25);
+        // Aerial duels
+        int homeAerial = clamp((int) (sc.getAerialDuelsBase() + edge * sc.getAerialDuelsEdgeScale() + rng.nextGaussian() * sc.getAerialDuelsNoise()), 5, 25);
+        int awayAerial = clamp((int) (sc.getAerialDuelsBase() - edge * sc.getAerialDuelsEdgeScale() + rng.nextGaussian() * sc.getAerialDuelsNoise()), 5, 25);
         stats.setHomeAerialDuelsWon(homeAerial);
         stats.setAwayAerialDuelsWon(awayAerial);
 
@@ -256,7 +270,7 @@ public class MatchStatsService {
             LiveMatchData liveData,
             double homePower, double awayPower) {
 
-        Random rng = new Random();
+        Random rng = this.random;
         double totalPower = homePower + awayPower;
         double homeRatio = totalPower > 0 ? homePower / totalPower : 0.5;
 
@@ -460,24 +474,26 @@ public class MatchStatsService {
 
     private double getTacticalPossessionBonus(PersonalizedTactic tactic) {
         if (tactic == null) return 0;
+        MatchEngineConfig.Stats sc = engineConfig.getStats();
         double bonus = 0;
-        if ("Keep Ball".equals(tactic.getInPossession())) bonus += 5;
-        else if ("Free Ball Early".equals(tactic.getInPossession())) bonus -= 3;
-        if ("Short Passing".equals(tactic.getPassingType())) bonus += 3;
-        else if ("Long Ball".equals(tactic.getPassingType())) bonus -= 4;
-        if ("Low".equals(tactic.getTempo())) bonus += 2;
-        else if ("High".equals(tactic.getTempo())) bonus -= 1;
+        if ("Keep Ball".equals(tactic.getInPossession())) bonus += sc.getTacticalPossessionKeepBall();
+        else if ("Free Ball Early".equals(tactic.getInPossession())) bonus += sc.getTacticalPossessionFreeBallEarly();
+        if ("Short Passing".equals(tactic.getPassingType())) bonus += sc.getTacticalPossessionShortPassing();
+        else if ("Long Ball".equals(tactic.getPassingType())) bonus += sc.getTacticalPossessionLongBall();
+        if ("Low".equals(tactic.getTempo())) bonus += sc.getTacticalPossessionTempoLow();
+        else if ("High".equals(tactic.getTempo())) bonus += sc.getTacticalPossessionTempoHigh();
         return bonus;
     }
 
     private double getAttackingMentalityShotBonus(PersonalizedTactic tactic) {
         if (tactic == null) return 0;
+        MatchEngineConfig.Stats sc = engineConfig.getStats();
         String mentality = tactic.getMentality() != null ? tactic.getMentality() : "Balanced";
         return switch (mentality) {
-            case "Very Attacking" -> 4;
-            case "Attacking" -> 2;
-            case "Defensive" -> -2;
-            case "Very Defensive" -> -4;
+            case "Very Attacking" -> sc.getShotBonusVeryAttacking();
+            case "Attacking" -> sc.getShotBonusAttacking();
+            case "Defensive" -> sc.getShotBonusDefensive();
+            case "Very Defensive" -> sc.getShotBonusVeryDefensive();
             default -> 0;
         };
     }

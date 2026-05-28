@@ -123,8 +123,9 @@ class SquadGenerationServiceTest {
 
     @Test
     void generateInitialSquad_nullFacilities_fallsBackToDefaultReputation() {
-        // No exception, and ratings end up in the default-rep window
-        // (reputation=100 → roughly 80..119 before skill recompute).
+        // No exception. Team reputation (5 in the fixture) drives target rating
+        // on the 1-300 scale: targetRating = 25 + 5/10000 * 250 ≈ 25, then
+        // ±25 spread per player. Facilities are no longer consulted for rating.
         List<Human> squad = service.generateInitialSquad(team(1L, 5L), null, 1, 70, new Random(0));
         assertEquals(22, squad.size());
     }
@@ -132,17 +133,16 @@ class SquadGenerationServiceTest {
     @Test
     void generateInitialSquad_recomputesRatingFromSkills() {
         // The mocked generateSkills leaves attributes at default (0), so
-        // PlayerSkillsService.computeOverallRating produces a small/floor
-        // value far below the random initial rating (80..119 with rep=100).
-        // We assert the post-generation rating is well under the initial
-        // window, proving the recompute path ran.
+        // PlayerSkillsService.computeOverallRating floors near 1 — well below
+        // the initial-seed random window. We assert the post-generation
+        // rating is well under that window, proving the recompute path ran.
         doNothing().when(competitionService).generateSkills(any(PlayerSkills.class), anyDouble());
 
         List<Human> squad = service.generateInitialSquad(team(1L, 5L), facilities(10L), 1, 70, new Random(0));
 
         for (Human h : squad) {
             assertTrue(h.getRating() < 10.0,
-                    "recomputed rating should drop well below the initial random window (~80-119); got " + h.getRating());
+                    "recomputed rating from empty skills should floor near 1; got " + h.getRating());
         }
     }
 

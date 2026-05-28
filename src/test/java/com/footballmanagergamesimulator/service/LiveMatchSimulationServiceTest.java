@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService.PlayerMatchState;
 import org.junit.jupiter.api.Test;
@@ -16,76 +17,86 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class LiveMatchSimulationServiceTest {
 
+    /** Build a fresh service with the production-default engine config injected. */
+    private static LiveMatchSimulationService newService() {
+        LiveMatchSimulationService svc = new LiveMatchSimulationService();
+        svc.engineConfig = new MatchEngineConfig();
+        return svc;
+    }
+
     // ---------------- man-advantage multiplier ----------------
 
     @Test
     void manAdvantageMultiplier_eleven_isNeutral() {
-        assertEquals(1.0, LiveMatchSimulationService.manAdvantageAttackMultiplier(11));
+        assertEquals(1.0, newService().manAdvantageAttackMultiplier(11));
     }
 
     @Test
     void manAdvantageMultiplier_oneMoreThanEleven_stillNeutral() {
         // Treat 12+ defensively the same as 11 — no negative penalty.
-        assertEquals(1.0, LiveMatchSimulationService.manAdvantageAttackMultiplier(15));
+        assertEquals(1.0, newService().manAdvantageAttackMultiplier(15));
     }
 
     @Test
     void manAdvantageMultiplier_tenMen_seventyPercent() {
-        assertEquals(0.7, LiveMatchSimulationService.manAdvantageAttackMultiplier(10));
+        assertEquals(0.7, newService().manAdvantageAttackMultiplier(10));
     }
 
     @Test
     void manAdvantageMultiplier_nineMen_fiftyPercent() {
-        assertEquals(0.5, LiveMatchSimulationService.manAdvantageAttackMultiplier(9));
+        assertEquals(0.5, newService().manAdvantageAttackMultiplier(9));
     }
 
     @Test
     void manAdvantageMultiplier_eightOrFewer_floor() {
-        assertEquals(0.35, LiveMatchSimulationService.manAdvantageAttackMultiplier(8));
-        assertEquals(0.35, LiveMatchSimulationService.manAdvantageAttackMultiplier(5));
-        assertEquals(0.35, LiveMatchSimulationService.manAdvantageAttackMultiplier(0));
+        LiveMatchSimulationService svc = newService();
+        assertEquals(0.35, svc.manAdvantageAttackMultiplier(8));
+        assertEquals(0.35, svc.manAdvantageAttackMultiplier(5));
+        assertEquals(0.35, svc.manAdvantageAttackMultiplier(0));
     }
 
     // ---------------- tempo multiplier ----------------
 
     @Test
     void tempoMultiplier_standard_isOne() {
-        assertEquals(1.0, LiveMatchSimulationService.tempoMultiplier("Standard"));
+        assertEquals(1.0, newService().tempoMultiplier("Standard"));
     }
 
     @Test
     void tempoMultiplier_high_isBoost() {
-        assertEquals(1.25, LiveMatchSimulationService.tempoMultiplier("High"));
+        assertEquals(1.25, newService().tempoMultiplier("High"));
     }
 
     @Test
     void tempoMultiplier_low_isDiscount() {
-        assertEquals(0.85, LiveMatchSimulationService.tempoMultiplier("Low"));
+        assertEquals(0.85, newService().tempoMultiplier("Low"));
     }
 
     @Test
     void tempoMultiplier_caseInsensitive() {
-        assertEquals(1.25, LiveMatchSimulationService.tempoMultiplier("high"));
-        assertEquals(0.85, LiveMatchSimulationService.tempoMultiplier("LOW"));
+        LiveMatchSimulationService svc = newService();
+        assertEquals(1.25, svc.tempoMultiplier("high"));
+        assertEquals(0.85, svc.tempoMultiplier("LOW"));
     }
 
     @Test
     void tempoMultiplier_nullOrUnknown_defaultsToStandard() {
-        assertEquals(1.0, LiveMatchSimulationService.tempoMultiplier(null));
-        assertEquals(1.0, LiveMatchSimulationService.tempoMultiplier("Bonkers"));
+        LiveMatchSimulationService svc = newService();
+        assertEquals(1.0, svc.tempoMultiplier(null));
+        assertEquals(1.0, svc.tempoMultiplier("Bonkers"));
     }
 
     // ---------------- pickFouler (pace-weighted) ----------------
 
     @Test
     void pickFouler_emptyDefenders_returnsNull() {
-        LiveMatchSimulationService svc = new LiveMatchSimulationService();
+        LiveMatchSimulationService svc = newService();
         assertNull(svc.pickFouler(List.of(), new HashMap<>(), new Random(0)));
     }
 
     @Test
     void pickFouler_singleDefender_returnsThatDefender() {
-        LiveMatchSimulationService svc = new LiveMatchSimulationService();
+        LiveMatchSimulationService svc = newService();
         Human only = human(1L, "Only DC", "DC", 60);
         Human picked = svc.pickFouler(List.of(only), new HashMap<>(), new Random(0));
         assertSame(only, picked);
@@ -96,7 +107,7 @@ class LiveMatchSimulationServiceTest {
         // Two defenders, identical except for pace. Over many rolls the slow
         // one (pace=2) should be picked notably more often than the quick one
         // (pace=20). Threshold deliberately loose to avoid flakes.
-        LiveMatchSimulationService svc = new LiveMatchSimulationService();
+        LiveMatchSimulationService svc = newService();
         Human slow = human(1L, "Slowpoke", "DC", 60);
         Human fast = human(2L, "Roadrunner", "DC", 60);
         Map<Long, PlayerMatchState> states = new HashMap<>();
@@ -117,7 +128,7 @@ class LiveMatchSimulationServiceTest {
 
     @Test
     void pickFouler_nullStates_fallsBackToUniform() {
-        LiveMatchSimulationService svc = new LiveMatchSimulationService();
+        LiveMatchSimulationService svc = newService();
         Human a = human(1L, "A", "DC", 60);
         Human b = human(2L, "B", "DC", 60);
         int aPicks = 0;
@@ -137,7 +148,7 @@ class LiveMatchSimulationServiceTest {
     void pickWeightedAttacker_paceBonus_quickerAttackerShootsMoreOften() {
         // Two attackers, identical rating + position. The quick one should
         // be chosen as shooter notably more often than the slow one.
-        LiveMatchSimulationService svc = new LiveMatchSimulationService();
+        LiveMatchSimulationService svc = newService();
         Human slow = human(1L, "Slow ST", "ST", 70);
         Human fast = human(2L, "Fast ST", "ST", 70);
         Map<Long, PlayerMatchState> states = new HashMap<>();
@@ -162,7 +173,7 @@ class LiveMatchSimulationServiceTest {
 
     @Test
     void pickWeightedAttacker_empty_returnsNull() {
-        LiveMatchSimulationService svc = new LiveMatchSimulationService();
+        LiveMatchSimulationService svc = newService();
         assertNull(svc.pickWeightedAttacker(List.of(), null, new Random(0)));
     }
 

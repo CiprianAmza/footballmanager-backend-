@@ -21,13 +21,21 @@ public class CompetitionService {
      *   LOW    = not very relevant (e.g., marking for ST)
      */
     public void generateSkills(PlayerSkills playerSkills, double rating) {
-        Random random = new Random();
+        generateSkills(playerSkills, rating, new Random());
+    }
+
+    /**
+     * Seeded variant — callers (e.g. {@code SquadGenerationService},
+     * tests) can pass a deterministic {@link Random} so the generated
+     * attributes are reproducible.
+     */
+    public void generateSkills(PlayerSkills playerSkills, double rating, Random random) {
         String position = playerSkills.getPosition();
         if (position == null) position = "MC";
 
-        // Convert rating (1-100) to base attribute level (1-20)
-        // rating 100 -> base ~18, rating 50 -> base ~10, rating 20 -> base ~4
-        double baseLevel = Math.max(1, Math.min(19, rating / 5.0));
+        // Convert rating (1-300) to base attribute level (1-20).
+        // rating 300 -> base ~20, rating 150 -> base ~10, rating 60 -> base ~4.
+        double baseLevel = Math.max(1, Math.min(19, rating / 15.0));
 
         Map<String, Double> profile = getPositionProfile(position);
 

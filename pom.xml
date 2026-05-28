@@ -211,9 +211,18 @@
                         so CI/local feedback stays fast (~80-100s for full IT
                         suite). The fuzz profile below overrides this excludes
                         list to include `*FuzzIT.java`.
+
+                        Auto-tuner + sensitivity + interaction tests
+                        (*TunerIT.java, *SensitivityIT.java, *InteractionIT.java)
+                        are even slower (hundreds of candidate evaluations,
+                        Saltelli Sobol scheme) and are gated behind `-Ptune`.
                     -->
                     <excludes>
                         <exclude>**/*FuzzIT.java</exclude>
+                        <exclude>**/*TunerIT.java</exclude>
+                        <exclude>**/*SensitivityIT.java</exclude>
+                        <exclude>**/*InteractionIT.java</exclude>
+                        <exclude>**/integration/league/*IT.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
@@ -252,6 +261,49 @@
                             </excludes>
                             <includes>
                                 <include>**/*FuzzIT.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!--
+            Auto-tuner + sensitivity + interaction profile — activate with
+            `mvn verify -Ptune`. Runs:
+              * *TunerIT.java       — random-search + hill-climbing
+              * *SensitivityIT.java — one-axis sensitivity
+              * *InteractionIT.java — Sobol indices via Saltelli/Jansen
+            Writes markdown reports to target/tuning-report.md,
+            target/sensitivity-report.md, target/interaction-report.md.
+
+            Heavy: hundreds-to-thousands of candidate evaluations.
+            Excluded from default `mvn verify`.
+        -->
+        <profile>
+            <id>tune</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- Skip pure unit tests when tuning -->
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>none</exclude>
+                            </excludes>
+                            <includes>
+                                <include>**/*TunerIT.java</include>
+                                <include>**/*SensitivityIT.java</include>
+                                <include>**/*InteractionIT.java</include>
+                                <include>**/integration/league/*IT.java</include>
                             </includes>
                         </configuration>
                     </plugin>

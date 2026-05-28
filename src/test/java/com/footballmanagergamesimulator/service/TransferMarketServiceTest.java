@@ -81,24 +81,25 @@ class TransferMarketServiceTest {
     }
 
     @Test
-    @DisplayName("canBeTransfered: rejected when rating too far below minRating (>10 below)")
+    @DisplayName("canBeTransfered: rejected when rating too far below minRating (>30 below)")
     void canBeTransfered_ratingTooLow() {
-        // player rating 49, minRating 60 → 60 - 10 = 50; 49 < 50 → reject
+        // On the 1-300 rating scale: tolerance is 30 (was 10 on 1-100 scale).
+        // player rating 119, minRating 150 → 150 - 30 = 120; 119 < 120 → reject.
         assertFalse(svc.canBeTransfered(
-                playerView(99L, 3000L, 24L, 49.0, "ST"),
+                playerView(99L, 3000L, 24L, 119.0, "ST"),
                 plan(30, 5000L, 1L),
-                target("ST", 60.0)
+                target("ST", 150.0)
         ));
     }
 
     @Test
-    @DisplayName("canBeTransfered: rating exactly at minRating-10 boundary is allowed")
+    @DisplayName("canBeTransfered: rating exactly at minRating-30 boundary is allowed")
     void canBeTransfered_ratingAtBoundary() {
-        // minRating 60, threshold = 50; player 50.0 → 50.0 >= 50.0 ✓
+        // minRating 150, threshold = 120; player 120.0 → 120.0 >= 120.0 ✓
         assertTrue(svc.canBeTransfered(
-                playerView(99L, 3000L, 24L, 50.0, "ST"),
+                playerView(99L, 3000L, 24L, 120.0, "ST"),
                 plan(30, 5000L, 1L),
-                target("ST", 60.0)
+                target("ST", 150.0)
         ));
     }
 

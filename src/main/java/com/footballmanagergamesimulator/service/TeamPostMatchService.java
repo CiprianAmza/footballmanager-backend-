@@ -247,7 +247,8 @@ public class TeamPostMatchService {
 
                 int benched = player.getConsecutiveBenched();
                 if (benched >= 5) moraleChange -= 2;
-                if (benched >= 3 && player.getRating() > 50 && !player.isWantsTransfer()) {
+                // 150 = scaled-up 50 for the 1-300 rating range (mid-tier or better).
+                if (benched >= 3 && player.getRating() > 150 && !player.isWantsTransfer()) {
                     double demandChance = (benched >= 7) ? 0.5 : (benched >= 5) ? 0.3 : 0.1;
                     if (random.nextDouble() < demandChance) {
                         player.setWantsTransfer(true);

@@ -56,6 +56,7 @@ class LiveMatchSessionSubTest {
         inject("playerSkillsRepository", playerSkillsRepository);
         inject("matchEventRepository", matchEventRepository);
         inject("goalAnimationService", goalAnimationService);
+        inject("engineConfig", new com.footballmanagergamesimulator.config.MatchEngineConfig());
 
         homeSquad = buildSquad(100L);
         awaySquad = buildSquad(200L);

@@ -27,7 +27,8 @@ import java.util.stream.Collectors;
 @Service
 public class NationalTeamService {
 
-    private static final double MIN_RATING_FOR_CALLUP = 70.0;
+    // Scaled to the 1-300 rating range (was 70.0 on the old 1-100 scale).
+    private static final double MIN_RATING_FOR_CALLUP = 210.0;
     private static final double INJURY_CHANCE = 0.10; // 10%
     private static final double MORALE_BOOST_CHANCE = 0.05; // 5%
     private static final int INTERNATIONAL_BREAK_DURATION = 14; // days

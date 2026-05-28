@@ -135,8 +135,13 @@ public class PlayerSkillsService {
     }
 
     /**
-     * Compute overall rating (1-100 scale) from individual attributes based on position.
+     * Compute overall rating (1-300 scale) from individual attributes based on position.
      * Each position weights different attributes to produce a meaningful overall score.
+     *
+     * <p>Scale rationale: a top-tier squad (team reputation ≈ 10,000) should
+     * land top players in the 250-300 range — see Kvekrpur in
+     * {@code BootstrapService} for the canonical reference player. Mid-table
+     * squads land players 120-180, relegation-tier squads 30-80.
      */
     public static double computeOverallRating(PlayerSkills skills) {
         String pos = skills.getPosition();
@@ -154,9 +159,9 @@ public class PlayerSkillsService {
             default -> weighted = mcRating(skills);
         }
 
-        // Map from 1-20 attribute scale to roughly 30-100 rating scale
-        // weighted is already a 1-20 scale weighted average
-        return Math.max(1, Math.min(100, weighted * 5));
+        // Map from 1-20 attribute scale to a 1-300 rating scale.
+        // weighted is already a 1-20 weighted average of position-relevant attrs.
+        return Math.max(1, Math.min(300, weighted * 15));
     }
 
     private static double gkRating(PlayerSkills s) {

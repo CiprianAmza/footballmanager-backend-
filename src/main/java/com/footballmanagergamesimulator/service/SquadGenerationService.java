@@ -55,15 +55,21 @@ public class SquadGenerationService {
     public List<Human> generateInitialSquad(Team team, TeamFacilities facilities,
                                             int currentSeason, int initialMorale, Random random) {
         List<Human> generatedSquad = new ArrayList<>(SQUAD_SIZE);
-        int reputation = (facilities != null) ? (int) facilities.getSeniorTrainingLevel() * 10 : 100;
+        // Squad quality is driven by team reputation (1..10000).
+        // Mapping: rep=10000 → target rating 275 (top of 250-300 band),
+        // rep=5000 → ~150, rep=1000 → ~50, rep=0 → ~25.
+        // Per-player spread of ±25 below produces the full 250-300 band for
+        // top teams and natural overlap between adjacent tiers.
+        int teamRep = team.getReputation();
+        int targetRating = 25 + (int) Math.round((teamRep / 10000.0) * 250.0);
 
         for (int i = 0; i < SQUAD_SIZE; i++) {
-            Human player = buildOnePlayer(team, currentSeason, initialMorale, reputation,
+            Human player = buildOnePlayer(team, currentSeason, initialMorale, targetRating,
                     positionForIndex(i), random);
             player = humanRepository.save(player);
 
             persistHistoricalRelation(player, team.getId(), currentSeason);
-            PlayerSkills skills = persistSkills(player);
+            PlayerSkills skills = persistSkills(player, random);
 
             // Recompute rating from the generated attributes so the rating
             // reflects the actual skill profile rather than the random seed.
@@ -83,7 +89,7 @@ public class SquadGenerationService {
     }
 
     private Human buildOnePlayer(Team team, int currentSeason, int initialMorale,
-                                 int reputation, String position, Random random) {
+                                 int targetRating, String position, Random random) {
         Human player = new Human();
         player.setTeamId(team.getId());
         player.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
@@ -95,7 +101,9 @@ public class SquadGenerationService {
         player.setMorale(initialMorale);
         player.setFitness(100);
 
-        int playerRating = random.nextInt(Math.max(10, reputation - 20), Math.max(11, reputation + 20));
+        // Spread of ±25 around the team's target rating gives each squad a
+        // visible best-XI/squad-depth gap without crossing tiers.
+        int playerRating = random.nextInt(Math.max(10, targetRating - 25), Math.max(11, targetRating + 25));
         player.setRating(playerRating);
         player.setCurrentAbility(playerRating);
         player.setPotentialAbility(playerRating + random.nextInt(10, 40));
@@ -120,11 +128,11 @@ public class SquadGenerationService {
         teamPlayerHistoricalRelationRepository.save(rel);
     }
 
-    private PlayerSkills persistSkills(Human player) {
+    private PlayerSkills persistSkills(Human player, Random random) {
         PlayerSkills skills = new PlayerSkills();
         skills.setPlayerId(player.getId());
         skills.setPosition(player.getPosition());
-        competitionService.generateSkills(skills, player.getRating());
+        competitionService.generateSkills(skills, player.getRating(), random);
         playerSkillsRepository.save(skills);
         return skills;
     }

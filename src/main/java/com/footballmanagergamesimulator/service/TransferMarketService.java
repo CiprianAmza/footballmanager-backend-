@@ -64,7 +64,8 @@ public class TransferMarketService {
             return false; // club can't buy player, reputation too low
         if (!playerTransferView.getPosition().equals(desiredPlayer.getPosition()))
             return false; // not desired position
-        if (playerTransferView.getRating() < desiredPlayer.getMinRating() - 10)
+        // 30 = scaled-up 10 for the 1-300 rating range (~3% of full scale tolerance).
+        if (playerTransferView.getRating() < desiredPlayer.getMinRating() - 30)
             return false; // player rating too low
         if (playerTransferView.getTeamId() == clubPlan.getTeamId())
             return false; // club already owns player
@@ -92,7 +93,8 @@ public class TransferMarketService {
                     if (player.getPosition() == null || player.getTypeId() != TypeNames.PLAYER_TYPE) continue;
                     if (!player.getPosition().equals(clubPlan.getPosition())) continue;
                     if (player.getAge() > buyPlanTransferView.getMaxAge()) continue;
-                    if (player.getRating() < clubPlan.getMinRating() - 10) continue;
+                    // 30 = scaled-up 10 for the 1-300 rating range.
+                    if (player.getRating() < clubPlan.getMinRating() - 30) continue;
 
                     // Check if there's already a pending offer for this player this season
                     List<TransferOffer> existingOffers = transferOfferRepository

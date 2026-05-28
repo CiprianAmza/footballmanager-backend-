@@ -18,6 +18,7 @@ import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -46,6 +47,14 @@ import java.util.Set;
  */
 @Service
 public class GameInitializationService {
+
+    /**
+     * Optional seed for the squad/manager generation RNG. {@code 0} (default)
+     * means "non-deterministic — use {@code new Random()}". Tests that want
+     * reproducible squad ratings (e.g. {@code LeagueOutcomeIT}) override this
+     * via {@code @TestPropertySource(properties = "bootstrap.seed=...")}.
+     */
+    @Value("${bootstrap.seed:0}") private long bootstrapSeed;
 
     @Autowired private RoundRepository roundRepository;
     @Autowired private CompetitionRepository competitionRepository;
@@ -114,7 +123,7 @@ public class GameInitializationService {
 
     private void generateInitialSquadsAndStaff(Round round) {
         List<Team> teams = teamRepository.findAll();
-        Random random = new Random();
+        Random random = bootstrapSeed != 0 ? new Random(bootstrapSeed) : new Random();
         for (Team team : teams) {
             TeamFacilities teamFacilities = teamFacilitiesRepository.findByTeamId(team.getId());
             squadGenerationService.generateInitialSquad(team, teamFacilities, 1, 70, random);
