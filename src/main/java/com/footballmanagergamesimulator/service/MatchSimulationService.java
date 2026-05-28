@@ -48,6 +48,28 @@ public class MatchSimulationService {
     @Autowired private InjuryRepository injuryRepository;
     @Autowired private UserContext userContext;
 
+    /**
+     * Shared RNG used by {@link #calculateScores} and other scoring helpers.
+     * Held as a field (not local) so fuzz/integration tests can swap in a
+     * seeded {@link Random} via {@link #setRandomForTesting(Random)} and get
+     * reproducible match outcomes across iterations.
+     *
+     * <p>Production code never touches this field — it stays the default
+     * non-seeded {@link Random} so live matches feel random as before.
+     */
+    private Random random = new Random();
+
+    /**
+     * Test-only seam: swap the RNG for fuzz tests so the same seed produces
+     * the same Poisson sample. Public so fuzz tests in
+     * {@code integration/fuzz/} (different package) can call it — production
+     * code MUST NOT use this method. Callers MUST restore the production RNG
+     * when done (or rely on the test creating a fresh service instance).
+     */
+    public void setRandomForTesting(Random random) {
+        this.random = random;
+    }
+
     // ==================== SCORING UTILITIES ====================
 
     /**
@@ -65,9 +87,14 @@ public class MatchSimulationService {
         double ratio1 = power1 / total;
         double ratio2 = power2 / total;
 
-        // Amplify power difference: raise ratio to power 1.5 then renormalize
-        double amp1 = Math.pow(ratio1, 1.5);
-        double amp2 = Math.pow(ratio2, 1.5);
+        // Amplify power difference: raise ratio to power N then renormalize.
+        // Tuning notes (S14): exponent 1.5 produced ~86% win rate for power
+        // 10k vs 4k (MatchEngineRepStrengthFuzzIT target ≥97%). Bumped to 2.0
+        // to widen the goal-expectation gap and trim the draw rate. Test
+        // 2 (championship) is also expected to improve because top-2 teams
+        // with close ratings will swap less often.
+        double amp1 = Math.pow(ratio1, 2.0);
+        double amp2 = Math.pow(ratio2, 2.0);
         double ampTotal = amp1 + amp2;
         double adjRatio1 = amp1 / ampTotal;
         double adjRatio2 = amp2 / ampTotal;
@@ -76,9 +103,10 @@ public class MatchSimulationService {
         double expected1 = 3.0 * adjRatio1;
         double expected2 = 3.0 * adjRatio2;
 
-        Random random = new Random();
-        int score1 = poissonGoals(random, expected1);
-        int score2 = poissonGoals(random, expected2);
+        // Uses the field-level RNG so fuzz tests can inject a seeded Random
+        // via setRandomForTesting(...). See javadoc on the `random` field.
+        int score1 = poissonGoals(this.random, expected1);
+        int score2 = poissonGoals(this.random, expected2);
 
         return List.of(score1, score2);
     }

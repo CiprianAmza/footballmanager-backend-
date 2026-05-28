@@ -203,8 +203,61 @@
                         </goals>
                     </execution>
                 </executions>
+                <configuration>
+                    <!--
+                        Fuzz tests are statistical + slow (1000s of iterations,
+                        whole-season simulations). They're excluded from the
+                        default `mvn verify` run and enabled only via `-Pfuzz`
+                        so CI/local feedback stays fast (~80-100s for full IT
+                        suite). The fuzz profile below overrides this excludes
+                        list to include `*FuzzIT.java`.
+                    -->
+                    <excludes>
+                        <exclude>**/*FuzzIT.java</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            Fuzz testing profile — activate with `mvn verify -Pfuzz`.
+            Runs ONLY the statistical fuzz suites (*FuzzIT.java), skipping
+            both unit tests and the standard integration tests. Used to
+            validate match-engine invariants (e.g., strong team wins 97%+,
+            top-predicted team takes title 5+/10 seasons) and tune engine
+            parameters when those invariants fail.
+        -->
+        <profile>
+            <id>fuzz</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- Skip pure unit tests when fuzzing -->
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <!-- Override the default excludes: in fuzz mode
+                                 we run ONLY *FuzzIT.java, nothing else. -->
+                            <excludes>
+                                <exclude>none</exclude>
+                            </excludes>
+                            <includes>
+                                <include>**/*FuzzIT.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>
