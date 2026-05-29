@@ -35,4 +35,19 @@ public class CompetitionTeamInfoMatch {
    */
   @Column(name = "match_index")
   private int matchIndex;
+
+  /**
+   * Leg number for a two-leg (home-and-away) knockout tie:
+   * 0 = single match (league/group/single-leg knockout), 1 = first leg, 2 = second leg.
+   * The winner of a two-leg tie is decided on aggregate only after leg 2.
+   */
+  @Column(name = "leg_number")
+  private int legNumber;
+
+  /**
+   * Groups the two legs of one two-leg tie together (both legs share the same tieId).
+   * 0 for single matches. Lets the simulator find the first-leg result when playing leg 2.
+   */
+  @Column(name = "tie_id")
+  private long tieId;
 }

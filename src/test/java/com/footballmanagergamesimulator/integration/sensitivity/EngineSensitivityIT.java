@@ -46,8 +46,15 @@ class EngineSensitivityIT {
     void analyzeAndWriteReport() throws Exception {
         EngineInvariantSuiteRunner runner = new EngineInvariantSuiteRunner(matchSimulationService, BASE_SEED);
 
-        // Same 5 knobs the tuner sweeps. If you add more in the tuner IT,
-        // mirror them here so the matrix grows.
+        // Snapshot baseline so the destructive sweep can be undone afterwards.
+        double startExponent = engineConfig.getPower().getRatioExponent();
+        double startGoals = engineConfig.getPower().getExpectedGoalsTotal();
+        double startMoraleFloor = engineConfig.getPower().getMoraleFloor();
+        double startMoraleSpread = engineConfig.getPower().getMoraleSpread();
+        double startHomeAdvantage = engineConfig.getPower().getHomeAdvantage();
+
+        // All 5 score-deciding knobs live in MatchEngineConfig — catalog, tuner,
+        // sensitivity, and the live game read the exact same values.
         ParameterSpace space = new ParameterSpace(List.of(
                 new TunableParameter("power.ratioExponent", 1.5, 3.5, 0.1,
                         () -> engineConfig.getPower().getRatioExponent(),
@@ -55,22 +62,31 @@ class EngineSensitivityIT {
                 new TunableParameter("power.expectedGoalsTotal", 2.0, 3.5, 0.25,
                         () -> engineConfig.getPower().getExpectedGoalsTotal(),
                         v -> engineConfig.getPower().setExpectedGoalsTotal(v)),
-                new TunableParameter("runner.moraleFloor", 0.4, 0.9, 0.05,
-                        () -> runner.moraleFloor,
-                        v -> runner.moraleFloor = v),
-                new TunableParameter("runner.moraleSpread", 0.2, 0.8, 0.05,
-                        () -> runner.moraleSpread,
-                        v -> runner.moraleSpread = v),
-                new TunableParameter("runner.homeAdvantage", 1.0, 1.25, 0.02,
-                        () -> runner.homeAdvantage,
-                        v -> runner.homeAdvantage = v)
+                new TunableParameter("power.moraleFloor", 0.4, 0.9, 0.05,
+                        () -> engineConfig.getPower().getMoraleFloor(),
+                        v -> engineConfig.getPower().setMoraleFloor(v)),
+                new TunableParameter("power.moraleSpread", 0.2, 0.8, 0.05,
+                        () -> engineConfig.getPower().getMoraleSpread(),
+                        v -> engineConfig.getPower().setMoraleSpread(v)),
+                new TunableParameter("power.homeAdvantage", 1.0, 1.25, 0.02,
+                        () -> engineConfig.getPower().getHomeAdvantage(),
+                        v -> engineConfig.getPower().setHomeAdvantage(v))
         ));
 
         SensitivityAnalyzer analyzer = new SensitivityAnalyzer(
                 runner, DefaultInvariants.catalog(), space);
 
         long t0 = System.nanoTime();
-        SensitivityMatrix matrix = analyzer.analyze();
+        SensitivityMatrix matrix;
+        try {
+            matrix = analyzer.analyze();
+        } finally {
+            engineConfig.getPower().setRatioExponent(startExponent);
+            engineConfig.getPower().setExpectedGoalsTotal(startGoals);
+            engineConfig.getPower().setMoraleFloor(startMoraleFloor);
+            engineConfig.getPower().setMoraleSpread(startMoraleSpread);
+            engineConfig.getPower().setHomeAdvantage(startHomeAdvantage);
+        }
         long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
 
         assertThat(matrix.parameterNames())

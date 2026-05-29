@@ -51,12 +51,13 @@ class EngineAutoTunerIT {
         // Snapshot starting values so the report can show before/after.
         double startExponent = engineConfig.getPower().getRatioExponent();
         double startGoals = engineConfig.getPower().getExpectedGoalsTotal();
-        double startMoraleFloor = runner.moraleFloor;
-        double startMoraleSpread = runner.moraleSpread;
-        double startHomeAdvantage = runner.homeAdvantage;
+        double startMoraleFloor = engineConfig.getPower().getMoraleFloor();
+        double startMoraleSpread = engineConfig.getPower().getMoraleSpread();
+        double startHomeAdvantage = engineConfig.getPower().getHomeAdvantage();
         List<InvariantResult> beforeResults = runner.runAll(DefaultInvariants.catalog());
 
-        // Parameter space: 5 knobs — 2 config + 3 runner.
+        // Parameter space: all 5 score-deciding knobs live in MatchEngineConfig, so
+        // the tuner sweeps the SAME values the catalog + the game read.
         ParameterSpace space = new ParameterSpace(List.of(
                 new TunableParameter("power.ratioExponent", 1.5, 3.5, 0.1,
                         () -> engineConfig.getPower().getRatioExponent(),
@@ -64,15 +65,15 @@ class EngineAutoTunerIT {
                 new TunableParameter("power.expectedGoalsTotal", 2.0, 3.5, 0.25,
                         () -> engineConfig.getPower().getExpectedGoalsTotal(),
                         v -> engineConfig.getPower().setExpectedGoalsTotal(v)),
-                new TunableParameter("runner.moraleFloor", 0.4, 0.9, 0.05,
-                        () -> runner.moraleFloor,
-                        v -> runner.moraleFloor = v),
-                new TunableParameter("runner.moraleSpread", 0.2, 0.8, 0.05,
-                        () -> runner.moraleSpread,
-                        v -> runner.moraleSpread = v),
-                new TunableParameter("runner.homeAdvantage", 1.0, 1.25, 0.02,
-                        () -> runner.homeAdvantage,
-                        v -> runner.homeAdvantage = v)
+                new TunableParameter("power.moraleFloor", 0.4, 0.9, 0.05,
+                        () -> engineConfig.getPower().getMoraleFloor(),
+                        v -> engineConfig.getPower().setMoraleFloor(v)),
+                new TunableParameter("power.moraleSpread", 0.2, 0.8, 0.05,
+                        () -> engineConfig.getPower().getMoraleSpread(),
+                        v -> engineConfig.getPower().setMoraleSpread(v)),
+                new TunableParameter("power.homeAdvantage", 1.0, 1.25, 0.02,
+                        () -> engineConfig.getPower().getHomeAdvantage(),
+                        v -> engineConfig.getPower().setHomeAdvantage(v))
         ));
 
         EngineAutoTuner tuner = new EngineAutoTuner(
@@ -83,7 +84,17 @@ class EngineAutoTunerIT {
         tuner.maxHillClimbSteps = 60;
 
         long t0 = System.nanoTime();
-        TuningResult result = tuner.tune();
+        TuningResult result;
+        try {
+            result = tuner.tune();
+        } finally {
+            // Restore baseline config so other -Ptune tests see the original values.
+            engineConfig.getPower().setRatioExponent(startExponent);
+            engineConfig.getPower().setExpectedGoalsTotal(startGoals);
+            engineConfig.getPower().setMoraleFloor(startMoraleFloor);
+            engineConfig.getPower().setMoraleSpread(startMoraleSpread);
+            engineConfig.getPower().setHomeAdvantage(startHomeAdvantage);
+        }
         long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
 
         // Sanity assertions — tuner machinery is alive.
@@ -131,12 +142,12 @@ class EngineAutoTunerIT {
                 .append(fmt(result.best().values().get("power.ratioExponent"))).append(" |\n");
         sb.append("| power.expectedGoalsTotal | ").append(fmt(startGoals)).append(" | ")
                 .append(fmt(result.best().values().get("power.expectedGoalsTotal"))).append(" |\n");
-        sb.append("| runner.moraleFloor | ").append(fmt(startMoraleFloor)).append(" | ")
-                .append(fmt(result.best().values().get("runner.moraleFloor"))).append(" |\n");
-        sb.append("| runner.moraleSpread | ").append(fmt(startMoraleSpread)).append(" | ")
-                .append(fmt(result.best().values().get("runner.moraleSpread"))).append(" |\n");
-        sb.append("| runner.homeAdvantage | ").append(fmt(startHomeAdvantage)).append(" | ")
-                .append(fmt(result.best().values().get("runner.homeAdvantage"))).append(" |\n\n");
+        sb.append("| power.moraleFloor | ").append(fmt(startMoraleFloor)).append(" | ")
+                .append(fmt(result.best().values().get("power.moraleFloor"))).append(" |\n");
+        sb.append("| power.moraleSpread | ").append(fmt(startMoraleSpread)).append(" | ")
+                .append(fmt(result.best().values().get("power.moraleSpread"))).append(" |\n");
+        sb.append("| power.homeAdvantage | ").append(fmt(startHomeAdvantage)).append(" | ")
+                .append(fmt(result.best().values().get("power.homeAdvantage"))).append(" |\n\n");
 
         sb.append("## Invariant Results — Before vs After\n\n");
         sb.append("| Invariant | Target | Before | After | Status |\n|---|---|---|---|---|\n");
@@ -174,9 +185,12 @@ class EngineAutoTunerIT {
         sb.append("match:\n  engine:\n    power:\n");
         sb.append("      ratio-exponent: ").append(fmt(result.best().values().get("power.ratioExponent"))).append('\n');
         sb.append("      expected-goals-total: ").append(fmt(result.best().values().get("power.expectedGoalsTotal"))).append('\n');
+        sb.append("      morale-floor: ").append(fmt(result.best().values().get("power.moraleFloor"))).append('\n');
+        sb.append("      morale-spread: ").append(fmt(result.best().values().get("power.moraleSpread"))).append('\n');
+        sb.append("      home-advantage: ").append(fmt(result.best().values().get("power.homeAdvantage"))).append('\n');
         sb.append("```\n\n");
-        sb.append("Runner knobs (`runner.*`) live in `EngineInvariantSuiteRunner` defaults — promote ");
-        sb.append("them to `MatchEngineConfig.morale` if you want them production-effective.\n");
+        sb.append("All five knobs live in `MatchEngineConfig.power`, so the catalog, the tuner, ");
+        sb.append("and the live game read the exact same values.\n");
 
         return sb.toString();
     }

@@ -3,6 +3,11 @@ package com.footballmanagergamesimulator.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
 /**
  * Single source of truth for every numeric constant that influences a match
  * outcome. Externalized so a fuzz/auto-tuner can sweep values without
@@ -79,12 +84,30 @@ public class MatchEngineConfig {
         /** Hard cap per team to prevent runaway Poisson tails. */
         private int maxGoalsPerTeam = 7;
 
+        // ---- Effective-power modifiers (promoted from the test harness in S15) ----
+        // The auto-tuner (S13) converged on these so the game matches the invariant
+        // catalog's morale + home-advantage behaviour. effectivePower =
+        //   base × (moraleFloor + moraleSpread × morale/100) × (home ? homeAdvantage : 1)
+
+        /** Morale=0 → power × moraleFloor. (Tuner value: 0.8.) */
+        private double moraleFloor = 0.8;
+        /** Morale=100 → power × (moraleFloor + moraleSpread). (Tuner value: 0.4 → top morale = 1.2×.) */
+        private double moraleSpread = 0.4;
+        /** Home side power multiplier. (Tuner value: 1.08 ≈ +8%.) */
+        private double homeAdvantage = 1.08;
+
         public double getRatioExponent() { return ratioExponent; }
         public void setRatioExponent(double v) { this.ratioExponent = v; }
         public double getExpectedGoalsTotal() { return expectedGoalsTotal; }
         public void setExpectedGoalsTotal(double v) { this.expectedGoalsTotal = v; }
         public int getMaxGoalsPerTeam() { return maxGoalsPerTeam; }
         public void setMaxGoalsPerTeam(int v) { this.maxGoalsPerTeam = v; }
+        public double getMoraleFloor() { return moraleFloor; }
+        public void setMoraleFloor(double v) { this.moraleFloor = v; }
+        public double getMoraleSpread() { return moraleSpread; }
+        public void setMoraleSpread(double v) { this.moraleSpread = v; }
+        public double getHomeAdvantage() { return homeAdvantage; }
+        public void setHomeAdvantage(double v) { this.homeAdvantage = v; }
     }
 
     // ==================== MORALE ====================
@@ -798,13 +821,50 @@ public class MatchEngineConfig {
 
     // ==================== KNOCKOUT ====================
     public static class Knockout {
-        /** AET win chance baseline + power-share weight: base + weight * (myPower / totalPower). */
+        /** AET win chance baseline + power-share weight: base + weight * (myPower / totalPower).
+         *  Used by the legacy single-shot tiebreak in {@code MatchRoundSimulator}. */
         private double aetWinChanceBase = 0.35;
         private double aetWinChanceWeight = 0.3;
+
+        /** Expected total goals for the 30-minute extra-time "mini match" played when a
+         *  tie is level after normal time (single-leg) or on aggregate (two-leg).
+         *  Much lower than the full-match {@code power.expectedGoalsTotal} (default 3.0)
+         *  because extra time is only 30 minutes (two 15-minute halves). */
+        private double extraTimeExpectedGoals = 1.0;
+
+        /** Probability the WEAKER team wins a penalty shootout. Penalties are modelled as
+         *  a near-coin-flip: 0.5 = pure 50/50; 0.55 gives the weaker side a slight edge
+         *  (shootouts are a lottery that levels the playing field). */
+        private double penaltyWeakerTeamWinChance = 0.5;
+
+        /** Which knockout rounds are two-leg (home-and-away), keyed by competition type id
+         *  (1=league, 2=cup, 3=second league, 4=League of Champions, 5=Stars Cup). A round
+         *  not listed (or a type not listed) is single-leg. Default is Champions-League style:
+         *  LoC quarterfinals (8) and semifinals (9) are two-leg; the final (10) and all other
+         *  competitions are single-leg. Override via {@code match.engine.knockout.two-leg-rounds}. */
+        private Map<Integer, Set<Integer>> twoLegRounds = defaultTwoLegRounds();
+
+        private static Map<Integer, Set<Integer>> defaultTwoLegRounds() {
+            Map<Integer, Set<Integer>> m = new HashMap<>();
+            m.put(4, new HashSet<>(Set.of(8, 9))); // LoC QF + SF
+            return m;
+        }
+
+        /** True if the given competition type's round is played over two legs. */
+        public boolean isTwoLeg(int competitionTypeId, long round) {
+            Set<Integer> rounds = twoLegRounds.get(competitionTypeId);
+            return rounds != null && rounds.contains((int) round);
+        }
 
         public double getAetWinChanceBase() { return aetWinChanceBase; }
         public void setAetWinChanceBase(double v) { this.aetWinChanceBase = v; }
         public double getAetWinChanceWeight() { return aetWinChanceWeight; }
         public void setAetWinChanceWeight(double v) { this.aetWinChanceWeight = v; }
+        public double getExtraTimeExpectedGoals() { return extraTimeExpectedGoals; }
+        public void setExtraTimeExpectedGoals(double v) { this.extraTimeExpectedGoals = v; }
+        public double getPenaltyWeakerTeamWinChance() { return penaltyWeakerTeamWinChance; }
+        public void setPenaltyWeakerTeamWinChance(double v) { this.penaltyWeakerTeamWinChance = v; }
+        public Map<Integer, Set<Integer>> getTwoLegRounds() { return twoLegRounds; }
+        public void setTwoLegRounds(Map<Integer, Set<Integer>> v) { this.twoLegRounds = v; }
     }
 }

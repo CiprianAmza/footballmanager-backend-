@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Answers questions one-axis sensitivity can't:
  * <ul>
  *   <li>"Does morale matter <i>more</i> when teams are close in power?" →
- *       look at the S1/ST gap for {@code runner.moraleSpread} on
+ *       look at the S1/ST gap for {@code power.moraleSpread} on
  *       {@code power-equal-balanced} vs {@code morale-high-vs-low}.</li>
  *   <li>"Are any two parameters confounded?" → both will show high
  *       {@code ST − S1} on the same invariant.</li>
@@ -58,9 +58,9 @@ class EngineInteractionIT {
         // Snapshot starting config so we can restore after the destructive analysis.
         double startExponent = engineConfig.getPower().getRatioExponent();
         double startGoals = engineConfig.getPower().getExpectedGoalsTotal();
-        double startMoraleFloor = runner.moraleFloor;
-        double startMoraleSpread = runner.moraleSpread;
-        double startHomeAdvantage = runner.homeAdvantage;
+        double startMoraleFloor = engineConfig.getPower().getMoraleFloor();
+        double startMoraleSpread = engineConfig.getPower().getMoraleSpread();
+        double startHomeAdvantage = engineConfig.getPower().getHomeAdvantage();
 
         ParameterSpace space = new ParameterSpace(List.of(
                 new TunableParameter("power.ratioExponent", 1.5, 3.5, 0.1,
@@ -69,15 +69,15 @@ class EngineInteractionIT {
                 new TunableParameter("power.expectedGoalsTotal", 2.0, 3.5, 0.25,
                         () -> engineConfig.getPower().getExpectedGoalsTotal(),
                         v -> engineConfig.getPower().setExpectedGoalsTotal(v)),
-                new TunableParameter("runner.moraleFloor", 0.4, 0.9, 0.05,
-                        () -> runner.moraleFloor,
-                        v -> runner.moraleFloor = v),
-                new TunableParameter("runner.moraleSpread", 0.2, 0.8, 0.05,
-                        () -> runner.moraleSpread,
-                        v -> runner.moraleSpread = v),
-                new TunableParameter("runner.homeAdvantage", 1.0, 1.25, 0.02,
-                        () -> runner.homeAdvantage,
-                        v -> runner.homeAdvantage = v)
+                new TunableParameter("power.moraleFloor", 0.4, 0.9, 0.05,
+                        () -> engineConfig.getPower().getMoraleFloor(),
+                        v -> engineConfig.getPower().setMoraleFloor(v)),
+                new TunableParameter("power.moraleSpread", 0.2, 0.8, 0.05,
+                        () -> engineConfig.getPower().getMoraleSpread(),
+                        v -> engineConfig.getPower().setMoraleSpread(v)),
+                new TunableParameter("power.homeAdvantage", 1.0, 1.25, 0.02,
+                        () -> engineConfig.getPower().getHomeAdvantage(),
+                        v -> engineConfig.getPower().setHomeAdvantage(v))
         ));
 
         InteractionAnalyzer analyzer = new InteractionAnalyzer(
@@ -95,9 +95,9 @@ class EngineInteractionIT {
         // Restore baseline so subsequent tests see the original config.
         engineConfig.getPower().setRatioExponent(startExponent);
         engineConfig.getPower().setExpectedGoalsTotal(startGoals);
-        runner.moraleFloor = startMoraleFloor;
-        runner.moraleSpread = startMoraleSpread;
-        runner.homeAdvantage = startHomeAdvantage;
+        engineConfig.getPower().setMoraleFloor(startMoraleFloor);
+        engineConfig.getPower().setMoraleSpread(startMoraleSpread);
+        engineConfig.getPower().setHomeAdvantage(startHomeAdvantage);
 
         // Harness sanity assertions only.
         assertThat(matrix.parameterNames()).hasSize(space.size());

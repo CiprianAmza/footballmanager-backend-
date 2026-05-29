@@ -1,6 +1,5 @@
 package com.footballmanagergamesimulator.engine.invariants;
 
-import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
 
 import java.util.ArrayList;
@@ -21,32 +20,16 @@ import java.util.Random;
  *
  * <h2>Effective power model</h2>
  * The runner converts a {@link MatchSetup} into the {@code calculateScores}
- * input via a deliberately simple curve so the catalog can target individual
- * factors:
- * <ul>
- *   <li><b>Morale</b>: linear from 0.6× at morale=0 to 1.2× at morale=100
- *       (so a side with morale=100 is ~20% "stronger" on paper than one with
- *       morale=50, while morale=20 is ~10% weaker). Knob: {@link #moraleFloor},
- *       {@link #moraleSpread}.</li>
- *   <li><b>Home advantage</b>: ×{@link #homeAdvantage} multiplier (default
- *       1.10 = ~+10% effective power). Off when {@code setup.home() == false}.</li>
- * </ul>
- *
- * <p>These knobs are NOT yet in {@code MatchEngineConfig} — they live on the
- * runner so the catalog can vary them independently of production config.
- * Faza 4's auto-tuner can promote them to config if/when needed.
+ * input by calling the SAME production method the game uses
+ * ({@link MatchSimulationService#effectivePower}), which reads the morale +
+ * home-advantage knobs straight from {@code MatchEngineConfig.power}. So the
+ * invariant catalog, the tuner, and the live game all share one set of values —
+ * tweak {@code MatchEngineConfig} and every layer moves together.
  */
 public class EngineInvariantSuiteRunner {
 
     private final MatchSimulationService simService;
     private final long baseSeed;
-
-    /** Morale=0 → effectivePower = base × moraleFloor. */
-    public double moraleFloor = 0.6;
-    /** Morale=100 → effectivePower = base × (moraleFloor + moraleSpread). */
-    public double moraleSpread = 0.6;
-    /** Home side gets this multiplier. */
-    public double homeAdvantage = 1.10;
 
     public EngineInvariantSuiteRunner(MatchSimulationService simService, long baseSeed) {
         this.simService = simService;
@@ -102,11 +85,10 @@ public class EngineInvariantSuiteRunner {
         }
     }
 
-    /** Apply morale + home multipliers to base squad power. */
+    /** Apply morale + home multipliers to base squad power, via the production
+     *  method so the catalog and the game use identical config values. */
     public double effectivePower(MatchSetup setup) {
-        double moraleMult = moraleFloor + moraleSpread * (setup.morale() / 100.0);
-        double homeMult = setup.home() ? homeAdvantage : 1.0;
-        return setup.basePower() * moraleMult * homeMult;
+        return simService.effectivePower(setup.basePower(), setup.morale(), setup.home());
     }
 
     /**
@@ -124,10 +106,5 @@ public class EngineInvariantSuiteRunner {
         sb.append(String.format("=== Totals: %d / %d passed (%.0f%%) ===%n",
                 passed, results.size(), passed * 100.0 / Math.max(1, results.size())));
         return sb.toString();
-    }
-
-    /** Apply a config tweak to override engine defaults before a run. */
-    public void overrideConfigField(MatchEngineConfig.Power power, double ratioExponent) {
-        power.setRatioExponent(ratioExponent);
     }
 }

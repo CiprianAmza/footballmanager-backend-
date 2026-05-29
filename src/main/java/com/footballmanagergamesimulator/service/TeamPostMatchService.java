@@ -290,14 +290,6 @@ public class TeamPostMatchService {
         if (changed) humanRepository.saveAll(allPlayers);
     }
 
-    /** Manager morale → team power multiplier. Neutral at 70 (1.0); range
-     *  0.93 (morale 0) to 1.03 (morale 100). */
-    public double getManagerMoraleMultiplier(long teamId) {
-        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
-        if (managers.isEmpty()) return 1.0;
-        double managerMorale = managers.get(0).getMorale();
-        return 1.0 + (managerMorale - 70) * 0.001;
-    }
 
     /** Range-based morale delta based on match result + team power gap.
      *  Larger upset = bigger morale swing (positive for winner, negative
@@ -368,47 +360,12 @@ public class TeamPostMatchService {
     }
 
     // ============================================================
-    //  Score generation
+    //  Score generation — see MatchSimulationService.calculateScores
     // ============================================================
-
-    /** Power-based score generator. Returns [score1, score2] using a
-     *  Poisson distribution around an amplified power ratio (3.0 expected
-     *  goals total, distributed by ratio^1.5 renormalised). */
-    public List<Integer> calculateScores(double power1, double power2) {
-        double total = power1 + power2;
-        if (total == 0) return List.of(1, 1);
-
-        double ratio1 = power1 / total;
-        double ratio2 = power2 / total;
-
-        double amp1 = Math.pow(ratio1, 1.5);
-        double amp2 = Math.pow(ratio2, 1.5);
-        double ampTotal = amp1 + amp2;
-        double adjRatio1 = amp1 / ampTotal;
-        double adjRatio2 = amp2 / ampTotal;
-
-        double expected1 = 3.0 * adjRatio1;
-        double expected2 = 3.0 * adjRatio2;
-
-        Random random = new Random();
-        int score1 = poissonGoals(random, expected1);
-        int score2 = poissonGoals(random, expected2);
-
-        return List.of(score1, score2);
-    }
-
-    /** Poisson sampling via Knuth's algorithm, capped at 7 to avoid
-     *  blow-out scores in extreme power mismatches. */
-    public int poissonGoals(Random random, double expectedGoals) {
-        double L = Math.exp(-expectedGoals);
-        double p = 1.0;
-        int k = 0;
-        do {
-            k++;
-            p *= random.nextDouble();
-        } while (p > L);
-        return Math.min(k - 1, 7);
-    }
+    // The old hardcoded scorer (exponent 1.5, fixed 3.0 goals, unseeded Random)
+    // was removed: all match scoring now goes through the single, config-driven,
+    // tuned MatchSimulationService.calculateScores so the game uses the exact
+    // mechanism the invariant/tuner tests validate.
 
     /** Admin override: if an un-consumed PredeterminedScore exists for this
      *  exact (competition, season, round, team1, team2), returns it and marks

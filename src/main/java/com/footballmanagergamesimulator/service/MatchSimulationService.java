@@ -48,7 +48,7 @@ public class MatchSimulationService {
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired private InjuryRepository injuryRepository;
     @Autowired private UserContext userContext;
-    @Autowired private MatchEngineConfig engineConfig;
+    @Autowired MatchEngineConfig engineConfig; // package-private so unit tests can inject a plain config
 
     /**
      * Shared RNG used by {@link #calculateScores} and other scoring helpers.
@@ -83,6 +83,35 @@ public class MatchSimulationService {
      * @return list of two integers: [team1Score, team2Score]
      */
     public List<Integer> calculateScores(double power1, double power2) {
+        return calculateScores(power1, power2, engineConfig.getPower().getExpectedGoalsTotal());
+    }
+
+    /**
+     * Convert a base squad rating into the "effective power" fed to
+     * {@link #calculateScores} — the same model the invariant/tuner harness uses,
+     * now config-driven so the game matches the tuned invariants:
+     * {@code base × (moraleFloor + moraleSpread × morale/100) × (home ? homeAdvantage : 1)}.
+     *
+     * @param basePower raw squad rating (best XI), before morale/home adjustment
+     * @param morale    squad morale on a 0..100 scale
+     * @param home      true if this side plays at home
+     */
+    public double effectivePower(double basePower, double morale, boolean home) {
+        MatchEngineConfig.Power p = engineConfig.getPower();
+        double moraleMult = p.getMoraleFloor() + p.getMoraleSpread() * (morale / 100.0);
+        double homeMult = home ? p.getHomeAdvantage() : 1.0;
+        return basePower * moraleMult * homeMult;
+    }
+
+    /**
+     * Same as {@link #calculateScores(double, double)} but with a caller-supplied
+     * total expected goals. Used for short matches such as the 30-minute extra-time
+     * "mini match" in knockout ties, where far fewer goals are expected than over a
+     * full 90 minutes.
+     *
+     * @param totalExpectedGoals expected combined goals, split by the amplified power ratio
+     */
+    public List<Integer> calculateScores(double power1, double power2, double totalExpectedGoals) {
         double total = power1 + power2;
         if (total == 0) return List.of(1, 1);
 
@@ -99,7 +128,6 @@ public class MatchSimulationService {
         double adjRatio1 = amp1 / ampTotal;
         double adjRatio2 = amp2 / ampTotal;
 
-        double totalExpectedGoals = engineConfig.getPower().getExpectedGoalsTotal();
         double expected1 = totalExpectedGoals * adjRatio1;
         double expected2 = totalExpectedGoals * adjRatio2;
 

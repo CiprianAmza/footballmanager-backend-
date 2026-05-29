@@ -5,6 +5,8 @@ import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
+import com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver;
+import com.footballmanagergamesimulator.service.knockout.LegFormat;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
@@ -66,11 +68,17 @@ class CupOutcomeIT {
 
     /** Comma-separated team IDs for the cup. Test is skipped if absent. */
     private static final String TEAM_IDS_PROPERTY = "team.ids";
+    /** {@code -Dleg.format=single} (default) or {@code two-leg} for home-and-away ties. */
+    private static final String LEG_FORMAT_PROPERTY = "leg.format";
 
     @Autowired private HumanRepository humanRepo;
     @Autowired private TeamRepository teamRepo;
     @Autowired private MatchSimulationService matchSim;
     @Autowired private MatchEngineConfig engineConfig;
+    @Autowired private KnockoutTieResolver tieResolver;
+
+    /** Leg format for every tie in the bracket; resolved from {@code -Dleg.format}. */
+    private LegFormat legFormat = LegFormat.SINGLE_LEG;
 
     /**
      * Simulate a knockout cup of user-supplied teams. Skipped unless
@@ -85,6 +93,8 @@ class CupOutcomeIT {
         String idsProperty = System.getProperty(TEAM_IDS_PROPERTY);
         Assumptions.assumeTrue(idsProperty != null && !idsProperty.isBlank(),
                 "Skipping — supply -Dteam.ids=ID1,ID2,... to run this test");
+
+        legFormat = parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
 
         List<Long> teamIds = parseTeamIds(idsProperty);
         if (teamIds.size() < 2) {
@@ -110,7 +120,7 @@ class CupOutcomeIT {
 
         String md = buildReport(
                 "Cup: CUSTOM knockout of " + teams.size() + " teams (IDs: " + idsLabel + ")",
-                teams, agg);
+                teams, agg, legFormat);
         Files.writeString(reportPath, md);
 
         System.out.println();
@@ -163,8 +173,8 @@ class CupOutcomeIT {
 
         return new AggregatedCup(nextPow2, stageSizes, titles, matchesPlayed,
                 matchesWon, reachedAtLeast, elapsedMs,
-                engineConfig.getKnockout().getAetWinChanceBase(),
-                engineConfig.getKnockout().getAetWinChanceWeight());
+                engineConfig.getKnockout().getExtraTimeExpectedGoals(),
+                engineConfig.getKnockout().getPenaltyWeakerTeamWinChance());
     }
 
     /**
@@ -238,24 +248,32 @@ class CupOutcomeIT {
     }
 
     /**
-     * Single-leg match. Draws are decided by the engine's power-weighted AET
-     * tiebreak (mirrors {@code MatchRoundSimulator}). Returns the winning index.
+     * Play a tie (single-leg or two-leg per {@link #legFormat}) through the shared
+     * {@link KnockoutTieResolver}: aggregate → extra time → penalties. Returns the
+     * winning index.
      */
     private int playMatch(List<TeamSetup> teams, int a, int b, Random rng) {
-        double pa = teams.get(a).power();
-        double pb = teams.get(b).power();
-        List<Integer> scores = matchSim.calculateScores(pa, pb);
-        int sa = scores.get(0);
-        int sb = scores.get(1);
-        if (sa == sb) {
-            double total = pa + pb;
-            double winChance = total > 0
-                    ? engineConfig.getKnockout().getAetWinChanceBase()
-                        + engineConfig.getKnockout().getAetWinChanceWeight() * (pa / total)
-                    : 0.5;
-            return rng.nextDouble() < winChance ? a : b;
+        return tieResolver.resolve(teams.get(a).power(), teams.get(b).power(), legFormat, rng).teamAWon()
+                ? a : b;
+    }
+
+    /** Parse {@code -Dleg.format}: "single"/"single-leg" (default) or "two"/"two-leg"/"home-away". */
+    private static LegFormat parseLegFormat(String value) {
+        if (value == null || value.isBlank()) return LegFormat.SINGLE_LEG;
+        switch (value.trim().toLowerCase()) {
+            case "single":
+            case "single-leg":
+            case "one":
+                return LegFormat.SINGLE_LEG;
+            case "two":
+            case "two-leg":
+            case "twoleg":
+            case "home-away":
+                return LegFormat.TWO_LEG;
+            default:
+                throw new IllegalArgumentException(
+                        "Invalid -Dleg.format='" + value + "'. Use 'single' or 'two-leg'.");
         }
-        return sa > sb ? a : b;
     }
 
     private static int nextPowerOfTwo(int n) {
@@ -333,7 +351,7 @@ class CupOutcomeIT {
 
     // ==================== REPORT ====================
 
-    private static String buildReport(String cupLine, List<TeamSetup> teams, AggregatedCup agg) {
+    private static String buildReport(String cupLine, List<TeamSetup> teams, AggregatedCup agg, LegFormat legFormat) {
         int n = teams.size();
         int[] stageSizes = agg.stageSizes();
         int[] titles = agg.titles();
@@ -361,7 +379,9 @@ class CupOutcomeIT {
         sb.append("# Cup Outcome Simulation\n\n");
         sb.append("Run on ").append(java.time.LocalDateTime.now()).append('\n');
         sb.append(cupLine).append('\n');
-        sb.append("Format: single-elimination, single-leg, draws decided by power-weighted AET tiebreak\n");
+        sb.append("Format: single-elimination, ")
+          .append(legFormat == LegFormat.TWO_LEG ? "two-leg (home-and-away)" : "single-leg")
+          .append(", level ties decided by extra time then penalties\n");
         sb.append("Tournaments simulated: ").append(TOURNAMENTS).append('\n');
         sb.append("Teams: ").append(n).append(" (bracket size ").append(agg.nextPow2());
         if (agg.nextPow2() > n) sb.append(", ").append(agg.nextPow2() - n).append(" bye(s) to top seeds");
@@ -372,8 +392,8 @@ class CupOutcomeIT {
         // ---- Main table ----
         sb.append("## Results After ").append(TOURNAMENTS).append(" Tournaments\n\n");
         sb.append("Sorted by titles won. ");
-        sb.append(String.format("AET tiebreak: base=%.2f, weight=%.2f.%n%n",
-                agg.aetBase(), agg.aetWeight()));
+        sb.append(String.format("Tiebreak: extra time (~%.1f goals) then penalties (weaker team %.0f%%).%n%n",
+                agg.etGoals(), agg.penWeakerChance() * 100));
 
         List<String> headers = new ArrayList<>(List.of("Rank", "Team", "Power", "Titles"));
         List<MarkdownTable.Align> aligns = new ArrayList<>(List.of(
@@ -459,7 +479,7 @@ class CupOutcomeIT {
     private record AggregatedCup(int nextPow2, int[] stageSizes, int[] titles,
                                  long[] matchesPlayed, long[] matchesWon,
                                  long[][] reachedAtLeast, long elapsedMs,
-                                 double aetBase, double aetWeight) {}
+                                 double etGoals, double penWeakerChance) {}
 
     // ==================== MARKDOWN TABLE HELPER ====================
 

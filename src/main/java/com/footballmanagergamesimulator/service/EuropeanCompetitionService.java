@@ -60,6 +60,7 @@ public class EuropeanCompetitionService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private RoundRobin roundRobin;
     @Autowired private EuropeanCoefficientService coefficientService;
+    @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
 
     // ============================================================
     //  Round classification
@@ -247,18 +248,58 @@ public class EuropeanCompetitionService {
             long homeId = seeded.get(i);
             long awayId = unseeded.get(i);
 
-            CompetitionTeamInfoMatch match = new CompetitionTeamInfoMatch();
-            match.setCompetitionId(competitionId);
-            match.setRound(roundId);
-            match.setTeam1Id(homeId);
-            match.setTeam2Id(awayId);
-            match.setSeasonNumber(currentSeason());
-            competitionTeamInfoMatchRepository.save(match);
+            saveKnockoutPairing(competitionId, roundId, homeId, awayId, i);
 
             String homeName = teamRepository.findById(homeId).map(Team::getName).orElse("?");
             String awayName = teamRepository.findById(awayId).map(Team::getName).orElse("?");
             System.out.println("  " + homeName + " (seeded) vs " + awayName);
         }
+    }
+
+    /**
+     * Persist a knockout pairing as either a single match or two legs
+     * (home-and-away), depending on {@code match.engine.knockout.two-leg-rounds}
+     * for this competition's type + round. Two-leg ties share a {@code tieId};
+     * leg 1 has {@code homeId} at home, leg 2 swaps venues. {@code pairingIndex}
+     * makes the tieId unique within the round's draw.
+     */
+    private void saveKnockoutPairing(long competitionId, long roundId, long homeId, long awayId, int pairingIndex) {
+        int typeId = competitionRepository.findById(competitionId).map(Competition::getTypeId).orElse(0L).intValue();
+        String season = currentSeason();
+        boolean twoLeg = engineConfig.getKnockout().isTwoLeg(typeId, roundId);
+
+        if (!twoLeg) {
+            CompetitionTeamInfoMatch match = new CompetitionTeamInfoMatch();
+            match.setCompetitionId(competitionId);
+            match.setRound(roundId);
+            match.setTeam1Id(homeId);
+            match.setTeam2Id(awayId);
+            match.setSeasonNumber(season);
+            competitionTeamInfoMatchRepository.save(match);
+            return;
+        }
+
+        long tieId = (competitionId * 100_000L) + (roundId * 1_000L) + pairingIndex + 1;
+
+        CompetitionTeamInfoMatch leg1 = new CompetitionTeamInfoMatch();
+        leg1.setCompetitionId(competitionId);
+        leg1.setRound(roundId);
+        leg1.setTeam1Id(homeId);
+        leg1.setTeam2Id(awayId);
+        leg1.setSeasonNumber(season);
+        leg1.setLegNumber(1);
+        leg1.setTieId(tieId);
+        competitionTeamInfoMatchRepository.save(leg1);
+
+        CompetitionTeamInfoMatch leg2 = new CompetitionTeamInfoMatch();
+        leg2.setCompetitionId(competitionId);
+        leg2.setRound(roundId);
+        leg2.setTeam1Id(awayId); // venues swap for the second leg
+        leg2.setTeam2Id(homeId);
+        leg2.setSeasonNumber(season);
+        leg2.setLegNumber(2);
+        leg2.setTieId(tieId);
+        competitionTeamInfoMatchRepository.save(leg2);
     }
 
     /**
@@ -317,13 +358,7 @@ public class EuropeanCompetitionService {
             long homeId = seeded.get(i);
             long awayId = unseeded.get(i);
 
-            CompetitionTeamInfoMatch match = new CompetitionTeamInfoMatch();
-            match.setCompetitionId(starsCupCompetitionId);
-            match.setRound(roundId);
-            match.setTeam1Id(homeId);
-            match.setTeam2Id(awayId);
-            match.setSeasonNumber(currentSeason());
-            competitionTeamInfoMatchRepository.save(match);
+            saveKnockoutPairing(starsCupCompetitionId, roundId, homeId, awayId, i);
 
             String homeName = teamRepository.findById(homeId).map(Team::getName).orElse("?");
             String awayName = teamRepository.findById(awayId).map(Team::getName).orElse("?");

@@ -87,6 +87,7 @@ public class MatchRoundSimulator {
     @Autowired private UserContext userContext;
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
+    @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
 
     /**
      * Shared RNG used by simulateRound + AI helpers + injury batched paths.
@@ -110,6 +111,7 @@ public class MatchRoundSimulator {
     // ===== AI rating caches (lifetime: app, mirrors original controller behavior). =====
     private final Map<Long, Double> simpleRatingCache = new HashMap<>();
     private final Map<Long, String> managerTacticCache = new HashMap<>();
+    private final Map<Long, Double> managerMoraleCache = new HashMap<>();
     private final Map<Long, List<PlayerView>> bestElevenCache = new HashMap<>();
     private final Map<Long, List<PlayerView>> substitutionsCache = new HashMap<>();
 
@@ -142,6 +144,15 @@ public class MatchRoundSimulator {
                 .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, getCurrentSeason());
 
         boolean knockout = europeanCompetitionService.isKnockoutRound(_competitionId, _roundId);
+
+        // Two-leg knockout: ensure leg 1 is simulated before leg 2 so the second
+        // leg can aggregate with the first. firstLegScores maps tieId → leg-1
+        // [team1Score, team2Score] (team1 of leg 1 = the side that hosted leg 1).
+        if (knockout) {
+            matches = new ArrayList<>(matches);
+            matches.sort(java.util.Comparator.comparingInt(CompetitionTeamInfoMatch::getLegNumber));
+        }
+        Map<Long, int[]> firstLegScores = new HashMap<>();
 
         // Batch collections for AI matches - saved once at end of round
         List<Injury> batchedInjuries = new ArrayList<>();
@@ -278,22 +289,16 @@ public class MatchRoundSimulator {
                         teamScore1 = adminScore[0];
                         teamScore2 = adminScore[1];
                     } else {
-                        List<Integer> scores = teamPostMatchService.calculateScores(teamPower1, teamPower2);
+                        // All match scoring goes through the config-driven, tuned engine
+                        // (MatchSimulationService) — the same mechanism the invariant/tuner
+                        // tests validate, including the morale curve + home advantage applied
+                        // here via effectivePower (team1 is the home side). Knockout ties are
+                        // broken later (extra time / penalties, aggregate for two-leg).
+                        List<Integer> scores = matchSimulationService.calculateScores(
+                                matchSimulationService.effectivePower(teamPower1, getManagerMoraleCached(teamId1), true),
+                                matchSimulationService.effectivePower(teamPower2, getManagerMoraleCached(teamId2), false));
                         teamScore1 = scores.get(0);
                         teamScore2 = scores.get(1);
-                    }
-
-                    if (knockout && teamScore1 == teamScore2) {
-                        double total = teamPower1 + teamPower2;
-                        double winChance = total > 0
-                            ? engineConfig.getKnockout().getAetWinChanceBase()
-                                + engineConfig.getKnockout().getAetWinChanceWeight() * (teamPower1 / total)
-                            : 0.5;
-                        if (random.nextDouble() < winChance) {
-                            teamScore1++;
-                        } else {
-                            teamScore2++;
-                        }
                     }
 
                     // Full scorer tracking with weighted distribution
@@ -353,22 +358,13 @@ public class MatchRoundSimulator {
                     teamScore1 = adminScoreAi[0];
                     teamScore2 = adminScoreAi[1];
                 } else {
-                    List<Integer> scores = teamPostMatchService.calculateScores(teamPower1, teamPower2);
+                    // All scoring via the tuned, config-driven engine (same as the tests),
+                    // with morale curve + home advantage applied (team1 = home side).
+                    List<Integer> scores = matchSimulationService.calculateScores(
+                            matchSimulationService.effectivePower(teamPower1, getManagerMoraleCached(teamId1), true),
+                            matchSimulationService.effectivePower(teamPower2, getManagerMoraleCached(teamId2), false));
                     teamScore1 = scores.get(0);
                     teamScore2 = scores.get(1);
-                }
-
-                if (knockout && teamScore1 == teamScore2) {
-                    double total = teamPower1 + teamPower2;
-                    double winChance = total > 0
-                            ? engineConfig.getKnockout().getAetWinChanceBase()
-                                + engineConfig.getKnockout().getAetWinChanceWeight() * (teamPower1 / total)
-                            : 0.5;
-                    if (random.nextDouble() < winChance) {
-                        teamScore1++;
-                    } else {
-                        teamScore2++;
-                    }
                 }
 
                 _ts = System.nanoTime();
@@ -410,24 +406,53 @@ public class MatchRoundSimulator {
             var _interactiveSession = liveMatchSimulationService.getSession(_liveKeyCheck);
             boolean _isInteractivePending = _interactiveSession != null && !_interactiveSession.isCommitted() && !_interactiveSession.isFinished();
 
-            // Knockout progression (needed for both human and AI matches)
+            // Knockout progression (needed for both human and AI matches).
+            // Single-leg: decide via extra time then penalties if level.
+            // Two-leg: leg 1 is recorded but does NOT advance anyone; leg 2 aggregates
+            // both legs and decides the tie (extra time + penalties on level aggregate).
+            String koScoreSuffix = "";
             if (knockout && !_isInteractivePending) {
-                long winnerId = teamScore1 > teamScore2 ? teamId1 : teamId2;
+                int legNumber = match.getLegNumber();
+                long tieId = match.getTieId();
+                Long winnerId = null; // null → propagation deferred (first leg of a two-leg tie)
 
-                // National cup: propagate the winner into the pre-created bracket slot.
-                // For LoC/Stars Cup we keep the legacy CompetitionTeamInfo flow below.
-                if (cachedCupCompIds != null && cachedCupCompIds.contains(_competitionId)
-                        && match.getMatchIndex() > 0) {
-                    cupBracketService.propagateWinner(
-                            _competitionId, Integer.parseInt(getCurrentSeason()),
-                            _roundId, match.getMatchIndex(), winnerId);
+                if (legNumber == 1 && tieId != 0) {
+                    // First leg: stash the score, decide nothing yet.
+                    firstLegScores.put(tieId, new int[]{teamScore1, teamScore2});
+                    koScoreSuffix = " (1st leg)";
+                } else if (legNumber == 2 && tieId != 0 && firstLegScores.containsKey(tieId)) {
+                    // Second leg: team1 here hosted leg 2 (= tie side B); team2 hosted leg 1 (= side A).
+                    int[] leg1 = firstLegScores.get(tieId);
+                    int aggA = leg1[0] + teamScore2; // side A: leg-1 home goals + leg-2 away goals
+                    int aggB = leg1[1] + teamScore1; // side B: leg-1 away goals + leg-2 home goals
+                    var d = tieResolver.decide(teamPower2, teamPower1, aggA, aggB, random);
+                    winnerId = d.teamAWon() ? teamId2 : teamId1;
+                    koScoreSuffix = " (agg " + aggA + "-" + aggB
+                            + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
                 } else {
-                    CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
-                    competitionTeamInfo.setCompetitionId(_competitionId);
-                    competitionTeamInfo.setRound(nextRound);
-                    competitionTeamInfo.setTeamId(winnerId);
-                    competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()));
-                    competitionTeamInfoRepository.save(competitionTeamInfo);
+                    // Single-leg knockout (or a leg-2 that lost its leg-1 record — decide on this match).
+                    var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, random);
+                    winnerId = d.teamAWon() ? teamId1 : teamId2;
+                    if (d.penalties()) koScoreSuffix = " (pens)";
+                    else if (d.extraTime()) koScoreSuffix = " (a.e.t.)";
+                }
+
+                if (winnerId != null) {
+                    // National cup: propagate the winner into the pre-created bracket slot.
+                    // For LoC/Stars Cup we keep the legacy CompetitionTeamInfo flow below.
+                    if (cachedCupCompIds != null && cachedCupCompIds.contains(_competitionId)
+                            && match.getMatchIndex() > 0) {
+                        cupBracketService.propagateWinner(
+                                _competitionId, Integer.parseInt(getCurrentSeason()),
+                                _roundId, match.getMatchIndex(), winnerId);
+                    } else {
+                        CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
+                        competitionTeamInfo.setCompetitionId(_competitionId);
+                        competitionTeamInfo.setRound(nextRound);
+                        competitionTeamInfo.setTeamId(winnerId);
+                        competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+                        competitionTeamInfoRepository.save(competitionTeamInfo);
+                    }
                 }
             }
 
@@ -441,7 +466,7 @@ public class MatchRoundSimulator {
                 competitionTeamInfoDetail.setTeam2Id(teamId2);
                 competitionTeamInfoDetail.setTeamName1(roundTeamName(teamId1));
                 competitionTeamInfoDetail.setTeamName2(roundTeamName(teamId2));
-                competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2);
+                competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);
                 competitionTeamInfoDetail.setSeasonNumber(Long.parseLong(getCurrentSeason()));
                 competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
                 tDetail += System.nanoTime() - _tsDetail;
@@ -764,8 +789,10 @@ public class MatchRoundSimulator {
                 .mapToDouble(PlayerView::getRating)
                 .sum();
 
-        // Manager morale influence on AI team power
-        rating *= teamPostMatchService.getManagerMoraleMultiplier(teamId);
+        // Morale (and home advantage) are applied centrally via
+        // MatchSimulationService.effectivePower at the scoring call, so the game
+        // uses the same tuned curve as the invariant catalog. This cache holds the
+        // raw squad rating.
 
         simpleRatingCache.put(teamId, rating);
         return rating;
@@ -778,6 +805,17 @@ public class MatchRoundSimulator {
                 ? managers.get(0).getTacticStyle() : "442";
         managerTacticCache.put(teamId, tactic);
         return tactic;
+    }
+
+    /** Squad morale (0..100) used by the effective-power curve. Manager morale is the
+     *  team-level scalar; defaults to the neutral 70 when a team has no manager. */
+    private double getManagerMoraleCached(long teamId) {
+        Double cached = managerMoraleCache.get(teamId);
+        if (cached != null) return cached;
+        double morale = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                .stream().findFirst().map(Human::getMorale).orElse(70.0);
+        managerMoraleCache.put(teamId, morale);
+        return morale;
     }
 
     /**

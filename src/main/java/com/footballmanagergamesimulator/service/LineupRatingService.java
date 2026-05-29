@@ -132,8 +132,9 @@ public class LineupRatingService {
                     }
                 }
 
-                rating *= teamPostMatchService.getManagerMoraleMultiplier(teamId);
-
+                // Manager morale + home advantage are applied centrally at the scoring
+                // call (MatchSimulationService.effectivePower) using the tuned curve, so
+                // this returns the squad rating without the old manager-morale multiplier.
                 return rating;
 
             } catch (Exception e) {
@@ -153,7 +154,8 @@ public class LineupRatingService {
                 })
                 .sum();
 
-        return fallbackRating * teamPostMatchService.getManagerMoraleMultiplier(teamId);
+        // Manager morale applied centrally via effectivePower (see above).
+        return fallbackRating;
     }
 
     /**
