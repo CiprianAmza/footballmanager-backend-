@@ -50,6 +50,9 @@ public class FixtureSchedulingService {
     @Lazy
     private EuropeanCompetitionService europeanCompetitionService;
 
+    @Autowired
+    private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
+
     private String currentSeasonStr() {
         return roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
     }
@@ -132,11 +135,13 @@ public class FixtureSchedulingService {
             Set<Long> locIdsForDraw = competitionIdsByType(4);
             Set<Long> starsCupIdsForDraw = competitionIdsByType(5);
 
-            if (locIdsForDraw.contains(_competitionId) && (_roundId == 0 || _roundId == 1)) {
+            if (locIdsForDraw.contains(_competitionId)
+                    && competitionFormat.get(4).isSeededKnockoutDrawRound(_roundId)) {
                 europeanCompetitionService.drawEuropeanKnockoutSeeded(_competitionId, _roundId, participants);
                 return;
             }
-            if (starsCupIdsForDraw.contains(_competitionId) && _roundId == 7) {
+            if (starsCupIdsForDraw.contains(_competitionId)
+                    && competitionFormat.get(5).isSeededKnockoutDrawRound(_roundId)) {
                 europeanCompetitionService.drawStarsCupPlayoffSeeded(_competitionId, _roundId, participants);
                 return;
             }

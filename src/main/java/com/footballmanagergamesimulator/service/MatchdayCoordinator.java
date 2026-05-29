@@ -48,6 +48,7 @@ public class MatchdayCoordinator {
     @Autowired private FixtureSchedulingService fixtureSchedulingService;
     @Autowired private UserContext userContext;
     @Autowired private MatchRoundSimulator matchRoundSimulator;
+    @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
 
     // ============================================================
     //  Matchday dispatch (calendar-driven). Mirrors {@code simulateRound}
@@ -77,12 +78,8 @@ public class MatchdayCoordinator {
         int typeId = (int) competition.getTypeId();
         String compIdStr = String.valueOf(competitionId);
 
-        int round;
-        if (typeId == 4) {
-            round = matchday - 1;
-        } else {
-            round = matchday;
-        }
+        com.footballmanagergamesimulator.config.CompetitionFormat fmt = competitionFormat.get(typeId);
+        int round = fmt.roundForMatchday(matchday);
         String roundStr = String.valueOf(round);
 
         System.out.println("=== simulateMatchday: comp=" + competitionId + " typeId=" + typeId
@@ -100,37 +97,31 @@ public class MatchdayCoordinator {
 
         // === LoC (typeId 4) ===
         if (typeId == 4) {
-            if (round == 0) {
+            if (fmt.isPreliminaryRound(round)) {
                 fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
                 matchRoundSimulator.simulateRound(compIdStr, roundStr);
-                europeanCompetitionService.assignLocLosersToStarsCup(competitionId, 0);
+                europeanCompetitionService.assignLocLosersToStarsCup(competitionId, round);
                 return;
             }
-            if (round == 1) {
-                fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
-                matchRoundSimulator.simulateRound(compIdStr, roundStr);
-                europeanCompetitionService.assignLocLosersToStarsCup(competitionId, 1);
-                return;
-            }
-            if (round >= 2 && round <= 7) {
-                if (round == 2) {
-                    europeanCompetitionService.drawEuropeanGroups(competitionId, 2);
+            if (fmt.isGroupRound(round)) {
+                if (fmt.isGroupDrawRound(round)) {
+                    europeanCompetitionService.drawEuropeanGroups(competitionId, round);
                     europeanCompetitionService.resetEuropeanStats(competitionId);
                     europeanCompetitionService.generateGroupStageFixtures(competitionId);
-                    for (int md = matchday + 1; md <= matchday + 5; md++) {
+                    for (int md = matchday + 1; md <= matchday + fmt.groupMatchdayCount() - 1; md++) {
                         fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
                     }
                 }
                 matchRoundSimulator.simulateRound(compIdStr, roundStr);
-                if (round == 7) {
+                if (fmt.isQualifyRound(round)) {
                     europeanCompetitionService.qualifyFromGroupStage(competitionId);
                 }
                 return;
             }
-            // Knockout rounds 8-10
+            // Knockout rounds (QF/SF/Final)
             fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
             matchRoundSimulator.simulateRound(compIdStr, roundStr);
-            if (round < 10) {
+            if (round < fmt.finalRound()) {
                 int nextRound = round + 1;
                 fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
                 fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
@@ -140,25 +131,25 @@ public class MatchdayCoordinator {
 
         // === Stars Cup (typeId 5) ===
         if (typeId == 5) {
-            if (round >= 1 && round <= 6) {
-                if (round == 1) {
-                    europeanCompetitionService.drawEuropeanGroups(competitionId, 1);
+            if (fmt.isGroupRound(round)) {
+                if (fmt.isGroupDrawRound(round)) {
+                    europeanCompetitionService.drawEuropeanGroups(competitionId, round);
                     europeanCompetitionService.resetEuropeanStats(competitionId);
                     europeanCompetitionService.generateGroupStageFixtures(competitionId);
-                    for (int md = matchday + 1; md <= matchday + 5; md++) {
+                    for (int md = matchday + 1; md <= matchday + fmt.groupMatchdayCount() - 1; md++) {
                         fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
                     }
                 }
                 matchRoundSimulator.simulateRound(compIdStr, roundStr);
-                if (round == 6) {
+                if (fmt.isQualifyRound(round)) {
                     europeanCompetitionService.qualifyFromStarsCupGroupStage(competitionId);
                 }
                 return;
             }
-            // Knockout rounds 7-10 (7 = playoff, 8 = QF, 9 = SF, 10 = Final)
+            // Knockout rounds (playoff, QF, SF, Final)
             fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
             matchRoundSimulator.simulateRound(compIdStr, roundStr);
-            if (round < 10) {
+            if (round < fmt.finalRound()) {
                 int nextRound = round + 1;
                 fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
                 fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);

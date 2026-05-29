@@ -1,14 +1,14 @@
 package com.footballmanagergamesimulator.integration.europe;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
-import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
-import com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver;
 import com.footballmanagergamesimulator.service.knockout.LegFormat;
-import com.footballmanagergamesimulator.service.knockout.TieResult;
-import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.service.tournament.TournamentEngine;
+import com.footballmanagergamesimulator.testutil.BracketUtil;
+import com.footballmanagergamesimulator.testutil.MarkdownTable;
+import com.footballmanagergamesimulator.testutil.OutcomeTestSupport;
+import com.footballmanagergamesimulator.testutil.TeamSetup;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,8 +19,6 @@ import org.springframework.test.context.TestPropertySource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 
@@ -77,26 +75,15 @@ class LeagueOfChampionsOutcomeIT {
     private static final int QUALIFY_PER_GROUP = 2;
     private static final int KO_BRACKET = GROUP_COUNT * QUALIFY_PER_GROUP; // 8 → QF/SF/Final
 
-    /** Double round-robin schedule for a group of 4 (local indices 0..3),
-     *  6 matchdays × 2 matches; {match[0]} is home. */
-    private static final int[][][] GROUP_SCHEDULE = {
-            {{0, 1}, {2, 3}},
-            {{0, 2}, {1, 3}},
-            {{0, 3}, {1, 2}},
-            {{1, 0}, {3, 2}},
-            {{2, 0}, {3, 1}},
-            {{3, 0}, {2, 1}},
-    };
-
     private static final String TEAM_IDS_PROPERTY = "team.ids";
     /** {@code -Dleg.format=single} (default) or {@code two-leg} for home-and-away knockout ties. */
     private static final String LEG_FORMAT_PROPERTY = "leg.format";
 
-    @Autowired private HumanRepository humanRepo;
     @Autowired private TeamRepository teamRepo;
     @Autowired private MatchSimulationService matchSim;
     @Autowired private MatchEngineConfig engineConfig;
-    @Autowired private KnockoutTieResolver tieResolver;
+    @Autowired private TournamentEngine engine;
+    @Autowired private OutcomeTestSupport support;
 
     /** Leg format for knockout ties (groups are always single matches); from {@code -Dleg.format}. */
     private LegFormat legFormat = LegFormat.SINGLE_LEG;
@@ -112,16 +99,16 @@ class LeagueOfChampionsOutcomeIT {
         Assumptions.assumeTrue(idsProperty != null && !idsProperty.isBlank(),
                 "Skipping — supply -Dteam.ids=ID1,ID2,... to run this test");
 
-        legFormat = parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
+        legFormat = BracketUtil.parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
 
-        List<Long> teamIds = parseTeamIds(idsProperty);
+        List<Long> teamIds = OutcomeTestSupport.parseTeamIds(idsProperty);
         if (teamIds.size() < GROUP_TEAMS) {
             throw new IllegalArgumentException(
                     "Need at least " + GROUP_TEAMS + " teams (the group stage always has "
                             + GROUP_TEAMS + "). Got " + teamIds.size() + " (input: " + idsProperty + ")");
         }
 
-        List<TeamSetup> teams = loadTeamsByIds(teamIds);
+        List<TeamSetup> teams = support.loadTeamsByIds(teamIds);
 
         StringBuilder firstEditionLog = new StringBuilder();
         AggregatedLoc agg = runAggregateLoc(teams, firstEditionLog);
@@ -139,7 +126,9 @@ class LeagueOfChampionsOutcomeIT {
 
     private AggregatedLoc runAggregateLoc(List<TeamSetup> teams, StringBuilder firstEditionLog) {
         int n = teams.size();
-        int[] koStageSizes = stageSizes(KO_BRACKET); // [8, 4, 2]
+        int[] koStageSizes = BracketUtil.stageSizes(KO_BRACKET); // [8, 4, 2]
+        double[] powers = new double[n];
+        for (int i = 0; i < n; i++) powers[i] = teams.get(i).power();
 
         int[] titles = new int[n];
         long[] reachedGroup = new long[n];
@@ -155,7 +144,7 @@ class LeagueOfChampionsOutcomeIT {
         try {
             for (int c = 0; c < TOURNAMENTS; c++) {
                 StringBuilder log = (c == 0) ? firstEditionLog : null;
-                LocOutcome o = runOneTournament(teams, drawRng, koStageSizes, log);
+                LocOutcome o = runOneTournament(teams, powers, drawRng, log);
                 titles[o.champion]++;
                 for (int t = 0; t < n; t++) {
                     if (o.reachedGroup[t]) {
@@ -181,9 +170,12 @@ class LeagueOfChampionsOutcomeIT {
                 engineConfig.getKnockout().getPenaltyWeakerTeamWinChance());
     }
 
-    /** One LoC edition: preliminaries (if N>16) → group stage → knockout. */
-    private LocOutcome runOneTournament(List<TeamSetup> teams, Random drawRng,
-                                        int[] koStageSizes, StringBuilder log) {
+    /**
+     * One LoC edition: preliminaries (if N&gt;16) → group stage → knockout, all
+     * via the shared {@link TournamentEngine}. This method only aggregates the
+     * per-team statistics and (for the first edition) renders the phase log.
+     */
+    private LocOutcome runOneTournament(List<TeamSetup> teams, double[] powers, Random drawRng, StringBuilder log) {
         int n = teams.size();
         boolean[] reachedGroup = new boolean[n];
         int[] groupPoints = new int[n];
@@ -193,43 +185,26 @@ class LeagueOfChampionsOutcomeIT {
         int[] koStageReached = new int[n];
         java.util.Arrays.fill(koStageReached, Integer.MAX_VALUE);
 
-        // ---- 1. Preliminary rounds: trim the field down to exactly 16 ----
-        List<Integer> field = new ArrayList<>(List.of(seedByPower(teams)));
-        int prelimRound = 1;
-        while (field.size() > GROUP_TEAMS) {
-            int f = field.size();
-            int eliminate = Math.min(f - GROUP_TEAMS, f / 2);
-            // Strongest get byes; weakest 2*eliminate play.
-            field.sort(powerDesc(teams));
-            List<Integer> byes = new ArrayList<>(field.subList(0, f - 2 * eliminate));
-            List<Integer> playing = new ArrayList<>(field.subList(f - 2 * eliminate, f));
-            Collections.shuffle(playing, drawRng);
-
-            if (log != null) {
-                log.append("### Preliminary Round ").append(prelimRound)
-                   .append(" — ").append(eliminate).append(" match(es), ")
-                   .append(byes.size()).append(" bye(s)\n\n");
-            }
-            List<Integer> survivors = new ArrayList<>(byes);
-            for (int i = 0; i < playing.size(); i += 2) {
-                MatchResult r = playKnockoutMatch(teams, playing.get(i), playing.get(i + 1), drawRng);
-                survivors.add(r.winner());
-                if (log != null) log.append(formatKoMatch(teams, r)).append('\n');
-            }
-            if (log != null) {
-                if (!byes.isEmpty()) {
-                    log.append("- _Byes:_ ").append(namesOf(teams, byes)).append('\n');
-                }
+        // ---- 1. Preliminaries: trim the field down to exactly 16 ----
+        List<Integer> allTeams = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) allTeams.add(i);
+        TournamentEngine.PrelimResult prelim = engine.trimToSize(allTeams, powers, GROUP_TEAMS, legFormat, drawRng);
+        if (log != null) {
+            int prelimRound = 1;
+            for (TournamentEngine.PrelimRound round : prelim.rounds()) {
+                log.append("### Preliminary Round ").append(prelimRound++)
+                   .append(" — ").append(round.ties().size()).append(" match(es), ")
+                   .append(round.byes().size()).append(" bye(s)\n\n");
+                for (TournamentEngine.TieOutcome t : round.ties()) log.append(formatKoMatch(teams, t)).append('\n');
+                if (!round.byes().isEmpty()) log.append("- _Byes:_ ").append(namesOf(teams, round.byes())).append('\n');
                 log.append('\n');
             }
-            field = survivors;
-            prelimRound++;
         }
-        List<Integer> groupTeams = field; // exactly 16
+        List<Integer> groupTeams = prelim.survivors(); // exactly 16
         for (int t : groupTeams) reachedGroup[t] = true;
 
         // ---- 2. Group draw (pot-seeded, one team per pot per group) ----
-        List<List<Integer>> groups = drawGroups(teams, groupTeams, drawRng);
+        List<List<Integer>> groups = engine.potSeededGroups(groupTeams, powers, GROUP_COUNT, GROUP_SIZE, drawRng);
         if (log != null) {
             log.append("## Group Stage Draw\n\n");
             for (int g = 0; g < groups.size(); g++) {
@@ -240,195 +215,68 @@ class LeagueOfChampionsOutcomeIT {
         }
 
         // ---- 3. Group stage (6 matchdays) + qualification ----
-        List<Integer> qualifiers = playGroupStage(teams, groups, groupPoints, groupPosition,
-                qualified, log);
-
-        // ---- 4. Knockout ----
-        int champion = runKnockout(teams, qualifiers, drawRng, koMatchesWon, koStageReached, log);
-
-        return new LocOutcome(champion, reachedGroup, groupPoints, groupPosition, qualified,
-                koMatchesWon, koStageReached);
-    }
-
-    /** Pot-seed the 16 group teams into 4 groups of 4. */
-    private List<List<Integer>> drawGroups(List<TeamSetup> teams, List<Integer> groupTeams, Random drawRng) {
-        List<Integer> seeded = new ArrayList<>(groupTeams);
-        seeded.sort(powerDesc(teams));
-        List<List<Integer>> groups = new ArrayList<>(GROUP_COUNT);
-        for (int g = 0; g < GROUP_COUNT; g++) groups.add(new ArrayList<>(GROUP_SIZE));
-        for (int pot = 0; pot < GROUP_SIZE; pot++) {
-            List<Integer> potTeams = new ArrayList<>(seeded.subList(pot * GROUP_COUNT, (pot + 1) * GROUP_COUNT));
-            Collections.shuffle(potTeams, drawRng);
-            for (int g = 0; g < GROUP_COUNT; g++) groups.get(g).add(potTeams.get(g));
-        }
-        return groups;
-    }
-
-    /**
-     * Play all 4 groups over 6 matchdays. Accumulates points/positions into the
-     * shared arrays and returns the qualifiers (top {@link #QUALIFY_PER_GROUP} per
-     * group). When {@code log} is non-null, prints each matchday's 8 matches and
-     * the final group standings.
-     */
-    private List<Integer> playGroupStage(List<TeamSetup> teams, List<List<Integer>> groups,
-                                         int[] groupPoints, int[] groupPosition,
-                                         boolean[] qualified, StringBuilder log) {
-        int g = groups.size();
-        int[][] pts = new int[g][GROUP_SIZE];
-        int[][] gf = new int[g][GROUP_SIZE];
-        int[][] ga = new int[g][GROUP_SIZE];
-
-        for (int md = 0; md < GROUP_SCHEDULE.length; md++) {
-            if (log != null) log.append("### Group Stage — Matchday ").append(md + 1).append("\n\n");
-            for (int gi = 0; gi < g; gi++) {
-                List<Integer> group = groups.get(gi);
-                for (int[] pair : GROUP_SCHEDULE[md]) {
-                    int homeLocal = pair[0], awayLocal = pair[1];
-                    int homeIdx = group.get(homeLocal), awayIdx = group.get(awayLocal);
-                    List<Integer> scores = matchSim.calculateScores(
-                            teams.get(homeIdx).power(), teams.get(awayIdx).power());
-                    int sH = scores.get(0), sA = scores.get(1);
-                    gf[gi][homeLocal] += sH; ga[gi][homeLocal] += sA;
-                    gf[gi][awayLocal] += sA; ga[gi][awayLocal] += sH;
-                    if (sH > sA) pts[gi][homeLocal] += 3;
-                    else if (sH == sA) { pts[gi][homeLocal]++; pts[gi][awayLocal]++; }
-                    else pts[gi][awayLocal] += 3;
-                    if (log != null) {
-                        log.append("- [Group ").append((char) ('A' + gi)).append("] ")
-                           .append(formatGroupMatch(teams, homeIdx, awayIdx, sH, sA)).append('\n');
+        List<TournamentEngine.GroupResult> groupResults = engine.playGroups(groups, powers, BracketUtil.GROUP_SCHEDULE);
+        if (log != null) {
+            for (int md = 0; md < BracketUtil.GROUP_SCHEDULE.length; md++) {
+                log.append("### Group Stage — Matchday ").append(md + 1).append("\n\n");
+                for (TournamentEngine.GroupResult gr : groupResults) {
+                    for (TournamentEngine.GroupMatch m : gr.matchdays().get(md)) {
+                        log.append("- [Group ").append((char) ('A' + gr.groupIndex())).append("] ")
+                           .append(formatGroupMatch(teams, m.homeIdx(), m.awayIdx(), m.homeGoals(), m.awayGoals())).append('\n');
                     }
                 }
+                log.append('\n');
             }
-            if (log != null) log.append('\n');
         }
-
-        List<Integer> qualifiers = new ArrayList<>(g * QUALIFY_PER_GROUP);
-        for (int gi = 0; gi < g; gi++) {
-            List<Integer> group = groups.get(gi);
-            Integer[] localOrder = new Integer[GROUP_SIZE];
-            for (int i = 0; i < GROUP_SIZE; i++) localOrder[i] = i;
-            final int gg = gi;
-            java.util.Arrays.sort(localOrder, (a, b) -> {
-                if (pts[gg][a] != pts[gg][b]) return pts[gg][b] - pts[gg][a];
-                int gdA = gf[gg][a] - ga[gg][a], gdB = gf[gg][b] - ga[gg][b];
-                if (gdA != gdB) return gdB - gdA;
-                if (gf[gg][a] != gf[gg][b]) return gf[gg][b] - gf[gg][a];
-                return Double.compare(teams.get(group.get(b)).power(), teams.get(group.get(a)).power());
-            });
-            if (log != null) log.append("**Group ").append((char) ('A' + gi)).append(" final standings:**\n\n");
-            for (int pos = 0; pos < GROUP_SIZE; pos++) {
-                int local = localOrder[pos];
-                int teamIdx = group.get(local);
-                groupPoints[teamIdx] += pts[gi][local];
+        List<Integer> qualifiers = new ArrayList<>(GROUP_COUNT * QUALIFY_PER_GROUP);
+        for (TournamentEngine.GroupResult gr : groupResults) {
+            if (log != null) log.append("**Group ").append((char) ('A' + gr.groupIndex())).append(" final standings:**\n\n");
+            for (int pos = 0; pos < gr.teams().size(); pos++) {
+                int teamIdx = gr.teamAtPosition(pos);
+                groupPoints[teamIdx] = gr.pointsAtPosition(pos);
                 groupPosition[teamIdx] = pos + 1;
                 boolean adv = pos < QUALIFY_PER_GROUP;
                 if (adv) { qualified[teamIdx] = true; qualifiers.add(teamIdx); }
                 if (log != null) {
                     log.append("  ").append(pos + 1).append(". ").append(teams.get(teamIdx).name())
-                       .append(" — ").append(pts[gi][local]).append(" pts (")
-                       .append(gf[gi][local]).append('-').append(ga[gi][local]).append(')')
+                       .append(" — ").append(gr.pointsAtPosition(pos)).append(" pts (")
+                       .append(gr.goalsForAtPosition(pos)).append('-').append(gr.goalsAgainstAtPosition(pos)).append(')')
                        .append(adv ? "  ✅ qualifies" : "").append('\n');
                 }
             }
             if (log != null) log.append('\n');
         }
-        return qualifiers;
-    }
 
-    /**
-     * Single-leg knockout among the 8 qualifiers (QF → SF → Final). Records
-     * matches won and the smallest bracket size each team played in. Prints each
-     * round when {@code log} is non-null. Returns champion.
-     */
-    private int runKnockout(List<TeamSetup> teams, List<Integer> qualifiers, Random drawRng,
-                            int[] koMatchesWon, int[] koStageReached, StringBuilder log) {
-        List<Integer> alive = new ArrayList<>(qualifiers);
-        Collections.shuffle(alive, drawRng);
-        for (int slot : alive) koStageReached[slot] = Math.min(koStageReached[slot], alive.size());
-
-        int champion = -1;
-        while (alive.size() > 1) {
-            int roundSize = alive.size();
-            if (log != null) log.append("### ").append(stageLabel(roundSize)).append("\n\n");
-            List<Integer> next = new ArrayList<>(roundSize / 2);
-            for (int i = 0; i < roundSize; i += 2) {
-                MatchResult r = playKnockoutMatch(teams, alive.get(i), alive.get(i + 1), drawRng);
-                koMatchesWon[r.winner()]++;
-                next.add(r.winner());
-                if (log != null) log.append(formatKoMatch(teams, r)).append('\n');
+        // ---- 4. Knockout ----
+        TournamentEngine.KnockoutResult ko = engine.runKnockout(qualifiers, powers, legFormat, drawRng);
+        if (!ko.rounds().isEmpty()) {
+            int firstBracket = ko.rounds().get(0).bracketSize();
+            for (int t : qualifiers) koStageReached[t] = Math.min(koStageReached[t], firstBracket);
+        }
+        for (TournamentEngine.KnockoutRound round : ko.rounds()) {
+            if (log != null) log.append("### ").append(BracketUtil.stageLabel(round.bracketSize())).append("\n\n");
+            for (TournamentEngine.TieOutcome t : round.ties()) {
+                koMatchesWon[t.winnerIdx()]++;
+                koStageReached[t.winnerIdx()] = Math.min(koStageReached[t.winnerIdx()], round.bracketSize() / 2);
+                if (log != null) log.append(formatKoMatch(teams, t)).append('\n');
             }
             if (log != null) log.append('\n');
-            for (int slot : next) koStageReached[slot] = Math.min(koStageReached[slot], roundSize / 2);
-            if (roundSize == 2) champion = next.get(0);
-            alive = next;
         }
+        int champion = ko.championIdx();
         if (log != null && champion >= 0) {
             log.append("## 🏆 Champion: ").append(teams.get(champion).name()).append("\n\n");
         }
-        return champion;
-    }
 
-    /** Knockout tie (single-leg or two-leg per {@link #legFormat}) via the shared resolver. */
-    private MatchResult playKnockoutMatch(List<TeamSetup> teams, int a, int b, Random rng) {
-        TieResult tie = tieResolver.resolve(teams.get(a).power(), teams.get(b).power(), legFormat, rng);
-        int winner = tie.teamAWon() ? a : b;
-        return new MatchResult(a, b, winner, tie);
-    }
-
-    /** Parse {@code -Dleg.format}: "single"/"single-leg" (default) or "two"/"two-leg"/"home-away". */
-    private static LegFormat parseLegFormat(String value) {
-        if (value == null || value.isBlank()) return LegFormat.SINGLE_LEG;
-        switch (value.trim().toLowerCase()) {
-            case "single":
-            case "single-leg":
-            case "one":
-                return LegFormat.SINGLE_LEG;
-            case "two":
-            case "two-leg":
-            case "twoleg":
-            case "home-away":
-                return LegFormat.TWO_LEG;
-            default:
-                throw new IllegalArgumentException(
-                        "Invalid -Dleg.format='" + value + "'. Use 'single' or 'two-leg'.");
-        }
-    }
-
-    private Integer[] seedByPower(List<TeamSetup> teams) {
-        Integer[] bySeed = new Integer[teams.size()];
-        for (int i = 0; i < bySeed.length; i++) bySeed[i] = i;
-        java.util.Arrays.sort(bySeed, powerDesc(teams));
-        return bySeed;
-    }
-
-    private Comparator<Integer> powerDesc(List<TeamSetup> teams) {
-        return Comparator.comparingDouble((Integer i) -> teams.get(i).power()).reversed()
-                .thenComparing(i -> teams.get(i).name());
-    }
-
-    private static int[] stageSizes(int koBracket) {
-        List<Integer> sizes = new ArrayList<>();
-        for (int s = koBracket; s >= 2; s >>= 1) sizes.add(s);
-        int[] out = new int[sizes.size()];
-        for (int i = 0; i < out.length; i++) out[i] = sizes.get(i);
-        return out;
-    }
-
-    private static String stageLabel(int size) {
-        switch (size) {
-            case 2: return "Final";
-            case 4: return "Semifinal";
-            case 8: return "Quarterfinal";
-            default: return "Round of " + size;
-        }
+        return new LocOutcome(champion, reachedGroup, groupPoints, groupPosition, qualified,
+                koMatchesWon, koStageReached);
     }
 
     // ==================== LOG FORMATTING ====================
 
-    private static String formatKoMatch(List<TeamSetup> teams, MatchResult r) {
-        return "- " + teams.get(r.aIdx()).name() + " vs " + teams.get(r.bIdx()).name()
-                + " — " + r.tie().summary()
-                + "  → **" + teams.get(r.winner()).name() + "** advances";
+    private static String formatKoMatch(List<TeamSetup> teams, TournamentEngine.TieOutcome t) {
+        return "- " + teams.get(t.aIdx()).name() + " vs " + teams.get(t.bIdx()).name()
+                + " — " + t.tie().summary()
+                + "  → **" + teams.get(t.winnerIdx()).name() + "** advances";
     }
 
     private static String formatGroupMatch(List<TeamSetup> teams, int homeIdx, int awayIdx, int sH, int sA) {
@@ -438,51 +286,6 @@ class LeagueOfChampionsOutcomeIT {
     private static String namesOf(List<TeamSetup> teams, List<Integer> idxs) {
         return idxs.stream().map(i -> teams.get(i).name())
                 .collect(java.util.stream.Collectors.joining(", "));
-    }
-
-    // ==================== TEAM LOADING ====================
-
-    private static List<Long> parseTeamIds(String input) {
-        List<Long> ids = new ArrayList<>();
-        for (String part : input.split(",")) {
-            String trimmed = part.trim();
-            if (trimmed.isEmpty()) continue;
-            try {
-                ids.add(Long.parseLong(trimmed));
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException(
-                        "Invalid -Dteam.ids — '" + trimmed + "' is not an integer. "
-                                + "Expected comma-separated team IDs (e.g. \"1,5,8,12\"). Input was: \"" + input + "\"");
-            }
-        }
-        return ids;
-    }
-
-    private List<TeamSetup> loadTeamsByIds(List<Long> teamIds) {
-        java.util.TreeSet<Long> sortedIds = new java.util.TreeSet<>(teamIds);
-        List<TeamSetup> out = new ArrayList<>(sortedIds.size());
-        for (long id : sortedIds) {
-            String name = teamRepo.findNameById(id);
-            if (name == null) {
-                throw new IllegalArgumentException(
-                        "Team ID " + id + " not found in DB. Check -Dteam.ids — IDs must reference existing Team rows.");
-            }
-            out.add(new TeamSetup(id, name, computeTeamPower(id)));
-        }
-        return out;
-    }
-
-    private double computeTeamPower(long teamId) {
-        List<Human> players = humanRepo.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-        players.sort(Comparator.comparingDouble(Human::getRating).reversed());
-        double sum = 0;
-        int count = 0;
-        for (Human p : players) {
-            if (p.isRetired()) continue;
-            sum += p.getRating();
-            if (++count == 11) break;
-        }
-        return sum;
     }
 
     // ==================== REPORT ====================
@@ -574,7 +377,7 @@ class LeagueOfChampionsOutcomeIT {
         heatHeaders.add("Team");
         heatAligns.add(MarkdownTable.Align.LEFT);
         for (int size : koStageSizes) {
-            heatHeaders.add(stageLabel(size));
+            heatHeaders.add(BracketUtil.stageLabel(size));
             heatAligns.add(MarkdownTable.Align.RIGHT);
         }
         heatHeaders.add("Winner");
@@ -617,10 +420,6 @@ class LeagueOfChampionsOutcomeIT {
 
     // ==================== INNER TYPES ====================
 
-    private record TeamSetup(long id, String name, double power) {}
-
-    private record MatchResult(int aIdx, int bIdx, int winner, TieResult tie) {}
-
     private record LocOutcome(int champion, boolean[] reachedGroup, int[] groupPoints,
                               int[] groupPosition, boolean[] qualified,
                               int[] koMatchesWon, int[] koStageReached) {}
@@ -630,63 +429,4 @@ class LeagueOfChampionsOutcomeIT {
                                  long[][] koReachedAtLeast, long elapsedMs,
                                  double etGoals, double penWeakerChance) {}
 
-    // ==================== MARKDOWN TABLE HELPER ====================
-
-    private static final class MarkdownTable {
-        enum Align { LEFT, RIGHT }
-        private final List<String> headers;
-        private final List<Align> alignments;
-        private final List<String[]> rows = new ArrayList<>();
-
-        MarkdownTable(List<String> headers, List<Align> alignments) {
-            if (headers.size() != alignments.size()) {
-                throw new IllegalArgumentException("headers and alignments must have same size");
-            }
-            this.headers = List.copyOf(headers);
-            this.alignments = List.copyOf(alignments);
-        }
-
-        void addRow(String... cells) {
-            if (cells.length != headers.size()) {
-                throw new IllegalArgumentException(
-                        "row has " + cells.length + " cells but table has " + headers.size() + " columns");
-            }
-            rows.add(cells);
-        }
-
-        String render() {
-            int cols = headers.size();
-            int[] widths = new int[cols];
-            for (int c = 0; c < cols; c++) widths[c] = headers.get(c).length();
-            for (String[] row : rows) {
-                for (int c = 0; c < cols; c++) widths[c] = Math.max(widths[c], row[c].length());
-            }
-            StringBuilder sb = new StringBuilder();
-            sb.append('|');
-            for (int c = 0; c < cols; c++) {
-                sb.append(' ').append(pad(headers.get(c), widths[c], alignments.get(c))).append(" |");
-            }
-            sb.append('\n');
-            sb.append('|');
-            for (int c = 0; c < cols; c++) {
-                String bar = "-".repeat(widths[c] + 1);
-                sb.append(bar).append(alignments.get(c) == Align.RIGHT ? ":|" : "-|");
-            }
-            sb.append('\n');
-            for (String[] row : rows) {
-                sb.append('|');
-                for (int c = 0; c < cols; c++) {
-                    sb.append(' ').append(pad(row[c], widths[c], alignments.get(c))).append(" |");
-                }
-                sb.append('\n');
-            }
-            return sb.toString();
-        }
-
-        private static String pad(String s, int width, Align align) {
-            if (s.length() >= width) return s;
-            String padding = " ".repeat(width - s.length());
-            return align == Align.RIGHT ? padding + s : s + padding;
-        }
-    }
 }

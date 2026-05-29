@@ -1,13 +1,13 @@
 package com.footballmanagergamesimulator.integration.cup;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
-import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
-import com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver;
 import com.footballmanagergamesimulator.service.knockout.LegFormat;
-import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.service.tournament.TournamentEngine;
+import com.footballmanagergamesimulator.testutil.BracketUtil;
+import com.footballmanagergamesimulator.testutil.MarkdownTable;
+import com.footballmanagergamesimulator.testutil.OutcomeTestSupport;
+import com.footballmanagergamesimulator.testutil.TeamSetup;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,8 +18,6 @@ import org.springframework.test.context.TestPropertySource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 
@@ -71,11 +69,10 @@ class CupOutcomeIT {
     /** {@code -Dleg.format=single} (default) or {@code two-leg} for home-and-away ties. */
     private static final String LEG_FORMAT_PROPERTY = "leg.format";
 
-    @Autowired private HumanRepository humanRepo;
-    @Autowired private TeamRepository teamRepo;
     @Autowired private MatchSimulationService matchSim;
     @Autowired private MatchEngineConfig engineConfig;
-    @Autowired private KnockoutTieResolver tieResolver;
+    @Autowired private TournamentEngine engine;
+    @Autowired private OutcomeTestSupport support;
 
     /** Leg format for every tie in the bracket; resolved from {@code -Dleg.format}. */
     private LegFormat legFormat = LegFormat.SINGLE_LEG;
@@ -85,7 +82,7 @@ class CupOutcomeIT {
      * {@code -Dteam.ids=ID1,ID2,...} is provided.
      *
      * <p>Constraints (fail-fast): even count, at least 2 teams, every ID must
-     * exist in {@code teamRepo}.
+     * exist in the team repository.
      */
     @Test
     @DisplayName("Simulate custom knockout cup — supply via -Dteam.ids=ID1,ID2,...")
@@ -94,9 +91,9 @@ class CupOutcomeIT {
         Assumptions.assumeTrue(idsProperty != null && !idsProperty.isBlank(),
                 "Skipping — supply -Dteam.ids=ID1,ID2,... to run this test");
 
-        legFormat = parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
+        legFormat = BracketUtil.parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
 
-        List<Long> teamIds = parseTeamIds(idsProperty);
+        List<Long> teamIds = OutcomeTestSupport.parseTeamIds(idsProperty);
         if (teamIds.size() < 2) {
             throw new IllegalArgumentException(
                     "Need at least 2 teams; got " + teamIds.size() + " (input: " + idsProperty + ")");
@@ -106,7 +103,7 @@ class CupOutcomeIT {
                     "Team count must be even. Got " + teamIds.size() + " (input: " + idsProperty + ")");
         }
 
-        List<TeamSetup> teams = loadTeamsByIds(teamIds);
+        List<TeamSetup> teams = support.loadTeamsByIds(teamIds);
 
         AggregatedCup agg = runAggregateCup(teams);
 
@@ -137,8 +134,10 @@ class CupOutcomeIT {
      */
     private AggregatedCup runAggregateCup(List<TeamSetup> teams) {
         int n = teams.size();
-        int nextPow2 = nextPowerOfTwo(n);
-        int[] stageSizes = stageSizes(nextPow2); // [nextPow2, nextPow2/2, ..., 2]
+        int nextPow2 = BracketUtil.nextPowerOfTwo(n);
+        int[] stageSizes = BracketUtil.stageSizes(nextPow2); // [nextPow2, nextPow2/2, ..., 2]
+        double[] powers = new double[n];
+        for (int i = 0; i < n; i++) powers[i] = teams.get(i).power();
 
         int[] titles = new int[n];
         long[] matchesPlayed = new long[n];
@@ -152,7 +151,7 @@ class CupOutcomeIT {
         long t0 = System.nanoTime();
         try {
             for (int c = 0; c < TOURNAMENTS; c++) {
-                CupOutcome outcome = runOneCup(teams, drawRng, nextPow2);
+                CupOutcome outcome = runOneCup(teams, powers, drawRng);
                 titles[outcome.champion]++;
                 for (int t = 0; t < n; t++) {
                     matchesPlayed[t] += outcome.matchesPlayed[t];
@@ -178,175 +177,14 @@ class CupOutcomeIT {
     }
 
     /**
-     * One single-elimination cup. Top {@code numByes} seeds (by power) get a
-     * round-one bye; the rest are drawn randomly. Bracket has {@code nextPow2}
-     * slots so every round halves cleanly. Returns champion + per-team stats.
+     * One single-elimination cup via the shared {@link TournamentEngine}. Teams are
+     * seeded by power (then name, the test's tiebreak) so the strongest get the
+     * round-one byes; the engine plays the bracket and resolves level ties.
      */
-    private CupOutcome runOneCup(List<TeamSetup> teams, Random drawRng, int nextPow2) {
-        int n = teams.size();
-        int numByes = nextPow2 - n;
-
-        // Seed teams by power desc; strongest get the byes.
-        Integer[] bySeed = new Integer[n];
-        for (int i = 0; i < n; i++) bySeed[i] = i;
-        java.util.Arrays.sort(bySeed, Comparator
-                .comparingDouble((Integer i) -> teams.get(i).power()).reversed()
-                .thenComparing(i -> teams.get(i).name()));
-
-        List<Integer> byeTeams = new ArrayList<>(bySeed.length);
-        List<Integer> playing = new ArrayList<>(bySeed.length);
-        for (int i = 0; i < n; i++) {
-            if (i < numByes) byeTeams.add(bySeed[i]);
-            else playing.add(bySeed[i]);
-        }
-        Collections.shuffle(playing, drawRng);
-
-        // Build round-one bracket: each bye paired with sentinel -1, then the
-        // drawn pairs. Total slots = numByes*2 + (n - numByes) = nextPow2.
-        List<Integer> alive = new ArrayList<>(nextPow2);
-        for (int b : byeTeams) {
-            alive.add(b);
-            alive.add(-1);
-        }
-        alive.addAll(playing);
-
-        int[] matchesPlayed = new int[n];
-        int[] matchesWon = new int[n];
-        int[] stageReached = new int[n];
-        java.util.Arrays.fill(stageReached, nextPow2);
-
-        int champion = -1;
-        while (alive.size() > 1) {
-            int roundSize = alive.size(); // power of 2
-            for (int slot : alive) {
-                if (slot >= 0 && roundSize < stageReached[slot]) {
-                    stageReached[slot] = roundSize;
-                }
-            }
-            List<Integer> next = new ArrayList<>(roundSize / 2);
-            for (int i = 0; i < roundSize; i += 2) {
-                int a = alive.get(i);
-                int b = alive.get(i + 1);
-                int winner;
-                if (a == -1) {
-                    winner = b;
-                } else if (b == -1) {
-                    winner = a;
-                } else {
-                    winner = playMatch(teams, a, b, drawRng);
-                    matchesPlayed[a]++;
-                    matchesPlayed[b]++;
-                    matchesWon[winner]++;
-                }
-                next.add(winner);
-            }
-            if (roundSize == 2) champion = next.get(0);
-            alive = next;
-        }
-
-        return new CupOutcome(champion, matchesPlayed, matchesWon, stageReached);
-    }
-
-    /**
-     * Play a tie (single-leg or two-leg per {@link #legFormat}) through the shared
-     * {@link KnockoutTieResolver}: aggregate → extra time → penalties. Returns the
-     * winning index.
-     */
-    private int playMatch(List<TeamSetup> teams, int a, int b, Random rng) {
-        return tieResolver.resolve(teams.get(a).power(), teams.get(b).power(), legFormat, rng).teamAWon()
-                ? a : b;
-    }
-
-    /** Parse {@code -Dleg.format}: "single"/"single-leg" (default) or "two"/"two-leg"/"home-away". */
-    private static LegFormat parseLegFormat(String value) {
-        if (value == null || value.isBlank()) return LegFormat.SINGLE_LEG;
-        switch (value.trim().toLowerCase()) {
-            case "single":
-            case "single-leg":
-            case "one":
-                return LegFormat.SINGLE_LEG;
-            case "two":
-            case "two-leg":
-            case "twoleg":
-            case "home-away":
-                return LegFormat.TWO_LEG;
-            default:
-                throw new IllegalArgumentException(
-                        "Invalid -Dleg.format='" + value + "'. Use 'single' or 'two-leg'.");
-        }
-    }
-
-    private static int nextPowerOfTwo(int n) {
-        int p = 1;
-        while (p < n) p <<= 1;
-        return p;
-    }
-
-    /** Bracket sizes from the opening round down to the final: [nextPow2, ..., 2]. */
-    private static int[] stageSizes(int nextPow2) {
-        List<Integer> sizes = new ArrayList<>();
-        for (int s = nextPow2; s >= 2; s >>= 1) sizes.add(s);
-        int[] out = new int[sizes.size()];
-        for (int i = 0; i < out.length; i++) out[i] = sizes.get(i);
-        return out;
-    }
-
-    /** Human-readable label for a bracket of {@code size} teams. */
-    private static String stageLabel(int size) {
-        switch (size) {
-            case 2: return "Final";
-            case 4: return "Semifinal";
-            case 8: return "Quarterfinal";
-            default: return "Round of " + size;
-        }
-    }
-
-    // ==================== TEAM LOADING ====================
-
-    /** Parse {@code "1, 5,8,  12 "} -> {@code [1, 5, 8, 12]}. Whitespace tolerated. */
-    private static List<Long> parseTeamIds(String input) {
-        List<Long> ids = new ArrayList<>();
-        for (String part : input.split(",")) {
-            String trimmed = part.trim();
-            if (trimmed.isEmpty()) continue;
-            try {
-                ids.add(Long.parseLong(trimmed));
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException(
-                        "Invalid -Dteam.ids — '" + trimmed + "' is not an integer. "
-                                + "Expected comma-separated team IDs (e.g. \"1,5,8,12\"). Input was: \"" + input + "\"");
-            }
-        }
-        return ids;
-    }
-
-    /** Load named teams + sort by ID for deterministic draw order. */
-    private List<TeamSetup> loadTeamsByIds(List<Long> teamIds) {
-        java.util.TreeSet<Long> sortedIds = new java.util.TreeSet<>(teamIds);
-        List<TeamSetup> out = new ArrayList<>(sortedIds.size());
-        for (long id : sortedIds) {
-            String name = teamRepo.findNameById(id);
-            if (name == null) {
-                throw new IllegalArgumentException(
-                        "Team ID " + id + " not found in DB. Check -Dteam.ids — IDs must reference existing Team rows.");
-            }
-            out.add(new TeamSetup(id, name, computeTeamPower(id)));
-        }
-        return out;
-    }
-
-    /** Sum of top-11 non-retired player ratings for a team. */
-    private double computeTeamPower(long teamId) {
-        List<Human> players = humanRepo.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-        players.sort(Comparator.comparingDouble(Human::getRating).reversed());
-        double sum = 0;
-        int count = 0;
-        for (Human p : players) {
-            if (p.isRetired()) continue;
-            sum += p.getRating();
-            if (++count == 11) break;
-        }
-        return sum;
+    private CupOutcome runOneCup(List<TeamSetup> teams, double[] powers, Random drawRng) {
+        List<Integer> seeded = new ArrayList<>(java.util.Arrays.asList(BracketUtil.seedByPower(teams)));
+        TournamentEngine.CupResult r = engine.runCupWithByes(seeded, powers, legFormat, drawRng);
+        return new CupOutcome(r.championIdx(), r.matchesPlayed(), r.matchesWon(), r.stageReached());
     }
 
     // ==================== REPORT ====================
@@ -433,7 +271,7 @@ class CupOutcomeIT {
         heatHeaders.add("Team");
         heatAligns.add(MarkdownTable.Align.LEFT);
         for (int size : stageSizes) {
-            heatHeaders.add(stageLabel(size));
+            heatHeaders.add(BracketUtil.stageLabel(size));
             heatAligns.add(MarkdownTable.Align.RIGHT);
         }
         heatHeaders.add("Winner");
@@ -472,8 +310,6 @@ class CupOutcomeIT {
 
     // ==================== INNER TYPES ====================
 
-    private record TeamSetup(long id, String name, double power) {}
-
     private record CupOutcome(int champion, int[] matchesPlayed, int[] matchesWon, int[] stageReached) {}
 
     private record AggregatedCup(int nextPow2, int[] stageSizes, int[] titles,
@@ -481,72 +317,4 @@ class CupOutcomeIT {
                                  long[][] reachedAtLeast, long elapsedMs,
                                  double etGoals, double penWeakerChance) {}
 
-    // ==================== MARKDOWN TABLE HELPER ====================
-
-    /**
-     * Builds a markdown table whose cells are padded so the raw text visually
-     * aligns. Still valid markdown when rendered.
-     */
-    private static final class MarkdownTable {
-        enum Align { LEFT, RIGHT }
-        private final List<String> headers;
-        private final List<Align> alignments;
-        private final List<String[]> rows = new ArrayList<>();
-
-        MarkdownTable(List<String> headers, List<Align> alignments) {
-            if (headers.size() != alignments.size()) {
-                throw new IllegalArgumentException("headers and alignments must have same size");
-            }
-            this.headers = List.copyOf(headers);
-            this.alignments = List.copyOf(alignments);
-        }
-
-        void addRow(String... cells) {
-            if (cells.length != headers.size()) {
-                throw new IllegalArgumentException(
-                        "row has " + cells.length + " cells but table has " + headers.size() + " columns");
-            }
-            rows.add(cells);
-        }
-
-        String render() {
-            int cols = headers.size();
-            int[] widths = new int[cols];
-            for (int c = 0; c < cols; c++) widths[c] = headers.get(c).length();
-            for (String[] row : rows) {
-                for (int c = 0; c < cols; c++) widths[c] = Math.max(widths[c], row[c].length());
-            }
-
-            StringBuilder sb = new StringBuilder();
-            sb.append('|');
-            for (int c = 0; c < cols; c++) {
-                sb.append(' ').append(pad(headers.get(c), widths[c], alignments.get(c))).append(" |");
-            }
-            sb.append('\n');
-            sb.append('|');
-            for (int c = 0; c < cols; c++) {
-                String bar = "-".repeat(widths[c] + 1);
-                if (alignments.get(c) == Align.RIGHT) {
-                    sb.append(bar).append(":|");
-                } else {
-                    sb.append(bar).append("-|");
-                }
-            }
-            sb.append('\n');
-            for (String[] row : rows) {
-                sb.append('|');
-                for (int c = 0; c < cols; c++) {
-                    sb.append(' ').append(pad(row[c], widths[c], alignments.get(c))).append(" |");
-                }
-                sb.append('\n');
-            }
-            return sb.toString();
-        }
-
-        private static String pad(String s, int width, Align align) {
-            if (s.length() >= width) return s;
-            String padding = " ".repeat(width - s.length());
-            return align == Align.RIGHT ? padding + s : s + padding;
-        }
-    }
 }

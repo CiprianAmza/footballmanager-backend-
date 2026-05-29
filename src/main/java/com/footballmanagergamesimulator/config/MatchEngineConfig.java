@@ -3,11 +3,6 @@ package com.footballmanagergamesimulator.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-
 /**
  * Single source of truth for every numeric constant that influences a match
  * outcome. Externalized so a fuzz/auto-tuner can sweep values without
@@ -837,24 +832,8 @@ public class MatchEngineConfig {
          *  (shootouts are a lottery that levels the playing field). */
         private double penaltyWeakerTeamWinChance = 0.5;
 
-        /** Which knockout rounds are two-leg (home-and-away), keyed by competition type id
-         *  (1=league, 2=cup, 3=second league, 4=League of Champions, 5=Stars Cup). A round
-         *  not listed (or a type not listed) is single-leg. Default is Champions-League style:
-         *  LoC quarterfinals (8) and semifinals (9) are two-leg; the final (10) and all other
-         *  competitions are single-leg. Override via {@code match.engine.knockout.two-leg-rounds}. */
-        private Map<Integer, Set<Integer>> twoLegRounds = defaultTwoLegRounds();
-
-        private static Map<Integer, Set<Integer>> defaultTwoLegRounds() {
-            Map<Integer, Set<Integer>> m = new HashMap<>();
-            m.put(4, new HashSet<>(Set.of(8, 9))); // LoC QF + SF
-            return m;
-        }
-
-        /** True if the given competition type's round is played over two legs. */
-        public boolean isTwoLeg(int competitionTypeId, long round) {
-            Set<Integer> rounds = twoLegRounds.get(competitionTypeId);
-            return rounds != null && rounds.contains((int) round);
-        }
+        // NOTE: which knockout rounds are two-leg is tournament *structure*, not scoring —
+        // it lives in CompetitionFormat / CompetitionFormatConfig (the format single-source).
 
         public double getAetWinChanceBase() { return aetWinChanceBase; }
         public void setAetWinChanceBase(double v) { this.aetWinChanceBase = v; }
@@ -864,7 +843,5 @@ public class MatchEngineConfig {
         public void setExtraTimeExpectedGoals(double v) { this.extraTimeExpectedGoals = v; }
         public double getPenaltyWeakerTeamWinChance() { return penaltyWeakerTeamWinChance; }
         public void setPenaltyWeakerTeamWinChance(double v) { this.penaltyWeakerTeamWinChance = v; }
-        public Map<Integer, Set<Integer>> getTwoLegRounds() { return twoLegRounds; }
-        public void setTwoLegRounds(Map<Integer, Set<Integer>> v) { this.twoLegRounds = v; }
     }
 }

@@ -60,7 +60,15 @@ public class EuropeanCompetitionService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private RoundRobin roundRobin;
     @Autowired private EuropeanCoefficientService coefficientService;
-    @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
+    @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
+
+    /** Resolve the {@link com.footballmanagergamesimulator.config.CompetitionFormat}
+     *  for a competition by looking up its type id. */
+    private com.footballmanagergamesimulator.config.CompetitionFormat formatOf(long competitionId) {
+        int typeId = competitionRepository.findById(competitionId)
+                .map(Competition::getTypeId).orElse(0L).intValue();
+        return competitionFormat.get(typeId);
+    }
 
     // ============================================================
     //  Round classification
@@ -128,7 +136,10 @@ public class EuropeanCompetitionService {
                 .filter(cti -> cti.getCompetitionId() == competitionId && cti.getRound() == groupStageRound)
                 .collect(Collectors.toList());
 
-        if (entries.size() < 4) return;
+        com.footballmanagergamesimulator.config.CompetitionFormat fmt = formatOf(competitionId);
+        int groupSize = fmt.groupSize();
+        int maxGroups = fmt.groupCount();
+        if (entries.size() < groupSize) return;
 
         entries.sort((a, b) -> {
             double coeffA = coefficientService.getClubCoefficientRolling(a.getTeamId(), coeffSeason);
@@ -139,11 +150,11 @@ public class EuropeanCompetitionService {
             return Integer.compare(teamB.getReputation(), teamA.getReputation());
         });
 
-        int numGroups = Math.min(4, Math.max(1, entries.size() / 4));
-        int totalSlots = numGroups * 4;
+        int numGroups = Math.min(maxGroups, Math.max(1, entries.size() / groupSize));
+        int totalSlots = numGroups * groupSize;
         if (entries.size() > totalSlots) {
             System.out.println("=== drawEuropeanGroups: trimming " + (entries.size() - totalSlots)
-                    + " lowest-seeded teams from " + entries.size() + " to fit " + numGroups + " groups of 4");
+                    + " lowest-seeded teams from " + entries.size() + " to fit " + numGroups + " groups of " + groupSize);
             entries = new ArrayList<>(entries.subList(0, totalSlots));
         }
         int potSize = totalSlots / numGroups;
@@ -258,15 +269,15 @@ public class EuropeanCompetitionService {
 
     /**
      * Persist a knockout pairing as either a single match or two legs
-     * (home-and-away), depending on {@code match.engine.knockout.two-leg-rounds}
-     * for this competition's type + round. Two-leg ties share a {@code tieId};
+     * (home-and-away), depending on the {@link com.footballmanagergamesimulator.config.CompetitionFormat}
+     * two-leg rounds for this competition's type + round. Two-leg ties share a {@code tieId};
      * leg 1 has {@code homeId} at home, leg 2 swaps venues. {@code pairingIndex}
      * makes the tieId unique within the round's draw.
      */
     private void saveKnockoutPairing(long competitionId, long roundId, long homeId, long awayId, int pairingIndex) {
         int typeId = competitionRepository.findById(competitionId).map(Competition::getTypeId).orElse(0L).intValue();
         String season = currentSeason();
-        boolean twoLeg = engineConfig.getKnockout().isTwoLeg(typeId, roundId);
+        boolean twoLeg = competitionFormat.isTwoLeg(typeId, roundId);
 
         if (!twoLeg) {
             CompetitionTeamInfoMatch match = new CompetitionTeamInfoMatch();
@@ -395,8 +406,7 @@ public class EuropeanCompetitionService {
     /** Build round-robin fixtures for every group of the given European
      *  competition. LoC groups start at round 2; Stars Cup at round 1. */
     public void generateGroupStageFixtures(long competitionId) {
-        Competition comp = competitionRepository.findById(competitionId).orElse(null);
-        int roundOffset = (comp != null && comp.getTypeId() == 5) ? 0 : 1; // Stars Cup: 0, LoC: 1
+        int roundOffset = formatOf(competitionId).groupFixtureRoundOffset(); // Stars Cup: 0, LoC: 1
 
         long currentSeason = Long.parseLong(currentSeason());
         List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
@@ -445,6 +455,8 @@ public class EuropeanCompetitionService {
 
     /** LoC group stage → QF (top 2) + Stars Cup playoff (3rd). */
     public void qualifyFromGroupStage(long locCompetitionId) {
+        com.footballmanagergamesimulator.config.CompetitionFormat fmt = formatOf(locCompetitionId);
+        int qualifyCount = fmt.qualifyPerGroupToKnockout();
         long currentSeason = Long.parseLong(currentSeason());
         List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
                 .findAllBySeasonNumber(currentSeason).stream()
@@ -473,7 +485,7 @@ public class EuropeanCompetitionService {
 
             System.out.println("  Group " + group.getKey() + ": " + teamIds.size() + " teams, standings=" + standings.size());
 
-            for (int i = 0; i < Math.min(2, standings.size()); i++) {
+            for (int i = 0; i < Math.min(qualifyCount, standings.size()); i++) {
                 long teamId = standings.get(i).getTeamId();
                 if (alreadyQualified.contains(teamId)) {
                     System.out.println("  DUPLICATE team " + teamId + " skipped!");
@@ -484,23 +496,24 @@ public class EuropeanCompetitionService {
                 cti.setTeamId(teamId);
                 cti.setCompetitionId(locCompetitionId);
                 cti.setSeasonNumber(currentSeason);
-                cti.setRound(8);
+                cti.setRound(fmt.qualifyTargetRound());
                 competitionTeamInfoRepository.save(cti);
                 String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
                 System.out.println("  -> Qualified for LoC QF: " + teamName + " (id=" + teamId + ") from group " + group.getKey());
             }
 
-            if (standings.size() >= 3) {
-                long thirdPlaceTeamId = standings.get(2).getTeamId();
+            if (standings.size() >= qualifyCount + 1 && fmt.thirdPlaceDropTypeId() > 0) {
+                long thirdPlaceTeamId = standings.get(qualifyCount).getTeamId();
+                final int dropTypeId = fmt.thirdPlaceDropTypeId();
                 long starsCupCompetitionId = competitionRepository.findAll().stream()
-                        .filter(c -> c.getTypeId() == 5).findFirst()
+                        .filter(c -> c.getTypeId() == dropTypeId).findFirst()
                         .map(Competition::getId).orElse(-1L);
                 if (starsCupCompetitionId > 0) {
                     CompetitionTeamInfo scCti = new CompetitionTeamInfo();
                     scCti.setTeamId(thirdPlaceTeamId);
                     scCti.setCompetitionId(starsCupCompetitionId);
                     scCti.setSeasonNumber(currentSeason);
-                    scCti.setRound(7);
+                    scCti.setRound(fmt.thirdPlaceDropRound());
                     competitionTeamInfoRepository.save(scCti);
                     String teamName = teamRepository.findById(thirdPlaceTeamId).map(t -> t.getName()).orElse("?");
                     System.out.println("  -> LoC 3rd place to Stars Cup: " + teamName + " (id=" + thirdPlaceTeamId + ")");
@@ -513,9 +526,12 @@ public class EuropeanCompetitionService {
     /** After a LoC qualifying/preliminary round, drop the losing teams into
      *  Stars Cup group stage (round 1). */
     public void assignLocLosersToStarsCup(long locCompetitionId, int locRound) {
+        com.footballmanagergamesimulator.config.CompetitionFormat fmt = formatOf(locCompetitionId);
         long currentSeason = Long.parseLong(currentSeason());
+        final int dropTypeId = fmt.losersDropTypeId();
+        if (dropTypeId <= 0) return;
         long starsCupCompetitionId = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 5).findFirst()
+                .filter(c -> c.getTypeId() == dropTypeId).findFirst()
                 .map(Competition::getId).orElse(-1L);
         if (starsCupCompetitionId <= 0) return;
 
@@ -542,7 +558,7 @@ public class EuropeanCompetitionService {
                     cti.setTeamId(teamId);
                     cti.setCompetitionId(starsCupCompetitionId);
                     cti.setSeasonNumber(currentSeason);
-                    cti.setRound(1);
+                    cti.setRound(fmt.losersDropRound());
                     competitionTeamInfoRepository.save(cti);
                     String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
                     System.out.println("=== LoC round " + locRound + " loser to Stars Cup: " + teamName + " ===");
@@ -554,6 +570,7 @@ public class EuropeanCompetitionService {
     /** Stars Cup group stage → QF (group winners) + playoff (runners-up
      *  meet LoC 3rd place). */
     public void qualifyFromStarsCupGroupStage(long starsCupCompetitionId) {
+        com.footballmanagergamesimulator.config.CompetitionFormat fmt = formatOf(starsCupCompetitionId);
         long currentSeason = Long.parseLong(currentSeason());
         List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
                 .findAllBySeasonNumber(currentSeason).stream()
@@ -585,7 +602,7 @@ public class EuropeanCompetitionService {
                 cti.setTeamId(winnerId);
                 cti.setCompetitionId(starsCupCompetitionId);
                 cti.setSeasonNumber(currentSeason);
-                cti.setRound(8);
+                cti.setRound(fmt.qualifyTargetRound());
                 competitionTeamInfoRepository.save(cti);
                 String teamName = teamRepository.findById(winnerId).map(t -> t.getName()).orElse("?");
                 System.out.println("  -> Stars Cup group winner to QF: " + teamName);
@@ -597,7 +614,7 @@ public class EuropeanCompetitionService {
                 cti.setTeamId(runnerUpId);
                 cti.setCompetitionId(starsCupCompetitionId);
                 cti.setSeasonNumber(currentSeason);
-                cti.setRound(7);
+                cti.setRound(fmt.playoffRound());
                 competitionTeamInfoRepository.save(cti);
                 String teamName = teamRepository.findById(runnerUpId).map(t -> t.getName()).orElse("?");
                 System.out.println("  -> Stars Cup runner-up to playoff: " + teamName);

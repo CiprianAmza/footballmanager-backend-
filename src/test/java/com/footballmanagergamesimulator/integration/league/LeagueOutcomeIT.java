@@ -1,13 +1,14 @@
 package com.footballmanagergamesimulator.integration.league;
 
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
-import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
-import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.GameStateService;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
-import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.service.tournament.TournamentEngine;
+import com.footballmanagergamesimulator.testutil.MarkdownTable;
+import com.footballmanagergamesimulator.testutil.OutcomeTestSupport;
+import com.footballmanagergamesimulator.testutil.TeamSetup;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,10 +19,7 @@ import org.springframework.test.context.TestPropertySource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -80,10 +78,11 @@ class LeagueOutcomeIT {
     private static final String TEAM_IDS_PROPERTY = "team.ids";
 
     @Autowired private CompetitionTeamInfoRepository ctiRepo;
-    @Autowired private HumanRepository humanRepo;
     @Autowired private TeamRepository teamRepo;
     @Autowired private MatchSimulationService matchSim;
     @Autowired private GameStateService gameState;
+    @Autowired private OutcomeTestSupport support;
+    @Autowired private TournamentEngine engine;
 
     @Test
     @DisplayName("Simulate one league for N seasons + write target/league-outcome-{leagueId}.md")
@@ -146,7 +145,7 @@ class LeagueOutcomeIT {
         Assumptions.assumeTrue(idsProperty != null && !idsProperty.isBlank(),
                 "Skipping — supply -Dteam.ids=ID1,ID2,... to run this test");
 
-        List<Long> teamIds = parseTeamIds(idsProperty);
+        List<Long> teamIds = OutcomeTestSupport.parseTeamIds(idsProperty);
         if (teamIds.size() < 2) {
             throw new IllegalArgumentException(
                     "Need at least 2 teams; got " + teamIds.size() + " (input: " + idsProperty + ")");
@@ -158,7 +157,7 @@ class LeagueOutcomeIT {
         }
 
         // ---- 1. Load + sort teams for deterministic ordering ----
-        List<TeamSetup> teams = loadTeamsByIds(teamIds);
+        List<TeamSetup> teams = support.loadTeamsByIds(teamIds);
 
         // ---- 2. Simulate N seasons + 3. Build report ----
         AggregatedSimulation agg = runAggregateSimulation(teams);
@@ -199,11 +198,14 @@ class LeagueOutcomeIT {
         long[] totalLosses = new long[n];
         int[] championships = new int[n];
 
+        double[] powers = new double[n];
+        for (int i = 0; i < n; i++) powers[i] = teams.get(i).power();
+
         matchSim.setRandomForTesting(new Random(BASE_SEED));
         long t0 = System.nanoTime();
         try {
             for (int s = 0; s < SEASONS; s++) {
-                SeasonOutcome outcome = runOneSeason(teams);
+                SeasonOutcome outcome = runOneSeason(teams, powers);
                 for (int finalPos = 0; finalPos < n; finalPos++) {
                     int teamIdx = outcome.finalOrder[finalPos];
                     positionCounts[teamIdx][finalPos]++;
@@ -223,40 +225,6 @@ class LeagueOutcomeIT {
 
         return new AggregatedSimulation(positionCounts, totalPoints, totalGF, totalGA,
                 totalWins, totalDraws, totalLosses, championships, elapsedMs);
-    }
-
-    /** Parse {@code "1, 5,8,  12 "} → {@code [1, 5, 8, 12]}. Whitespace tolerated. */
-    private static List<Long> parseTeamIds(String input) {
-        List<Long> ids = new ArrayList<>();
-        for (String part : input.split(",")) {
-            String trimmed = part.trim();
-            if (trimmed.isEmpty()) continue;
-            try {
-                ids.add(Long.parseLong(trimmed));
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException(
-                        "Invalid -Dteam.ids — '" + trimmed + "' is not an integer. "
-                                + "Expected: comma-separated team IDs (e.g. \"1,5,8,12\"). Input was: \"" + input + "\"");
-            }
-        }
-        return ids;
-    }
-
-    /** Load the named teams + sort by ID for deterministic simulation order. */
-    private List<TeamSetup> loadTeamsByIds(List<Long> teamIds) {
-        // Use TreeSet to deduplicate while sorting in case caller repeats IDs.
-        java.util.TreeSet<Long> sortedIds = new java.util.TreeSet<>(teamIds);
-        List<TeamSetup> out = new ArrayList<>(sortedIds.size());
-        for (long id : sortedIds) {
-            String name = teamRepo.findNameById(id);
-            if (name == null) {
-                throw new IllegalArgumentException(
-                        "Team ID " + id + " not found in DB. Check -Dteam.ids — IDs must reference existing Team rows.");
-            }
-            double power = computeTeamPower(id);
-            out.add(new TeamSetup(id, name, power));
-        }
-        return out;
     }
 
     /**
@@ -297,66 +265,28 @@ class LeagueOutcomeIT {
         }
         List<TeamSetup> out = new ArrayList<>(teamIds.size());
         for (long teamId : teamIds) {
-            double power = computeTeamPower(teamId);
+            double power = support.computeTeamPower(teamId);
             String name = teamRepo.findNameById(teamId);
             out.add(new TeamSetup(teamId, name == null ? "Team#" + teamId : name, power));
         }
         return out;
     }
 
-    /** Sum of top-11 player ratings for a team. */
-    private double computeTeamPower(long teamId) {
-        List<Human> players = humanRepo.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-        players.sort(Comparator.comparingDouble(Human::getRating).reversed());
-        double sum = 0;
-        int count = 0;
-        for (Human p : players) {
-            if (p.isRetired()) continue;
-            sum += p.getRating();
-            if (++count == 11) break;
-        }
-        return sum;
-    }
-
     // ==================== SEASON SIMULATION ====================
 
-    /** One round-robin season. Returns final ordering + per-team stats. */
-    private SeasonOutcome runOneSeason(List<TeamSetup> teams) {
+    /** One round-robin season via the shared engine. Returns final ordering + per-team stats. */
+    private SeasonOutcome runOneSeason(List<TeamSetup> teams, double[] powers) {
         int n = teams.size();
-        int[] points = new int[n];
-        int[] goalsFor = new int[n];
-        int[] goalsAgainst = new int[n];
-        int[] wins = new int[n];
-        int[] draws = new int[n];
-        int[] losses = new int[n];
+        List<Integer> teamIdx = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) teamIdx.add(i);
 
-        // Each ordered pair plays once (so each unordered pair plays home + away).
-        for (int home = 0; home < n; home++) {
-            for (int away = 0; away < n; away++) {
-                if (home == away) continue;
-                List<Integer> scores = matchSim.calculateScores(
-                        teams.get(home).power, teams.get(away).power);
-                int sH = scores.get(0), sA = scores.get(1);
-                goalsFor[home] += sH;
-                goalsAgainst[home] += sA;
-                goalsFor[away] += sA;
-                goalsAgainst[away] += sH;
-                if (sH > sA) {
-                    points[home] += 3;
-                    wins[home]++;
-                    losses[away]++;
-                } else if (sH == sA) {
-                    points[home] += 1;
-                    points[away] += 1;
-                    draws[home]++;
-                    draws[away]++;
-                } else {
-                    points[away] += 3;
-                    wins[away]++;
-                    losses[home]++;
-                }
-            }
-        }
+        TournamentEngine.LeagueTally tally = engine.playDoubleRoundRobin(teamIdx, powers);
+        int[] points = tally.points();
+        int[] goalsFor = tally.goalsFor();
+        int[] goalsAgainst = tally.goalsAgainst();
+        int[] wins = tally.wins();
+        int[] draws = tally.draws();
+        int[] losses = tally.losses();
 
         // Sort indices by (points desc, GD desc, GF desc, name asc).
         Integer[] indices = new Integer[n];
@@ -367,7 +297,7 @@ class LeagueOutcomeIT {
             int gdB = goalsFor[b] - goalsAgainst[b];
             if (gdA != gdB) return gdB - gdA;
             if (goalsFor[a] != goalsFor[b]) return goalsFor[b] - goalsFor[a];
-            return teams.get(a).name.compareTo(teams.get(b).name);
+            return teams.get(a).name().compareTo(teams.get(b).name());
         });
 
         int[] finalOrder = new int[n];
@@ -461,8 +391,8 @@ class LeagueOutcomeIT {
             double gaPer = totalGA[t] / (double) SEASONS;
             standings.addRow(
                     String.valueOf(displayRank++),
-                    teams.get(t).name,
-                    String.format("%.0f", teams.get(t).power),
+                    teams.get(t).name(),
+                    String.format("%.0f", teams.get(t).power()),
                     String.format("%.1f ± %.1f", meanPos[t], stddevPos[t]),
                     String.format("%.1f", meanPts[t]),
                     String.format("%.1f", gfPer),
@@ -490,7 +420,7 @@ class LeagueOutcomeIT {
             for (int pos = botCut; pos < n; pos++) botPct += positionCounts[t][pos];
             double last = positionCounts[t][n - 1] * 100.0 / SEASONS;
             bands.addRow(
-                    teams.get(t).name,
+                    teams.get(t).name(),
                     String.format("%.1f%%", champ),
                     String.format("%.1f%%", topMidPct * 100.0 / SEASONS),
                     String.format("%.1f%%", halfPct * 100.0 / SEASONS),
@@ -514,7 +444,7 @@ class LeagueOutcomeIT {
         MarkdownTable heatmap = new MarkdownTable(heatHeaders, heatAlignments);
         for (int t : orderByMeanPos) {
             String[] row = new String[n + 1];
-            row[0] = teams.get(t).name;
+            row[0] = teams.get(t).name();
             for (int pos = 0; pos < n; pos++) {
                 double pct = positionCounts[t][pos] * 100.0 / SEASONS;
                 row[pos + 1] = pct < 0.5 ? "." : String.format("%.0f%%", pct);
@@ -539,84 +469,9 @@ class LeagueOutcomeIT {
 
     // ==================== INNER TYPES ====================
 
-    private record TeamSetup(long id, String name, double power) {}
-
     private record SeasonOutcome(int[] finalOrder,
                                   int[] points, int[] goalsFor, int[] goalsAgainst,
                                   int[] wins, int[] draws, int[] losses) {}
-
-    // ==================== MARKDOWN TABLE HELPER ====================
-
-    /**
-     * Builds a markdown table whose cells are padded so the raw text — read
-     * in a terminal or plain editor — visually aligns. Cells are still valid
-     * markdown when rendered.
-     */
-    private static final class MarkdownTable {
-        enum Align { LEFT, RIGHT }
-        private final List<String> headers;
-        private final List<Align> alignments;
-        private final List<String[]> rows = new ArrayList<>();
-
-        MarkdownTable(List<String> headers, List<Align> alignments) {
-            if (headers.size() != alignments.size()) {
-                throw new IllegalArgumentException("headers and alignments must have same size");
-            }
-            this.headers = List.copyOf(headers);
-            this.alignments = List.copyOf(alignments);
-        }
-
-        void addRow(String... cells) {
-            if (cells.length != headers.size()) {
-                throw new IllegalArgumentException(
-                        "row has " + cells.length + " cells but table has " + headers.size() + " columns");
-            }
-            rows.add(cells);
-        }
-
-        String render() {
-            int cols = headers.size();
-            int[] widths = new int[cols];
-            for (int c = 0; c < cols; c++) widths[c] = headers.get(c).length();
-            for (String[] row : rows) {
-                for (int c = 0; c < cols; c++) widths[c] = Math.max(widths[c], row[c].length());
-            }
-
-            StringBuilder sb = new StringBuilder();
-            // Header row
-            sb.append('|');
-            for (int c = 0; c < cols; c++) {
-                sb.append(' ').append(pad(headers.get(c), widths[c], alignments.get(c))).append(" |");
-            }
-            sb.append('\n');
-            // Separator row — right-align uses trailing colon
-            sb.append('|');
-            for (int c = 0; c < cols; c++) {
-                String bar = "-".repeat(widths[c] + 1);
-                if (alignments.get(c) == Align.RIGHT) {
-                    sb.append(bar).append(":|");
-                } else {
-                    sb.append(bar).append("-|");
-                }
-            }
-            sb.append('\n');
-            // Data rows
-            for (String[] row : rows) {
-                sb.append('|');
-                for (int c = 0; c < cols; c++) {
-                    sb.append(' ').append(pad(row[c], widths[c], alignments.get(c))).append(" |");
-                }
-                sb.append('\n');
-            }
-            return sb.toString();
-        }
-
-        private static String pad(String s, int width, Align align) {
-            if (s.length() >= width) return s;
-            String padding = " ".repeat(width - s.length());
-            return align == Align.RIGHT ? padding + s : s + padding;
-        }
-    }
 
     /** N-season aggregated counters passed to {@link #buildReport}. */
     private record AggregatedSimulation(
