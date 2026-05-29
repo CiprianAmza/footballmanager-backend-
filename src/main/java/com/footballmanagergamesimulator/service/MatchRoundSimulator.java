@@ -131,6 +131,18 @@ public class MatchRoundSimulator {
 
     @Transactional
     public void simulateRound(String competitionId, String roundId) {
+        simulateRound(competitionId, roundId, null);
+    }
+
+    /**
+     * @param onlyLeg when non-null, simulate only the matches of this leg number
+     *        (1 = first leg, 2 = second leg). Lets a two-leg tie be played across
+     *        separate calendar days: leg 1 records its score without propagating,
+     *        leg 2 aggregates with the persisted leg 1 and decides the tie. When
+     *        null, the whole round is simulated in one pass (both legs back-to-back).
+     */
+    @Transactional
+    public void simulateRound(String competitionId, String roundId, Integer onlyLeg) {
 
         long _t0 = System.nanoTime();
 
@@ -142,6 +154,9 @@ public class MatchRoundSimulator {
         Random random = this.random;
         List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
                 .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, getCurrentSeason());
+        if (onlyLeg != null) {
+            matches = matches.stream().filter(m -> m.getLegNumber() == onlyLeg).collect(Collectors.toList());
+        }
 
         boolean knockout = europeanCompetitionService.isKnockoutRound(_competitionId, _roundId);
 
@@ -416,13 +431,25 @@ public class MatchRoundSimulator {
                 long tieId = match.getTieId();
                 Long winnerId = null; // null → propagation deferred (first leg of a two-leg tie)
 
+                // Leg 1 may be in this round's cache (single-pass) or persisted on the
+                // first-leg match row (legs played on separate calendar days).
+                int[] leg1 = null;
+                if (legNumber == 2 && tieId != 0) {
+                    leg1 = firstLegScores.get(tieId);
+                    if (leg1 == null) {
+                        var leg1Row = competitionTeamInfoMatchRepository.findByTieIdAndLegNumber(tieId, 1).orElse(null);
+                        if (leg1Row != null && leg1Row.getTeam1Score() >= 0) {
+                            leg1 = new int[]{leg1Row.getTeam1Score(), leg1Row.getTeam2Score()};
+                        }
+                    }
+                }
+
                 if (legNumber == 1 && tieId != 0) {
                     // First leg: stash the score, decide nothing yet.
                     firstLegScores.put(tieId, new int[]{teamScore1, teamScore2});
                     koScoreSuffix = " (1st leg)";
-                } else if (legNumber == 2 && tieId != 0 && firstLegScores.containsKey(tieId)) {
+                } else if (legNumber == 2 && tieId != 0 && leg1 != null) {
                     // Second leg: team1 here hosted leg 2 (= tie side B); team2 hosted leg 1 (= side A).
-                    int[] leg1 = firstLegScores.get(tieId);
                     int aggA = leg1[0] + teamScore2; // side A: leg-1 home goals + leg-2 away goals
                     int aggB = leg1[1] + teamScore1; // side B: leg-1 away goals + leg-2 home goals
                     var d = tieResolver.decide(teamPower2, teamPower1, aggA, aggB, random);
@@ -454,6 +481,14 @@ public class MatchRoundSimulator {
                         competitionTeamInfoRepository.save(competitionTeamInfo);
                     }
                 }
+            }
+
+            // Persist the score on the match row so a later second leg (different
+            // calendar day / simulateRound call) can aggregate with this result.
+            if (!_isInteractivePending && match.getTieId() != 0) {
+                match.setTeam1Score(teamScore1);
+                match.setTeam2Score(teamScore2);
+                competitionTeamInfoMatchRepository.save(match);
             }
 
             // Match result record (needed for both - results page)

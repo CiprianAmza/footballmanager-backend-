@@ -146,6 +146,50 @@ class TwoLegKnockoutIT {
                 .as("the second leg's result is annotated with the aggregate").isTrue();
     }
 
+    @Test
+    @DisplayName("Legs on separate days: leg 1 call persists score + defers; leg 2 call aggregates")
+    void twoLegTieAcrossSeparateSimulateCalls() {
+        long loc = locCompetitionId();
+        String season = currentSeason();
+        long seasonLong = Long.parseLong(season);
+        long teamA = 1L, teamB = 2L;
+        long tieId = 888_888L;
+
+        matchRepo.deleteAll(matchRepo.findAllByCompetitionIdAndRoundAndSeasonNumber(loc, 8, season));
+        ctiRepo.deleteAll(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(9, loc, seasonLong));
+        detailRepo.deleteAll(detailRepo.findAllByCompetitionIdAndRoundIdAndSeasonNumber(loc, 8, seasonLong));
+        matchStatsRepo.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(loc, (int) seasonLong, 8, teamA, teamB)
+                .ifPresent(matchStatsRepo::delete);
+        matchStatsRepo.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(loc, (int) seasonLong, 8, teamB, teamA)
+                .ifPresent(matchStatsRepo::delete);
+
+        matchRepo.save(leg(loc, season, teamA, teamB, 1, tieId)); // leg 1: A home
+        matchRepo.save(leg(loc, season, teamB, teamA, 2, tieId)); // leg 2: B home
+
+        matchRoundSimulator.setRandomForTesting(new Random(SEED));
+
+        // --- Day 1: first leg only ---
+        matchRoundSimulator.simulateRound(String.valueOf(loc), "8", 1);
+
+        assertThat(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(9, loc, seasonLong))
+                .as("leg 1 alone must not advance anyone").isEmpty();
+        CompetitionTeamInfoMatch leg1 = matchRepo.findByTieIdAndLegNumber(tieId, 1).orElseThrow();
+        assertThat(leg1.getTeam1Score()).as("leg 1 score is persisted for cross-day aggregation").isGreaterThanOrEqualTo(0);
+
+        // --- Day 2: second leg aggregates with the persisted first leg ---
+        matchRoundSimulator.simulateRound(String.valueOf(loc), "8", 2);
+
+        List<CompetitionTeamInfo> advanced =
+                ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(9, loc, seasonLong);
+        assertThat(advanced).as("leg 2 decides the tie and advances exactly one winner").hasSize(1);
+        assertThat(advanced.get(0).getTeamId()).isIn(teamA, teamB);
+
+        List<CompetitionTeamInfoDetail> details =
+                detailRepo.findAllByCompetitionIdAndRoundIdAndSeasonNumber(loc, 8, seasonLong);
+        assertThat(details.stream().anyMatch(d -> d.getScore() != null && d.getScore().contains("(agg")))
+                .as("second leg result is annotated with the aggregate").isTrue();
+    }
+
     // ==================== helpers ====================
 
     private CompetitionTeamInfoMatch leg(long comp, String season, long home, long away, int legNumber, long tieId) {

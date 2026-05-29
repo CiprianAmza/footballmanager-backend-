@@ -50,4 +50,14 @@ public class CompetitionTeamInfoMatch {
    */
   @Column(name = "tie_id")
   private long tieId;
+
+  /**
+   * Final score of this match once played, persisted so the second leg of a
+   * two-leg tie can aggregate with the first even when the legs are simulated on
+   * separate calendar days (different simulateRound calls). -1 = not played yet.
+   */
+  @Column(name = "team1_score")
+  private int team1Score = -1;
+  @Column(name = "team2_score")
+  private int team2Score = -1;
 }

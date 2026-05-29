@@ -6,8 +6,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface CompetitionTeamInfoMatchRepository extends JpaRepository<CompetitionTeamInfoMatch, Long> {
+
+    /** Fetch a specific leg of a two-leg tie (used to aggregate leg 2 with the persisted leg 1). */
+    Optional<CompetitionTeamInfoMatch> findByTieIdAndLegNumber(long tieId, int legNumber);
 
     @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE c.seasonNumber = :seasonNumber AND ((c.team1Id = :teamId) OR (c.team2Id = :teamId))")
     List<CompetitionTeamInfoMatch> findAllBySeasonNumberAndTeamId(@Param("seasonNumber") String seasonNumber, @Param("teamId") long teamId);
