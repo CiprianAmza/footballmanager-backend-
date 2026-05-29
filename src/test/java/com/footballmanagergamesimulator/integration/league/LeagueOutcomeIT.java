@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.integration.league;
 
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -83,6 +84,7 @@ class LeagueOutcomeIT {
     @Autowired private GameStateService gameState;
     @Autowired private OutcomeTestSupport support;
     @Autowired private TournamentEngine engine;
+    @Autowired private CompetitionFormatConfig competitionFormat;
 
     @Test
     @DisplayName("Simulate one league for N seasons + write target/league-outcome-{leagueId}.md")
@@ -108,7 +110,7 @@ class LeagueOutcomeIT {
         String md = buildReport(
                 "Competition: id=" + compId + ", season=" + season,
                 availableLeagues,
-                teams, agg);
+                teams, agg, competitionFormat.get(1).encountersFor(teams.size()));
         Files.writeString(reportPath, md);
 
         System.out.println();
@@ -150,11 +152,8 @@ class LeagueOutcomeIT {
             throw new IllegalArgumentException(
                     "Need at least 2 teams; got " + teamIds.size() + " (input: " + idsProperty + ")");
         }
-        if (teamIds.size() % 2 != 0) {
-            throw new IllegalArgumentException(
-                    "Team count must be even (round-robin without rest weeks). "
-                            + "Got " + teamIds.size() + " (input: " + idsProperty + ")");
-        }
+        // Odd team counts are fine: the engine plays an all-play-all (no calendar rest
+        // weeks), so any size >= 2 works.
 
         // ---- 1. Load + sort teams for deterministic ordering ----
         List<TeamSetup> teams = support.loadTeamsByIds(teamIds);
@@ -173,7 +172,7 @@ class LeagueOutcomeIT {
         String md = buildReport(
                 "Competition: CUSTOM league of " + teams.size() + " teams (IDs: " + idsLabel + ")",
                 null,
-                teams, agg);
+                teams, agg, competitionFormat.get(1).encountersFor(teams.size()));
         Files.writeString(reportPath, md);
 
         System.out.println();
@@ -201,11 +200,15 @@ class LeagueOutcomeIT {
         double[] powers = new double[n];
         for (int i = 0; i < n; i++) powers[i] = teams.get(i).power();
 
+        // Encounters come from the competition format, keyed by team count — the same
+        // single source production fixture generation reads (12→4, 14→3, else→2).
+        int encounters = competitionFormat.get(1).encountersFor(n);
+
         matchSim.setRandomForTesting(new Random(BASE_SEED));
         long t0 = System.nanoTime();
         try {
             for (int s = 0; s < SEASONS; s++) {
-                SeasonOutcome outcome = runOneSeason(teams, powers);
+                SeasonOutcome outcome = runOneSeason(teams, powers, encounters);
                 for (int finalPos = 0; finalPos < n; finalPos++) {
                     int teamIdx = outcome.finalOrder[finalPos];
                     positionCounts[teamIdx][finalPos]++;
@@ -274,13 +277,14 @@ class LeagueOutcomeIT {
 
     // ==================== SEASON SIMULATION ====================
 
-    /** One round-robin season via the shared engine. Returns final ordering + per-team stats. */
-    private SeasonOutcome runOneSeason(List<TeamSetup> teams, double[] powers) {
+    /** One league season via the shared engine ({@code encounters} meetings per pair).
+     *  Returns final ordering + per-team stats. */
+    private SeasonOutcome runOneSeason(List<TeamSetup> teams, double[] powers, int encounters) {
         int n = teams.size();
         List<Integer> teamIdx = new ArrayList<>(n);
         for (int i = 0; i < n; i++) teamIdx.add(i);
 
-        TournamentEngine.LeagueTally tally = engine.playDoubleRoundRobin(teamIdx, powers);
+        TournamentEngine.LeagueTally tally = engine.playLeague(teamIdx, powers, encounters);
         int[] points = tally.points();
         int[] goalsFor = tally.goalsFor();
         int[] goalsAgainst = tally.goalsAgainst();
@@ -322,7 +326,8 @@ class LeagueOutcomeIT {
     private static String buildReport(String competitionLine,
                                       List<Long> availableLeagues,
                                       List<TeamSetup> teams,
-                                      AggregatedSimulation agg) {
+                                      AggregatedSimulation agg,
+                                      int encounters) {
         long[][] positionCounts = agg.positionCounts();
         long[] totalPoints = agg.totalPoints();
         long[] totalGF = agg.totalGF();
@@ -372,8 +377,8 @@ class LeagueOutcomeIT {
 
         sb.append("## Average Standings After ").append(SEASONS).append(" Seasons\n\n");
         sb.append("Sorted by mean finishing position. ");
-        sb.append("Each team plays ").append((n - 1) * 2).append(" matches per season ")
-                .append("(home + away vs every other team).\n\n");
+        sb.append("Each team plays ").append((n - 1) * encounters).append(" matches per season ")
+                .append("(").append(encounters).append(" meeting(s) vs every other team).\n\n");
         MarkdownTable standings = new MarkdownTable(
                 List.of("Rank", "Team", "Power", "Mean Pos ± σ", "Mean Pts",
                         "Avg GF", "Avg GA", "W/D/L per season", "Champion"),

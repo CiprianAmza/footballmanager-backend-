@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -61,6 +60,7 @@ public class EuropeanCompetitionService {
     @Autowired private RoundRobin roundRobin;
     @Autowired private EuropeanCoefficientService coefficientService;
     @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
+    @Autowired private com.footballmanagergamesimulator.service.tournament.TournamentEngine tournamentEngine;
 
     /** Resolve the {@link com.footballmanagergamesimulator.config.CompetitionFormat}
      *  for a competition by looking up its type id. */
@@ -157,61 +157,34 @@ public class EuropeanCompetitionService {
                     + " lowest-seeded teams from " + entries.size() + " to fit " + numGroups + " groups of " + groupSize);
             entries = new ArrayList<>(entries.subList(0, totalSlots));
         }
-        int potSize = totalSlots / numGroups;
+        // Pot-seed via the shared TournamentEngine. The field is already ranked by
+        // club coefficient; the engine splits into pots, shuffles, places one team
+        // per pot per group, and avoids same-nation clashes (best effort). The draw
+        // is unseeded in production (matches prior behaviour); we persist the result.
+        final List<CompetitionTeamInfo> seededEntries = entries;
+        List<Integer> seededIdx = new ArrayList<>(totalSlots);
+        for (int i = 0; i < totalSlots; i++) seededIdx.add(i);
 
-        List<List<CompetitionTeamInfo>> pots = new ArrayList<>();
-        for (int p = 0; p < numGroups; p++) {
-            List<CompetitionTeamInfo> pot = new ArrayList<>(entries.subList(p * potSize, (p + 1) * potSize));
-            Collections.shuffle(pot);
-            pots.add(pot);
-        }
+        List<List<Integer>> groups = tournamentEngine.potSeededGroups(
+                seededIdx, numGroups, groupSize, new java.util.Random(),
+                i -> getTeamNationId(seededEntries.get(i).getTeamId()));
 
-        List<List<CompetitionTeamInfo>> groups = new ArrayList<>();
-        for (int g = 0; g < numGroups; g++) groups.add(new ArrayList<>());
-
-        for (int potIndex = 0; potIndex < pots.size(); potIndex++) {
-            List<CompetitionTeamInfo> pot = pots.get(potIndex);
-            for (int g = 0; g < numGroups; g++) {
-                CompetitionTeamInfo candidate = pot.get(g);
-                long candidateNation = getTeamNationId(candidate.getTeamId());
-
-                boolean conflict = groups.get(g).stream()
-                        .anyMatch(existing -> getTeamNationId(existing.getTeamId()) == candidateNation);
-
-                if (conflict) {
-                    boolean swapped = false;
-                    for (int s = g + 1; s < numGroups; s++) {
-                        CompetitionTeamInfo swapCandidate = pot.get(s);
-                        long swapNation = getTeamNationId(swapCandidate.getTeamId());
-                        boolean swapConflictInTargetGroup = groups.get(g).stream()
-                                .anyMatch(ex -> getTeamNationId(ex.getTeamId()) == swapNation);
-                        boolean originalConflictInSwapGroup = groups.get(s).stream()
-                                .anyMatch(ex -> getTeamNationId(ex.getTeamId()) == candidateNation);
-                        if (!swapConflictInTargetGroup && !originalConflictInSwapGroup) {
-                            pot.set(g, swapCandidate);
-                            pot.set(s, candidate);
-                            candidate = swapCandidate;
-                            swapped = true;
-                            break;
-                        }
-                    }
-                    if (!swapped) {
-                        System.out.println("=== drawEuropeanGroups: could not avoid same-nation conflict for team "
-                                + candidate.getTeamId() + " in group " + (g + 1));
-                    }
-                }
-
+        for (int g = 0; g < groups.size(); g++) {
+            for (int idx : groups.get(g)) {
+                CompetitionTeamInfo candidate = seededEntries.get(idx);
                 candidate.setGroupNumber(g + 1);
-                candidate.setPotNumber(potIndex + 1);
-                groups.get(g).add(candidate);
+                candidate.setPotNumber(idx / numGroups + 1); // pot = seed-rank band
                 competitionTeamInfoRepository.save(candidate);
             }
         }
 
-        for (int g = 0; g < numGroups; g++) {
+        for (int g = 0; g < groups.size(); g++) {
             System.out.println("  Group " + (g + 1) + ": " + groups.get(g).stream()
-                    .map(cti -> teamRepository.findById(cti.getTeamId()).map(Team::getName).orElse("?")
-                            + "(P" + cti.getPotNumber() + ")")
+                    .map(idx -> {
+                        CompetitionTeamInfo cti = seededEntries.get(idx);
+                        return teamRepository.findById(cti.getTeamId()).map(Team::getName).orElse("?")
+                                + "(P" + cti.getPotNumber() + ")";
+                    })
                     .collect(Collectors.joining(", ")));
         }
     }
@@ -236,31 +209,15 @@ public class EuropeanCompetitionService {
         int half = participants.size() / 2;
         List<Long> seeded = new ArrayList<>(participants.subList(0, half));
         List<Long> unseeded = new ArrayList<>(participants.subList(half, participants.size()));
-        Collections.shuffle(seeded);
-        Collections.shuffle(unseeded);
 
-        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
-            long seededNation = getTeamNationId(seeded.get(i));
-            long unseededNation = getTeamNationId(unseeded.get(i));
-            if (seededNation == unseededNation && seededNation != -1) {
-                for (int j = i + 1; j < unseeded.size(); j++) {
-                    long swapNation = getTeamNationId(unseeded.get(j));
-                    long seededAtJ = (j < seeded.size()) ? getTeamNationId(seeded.get(j)) : -1;
-                    if (swapNation != seededNation && unseededNation != seededAtJ) {
-                        Collections.swap(unseeded, i, j);
-                        break;
-                    }
-                }
-            }
-        }
+        List<long[]> pairings = tournamentEngine.pairSeededVsUnseeded(
+                seeded, unseeded, new java.util.Random(), this::getTeamNationId);
 
         System.out.println("=== drawEuropeanKnockoutSeeded: comp=" + competitionId + " round=" + roundId);
-        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
-            long homeId = seeded.get(i);
-            long awayId = unseeded.get(i);
-
+        for (int i = 0; i < pairings.size(); i++) {
+            long homeId = pairings.get(i)[0];
+            long awayId = pairings.get(i)[1];
             saveKnockoutPairing(competitionId, roundId, homeId, awayId, i);
-
             String homeName = teamRepository.findById(homeId).map(Team::getName).orElse("?");
             String awayName = teamRepository.findById(awayId).map(Team::getName).orElse("?");
             System.out.println("  " + homeName + " (seeded) vs " + awayName);
@@ -339,9 +296,7 @@ public class EuropeanCompetitionService {
             else unseeded.add(teamId);
         }
 
-        Collections.shuffle(seeded);
-        Collections.shuffle(unseeded);
-
+        // Balance the two pots (unequal LoC-3rd vs SC-runner-up counts) before pairing.
         while (seeded.size() > unseeded.size() && seeded.size() > 0) {
             unseeded.add(seeded.remove(seeded.size() - 1));
         }
@@ -349,28 +304,14 @@ public class EuropeanCompetitionService {
             seeded.add(unseeded.remove(unseeded.size() - 1));
         }
 
-        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
-            long seededNation = getTeamNationId(seeded.get(i));
-            long unseededNation = getTeamNationId(unseeded.get(i));
-            if (seededNation == unseededNation && seededNation != -1) {
-                for (int j = i + 1; j < unseeded.size(); j++) {
-                    long swapNation = getTeamNationId(unseeded.get(j));
-                    long seededAtJ = (j < seeded.size()) ? getTeamNationId(seeded.get(j)) : -1;
-                    if (swapNation != seededNation && unseededNation != seededAtJ) {
-                        Collections.swap(unseeded, i, j);
-                        break;
-                    }
-                }
-            }
-        }
+        List<long[]> pairings = tournamentEngine.pairSeededVsUnseeded(
+                seeded, unseeded, new java.util.Random(), this::getTeamNationId);
 
         System.out.println("=== drawStarsCupPlayoffSeeded: LoC 3rd (seeded) vs SC runners-up (unseeded)");
-        for (int i = 0; i < seeded.size() && i < unseeded.size(); i++) {
-            long homeId = seeded.get(i);
-            long awayId = unseeded.get(i);
-
+        for (int i = 0; i < pairings.size(); i++) {
+            long homeId = pairings.get(i)[0];
+            long awayId = pairings.get(i)[1];
             saveKnockoutPairing(starsCupCompetitionId, roundId, homeId, awayId, i);
-
             String homeName = teamRepository.findById(homeId).map(Team::getName).orElse("?");
             String awayName = teamRepository.findById(awayId).map(Team::getName).orElse("?");
             System.out.println("  " + homeName + " (LoC 3rd, seeded) vs " + awayName + " (SC runner-up)");

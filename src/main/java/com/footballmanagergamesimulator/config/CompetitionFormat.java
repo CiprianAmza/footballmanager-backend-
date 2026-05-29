@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.config;
 
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -33,6 +34,12 @@ public final class CompetitionFormat {
     /** Added to matchday to get the round number (LoC = -1, all others = 0). */
     private final int matchdayToRoundDelta;
 
+    // ---- league scheduling (LEAGUE only) ----
+    /** How many times each pair meets, by exact team count (e.g. {12=4, 14=3}). */
+    private final Map<Integer, Integer> encountersByTeamCount;
+    /** Encounters when the team count isn't listed above (default round-robin = 2). */
+    private final int defaultEncounters;
+
     // ---- group stage (GROUPS_THEN_KNOCKOUT only) ----
     private final int groupCount;
     private final int groupSize;
@@ -62,6 +69,8 @@ public final class CompetitionFormat {
         this.typeId = b.typeId;
         this.kind = b.kind;
         this.matchdayToRoundDelta = b.matchdayToRoundDelta;
+        this.encountersByTeamCount = Map.copyOf(b.encountersByTeamCount);
+        this.defaultEncounters = b.defaultEncounters;
         this.groupCount = b.groupCount;
         this.groupSize = b.groupSize;
         this.qualifyPerGroupToKnockout = b.qualifyPerGroupToKnockout;
@@ -102,6 +111,15 @@ public final class CompetitionFormat {
     /** Round number for a 1-based matchday. */
     public int roundForMatchday(int matchday) { return matchday + matchdayToRoundDelta; }
 
+    /**
+     * How many times each pair of teams meets in a season for a league of the given
+     * size — e.g. 12 teams → 4, 14 → 3, anything else → {@link #defaultEncounters}.
+     * Odd values are supported (the extra meeting alternates home advantage).
+     */
+    public int encountersFor(int teamCount) {
+        return encountersByTeamCount.getOrDefault(teamCount, defaultEncounters);
+    }
+
     public boolean isGroupRound(long round) {
         return kind == Kind.GROUPS_THEN_KNOCKOUT && round >= groupStartRound && round <= groupEndRound;
     }
@@ -120,6 +138,8 @@ public final class CompetitionFormat {
         private final int typeId;
         private final Kind kind;
         private int matchdayToRoundDelta = 0;
+        private Map<Integer, Integer> encountersByTeamCount = Map.of();
+        private int defaultEncounters = 2;
         private int groupCount = 0;
         private int groupSize = 0;
         private int qualifyPerGroupToKnockout = 0;
@@ -141,6 +161,9 @@ public final class CompetitionFormat {
         private Builder(int typeId, Kind kind) { this.typeId = typeId; this.kind = kind; }
 
         public Builder matchdayToRoundDelta(int v) { this.matchdayToRoundDelta = v; return this; }
+        public Builder encounters(Map<Integer, Integer> byTeamCount, int defaultEncounters) {
+            this.encountersByTeamCount = byTeamCount; this.defaultEncounters = defaultEncounters; return this;
+        }
         public Builder groups(int count, int size) { this.groupCount = count; this.groupSize = size; return this; }
         public Builder qualifyPerGroupToKnockout(int v) { this.qualifyPerGroupToKnockout = v; return this; }
         public Builder qualifyTargetRound(int v) { this.qualifyTargetRound = v; return this; }

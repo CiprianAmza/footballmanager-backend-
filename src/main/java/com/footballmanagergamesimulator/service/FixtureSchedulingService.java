@@ -34,9 +34,6 @@ public class FixtureSchedulingService {
     private CompetitionTeamInfoRepository competitionTeamInfoRepository;
 
     @Autowired
-    private LeagueConfigService leagueConfigService;
-
-    @Autowired
     @Lazy
     private FriendlyMatchService friendlyMatchService;
 
@@ -88,16 +85,22 @@ public class FixtureSchedulingService {
                 return;
             }
 
+            // One pass over the (double round-robin) schedule = 2 encounters. The
+            // number of encounters per pair is driven by the competition format,
+            // keyed by team count (single source, shared with the test engine). Odd
+            // encounter counts add one extra single round-robin (first-listed team home).
             List<List<List<Long>>> schedule = roundRobin.getSchedule(participants);
             int currentRound = 1;
 
-            String compName = competitionRepository.findNameById(_competitionId);
-            int encounters = leagueConfigService.getEncounters(compName, participants.size());
-            int iterations = encounters / 2;
+            int typeId = competitionRepository.findById(_competitionId)
+                    .map(c -> (int) c.getTypeId()).orElse(1);
+            int encounters = competitionFormat.get(typeId).encountersFor(participants.size());
+            int fullPasses = encounters / 2;
+            boolean extraSingle = (encounters % 2) == 1;
 
             boolean reverse = true;
 
-            for (int i = 0; i < iterations; i++) {
+            for (int i = 0; i < fullPasses; i++) {
                 for (List<List<Long>> round : schedule) {
                     reverse = !reverse;
                     for (List<Long> match : round) {
@@ -114,6 +117,24 @@ public class FixtureSchedulingService {
                             competitionTeamInfoMatch.setTeam1Id(teamAwayId);
                             competitionTeamInfoMatch.setTeam2Id(teamHomeId);
                         }
+                        competitionTeamInfoMatch.setSeasonNumber(currentSeasonStr);
+                        competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
+                    }
+                    currentRound++;
+                }
+            }
+
+            if (extraSingle) {
+                // Extra meeting for odd encounters: one single round-robin (the schedule's
+                // first leg), first-listed team hosts — deterministic alternating home rule.
+                List<List<List<Long>>> firstLeg = schedule.subList(0, schedule.size() / 2);
+                for (List<List<Long>> round : firstLeg) {
+                    for (List<Long> match : round) {
+                        CompetitionTeamInfoMatch competitionTeamInfoMatch = new CompetitionTeamInfoMatch();
+                        competitionTeamInfoMatch.setCompetitionId(_competitionId);
+                        competitionTeamInfoMatch.setRound(currentRound);
+                        competitionTeamInfoMatch.setTeam1Id(match.get(0));
+                        competitionTeamInfoMatch.setTeam2Id(match.get(1));
                         competitionTeamInfoMatch.setSeasonNumber(currentSeasonStr);
                         competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
                     }
@@ -221,9 +242,10 @@ public class FixtureSchedulingService {
                 case 3: // Second league
                     int numMatchdays = getActualRoundCount(comp.getId(), season);
                     if (numMatchdays == 0) {
-                        // Fallback: estimate from team count using league-config.json
+                        // Fallback: estimate from team count using the competition format
+                        // (same encounters source as fixture generation).
                         int numTeams = getTeamCountForCompetition(comp.getId(), season);
-                        int encounters = leagueConfigService.getEncounters(comp.getName(), numTeams);
+                        int encounters = competitionFormat.get((int) comp.getTypeId()).encountersFor(numTeams);
                         numMatchdays = Math.max(2, encounters * (numTeams - 1));
                     }
                     matchDays = generateLeagueMatchDays(numMatchdays);

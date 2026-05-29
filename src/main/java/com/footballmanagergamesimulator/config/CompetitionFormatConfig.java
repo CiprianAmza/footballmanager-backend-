@@ -21,11 +21,17 @@ public class CompetitionFormatConfig {
 
     private final Map<Integer, CompetitionFormat> byType = new HashMap<>();
 
+    /** Encounters by exact league size: 12 teams → 4 meetings, 14 → 3, everything else → 2. */
+    private static final Map<Integer, Integer> LEAGUE_ENCOUNTERS = Map.of(12, 4, 14, 3);
+    private static final int LEAGUE_DEFAULT_ENCOUNTERS = 2;
+
     public CompetitionFormatConfig() {
-        // --- League (1) + Second League (3): pure round-robin, matchday == round ---
-        CompetitionFormat league = CompetitionFormat.builder(1, CompetitionFormat.Kind.LEAGUE).build();
-        byType.put(1, league);
-        byType.put(3, CompetitionFormat.builder(3, CompetitionFormat.Kind.LEAGUE).build());
+        // --- League (1) + Second League (3): round-robin, matchday == round.
+        // Encounters scale with team count (config-driven, single source for game + tests). ---
+        byType.put(1, CompetitionFormat.builder(1, CompetitionFormat.Kind.LEAGUE)
+                .encounters(LEAGUE_ENCOUNTERS, LEAGUE_DEFAULT_ENCOUNTERS).build());
+        byType.put(3, CompetitionFormat.builder(3, CompetitionFormat.Kind.LEAGUE)
+                .encounters(LEAGUE_ENCOUNTERS, LEAGUE_DEFAULT_ENCOUNTERS).build());
 
         // --- Cup (2): single-elimination knockout, matchday == round ---
         byType.put(2, CompetitionFormat.builder(2, CompetitionFormat.Kind.KNOCKOUT).build());

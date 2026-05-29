@@ -131,16 +131,60 @@ public class TournamentEngine {
     /**
      * Pot-seed {@code teams} into {@code groupCount} groups of {@code groupSize}:
      * sort by power, split into pots, shuffle each pot, one team per pot per group.
+     * Convenience overload for the outcome tests (power seeding, no nation avoidance).
      */
     public List<List<Integer>> potSeededGroups(List<Integer> teams, double[] powers,
                                                int groupCount, int groupSize, Random drawRng) {
-        List<Integer> seeded = seededByPower(teams, powers);
+        return potSeededGroups(seededByPower(teams, powers), groupCount, groupSize, drawRng, null);
+    }
+
+    /**
+     * Pot-seed a pre-ranked field into {@code groupCount} groups of {@code groupSize}.
+     * {@code seededTeams} must be ordered strongest-first (the caller seeds — by power
+     * for tests, by club coefficient for production). Standard pot draw: split into
+     * {@code groupSize} pots of {@code groupCount} teams, shuffle each pot, place one
+     * team per pot in each group.
+     *
+     * <p>If {@code nationOf} is non-null, same-nation clashes within a group are
+     * avoided best-effort by swapping with a later team in the same pot (mirrors the
+     * production European group draw). Pass {@code null} for no avoidance.
+     */
+    public List<List<Integer>> potSeededGroups(List<Integer> seededTeams, int groupCount, int groupSize,
+                                               Random drawRng, java.util.function.IntToLongFunction nationOf) {
+        List<List<Integer>> pots = new ArrayList<>(groupSize);
+        for (int p = 0; p < groupSize; p++) {
+            List<Integer> pot = new ArrayList<>(seededTeams.subList(p * groupCount, (p + 1) * groupCount));
+            Collections.shuffle(pot, drawRng);
+            pots.add(pot);
+        }
         List<List<Integer>> groups = new ArrayList<>(groupCount);
         for (int g = 0; g < groupCount; g++) groups.add(new ArrayList<>(groupSize));
-        for (int pot = 0; pot < groupSize; pot++) {
-            List<Integer> potTeams = new ArrayList<>(seeded.subList(pot * groupCount, (pot + 1) * groupCount));
-            Collections.shuffle(potTeams, drawRng);
-            for (int g = 0; g < groupCount; g++) groups.get(g).add(potTeams.get(g));
+        for (List<Integer> pot : pots) {
+            for (int g = 0; g < groupCount; g++) {
+                int candidate = pot.get(g);
+                if (nationOf != null) {
+                    final int targetGroup = g;
+                    long candNation = nationOf.applyAsLong(candidate);
+                    boolean conflict = groups.get(g).stream().anyMatch(x -> nationOf.applyAsLong(x) == candNation);
+                    if (conflict) {
+                        for (int s = g + 1; s < groupCount; s++) {
+                            int swapCand = pot.get(s);
+                            long swapNation = nationOf.applyAsLong(swapCand);
+                            boolean swapConflictTarget = groups.get(targetGroup).stream()
+                                    .anyMatch(x -> nationOf.applyAsLong(x) == swapNation);
+                            boolean origConflictSwapGroup = groups.get(s).stream()
+                                    .anyMatch(x -> nationOf.applyAsLong(x) == candNation);
+                            if (!swapConflictTarget && !origConflictSwapGroup) {
+                                pot.set(g, swapCand);
+                                pot.set(s, candidate);
+                                candidate = swapCand;
+                                break;
+                            }
+                        }
+                    }
+                }
+                groups.get(g).add(candidate);
+            }
         }
         return groups;
     }
@@ -225,6 +269,42 @@ public class TournamentEngine {
     }
 
     /**
+     * Seeded knockout draw: shuffle the seeded (Pot 1) and unseeded (Pot 2) lists,
+     * then pair {@code seeded[i]} (home) vs {@code unseeded[i]}, avoiding same-nation
+     * ties best-effort by swapping a later unseeded team in. Returns the pairings as
+     * {@code long[]{homeTeamId, awayTeamId}}. Caller persists them.
+     *
+     * <p>Operates directly on team ids (production uses entity ids, not array
+     * indices). {@code nationOf} maps a team id to its nation id (-1 = unknown,
+     * never treated as a clash). Pass {@code null} to skip nation avoidance.
+     */
+    public List<long[]> pairSeededVsUnseeded(List<Long> seeded, List<Long> unseeded,
+                                             Random drawRng, java.util.function.LongUnaryOperator nationOf) {
+        Collections.shuffle(seeded, drawRng);
+        Collections.shuffle(unseeded, drawRng);
+        int pairs = Math.min(seeded.size(), unseeded.size());
+        if (nationOf != null) {
+            for (int i = 0; i < pairs; i++) {
+                long sNation = nationOf.applyAsLong(seeded.get(i));
+                long uNation = nationOf.applyAsLong(unseeded.get(i));
+                if (sNation == uNation && sNation != -1) {
+                    for (int j = i + 1; j < unseeded.size(); j++) {
+                        long swapNation = nationOf.applyAsLong(unseeded.get(j));
+                        long seededAtJ = (j < seeded.size()) ? nationOf.applyAsLong(seeded.get(j)) : -1;
+                        if (swapNation != sNation && uNation != seededAtJ) {
+                            Collections.swap(unseeded, i, j);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        List<long[]> result = new ArrayList<>(pairs);
+        for (int i = 0; i < pairs; i++) result.add(new long[]{seeded.get(i), unseeded.get(i)});
+        return result;
+    }
+
+    /**
      * Shuffle {@code entrants} with {@code drawRng} and play exactly one round of
      * ties (each consecutive pair). Used for one-off rounds such as the Stars Cup
      * playoff (8 teams → 4 winners). Returns the round's ties.
@@ -247,28 +327,55 @@ public class TournamentEngine {
     }
 
     /**
-     * Double round-robin: every ordered pair of {@code teams} plays once (so each
-     * unordered pair plays home + away). Scores come from {@link MatchSimulationService}.
-     * Returns raw per-team tallies; the caller applies its own standings tiebreak
-     * (the engine has no team names). Array length = {@code powers.length}.
+     * Double round-robin (each pair home + away = 2 encounters). Convenience for
+     * {@code playLeague(teams, powers, 2)}.
      */
     public LeagueTally playDoubleRoundRobin(List<Integer> teams, double[] powers) {
+        return playLeague(teams, powers, 2);
+    }
+
+    /**
+     * Play a league where each pair of teams meets {@code encounters} times. Even
+     * counts are full double round-robins (home + away). An odd count adds one extra
+     * single round-robin where the first-listed team of each pair hosts (matching the
+     * deterministic-alternating home rule used by production fixture generation).
+     * Scores come from {@link MatchSimulationService}; returns raw per-team tallies
+     * (caller applies its own standings tiebreak). Array length = {@code powers.length}.
+     * Works for any team count, odd included.
+     */
+    public LeagueTally playLeague(List<Integer> teams, double[] powers, int encounters) {
         int len = powers.length;
         int[] points = new int[len], gf = new int[len], ga = new int[len];
         int[] wins = new int[len], draws = new int[len], losses = new int[len];
-        for (int home : teams) {
-            for (int away : teams) {
-                if (home == away) continue;
-                List<Integer> scores = matchSim.calculateScores(powers[home], powers[away]);
-                int sH = scores.get(0), sA = scores.get(1);
-                gf[home] += sH; ga[home] += sA;
-                gf[away] += sA; ga[away] += sH;
-                if (sH > sA) { points[home] += 3; wins[home]++; losses[away]++; }
-                else if (sH == sA) { points[home]++; points[away]++; draws[home]++; draws[away]++; }
-                else { points[away] += 3; wins[away]++; losses[home]++; }
+        int fullDoubles = encounters / 2;
+        boolean extraSingle = (encounters % 2) == 1;
+        for (int d = 0; d < fullDoubles; d++) {
+            for (int home : teams) {
+                for (int away : teams) {
+                    if (home == away) continue;
+                    recordLeagueMatch(home, away, powers, points, gf, ga, wins, draws, losses);
+                }
+            }
+        }
+        if (extraSingle) {
+            for (int i = 0; i < teams.size(); i++) {
+                for (int j = i + 1; j < teams.size(); j++) {
+                    recordLeagueMatch(teams.get(i), teams.get(j), powers, points, gf, ga, wins, draws, losses);
+                }
             }
         }
         return new LeagueTally(points, gf, ga, wins, draws, losses);
+    }
+
+    private void recordLeagueMatch(int home, int away, double[] powers,
+                                   int[] points, int[] gf, int[] ga, int[] wins, int[] draws, int[] losses) {
+        List<Integer> scores = matchSim.calculateScores(powers[home], powers[away]);
+        int sH = scores.get(0), sA = scores.get(1);
+        gf[home] += sH; ga[home] += sA;
+        gf[away] += sA; ga[away] += sH;
+        if (sH > sA) { points[home] += 3; wins[home]++; losses[away]++; }
+        else if (sH == sA) { points[home]++; points[away]++; draws[home]++; draws[away]++; }
+        else { points[away] += 3; wins[away]++; losses[home]++; }
     }
 
     /**
