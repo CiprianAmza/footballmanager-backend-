@@ -1,11 +1,13 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -39,6 +41,8 @@ class EuropeanCompetitionServiceTest {
         service = new EuropeanCompetitionService();
         competitionRepository = mock(CompetitionRepository.class);
         inject("competitionRepository", competitionRepository);
+        // Round classification is config-driven; wire the real registry.
+        inject("competitionFormat", new CompetitionFormatConfig());
 
         // Seed: 4 competitions covering all the relevant typeIds.
         when(competitionRepository.findAll()).thenReturn(List.of(
@@ -47,6 +51,11 @@ class EuropeanCompetitionServiceTest {
                 competition(LOC_ID,       4), // LoC
                 competition(STARS_CUP_ID, 5)  // Stars Cup
         ));
+        // formatOf() resolves a competition's typeId via findById.
+        when(competitionRepository.findById(LEAGUE_ID)).thenReturn(Optional.of(competition(LEAGUE_ID, 1)));
+        when(competitionRepository.findById(CUP_ID)).thenReturn(Optional.of(competition(CUP_ID, 2)));
+        when(competitionRepository.findById(LOC_ID)).thenReturn(Optional.of(competition(LOC_ID, 4)));
+        when(competitionRepository.findById(STARS_CUP_ID)).thenReturn(Optional.of(competition(STARS_CUP_ID, 5)));
     }
 
     // ---------------- cups ----------------
