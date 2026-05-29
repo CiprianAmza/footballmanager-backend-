@@ -54,22 +54,53 @@ public class CompetitionFormatConfig {
                 .losersDrop(5, 1)
                 .build());
 
-        // --- Stars Cup (5) ---
-        // matchday = round; 1-6 groups, 7 playoff, 8 QF, 9 SF, 10 Final.
-        // 4 groups of 4, winner → QF (round 8), runner-up → playoff (round 7).
-        // The playoff draw (round 7) is seeded (LoC 3rd vs SC runners-up). Single-leg throughout.
-        byType.put(5, CompetitionFormat.builder(5, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
+        // --- Stars Cup (5) — round boundaries derived from the group shape ---
+        // 4 groups of 4 → 1-6 groups, 7 playoff, 8 QF, 9 SF, 10 Final (identical to
+        // the previous hardcoded values). See starsCupFormat for the derivation.
+        byType.put(5, starsCupFormat(4, 4));
+    }
+
+    /**
+     * Builds the Stars Cup format from its group shape so a shape change adapts
+     * the round numbers in one place (analogous to LoC's {@code EuropeanFormatPlan},
+     * but kept self-contained because SC is 1-based and its playoff injects
+     * external teams — LoC 3rd place — which the plan model can't express).
+     *
+     * <p>Structure (1-based, {@code matchdayToRoundDelta = 0}): group winners go
+     * straight to the knockout; runners-up meet the external playoff entrants in a
+     * seeded playoff. The knockout therefore fields {@code 2 × groupCount} teams
+     * (winners + playoff winners), which must be a power of two.
+     * <pre>
+     *   groups   : 1 .. G            where G = (groupSize - 1) * 2
+     *   playoff  : G + 1             (seeded draw, single-leg)
+     *   knockout : G + 2 .. G + 1 + K   where K = log2(2 * groupCount)
+     * </pre>
+     * With 4 groups of 4: G=6, K=3 → groups 1-6, playoff 7, QF/SF/Final 8-10.
+     */
+    private CompetitionFormat starsCupFormat(int groupCount, int groupSize) {
+        int groupStart = 1;
+        int groupEnd = groupStart + (groupSize - 1) * 2 - 1;
+        int playoff = groupEnd + 1;
+        int knockoutEntrants = 2 * groupCount; // group winners + playoff winners
+        if (Integer.bitCount(knockoutEntrants) != 1) {
+            throw new IllegalArgumentException("Stars Cup knockout field (2 × groupCount = "
+                    + knockoutEntrants + ") must be a power of two");
+        }
+        int knockoutRounds = Integer.numberOfTrailingZeros(knockoutEntrants); // log2
+        int finalRound = playoff + knockoutRounds;
+
+        return CompetitionFormat.builder(5, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
                 .matchdayToRoundDelta(0)
-                .groups(4, 4)
+                .groups(groupCount, groupSize)
                 .qualifyPerGroupToKnockout(1)
-                .qualifyTargetRound(8)
-                .groupRounds(1, 6)
+                .qualifyTargetRound(playoff + 1)   // group winners enter the QF
+                .groupRounds(groupStart, groupEnd)
                 .groupFixtureRoundOffset(0)
-                .knockoutStartRound(7)
-                .finalRound(10)
-                .playoffRound(7)
-                .seededKnockoutDrawRounds(Set.of(7))
-                .build());
+                .knockoutStartRound(playoff)       // playoff is the first knockout-type round
+                .finalRound(finalRound)
+                .playoffRound(playoff)
+                .seededKnockoutDrawRounds(Set.of(playoff))
+                .build();
     }
 
     /** Format for a competition type, or a plain LEAGUE format as a safe fallback. */

@@ -268,8 +268,13 @@ public class FixtureSchedulingService {
                     eventType = "MATCH_EUROPEAN";
                     break;
                 case 5: // Stars Cup (with group stage)
-                    // Rounds 1-6: group stage, Round 7: playoff, Rounds 8-10: QF, SF, Final
-                    matchDays = new int[]{42, 60, 84, 112, 147, 175, 220, 252, 295, 325};
+                    // Matchday count = round count, derived from the format's shape
+                    // (1-based contiguous rounds 1..finalRound). Default 4×4 = 10
+                    // rounds: 1-6 groups, 7 playoff, 8-10 QF/SF/Final.
+                    int scRounds = competitionFormat.get(5).finalRound();
+                    matchDays = scRounds == 10
+                            ? new int[]{42, 60, 84, 112, 147, 175, 220, 252, 295, 325}
+                            : generateEuropeanMatchDays(scRounds, 42, 325);
                     eventType = "MATCH_EUROPEAN";
                     break;
                 default:

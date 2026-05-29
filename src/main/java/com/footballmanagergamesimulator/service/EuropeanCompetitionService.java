@@ -88,10 +88,18 @@ public class EuropeanCompetitionService {
         if (cupIds.contains(competitionId)) return true;
 
         Set<Long> starsCupIds = competitionIdsByType(5);
-        if (starsCupIds.contains(competitionId) && roundId >= 7) return true;
+        if (starsCupIds.contains(competitionId)) {
+            // Everything from the playoff onward (playoff, QF, SF, Final) is knockout.
+            return roundId >= formatOf(competitionId).playoffRound();
+        }
 
         Set<Long> locIds = competitionIdsByType(4);
-        if (locIds.contains(competitionId) && (roundId <= 1 || roundId >= 8)) return true;
+        if (locIds.contains(competitionId)) {
+            com.footballmanagergamesimulator.config.CompetitionFormat fmt = formatOf(competitionId);
+            // Preliminary/qualifying rounds and the main knockout are knockout;
+            // the group stage in between is not.
+            return fmt.isPreliminaryRound(roundId) || roundId >= fmt.knockoutStartRound();
+        }
 
         return false;
     }
