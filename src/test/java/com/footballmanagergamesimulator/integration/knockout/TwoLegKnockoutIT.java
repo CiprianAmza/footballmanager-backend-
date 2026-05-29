@@ -253,7 +253,9 @@ class TwoLegKnockoutIT {
         matchRepo.save(leg(loc, season, teamA, teamB, 1, tieId)); // leg 1: A home
         matchRepo.save(leg(loc, season, teamB, teamA, 2, tieId)); // leg 2: B home
 
-        commitInteractive(loc, seasonInt, round, teamA, teamB, /*legNumber*/ 1, tieId);
+        Map<String, Object> result = commitInteractive(loc, seasonInt, round, teamA, teamB, /*legNumber*/ 1, tieId);
+        assertThat((String) result.get("knockoutResultText"))
+                .as("leg 1 commit announces the return leg, decides nothing").contains("First leg");
 
         assertThat(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(round + 1, loc, seasonLong))
                 .as("interactive leg 1 must not advance anyone").isEmpty();
@@ -289,7 +291,10 @@ class TwoLegKnockoutIT {
         matchRepo.save(leg(loc, season, teamB, teamA, 2, tieId)); // leg 2: B home
 
         // Leg 2 host = teamB (tie side B); visitor = teamA (side A).
-        commitInteractive(loc, seasonInt, round, teamB, teamA, /*legNumber*/ 2, tieId);
+        Map<String, Object> result = commitInteractive(loc, seasonInt, round, teamB, teamA, /*legNumber*/ 2, tieId);
+        assertThat((String) result.get("knockoutResultText"))
+                .as("leg 2 commit announces who advanced (aggregate or penalties)")
+                .containsAnyOf("aggregate", "penalties");
 
         List<CompetitionTeamInfo> advanced =
                 ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(round + 1, loc, seasonLong);
@@ -314,7 +319,13 @@ class TwoLegKnockoutIT {
 
         isolateKnockout(loc, season, seasonLong, round, teamA, teamB);
 
-        commitInteractive(loc, seasonInt, round, teamA, teamB, /*legNumber*/ 0, /*tieId*/ 0L);
+        Map<String, Object> result = commitInteractive(loc, seasonInt, round, teamA, teamB, /*legNumber*/ 0, /*tieId*/ 0L);
+        // Text is present only when the 90' was level (decided by ET/pens); null on a decisive scoreline.
+        String koText = (String) result.get("knockoutResultText");
+        if (koText != null) {
+            assertThat(koText).as("single-leg ET/penalties outcome mentions the winner")
+                    .containsAnyOf("extra time", "penalties");
+        }
 
         List<CompetitionTeamInfo> advanced =
                 ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(round + 1, loc, seasonLong);
@@ -324,16 +335,16 @@ class TwoLegKnockoutIT {
 
     // ==================== helpers ====================
 
-    /** Drive a real interactive session to full time, then commit it. */
-    private void commitInteractive(long comp, int season, int round,
-                                   long teamId1, long teamId2, int legNumber, long tieId) {
+    /** Drive a real interactive session to full time, then commit it; returns the commit result map. */
+    private Map<String, Object> commitInteractive(long comp, int season, int round,
+                                                  long teamId1, long teamId2, int legNumber, long tieId) {
         String key = LiveMatchSimulationService.buildKey(comp, season, round, teamId1, teamId2);
         LiveMatchSession session = liveMatchSimulationService.createInteractiveSession(
                 teamId1, teamId2, 1500.0, 1400.0, comp, season, round, false);
         session.setDeferredContext(1500.0, 1400.0, "442", "442", null, null, true, legNumber, tieId, 0);
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
         assertThat(session.isFinished()).as("session reaches full time before commit").isTrue();
-        matchSimulationOrchestrator.finalizeInteractiveLiveMatch(key);
+        return matchSimulationOrchestrator.finalizeInteractiveLiveMatch(key);
     }
 
     /** Clear a knockout round's fixtures/details + the next round's winners + this

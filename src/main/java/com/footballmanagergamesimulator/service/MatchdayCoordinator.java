@@ -430,6 +430,9 @@ public class MatchdayCoordinator {
         //   leg 2 → aggregate with leg 1, decide, propagate the winner;
         //   single-leg → decide via extra time/penalties + propagate.
         String koScoreSuffix = "";
+        // Human-readable knockout outcome for the live modal (null = nothing extra
+        // to say beyond the 90' score). Surfaced to the FE via the commit response.
+        String koResultText = null;
         Long winnerId = null; // null → propagation deferred (first leg of a two-leg tie)
         if (knockout) {
             if (legNumber == 1 && tieId != 0) {
@@ -443,6 +446,7 @@ public class MatchdayCoordinator {
                     competitionTeamInfoMatchRepository.save(leg1Row);
                 }
                 koScoreSuffix = " (1st leg)";
+                koResultText = "First leg — return leg to come";
             } else if (legNumber == 2 && tieId != 0) {
                 // Second leg: persist this leg, aggregate with leg 1, decide. The
                 // tie is settled on aggregate, so the live 90' score is NOT bumped.
@@ -463,10 +467,16 @@ public class MatchdayCoordinator {
                     winnerId = d.teamAWon() ? teamId2 : teamId1;
                     koScoreSuffix = " (agg " + aggA + "-" + aggB
                             + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
+                    int winnerAgg = d.teamAWon() ? aggA : aggB;
+                    int loserAgg = d.teamAWon() ? aggB : aggA;
+                    String tail = d.penalties() ? " (won on penalties)" : d.extraTime() ? " (a.e.t.)" : "";
+                    koResultText = matchRoundSimulator.roundTeamName(winnerId)
+                            + " advance " + winnerAgg + "-" + loserAgg + " on aggregate" + tail;
                 } else {
                     // Lost leg-1 record — decide on this match alone (defensive).
                     var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, new Random());
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
+                    koResultText = matchRoundSimulator.roundTeamName(winnerId) + " advance";
                 }
             } else {
                 // Single-leg knockout: decide via extra time / penalties. Keep the
@@ -479,6 +489,8 @@ public class MatchdayCoordinator {
                     appendKnockoutWinnerGoal(_competitionId, season, (int) _roundId, teamId1, teamId2, winnerId, loserTeamId);
                     if (d.penalties()) koScoreSuffix = " (pens)";
                     else if (d.extraTime()) koScoreSuffix = " (a.e.t.)";
+                    koResultText = matchRoundSimulator.roundTeamName(winnerId)
+                            + (d.penalties() ? " win on penalties" : " win after extra time");
                 } else {
                     winnerId = teamScore1 > teamScore2 ? teamId1 : teamId2;
                 }
@@ -535,6 +547,7 @@ public class MatchdayCoordinator {
         session.markCommitted();
 
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("knockoutResultText", koResultText);
         result.put("homeScore", teamScore1);
         result.put("awayScore", teamScore2);
         result.put("homeTeamId", teamId1);
