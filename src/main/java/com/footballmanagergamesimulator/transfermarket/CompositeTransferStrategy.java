@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 @Service
 public class CompositeTransferStrategy implements TransferStrategy {
@@ -47,5 +48,13 @@ public class CompositeTransferStrategy implements TransferStrategy {
     return transferStrategy.playersToBuy(team, humanRepository, maximumPositionsAllowed);
   }
 
+  /**
+   * Test-only seam: thread one seeded {@link Random} into every registered
+   * strategy so fuzz/integration tests get reproducible sell counts + buy
+   * shuffles. Production never calls this. Restore with {@code new Random()}.
+   */
+  public void setRandomForTesting(Random random) {
+    _transferStrategies.values().forEach(strategy -> strategy.setRandom(random));
+  }
 
 }

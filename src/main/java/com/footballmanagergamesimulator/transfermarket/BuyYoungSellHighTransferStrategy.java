@@ -11,6 +11,13 @@ import java.util.stream.Collectors;
 
 public class BuyYoungSellHighTransferStrategy implements TransferStrategy {
 
+  private Random random = new Random();
+
+  @Override
+  public void setRandom(Random random) {
+    this.random = random;
+  }
+
   @Override
   public List<PlayerTransferView> playersToSell(Team team, HumanRepository humanRepository, HashMap<String, Integer> minimumPositionNeeded) {
 
@@ -33,8 +40,9 @@ public class BuyYoungSellHighTransferStrategy implements TransferStrategy {
       }
     }
 
+    // sorted by transferValue DESC → head = highest-value players (sell high)
     List<Human> playersForSale =
-      validThatCouldBeSold.subList(Math.max(validThatCouldBeSold.size() - new Random().nextInt(3, 6), 0), validThatCouldBeSold.size());
+      validThatCouldBeSold.subList(0, Math.min(random.nextInt(3, 6), validThatCouldBeSold.size()));
 
     return fromHumanToPlayerTransferView(team, playersForSale);
   }
@@ -71,8 +79,8 @@ public class BuyYoungSellHighTransferStrategy implements TransferStrategy {
         positionsToBuy.add(new ImmutablePair<>(entry.getKey(), minRating));
     }
 
-    Collections.shuffle(positionsToBuy);
-    int nrOfPlayersToBeBuy = new Random().nextInt(3, 5);
+    Collections.shuffle(positionsToBuy, random);
+    int nrOfPlayersToBeBuy = random.nextInt(3, 5);
 
     for (int i = 0; i < Math.min(nrOfPlayersToBeBuy, positionsToBuy.size()); i++) {
       ImmutablePair<String, Double> pair = positionsToBuy.get(i);

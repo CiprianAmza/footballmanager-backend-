@@ -10,6 +10,13 @@ import java.util.stream.Collectors;
 
 public class AcademyTransferStrategy extends AbstractTransferStrategy {
 
+    private Random random = new Random();
+
+    @Override
+    public void setRandom(Random random) {
+      this.random = random;
+    }
+
     @Override
     public List<PlayerTransferView> playersToSell(Team team, HumanRepository humanRepository, HashMap<String, Integer> minimumPositionNeeded) {
 
@@ -32,8 +39,9 @@ public class AcademyTransferStrategy extends AbstractTransferStrategy {
         }
       }
 
+      // sorted by rating DESC → head = top-rated players (Academy sells its peaks)
       List<Human> playersForSale =
-        validThatCouldBeSold.subList(Math.max(validThatCouldBeSold.size() - new Random().nextInt(3, 6), 0), validThatCouldBeSold.size());
+        validThatCouldBeSold.subList(0, Math.min(random.nextInt(3, 6), validThatCouldBeSold.size()));
 
       return fromHumanToPlayerTransferView(team, playersForSale);
     }
