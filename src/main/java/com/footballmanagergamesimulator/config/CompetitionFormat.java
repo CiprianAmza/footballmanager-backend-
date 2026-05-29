@@ -110,12 +110,29 @@ public final class CompetitionFormat {
     public int groupCount() { return groupCount; }
     public int groupSize() { return groupSize; }
     public int qualifyPerGroupToKnockout() { return qualifyPerGroupToKnockout; }
-    public int qualifyTargetRound() { return qualifyTargetRound; }
-    public int groupStartRound() { return groupStartRound; }
-    public int groupEndRound() { return groupEndRound; }
+
+    // When a derived plan exists (sized group stage), round boundaries come from
+    // it so changing totalTeams/groups/qualifyPerGroup adapts the whole format in
+    // one place. Otherwise the explicit builder values are used (e.g. Stars Cup,
+    // whose bespoke playoff isn't modelled by the plan).
+
+    /** Round group qualifiers enter the knockout (= first knockout round). */
+    public int qualifyTargetRound() {
+        return europeanPlan != null ? europeanPlan.knockoutStartRound() : qualifyTargetRound;
+    }
+    public int groupStartRound() {
+        return europeanPlan != null ? europeanPlan.groupStartRound() : groupStartRound;
+    }
+    public int groupEndRound() {
+        return europeanPlan != null ? europeanPlan.groupEndRound() : groupEndRound;
+    }
     public int groupFixtureRoundOffset() { return groupFixtureRoundOffset; }
-    public int knockoutStartRound() { return knockoutStartRound; }
-    public int finalRound() { return finalRound; }
+    public int knockoutStartRound() {
+        return europeanPlan != null ? europeanPlan.knockoutStartRound() : knockoutStartRound;
+    }
+    public int finalRound() {
+        return europeanPlan != null ? europeanPlan.finalRound() : finalRound;
+    }
     public int playoffRound() { return playoffRound; }
     public int thirdPlaceDropTypeId() { return thirdPlaceDropTypeId; }
     public int thirdPlaceDropRound() { return thirdPlaceDropRound; }
@@ -135,16 +152,40 @@ public final class CompetitionFormat {
     }
 
     public boolean isGroupRound(long round) {
-        return kind == Kind.GROUPS_THEN_KNOCKOUT && round >= groupStartRound && round <= groupEndRound;
+        return kind == Kind.GROUPS_THEN_KNOCKOUT && round >= groupStartRound() && round <= groupEndRound();
     }
-    public boolean isGroupDrawRound(long round) { return round == groupStartRound; }
-    public boolean isQualifyRound(long round) { return round == groupEndRound; }
-    public boolean isPreliminaryRound(long round) { return preliminaryRounds.contains((int) round); }
-    public boolean isSeededKnockoutDrawRound(long round) { return seededKnockoutDrawRounds.contains((int) round); }
-    public boolean isTwoLeg(long round) { return twoLegRounds.contains((int) round); }
+    public boolean isGroupDrawRound(long round) { return round == groupStartRound(); }
+    public boolean isQualifyRound(long round) { return round == groupEndRound(); }
+
+    public boolean isPreliminaryRound(long round) {
+        if (europeanPlan != null) {
+            return round >= 0 && round < europeanPlan.preliminaryRounds();
+        }
+        return preliminaryRounds.contains((int) round);
+    }
+
+    /**
+     * True when this round's pairing is coefficient-seeded (preliminary byes).
+     * Knockout-phase draws are random shuffles, so only the preliminary rounds
+     * count as seeded for a sized plan.
+     */
+    public boolean isSeededKnockoutDrawRound(long round) {
+        if (europeanPlan != null) {
+            return round >= 0 && round < europeanPlan.preliminaryRounds();
+        }
+        return seededKnockoutDrawRounds.contains((int) round);
+    }
+
+    public boolean isTwoLeg(long round) {
+        if (europeanPlan != null) {
+            return round >= 0 && round < europeanPlan.totalRounds()
+                    && europeanPlan.stageForRound((int) round).twoLeg();
+        }
+        return twoLegRounds.contains((int) round);
+    }
 
     /** Number of matchdays the group stage spans (e.g. 6 for a group of 4, double round-robin). */
-    public int groupMatchdayCount() { return groupEndRound - groupStartRound + 1; }
+    public int groupMatchdayCount() { return groupEndRound() - groupStartRound() + 1; }
 
     public static Builder builder(int typeId, Kind kind) { return new Builder(typeId, kind); }
 

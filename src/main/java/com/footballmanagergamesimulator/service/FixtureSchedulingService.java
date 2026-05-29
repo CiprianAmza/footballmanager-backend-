@@ -256,9 +256,15 @@ public class FixtureSchedulingService {
                     eventType = "MATCH_CUP";
                     break;
                 case 4: // LoC (Champions League equivalent)
-                    // Round 0: preliminary, Round 1: qualifying, Rounds 2-7: group stage,
-                    // Rounds 8-10: QF, SF, Final
-                    matchDays = new int[]{28, 38, 56, 77, 105, 140, 168, 196, 245, 280, 330};
+                    // Matchday count comes from the derived format plan so a shape
+                    // change (totalTeams/groups/qualifyPerGroup) adapts the calendar.
+                    // Default 40/4×4 = 11 rounds: 0-1 preliminary, 2-7 groups, 8-10 KO.
+                    com.footballmanagergamesimulator.config.EuropeanFormatPlan locPlan =
+                            competitionFormat.get(4).europeanPlan();
+                    int locRounds = locPlan != null ? locPlan.totalRounds() : 11;
+                    matchDays = locRounds == 11
+                            ? new int[]{28, 38, 56, 77, 105, 140, 168, 196, 245, 280, 330}
+                            : generateEuropeanMatchDays(locRounds, 28, 330);
                     eventType = "MATCH_EUROPEAN";
                     break;
                 case 5: // Stars Cup (with group stage)
@@ -469,6 +475,25 @@ public class FixtureSchedulingService {
             }
         }
 
+        return days;
+    }
+
+    /**
+     * Spreads {@code numMatchdays} European matchdays evenly across [startDay, endDay].
+     * Used when a configurable LoC shape produces a round count other than the
+     * default 11; keeps each matchday unique and at least 3 days apart.
+     */
+    private int[] generateEuropeanMatchDays(int numMatchdays, int startDay, int endDay) {
+        int[] days = new int[numMatchdays];
+        double interval = (double) (endDay - startDay) / Math.max(1, numMatchdays - 1);
+        for (int i = 0; i < numMatchdays; i++) {
+            days[i] = Math.min(startDay + (int) Math.round(i * interval), endDay);
+        }
+        for (int i = 1; i < days.length; i++) {
+            if (days[i] <= days[i - 1] + 2) {
+                days[i] = days[i - 1] + 3;
+            }
+        }
         return days;
     }
 

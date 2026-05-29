@@ -1,5 +1,8 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
+import com.footballmanagergamesimulator.config.EuropeanPhase;
+import com.footballmanagergamesimulator.config.EuropeanStage;
 import com.footballmanagergamesimulator.model.ClubCoefficient;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
@@ -63,7 +66,13 @@ public class EuropeanCoefficientService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private UserContext userContext;
+    @Autowired private CompetitionFormatConfig competitionFormat;
     @Lazy @Autowired private FinanceService financeService;
+
+    /** The LoC round's stage in the derived format plan (phase + roundsFromFinal). */
+    private EuropeanStage locStage(long roundId) {
+        return competitionFormat.get(4).europeanPlan().stageForRound((int) roundId);
+    }
 
     // ============================================================
     //  Per-match coefficient + prize money
@@ -89,11 +98,12 @@ public class EuropeanCoefficientService {
         double drawPoints;
 
         if (isLoC) {
-            if (roundId <= 1) { winPoints = 1.0; drawPoints = 0; }           // Preliminary/QR (knockout)
-            else if (roundId <= 7) { winPoints = 2.0; drawPoints = 1.0; }    // Group stage
-            else if (roundId == 8) { winPoints = 3.0; drawPoints = 0; }      // QF
-            else if (roundId == 9) { winPoints = 4.0; drawPoints = 0; }      // SF
-            else { winPoints = 5.0; drawPoints = 0; }                        // Final
+            // Round scale derived from the format plan's phase, so it adapts to any
+            // shape. KO: win = 6 - roundsFromFinal → QF=3, SF=4, Final=5 (40/4×4).
+            EuropeanStage stage = locStage(roundId);
+            if (stage.phase() == EuropeanPhase.PRELIMINARY) { winPoints = 1.0; drawPoints = 0; }
+            else if (stage.phase() == EuropeanPhase.GROUP) { winPoints = 2.0; drawPoints = 1.0; }
+            else { winPoints = 6 - stage.roundsFromFinal(); drawPoints = 0; }
         } else {
             // Stars Cup
             if (roundId <= 6) { winPoints = 1.0; drawPoints = 0.5; }         // Group stage
@@ -123,16 +133,17 @@ public class EuropeanCoefficientService {
         String compName = isLoC ? "League of Champions" : "Stars Cup";
 
         if (isLoC) {
-            // LoC Group Stage participation bonus (awarded once at round 2, first group match)
-            if (roundId == 2) {
-                awardPrizeMoney(team1Id, 20_000_000L, season, roundNumber,
-                        compName + " Group Stage Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 20_000_000L, season, roundNumber,
-                        compName + " Group Stage Qualification", "european_prize");
-            }
-
-            // LoC per-match results
-            if (roundId >= 2 && roundId <= 7) {
+            // Prizes classified by the format plan's phase, so they adapt to any
+            // shape. KO tiers keyed off roundsFromFinal (Final=1, SF=2, QF=3).
+            EuropeanStage stage = locStage(roundId);
+            if (stage.phase() == EuropeanPhase.GROUP) {
+                // Group Stage participation bonus, once on the first group matchday
+                if (stage.groupDraw()) {
+                    awardPrizeMoney(team1Id, 20_000_000L, season, roundNumber,
+                            compName + " Group Stage Qualification", "european_prize");
+                    awardPrizeMoney(team2Id, 20_000_000L, season, roundNumber,
+                            compName + " Group Stage Qualification", "european_prize");
+                }
                 // Group stage: win = 5M, draw = 1.5M
                 if (score1 > score2) {
                     awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
@@ -146,32 +157,42 @@ public class EuropeanCoefficientService {
                     awardPrizeMoney(team2Id, 1_500_000L, season, roundNumber,
                             compName + " Group Stage Draw", "european_prize");
                 }
-            } else if (roundId == 8) {
-                // QF qualification bonus (both teams qualified to play QF)
-                awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
-                        compName + " Quarter-Final Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
-                        compName + " Quarter-Final Qualification", "european_prize");
-            } else if (roundId == 9) {
-                // SF qualification bonus
-                awardPrizeMoney(team1Id, 40_000_000L, season, roundNumber,
-                        compName + " Semi-Final Qualification", "european_prize");
-                awardPrizeMoney(team2Id, 40_000_000L, season, roundNumber,
-                        compName + " Semi-Final Qualification", "european_prize");
-            } else if (roundId == 10) {
-                // Final: winner gets 100M, runner-up gets 50M
-                if (score1 > score2) {
-                    awardPrizeMoney(team1Id, 100_000_000L, season, roundNumber,
-                            compName + " Winner", "european_prize");
-                    awardPrizeMoney(team2Id, 50_000_000L, season, roundNumber,
-                            compName + " Runner-Up", "european_prize");
+            } else if (stage.phase() == EuropeanPhase.KNOCKOUT) {
+                int rff = stage.roundsFromFinal();
+                if (rff == 1) {
+                    // Final: winner gets 100M, runner-up gets 50M
+                    if (score1 > score2) {
+                        awardPrizeMoney(team1Id, 100_000_000L, season, roundNumber,
+                                compName + " Winner", "european_prize");
+                        awardPrizeMoney(team2Id, 50_000_000L, season, roundNumber,
+                                compName + " Runner-Up", "european_prize");
+                    } else {
+                        awardPrizeMoney(team2Id, 100_000_000L, season, roundNumber,
+                                compName + " Winner", "european_prize");
+                        awardPrizeMoney(team1Id, 50_000_000L, season, roundNumber,
+                                compName + " Runner-Up", "european_prize");
+                    }
+                } else if (rff == 2) {
+                    // SF qualification bonus
+                    awardPrizeMoney(team1Id, 40_000_000L, season, roundNumber,
+                            compName + " Semi-Final Qualification", "european_prize");
+                    awardPrizeMoney(team2Id, 40_000_000L, season, roundNumber,
+                            compName + " Semi-Final Qualification", "european_prize");
+                } else if (rff == 3) {
+                    // QF qualification bonus
+                    awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
+                            compName + " Quarter-Final Qualification", "european_prize");
+                    awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
+                            compName + " Quarter-Final Qualification", "european_prize");
                 } else {
-                    awardPrizeMoney(team2Id, 100_000_000L, season, roundNumber,
-                            compName + " Winner", "european_prize");
-                    awardPrizeMoney(team1Id, 50_000_000L, season, roundNumber,
-                            compName + " Runner-Up", "european_prize");
+                    // Earlier knockout rounds (larger formats only): generic bonus
+                    awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
+                            compName + " Knockout Qualification", "european_prize");
+                    awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
+                            compName + " Knockout Qualification", "european_prize");
                 }
             }
+            // PRELIMINARY rounds: no prize money (matches legacy).
         } else {
             // Stars Cup prizes (with group stage)
             if (roundId == 1) {

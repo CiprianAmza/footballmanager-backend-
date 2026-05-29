@@ -36,26 +36,22 @@ public class CompetitionFormatConfig {
         // --- Cup (2): single-elimination knockout, matchday == round ---
         byType.put(2, CompetitionFormat.builder(2, CompetitionFormat.Kind.KNOCKOUT).build());
 
-        // --- League of Champions (4) ---
-        // matchday-1 = round; 0-1 preliminary, 2-7 groups, 8 QF, 9 SF, 10 Final.
-        // 4 groups of 4, top 2 → QF (round 8), 3rd → Stars Cup playoff (type 5, round 7).
-        // Preliminary/qualifying losers drop to Stars Cup groups (type 5, round 1).
-        // QF + SF are two-leg.
+        // --- League of Champions (4) — SHAPE ONLY ---
+        // Round boundaries (preliminary/group/knockout/final, two-leg, seeded draw)
+        // are DERIVED from this shape by EuropeanFormatPlan, so changing totalTeams/
+        // groups/qualifyPerGroup adapts the whole format in one place. With 40 teams,
+        // 4 groups of 4, top 2 → knockout: preliminaries 0-1, groups 2-7, 8 QF,
+        // 9 SF, 10 Final; QF + SF two-leg; preliminary draws coefficient-seeded.
+        // 3rd → Stars Cup playoff (type 5, round 7); preliminary/qualifying losers
+        // drop to Stars Cup groups (type 5, round 1).
         byType.put(4, CompetitionFormat.builder(4, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
                 .matchdayToRoundDelta(-1)
                 .totalTeams(40)
                 .groups(4, 4)
                 .qualifyPerGroupToKnockout(2)
-                .qualifyTargetRound(8)
-                .groupRounds(2, 7)
                 .groupFixtureRoundOffset(1)
-                .knockoutStartRound(8)
-                .finalRound(10)
                 .thirdPlaceDrop(5, 7)
                 .losersDrop(5, 1)
-                .preliminaryRounds(Set.of(0, 1))
-                .seededKnockoutDrawRounds(Set.of(0, 1))
-                .twoLegRounds(Set.of(8, 9))
                 .build());
 
         // --- Stars Cup (5) ---
