@@ -54,7 +54,13 @@ public class MatchSimulationOrchestrator {
     // ===== Matchday-level =====
 
     public void simulateMatchday(long competitionId, int matchday, int season) {
-        matchdayCoordinator.simulateMatchday(competitionId, matchday, season);
+        matchdayCoordinator.simulateMatchday(competitionId, matchday, season, null);
+    }
+
+    /** @param legNumber 1/2 to simulate only that leg of a two-leg round on its own
+     *  calendar day; null simulates the whole round in one pass. */
+    public void simulateMatchday(long competitionId, int matchday, int season, Integer legNumber) {
+        matchdayCoordinator.simulateMatchday(competitionId, matchday, season, legNumber);
     }
 
     public void appendKnockoutWinnerGoal(long competitionId, int season, int roundNumber,

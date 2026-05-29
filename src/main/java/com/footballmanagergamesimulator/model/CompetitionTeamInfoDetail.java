@@ -29,4 +29,12 @@ public class CompetitionTeamInfoDetail {
   private String teamName2;
   private long seasonNumber;
 
+  /**
+   * Leg number for a two-leg knockout tie (0 = single match, 1 = first leg,
+   * 2 = second leg). Lets the matchday dispatcher tell whether a specific leg of
+   * a round has already been simulated when the two legs fall on different days.
+   */
+  @Column(name = "leg_number")
+  private int legNumber;
+
 }

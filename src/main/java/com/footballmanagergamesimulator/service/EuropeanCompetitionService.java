@@ -306,7 +306,7 @@ public class EuropeanCompetitionService {
      * leg 1 has {@code homeId} at home, leg 2 swaps venues. {@code pairingIndex}
      * makes the tieId unique within the round's draw.
      */
-    private void saveKnockoutPairing(long competitionId, long roundId, long homeId, long awayId, int pairingIndex) {
+    public void saveKnockoutPairing(long competitionId, long roundId, long homeId, long awayId, int pairingIndex) {
         int typeId = competitionRepository.findById(competitionId).map(Competition::getTypeId).orElse(0L).intValue();
         String season = currentSeason();
         boolean twoLeg = competitionFormat.isTwoLeg(typeId, roundId);

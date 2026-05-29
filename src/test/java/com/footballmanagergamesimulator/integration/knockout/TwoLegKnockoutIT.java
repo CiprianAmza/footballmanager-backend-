@@ -13,6 +13,7 @@ import com.footballmanagergamesimulator.repository.MatchStatsRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
 import com.footballmanagergamesimulator.service.MatchRoundSimulator;
+import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,7 @@ class TwoLegKnockoutIT {
     private static final long SEED = 20260528L;
 
     @Autowired private MatchRoundSimulator matchRoundSimulator;
+    @Autowired private MatchSimulationOrchestrator matchSimulationOrchestrator;
     @Autowired private EuropeanCompetitionService europeanCompetitionService;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoMatchRepository matchRepo;
@@ -188,6 +190,47 @@ class TwoLegKnockoutIT {
                 detailRepo.findAllByCompetitionIdAndRoundIdAndSeasonNumber(loc, 8, seasonLong);
         assertThat(details.stream().anyMatch(d -> d.getScore() != null && d.getScore().contains("(agg")))
                 .as("second leg result is annotated with the aggregate").isTrue();
+    }
+
+    @Test
+    @DisplayName("Dispatch: leg-1 matchday draws both legs + defers; leg-2 matchday aggregates + advances")
+    void simulateMatchdayDispatchesLegsSeparately() {
+        long loc = locCompetitionId();
+        String season = currentSeason();
+        long seasonLong = Long.parseLong(season);
+        int matchday = 9; // LoC matchday 9 → round 8 (QF, two-leg)
+
+        // Isolate round 8 (fixtures + details) and round 9 (winners).
+        matchRepo.deleteAll(matchRepo.findAllByCompetitionIdAndRoundAndSeasonNumber(loc, 8, season));
+        detailRepo.deleteAll(detailRepo.findAllByCompetitionIdAndRoundIdAndSeasonNumber(loc, 8, seasonLong));
+        ctiRepo.deleteAll(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(8, loc, seasonLong));
+        ctiRepo.deleteAll(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(9, loc, seasonLong));
+
+        // Seed 4 participants at round 8 (the QF feed).
+        for (long teamId : List.of(1L, 2L, 3L, 4L)) {
+            CompetitionTeamInfo cti = new CompetitionTeamInfo();
+            cti.setTeamId(teamId);
+            cti.setCompetitionId(loc);
+            cti.setSeasonNumber(seasonLong);
+            cti.setRound(8);
+            ctiRepo.save(cti);
+        }
+
+        matchRoundSimulator.setRandomForTesting(new Random(SEED));
+
+        // --- Leg-1 matchday event: draws both legs, plays leg 1 only ---
+        matchSimulationOrchestrator.simulateMatchday(loc, matchday, (int) seasonLong, 1);
+
+        List<CompetitionTeamInfoMatch> r8 = matchRepo.findAllByCompetitionIdAndRoundAndSeasonNumber(loc, 8, season);
+        assertThat(r8).as("two ties × two legs = 4 matches drawn").hasSize(4);
+        assertThat(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(9, loc, seasonLong))
+                .as("leg 1 must not advance anyone").isEmpty();
+
+        // --- Leg-2 matchday event: aggregates + advances winners ---
+        matchSimulationOrchestrator.simulateMatchday(loc, matchday, (int) seasonLong, 2);
+
+        assertThat(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(9, loc, seasonLong))
+                .as("leg 2 advances exactly one winner per tie (2 ties → 2 winners)").hasSize(2);
     }
 
     // ==================== helpers ====================

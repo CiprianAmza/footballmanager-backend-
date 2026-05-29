@@ -25,4 +25,12 @@ public class CalendarEvent {
     private String description; // nullable
     private int priority; // ordering within same day+phase
     private Long relatedEntityId; // nullable - for linking to specific matches, players, etc.
+
+    /**
+     * Leg number for a two-leg knockout matchday: 0 = single match (one event per
+     * matchday, the default), 1 = first leg, 2 = second leg. Two-leg European
+     * rounds emit two MATCH events on different days so the legs are played apart.
+     */
+    @Column(name = "leg_number")
+    private int legNumber;
 }

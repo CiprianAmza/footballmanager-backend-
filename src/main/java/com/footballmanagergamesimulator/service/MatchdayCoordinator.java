@@ -72,6 +72,17 @@ public class MatchdayCoordinator {
      */
     @Transactional
     public void simulateMatchday(long competitionId, int matchday, int season) {
+        simulateMatchday(competitionId, matchday, season, null);
+    }
+
+    /**
+     * @param legNumber when non-null, this matchday event is one leg (1 or 2) of a
+     *        two-leg round played on its own calendar day. Leg 1 simulates and
+     *        defers; leg 2 aggregates with the persisted leg 1 and draws the next
+     *        round. When null, the whole round is simulated in one pass.
+     */
+    @Transactional
+    public void simulateMatchday(long competitionId, int matchday, int season, Integer legNumber) {
         long _tMatchdayStart = System.nanoTime();
         Competition competition = competitionRepository.findById(competitionId).orElse(null);
         if (competition == null) return;
@@ -84,15 +95,18 @@ public class MatchdayCoordinator {
         String roundStr = String.valueOf(round);
 
         System.out.println("=== simulateMatchday: comp=" + competitionId + " typeId=" + typeId
-                + " matchday=" + matchday + " → round=" + round + " season=" + season + " ===");
+                + " matchday=" + matchday + " → round=" + round + " leg=" + legNumber + " season=" + season + " ===");
 
         try {
 
-        // Guard: skip if this round was already simulated.
+        // Guard: skip if this round (or this specific leg) was already simulated.
         List<CompetitionTeamInfoDetail> existing = competitionTeamInfoDetailRepository
                 .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, round, season);
-        if (!existing.isEmpty()) {
-            System.out.println("Round " + round + " already simulated, skipping");
+        boolean alreadySimulated = (legNumber == null)
+                ? !existing.isEmpty()
+                : existing.stream().anyMatch(d -> d.getLegNumber() == legNumber);
+        if (alreadySimulated) {
+            System.out.println("Round " + round + " leg " + legNumber + " already simulated, skipping");
             return;
         }
 
@@ -125,14 +139,8 @@ public class MatchdayCoordinator {
                 }
                 return;
             }
-            // Knockout rounds (QF/SF/Final)
-            fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
-            matchRoundSimulator.simulateRound(compIdStr, roundStr);
-            if (round < fmt.finalRound()) {
-                int nextRound = round + 1;
-                fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
-                fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
-            }
+            // Knockout rounds (QF/SF/Final) — two-leg-aware when per-leg events are used.
+            simulateKnockoutRound(compIdStr, competitionId, roundStr, round, matchday, season, fmt, legNumber);
             return;
         }
 
@@ -153,14 +161,8 @@ public class MatchdayCoordinator {
                 }
                 return;
             }
-            // Knockout rounds (playoff, QF, SF, Final)
-            fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
-            matchRoundSimulator.simulateRound(compIdStr, roundStr);
-            if (round < fmt.finalRound()) {
-                int nextRound = round + 1;
-                fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
-                fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
-            }
+            // Knockout rounds (playoff, QF, SF, Final) — two-leg-aware when per-leg events are used.
+            simulateKnockoutRound(compIdStr, competitionId, roundStr, round, matchday, season, fmt, legNumber);
             return;
         }
 
@@ -190,6 +192,43 @@ public class MatchdayCoordinator {
             System.out.println(String.format(
                     "<<< simulateMatchday comp=%d matchday=%d DONE in %dms",
                     competitionId, matchday, totalMs));
+        }
+    }
+
+    /**
+     * Simulate one European knockout round (LoC/SC). For a two-leg round driven by
+     * per-leg calendar events: leg 1 draws the fixtures (both legs) and plays only
+     * leg 1 (no propagation); leg 2 aggregates with the persisted leg 1, decides,
+     * and draws the next round. For single-leg rounds — or a two-leg round invoked
+     * without a leg number (single-pass / back-compat) — the whole round is played
+     * in one call and the next round is drawn.
+     */
+    private void simulateKnockoutRound(String compIdStr, long competitionId, String roundStr, int round,
+                                       int matchday, int season,
+                                       com.footballmanagergamesimulator.config.CompetitionFormat fmt, Integer legNumber) {
+        boolean twoLeg = fmt.isTwoLeg(round);
+        if (twoLeg && legNumber != null) {
+            if (legNumber == 1) {
+                fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr); // draws both legs (idempotent)
+                matchRoundSimulator.simulateRound(compIdStr, roundStr, 1);          // leg 1 only — defers
+            } else {
+                matchRoundSimulator.simulateRound(compIdStr, roundStr, 2);          // leg 2 — aggregate + propagate
+                drawNextKnockoutRound(compIdStr, competitionId, round, matchday, season, fmt);
+            }
+        } else {
+            fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
+            matchRoundSimulator.simulateRound(compIdStr, roundStr, null);
+            drawNextKnockoutRound(compIdStr, competitionId, round, matchday, season, fmt);
+        }
+    }
+
+    private void drawNextKnockoutRound(String compIdStr, long competitionId, int round,
+                                       int matchday, int season,
+                                       com.footballmanagergamesimulator.config.CompetitionFormat fmt) {
+        if (round < fmt.finalRound()) {
+            int nextRound = round + 1;
+            fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
+            fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
         }
     }
 

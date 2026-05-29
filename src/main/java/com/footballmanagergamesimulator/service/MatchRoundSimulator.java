@@ -503,6 +503,7 @@ public class MatchRoundSimulator {
                 competitionTeamInfoDetail.setTeamName2(roundTeamName(teamId2));
                 competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);
                 competitionTeamInfoDetail.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+                competitionTeamInfoDetail.setLegNumber(match.getLegNumber());
                 competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
                 tDetail += System.nanoTime() - _tsDetail;
             }

@@ -58,8 +58,9 @@ public class MatchdayBatchProcessor {
         long _tBatchStart = System.nanoTime();
         for (CalendarEvent event : matchEvents) {
             if (event.getCompetitionId() != null && event.getMatchday() > 0) {
+                Integer leg = event.getLegNumber() == 0 ? null : event.getLegNumber();
                 matchSimulationOrchestrator.simulateMatchday(
-                        event.getCompetitionId(), event.getMatchday(), event.getSeason());
+                        event.getCompetitionId(), event.getMatchday(), event.getSeason(), leg);
                 matchSummaries.add(event.getTitle());
             }
         }

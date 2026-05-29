@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
+import com.footballmanagergamesimulator.config.CompetitionFormat;
 import com.footballmanagergamesimulator.model.CalendarEvent;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
@@ -184,14 +185,10 @@ public class FixtureSchedulingService {
             for (int i = 0; i < participants.size(); i += 2) {
                 long teamHomeId = participants.get(i);
                 long teamAwayId = participants.get(i + 1);
-
-                CompetitionTeamInfoMatch competitionTeamInfoMatch = new CompetitionTeamInfoMatch();
-                competitionTeamInfoMatch.setCompetitionId(_competitionId);
-                competitionTeamInfoMatch.setRound(_roundId);
-                competitionTeamInfoMatch.setTeam1Id(teamHomeId);
-                competitionTeamInfoMatch.setTeam2Id(teamAwayId);
-                competitionTeamInfoMatch.setSeasonNumber(currentSeasonStr);
-                competitionTeamInfoMatchRepository.save(competitionTeamInfoMatch);
+                // Emit a single match or two legs depending on the format's two-leg
+                // config for this round (e.g. LoC QF/SF are home-and-away).
+                europeanCompetitionService.saveKnockoutPairing(
+                        _competitionId, _roundId, teamHomeId, teamAwayId, i / 2);
             }
         }
     }
@@ -290,34 +287,24 @@ public class FixtureSchedulingService {
                 competitionUsedDays.add(matchDays[i]);
             }
 
+            int compTypeId = (int) comp.getTypeId();
+            CompetitionFormat compFmt = competitionFormat.get(compTypeId);
             for (int i = 0; i < matchDays.length; i++) {
-                // Match event
-                CalendarEvent event = new CalendarEvent();
-                event.setSeason(season);
-                event.setDay(matchDays[i]);
-                event.setPhase("EVENING");
-                event.setEventType(eventType);
-                event.setCompetitionId(comp.getId());
-                event.setMatchday(i + 1);
-                event.setStatus("PENDING");
-                event.setTitle(comp.getName() + " - Matchday " + (i + 1));
-                event.setPriority(1);
-                allEvents.add(event);
+                int matchdayNo = i + 1;
+                int roundNo = compFmt.roundForMatchday(matchdayNo);
+                boolean twoLeg = (compTypeId == 4 || compTypeId == 5) && compFmt.isTwoLeg(roundNo);
 
-                allMatchDays.add(matchDays[i]);
+                // Leg 1 (or the single match for non-two-leg rounds).
+                addMatchAndPressConf(allEvents, allMatchDays, comp, season, eventType,
+                        matchDays[i], matchdayNo, twoLeg ? 1 : 0, twoLeg ? " (1st leg)" : "");
 
-                // Press conference the day before
-                CalendarEvent pressConf = new CalendarEvent();
-                pressConf.setSeason(season);
-                pressConf.setDay(Math.max(1, matchDays[i] - 1));
-                pressConf.setPhase("AFTERNOON");
-                pressConf.setEventType("PRESS_CONFERENCE");
-                pressConf.setCompetitionId(comp.getId());
-                pressConf.setMatchday(i + 1);
-                pressConf.setStatus("PENDING");
-                pressConf.setTitle("Pre-match Press Conference: " + comp.getName());
-                pressConf.setPriority(1);
-                allEvents.add(pressConf);
+                // Two-leg round: a second leg on a separate, later day.
+                if (twoLeg) {
+                    int leg2Day = resolveWithinCompetitionCollision(matchDays[i] + 3, competitionUsedDays);
+                    competitionUsedDays.add(leg2Day);
+                    addMatchAndPressConf(allEvents, allMatchDays, comp, season, eventType,
+                            leg2Day, matchdayNo, 2, " (2nd leg)");
+                }
             }
 
             // Update CompetitionTeamInfoMatch with day values
@@ -481,6 +468,41 @@ public class FixtureSchedulingService {
         }
 
         return days;
+    }
+
+    /**
+     * Adds one MATCH calendar event (with its pre-match press conference) for a
+     * matchday/leg. legNumber 0 = single match, 1/2 = the two legs of a two-leg tie.
+     */
+    private void addMatchAndPressConf(List<CalendarEvent> allEvents, Set<Integer> allMatchDays,
+                                      Competition comp, int season, String eventType,
+                                      int day, int matchdayNo, int legNumber, String titleSuffix) {
+        CalendarEvent event = new CalendarEvent();
+        event.setSeason(season);
+        event.setDay(day);
+        event.setPhase("EVENING");
+        event.setEventType(eventType);
+        event.setCompetitionId(comp.getId());
+        event.setMatchday(matchdayNo);
+        event.setLegNumber(legNumber);
+        event.setStatus("PENDING");
+        event.setTitle(comp.getName() + " - Matchday " + matchdayNo + titleSuffix);
+        event.setPriority(1);
+        allEvents.add(event);
+        allMatchDays.add(day);
+
+        CalendarEvent pressConf = new CalendarEvent();
+        pressConf.setSeason(season);
+        pressConf.setDay(Math.max(1, day - 1));
+        pressConf.setPhase("AFTERNOON");
+        pressConf.setEventType("PRESS_CONFERENCE");
+        pressConf.setCompetitionId(comp.getId());
+        pressConf.setMatchday(matchdayNo);
+        pressConf.setLegNumber(legNumber);
+        pressConf.setStatus("PENDING");
+        pressConf.setTitle("Pre-match Press Conference: " + comp.getName());
+        pressConf.setPriority(1);
+        allEvents.add(pressConf);
     }
 
     /**
