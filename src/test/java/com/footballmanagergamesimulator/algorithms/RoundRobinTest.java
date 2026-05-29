@@ -55,21 +55,50 @@ class RoundRobinTest {
         assertEquals(expectedSchedule, actualSchedule);
     }
 
+    /**
+     * Odd-sized leagues use the circle method padded with a bye, so for every odd N the
+     * double round-robin schedule must:
+     *   - span 2*N rounds (a single round-robin needs N rounds: one bye per round),
+     *   - have (N-1)/2 matches each round (the byed team sits out),
+     *   - never book a team twice in the same round,
+     *   - have every unordered pair meet exactly twice (one per leg) — no pair lost.
+     * Home/away balancing is applied later by FixtureSchedulingService's reverse flag,
+     * so it is intentionally not asserted here.
+     */
     @Test
-    void testGetScheduleWithOddNumberOfTeams() {
-        // Input: List of teams with an odd number
-        List<Long> teams = Arrays.asList(1L, 2L, 3L, 4L, 5L);
+    void doubleRoundRobinIsCompleteForEveryOddTeamCount() {
+        for (int n : new int[]{3, 5, 7, 9, 11}) {
+            List<Long> teams = new ArrayList<>();
+            for (long t = 1; t <= n; t++) teams.add(t);
 
-        // Call the method
-        List<List<List<Long>>> schedule = roundRobin.getSchedule(teams);
+            List<List<List<Long>>> schedule = roundRobin.getSchedule(teams);
 
-        // Verify the number of rounds
-        // For 5 teams, each team plays 4 rounds (home and away), so 4 * 2 = 8 total rounds
-        assertEquals(8, schedule.size());
+            assertEquals(2 * n, schedule.size(),
+                    "N=" + n + ": expected 2*N rounds for odd team count");
 
-        // Verify that each round contains half the number of matches
-        for (List<List<Long>> round : schedule) {
-            assertEquals(teams.size() / 2, round.size());
+            Map<String, Integer> pairCounts = new HashMap<>();
+            for (List<List<Long>> round : schedule) {
+                assertEquals((n - 1) / 2, round.size(),
+                        "N=" + n + ": expected (N-1)/2 matches per round");
+
+                Set<Long> seenThisRound = new HashSet<>();
+                for (List<Long> match : round) {
+                    long a = match.get(0), b = match.get(1);
+                    assertNotEquals(a, b, "N=" + n + ": a team cannot play itself");
+                    assertTrue(seenThisRound.add(a), "N=" + n + ": team " + a + " booked twice in one round");
+                    assertTrue(seenThisRound.add(b), "N=" + n + ": team " + b + " booked twice in one round");
+                    String key = Math.min(a, b) + "-" + Math.max(a, b);
+                    pairCounts.merge(key, 1, Integer::sum);
+                }
+            }
+
+            int expectedPairs = n * (n - 1) / 2;
+            assertEquals(expectedPairs, pairCounts.size(),
+                    "N=" + n + ": every distinct pair must appear");
+            for (Map.Entry<String, Integer> e : pairCounts.entrySet()) {
+                assertEquals(2, e.getValue(),
+                        "N=" + n + ": pair " + e.getKey() + " should meet exactly twice");
+            }
         }
     }
 

@@ -243,7 +243,7 @@ public class FixtureSchedulingService {
                         // (same encounters source as fixture generation).
                         int numTeams = getTeamCountForCompetition(comp.getId(), season);
                         int encounters = competitionFormat.get((int) comp.getTypeId()).encountersFor(numTeams);
-                        numMatchdays = Math.max(2, encounters * (numTeams - 1));
+                        numMatchdays = Math.max(2, leagueMatchdayCount(numTeams, encounters));
                     }
                     matchDays = generateLeagueMatchDays(numMatchdays);
                     eventType = "MATCH_LEAGUE";
@@ -444,6 +444,17 @@ public class FixtureSchedulingService {
         return !competitionUsedDays.contains(day)
                 && !competitionUsedDays.contains(day - 1)
                 && !competitionUsedDays.contains(day + 1);
+    }
+
+    /**
+     * Number of league matchdays (rounds) for a full season: encounters per pair times
+     * the round count of a single round-robin. A single round-robin needs N-1 rounds for
+     * an even team count and N rounds for an odd one (one bye per round). Holds for odd
+     * encounter counts too.
+     */
+    int leagueMatchdayCount(int teamCount, int encounters) {
+        int roundsPerSingleRobin = (teamCount % 2 == 0) ? teamCount - 1 : teamCount;
+        return encounters * roundsPerSingleRobin;
     }
 
     /**

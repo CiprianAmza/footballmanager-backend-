@@ -8,26 +8,42 @@ import java.util.List;
 @Component
 public class RoundRobin {
 
+  /** Sentinel padding a team paired with the "bye" for an odd team count. */
+  private static final long BYE = -1L;
+
   public List<List<List<Long>>> getSchedule(List<Long> teams) {
 
-    List<List<List<Long>>> scheduleFirstLeg = new ArrayList<>();
-    List<List<List<Long>>> scheduleSecondLeg = new ArrayList<>();
+    // Circle method needs an even count: pad an odd list with a bye so each round
+    // the real team paired with it simply sits out. Work on a copy so the caller's
+    // list is not rotated as a side effect.
+    List<Long> working = new ArrayList<>(teams);
+    if (working.size() % 2 != 0)
+      working.add(BYE);
 
-    for (int round = 1; round < teams.size(); round++) {
+    int n = working.size();
+    int halfSize = n / 2;
+
+    List<List<List<Long>>> firstLeg = new ArrayList<>();
+
+    for (int round = 1; round < n; round++) {
       List<List<Long>> curRound = new ArrayList<>();
-      int halfSize = teams.size() / 2;
-      for (int i = 0; i < halfSize; i++)
-        curRound.add(List.of(teams.get(i), teams.get(teams.size()-i-1)));
+      for (int i = 0; i < halfSize; i++) {
+        long home = working.get(i);
+        long away = working.get(n - i - 1);
+        if (home == BYE || away == BYE)
+          continue;
+        curRound.add(List.of(home, away));
+      }
 
-      scheduleFirstLeg.add(curRound);
-      scheduleSecondLeg.add(curRound);
+      firstLeg.add(curRound);
 
-      swapList(teams);
+      swapList(working);
     }
 
-    scheduleFirstLeg.addAll(scheduleSecondLeg);
+    List<List<List<Long>>> schedule = new ArrayList<>(firstLeg);
+    schedule.addAll(firstLeg);
 
-    return scheduleFirstLeg;
+    return schedule;
   }
 
   public void swapList(List<Long> teams) {
