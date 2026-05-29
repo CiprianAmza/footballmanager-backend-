@@ -6,7 +6,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 class RoundRobinTest {
 
@@ -66,6 +70,51 @@ class RoundRobinTest {
         // Verify that each round contains half the number of matches
         for (List<List<Long>> round : schedule) {
             assertEquals(teams.size() / 2, round.size());
+        }
+    }
+
+    /**
+     * The league fixture engine must adapt to whatever (even) number of teams a
+     * competition has. For every even N the double round-robin schedule must:
+     *   - span 2*(N-1) rounds, N/2 matches each,
+     *   - never book a team twice in the same round,
+     *   - have every unordered pair meet exactly twice (one per leg).
+     * Home/away balancing is applied later by FixtureSchedulingService's reverse
+     * flag, so it is intentionally not asserted here.
+     */
+    @Test
+    void doubleRoundRobinIsCompleteForEveryEvenTeamCount() {
+        for (int n : new int[]{4, 6, 8, 10, 12, 16, 20}) {
+            List<Long> teams = new ArrayList<>();
+            for (long t = 1; t <= n; t++) teams.add(t);
+
+            List<List<List<Long>>> schedule = roundRobin.getSchedule(teams);
+
+            assertEquals(2 * (n - 1), schedule.size(),
+                    "N=" + n + ": expected 2*(N-1) rounds");
+
+            Map<String, Integer> pairCounts = new HashMap<>();
+            for (List<List<Long>> round : schedule) {
+                assertEquals(n / 2, round.size(), "N=" + n + ": expected N/2 matches per round");
+
+                Set<Long> seenThisRound = new HashSet<>();
+                for (List<Long> match : round) {
+                    long a = match.get(0), b = match.get(1);
+                    assertNotEquals(a, b, "N=" + n + ": a team cannot play itself");
+                    assertTrue(seenThisRound.add(a), "N=" + n + ": team " + a + " booked twice in one round");
+                    assertTrue(seenThisRound.add(b), "N=" + n + ": team " + b + " booked twice in one round");
+                    String key = Math.min(a, b) + "-" + Math.max(a, b);
+                    pairCounts.merge(key, 1, Integer::sum);
+                }
+            }
+
+            int expectedPairs = n * (n - 1) / 2;
+            assertEquals(expectedPairs, pairCounts.size(),
+                    "N=" + n + ": every distinct pair must appear");
+            for (Map.Entry<String, Integer> e : pairCounts.entrySet()) {
+                assertEquals(2, e.getValue(),
+                        "N=" + n + ": pair " + e.getKey() + " should meet exactly twice");
+            }
         }
     }
 

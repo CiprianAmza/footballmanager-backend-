@@ -150,7 +150,11 @@ public class EuropeanCompetitionService {
             return Integer.compare(teamB.getReputation(), teamA.getReputation());
         });
 
-        int numGroups = Math.min(maxGroups, Math.max(1, entries.size() / groupSize));
+        // Preserve the CONFIGURED group count (the format's shape). If there are more
+        // entrants than slots, trim the lowest-seeded; if fewer, the surplus slots stay
+        // empty — real teams are still spread one-per-pot across all groups, so short
+        // groups simply have fewer members (no placeholder rows are persisted).
+        int numGroups = maxGroups;
         int totalSlots = numGroups * groupSize;
         if (entries.size() > totalSlots) {
             System.out.println("=== drawEuropeanGroups: trimming " + (entries.size() - totalSlots)
@@ -159,18 +163,21 @@ public class EuropeanCompetitionService {
         }
         // Pot-seed via the shared TournamentEngine. The field is already ranked by
         // club coefficient; the engine splits into pots, shuffles, places one team
-        // per pot per group, and avoids same-nation clashes (best effort). The draw
-        // is unseeded in production (matches prior behaviour); we persist the result.
+        // per pot per group, and avoids same-nation clashes (best effort). Indices at
+        // or beyond the real entrant count are "empty slots" — they get a group
+        // position from the engine but are not persisted.
         final List<CompetitionTeamInfo> seededEntries = entries;
+        final int realCount = seededEntries.size();
         List<Integer> seededIdx = new ArrayList<>(totalSlots);
         for (int i = 0; i < totalSlots; i++) seededIdx.add(i);
 
         List<List<Integer>> groups = tournamentEngine.potSeededGroups(
                 seededIdx, numGroups, groupSize, new java.util.Random(),
-                i -> getTeamNationId(seededEntries.get(i).getTeamId()));
+                i -> i < realCount ? getTeamNationId(seededEntries.get(i).getTeamId()) : 0L);
 
         for (int g = 0; g < groups.size(); g++) {
             for (int idx : groups.get(g)) {
+                if (idx >= realCount) continue; // empty slot — nothing to persist
                 CompetitionTeamInfo candidate = seededEntries.get(idx);
                 candidate.setGroupNumber(g + 1);
                 candidate.setPotNumber(idx / numGroups + 1); // pot = seed-rank band
@@ -181,6 +188,7 @@ public class EuropeanCompetitionService {
         for (int g = 0; g < groups.size(); g++) {
             System.out.println("  Group " + (g + 1) + ": " + groups.get(g).stream()
                     .map(idx -> {
+                        if (idx >= realCount) return "(empty)";
                         CompetitionTeamInfo cti = seededEntries.get(idx);
                         return teamRepository.findById(cti.getTeamId()).map(Team::getName).orElse("?")
                                 + "(P" + cti.getPotNumber() + ")";
@@ -222,6 +230,65 @@ public class EuropeanCompetitionService {
             String awayName = teamRepository.findById(awayId).map(Team::getName).orElse("?");
             System.out.println("  " + homeName + " (seeded) vs " + awayName);
         }
+    }
+
+    /**
+     * Draw one preliminary round that trims the field toward the group stage,
+     * mirroring {@code TournamentEngine.trimToSize}: the strongest seeds (by club
+     * coefficient) get byes and advance untouched to the next round; the weakest
+     * {@code 2*eliminate} are paired seeded-vs-unseeded and play. Winners propagate
+     * to the next round via the normal knockout progression in simulateRound.
+     *
+     * @param slots the group-stage size this competition trims down to
+     */
+    public void drawEuropeanPreliminarySeeded(long competitionId, long roundId, int slots) {
+        long season = Long.parseLong(currentSeason());
+        List<Long> participants = competitionTeamInfoRepository.findAllBySeasonNumber(season).stream()
+                .filter(cti -> cti.getCompetitionId() == competitionId && cti.getRound() == roundId)
+                .map(CompetitionTeamInfo::getTeamId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        int f = participants.size();
+        if (f <= slots || f < 2) return; // nothing to trim
+
+        int eliminate = Math.min(f - slots, f / 2);
+        int coeffSeason = Integer.parseInt(currentSeason()) - 1;
+        participants.sort((a, b) -> {
+            double coeffA = coefficientService.getClubCoefficientRolling(a, coeffSeason);
+            double coeffB = coefficientService.getClubCoefficientRolling(b, coeffSeason);
+            if (coeffA != coeffB) return Double.compare(coeffB, coeffA);
+            Team teamA = teamRepository.findById(a).orElse(new Team());
+            Team teamB = teamRepository.findById(b).orElse(new Team());
+            return Integer.compare(teamB.getReputation(), teamA.getReputation());
+        });
+
+        int byeCount = f - 2 * eliminate;
+        List<Long> byes = new ArrayList<>(participants.subList(0, byeCount));
+        List<Long> playing = new ArrayList<>(participants.subList(byeCount, f));
+
+        // Byes auto-advance to the next round.
+        long nextRound = roundId + 1;
+        for (long teamId : byes) {
+            CompetitionTeamInfo cti = new CompetitionTeamInfo();
+            cti.setTeamId(teamId);
+            cti.setCompetitionId(competitionId);
+            cti.setSeasonNumber(season);
+            cti.setRound(nextRound);
+            competitionTeamInfoRepository.save(cti);
+        }
+
+        // The weakest 2*eliminate teams play, seeded vs unseeded.
+        int half = playing.size() / 2;
+        List<Long> seeded = new ArrayList<>(playing.subList(0, half));
+        List<Long> unseeded = new ArrayList<>(playing.subList(half, playing.size()));
+        List<long[]> pairings = tournamentEngine.pairSeededVsUnseeded(
+                seeded, unseeded, new java.util.Random(), this::getTeamNationId);
+        for (int i = 0; i < pairings.size(); i++) {
+            saveKnockoutPairing(competitionId, roundId, pairings.get(i)[0], pairings.get(i)[1], i);
+        }
+        System.out.println("=== drawEuropeanPreliminarySeeded: comp=" + competitionId + " round=" + roundId
+                + " field=" + f + " byes=" + byeCount + " ties=" + eliminate);
     }
 
     /**
@@ -390,6 +457,43 @@ public class EuropeanCompetitionService {
         }
     }
 
+    /**
+     * Assign each entrant the preliminary round at which it FIRST plays, mirroring
+     * {@code TournamentEngine.trimToSize}'s byes: the weakest teams play round 0,
+     * stronger ones enter later, and the strongest {@code slots} skip the prelims
+     * entirely and enter at the group-draw round ({@code P}, where {@code P} is the
+     * number of trim rounds). Deterministic under the "stronger seed advances"
+     * assumption used for the draw (actual winners come from the match engine).
+     *
+     * @param seededBestFirst entrants ordered strongest → weakest (by coefficient)
+     * @param slots           group-stage size (groupCount * groupSize)
+     * @return team id → 0-based starting round (P = group-draw round)
+     */
+    static Map<Long, Integer> assignEntrantsToPrelimRounds(List<Long> seededBestFirst, int slots) {
+        Map<Long, Integer> startRound = new LinkedHashMap<>();
+        // Work weakest-first so the bottom of the field plays the earliest rounds.
+        List<Long> current = new ArrayList<>(seededBestFirst);
+        java.util.Collections.reverse(current);
+
+        int round = 0;
+        while (current.size() > slots) {
+            int f = current.size();
+            int eliminate = Math.min(f - slots, f / 2);
+            int playing = 2 * eliminate;
+            for (int i = 0; i < playing; i++) {
+                startRound.putIfAbsent(current.get(i), round);
+            }
+            // Under seed-advance the weakest `eliminate` lose and drop out.
+            current = new ArrayList<>(current.subList(eliminate, f));
+            round++;
+        }
+        // Whatever remains never had to play a prelim — it enters at the group draw.
+        for (Long teamId : current) {
+            startRound.putIfAbsent(teamId, round);
+        }
+        return startRound;
+    }
+
     // ============================================================
     //  Post-group qualification
     // ============================================================
@@ -490,7 +594,18 @@ public class EuropeanCompetitionService {
                 .map(CompetitionTeamInfo::getTeamId)
                 .collect(Collectors.toSet());
 
+        // Cap the drop at the Stars Cup group capacity so a larger LoC field can't
+        // overflow it. (Until the Stars Cup is itself configurable, extra losers are
+        // simply eliminated rather than padding SC past its slots.)
+        com.footballmanagergamesimulator.config.CompetitionFormat scFmt = formatOf(starsCupCompetitionId);
+        int scSlots = scFmt.groupCount() * scFmt.groupSize();
+        long scDropRound = fmt.losersDropRound();
+        long alreadyDropped = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
+                .filter(cti -> cti.getCompetitionId() == starsCupCompetitionId && cti.getRound() == scDropRound)
+                .map(CompetitionTeamInfo::getTeamId).distinct().count();
+
         for (long teamId : participants) {
+            if (scSlots > 0 && alreadyDropped >= scSlots) break; // SC group stage is full
             if (!winners.contains(teamId)) {
                 boolean alreadyInStarsCup = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
                         .anyMatch(cti -> cti.getTeamId() == teamId && cti.getCompetitionId() == starsCupCompetitionId);
@@ -501,6 +616,7 @@ public class EuropeanCompetitionService {
                     cti.setSeasonNumber(currentSeason);
                     cti.setRound(fmt.losersDropRound());
                     competitionTeamInfoRepository.save(cti);
+                    alreadyDropped++;
                     String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
                     System.out.println("=== LoC round " + locRound + " loser to Stars Cup: " + teamName + " ===");
                 }
@@ -609,45 +725,27 @@ public class EuropeanCompetitionService {
             standingsByLeague.put(leagueId, standings);
         }
 
-        // LoC allocation — spots decrease with rank (non-increasing):
-        // Rank 1: 4 (3 direct + 1 qualifying)
-        // Rank 2: 4 (3 direct + 1 qualifying)
-        // Rank 3: 3 (2 direct + 1 qualifying)
-        // Rank 4: 3 (2 direct + 1 qualifying)
-        // Rank 5: 3 (1 direct + 2 qualifying)
-        // Rank 6: 2 (1 direct + 1 qualifying)
-        // Rank 7: 2 (2 preliminary)
-        // Flow: 2 preliminary → 1 winner joins qualifying (7+1=8) → 4 winners → groups (12+4=16)
-        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
-        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
-        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
-
-        for (int rank = 1; rank <= Math.min(numLeagues, 7); rank++) {
-            List<TeamCompetitionDetail> standings = standingsByLeague.get(sortedLeagueIds.get(rank - 1));
-            if (standings == null || standings.isEmpty()) continue;
-            int idx = rank - 1;
-
-            // Direct to group stage (round 2)
-            for (int i = 0; i < directSpots[idx]; i++) {
-                if (standings.size() > i) {
-                    saveLocQualifier(standings.get(i).getTeamId(), locCompetitionId, nextSeason, 2);
+        // LoC entry (configurable): the competition is sized for a fixed number of
+        // entrants (CompetitionFormat.totalTeams). Slots are allocated to leagues by
+        // coefficient rank (layered halving), each league sends its top-K teams, and
+        // the seeded field is assigned to preliminary rounds — the strongest enter at
+        // the group draw, the weakest play the earliest prelim (see EuropeanFormatPlan).
+        com.footballmanagergamesimulator.config.CompetitionFormat locFmt = competitionFormat.get(4);
+        com.footballmanagergamesimulator.config.EuropeanFormatPlan locPlan = locFmt.europeanPlan();
+        if (locPlan != null) {
+            Map<Long, Integer> allocation =
+                    coefficientService.allocateTeamsPerLeague(locPlan.totalTeams(), java.util.Map.of());
+            List<Long> seededEntrants = new ArrayList<>();
+            for (Map.Entry<Long, Integer> alloc : allocation.entrySet()) {
+                List<TeamCompetitionDetail> standings = standingsByLeague.get(alloc.getKey());
+                if (standings == null) continue;
+                for (int i = 0; i < alloc.getValue() && i < standings.size(); i++) {
+                    seededEntrants.add(standings.get(i).getTeamId());
                 }
             }
-
-            // Qualifying round (round 1)
-            int qStart = directSpots[idx];
-            for (int i = 0; i < qualifyingSpots[idx]; i++) {
-                int pos = qStart + i;
-                if (standings.size() > pos) {
-                    saveLocQualifier(standings.get(pos).getTeamId(), locCompetitionId, nextSeason, 1);
-                }
-            }
-
-            // Preliminary qualifying (round 0)
-            for (int i = 0; i < preliminarySpots[idx]; i++) {
-                if (standings.size() > i) {
-                    saveLocQualifier(standings.get(i).getTeamId(), locCompetitionId, nextSeason, 0);
-                }
+            Map<Long, Integer> startRounds = assignEntrantsToPrelimRounds(seededEntrants, locPlan.slots());
+            for (Map.Entry<Long, Integer> entry : startRounds.entrySet()) {
+                saveLocQualifier(entry.getKey(), locCompetitionId, nextSeason, entry.getValue());
             }
         }
 
@@ -660,34 +758,24 @@ public class EuropeanCompetitionService {
             }
         }
 
-        // Stars Cup allocation — spots decrease with rank (non-increasing):
-        // 1 spot per nation is ALWAYS reserved for cup winner.
-        // League-based spots:
-        // Rank 1: 5th (1 spot) + 1 cup = 2
-        // Rank 2: 5th (1 spot) + 1 cup = 2
-        // Rank 3: 4th (1 spot) + 1 cup = 2
-        // Rank 4: 4th (1 spot) + 1 cup = 2
-        // Rank 5: (0 spots) + 1 cup = 1
-        // Rank 6: (0 spots) + 1 cup = 1
-        // Rank 7: (0 spots) + 1 cup = 1 (LoC losers add extra spots)
-        int[][] starsCupPositions = {
-            {4},        // Rank 1: 5th (0-based: 4)
-            {4},        // Rank 2: 5th
-            {3},        // Rank 3: 4th
-            {3},        // Rank 4: 4th
-            {},         // Rank 5: none (cup spot only)
-            {},         // Rank 6: none (cup spot only)
-            {}          // Rank 7: none (cup + LoC losers cover spots)
-        };
-
+        // Stars Cup league spots — ranks 1-4 each contribute one team, ranks 5-7 none
+        // (they get the reserved cup spot only). Because LoC now takes a variable,
+        // coefficient-based number of top teams per league, a fixed league position
+        // (old "5th/4th place") would collide with LoC; instead we take the BEST-placed
+        // league team that LoC hasn't already qualified.
+        int[] starsCupLeagueSpots = {1, 1, 1, 1, 0, 0, 0};
         for (int rank = 1; rank <= Math.min(numLeagues, 7); rank++) {
             List<TeamCompetitionDetail> standings = standingsByLeague.get(sortedLeagueIds.get(rank - 1));
-            int[] positions = starsCupPositions[rank - 1];
-            for (int pos : positions) {
-                if (standings.size() > pos) {
-                    saveStarsCupQualifier(standings.get(pos).getTeamId(), starsCupCompetitionId, nextSeason);
-                    alreadyQualified.add(standings.get(pos).getTeamId());
-                }
+            if (standings == null) continue;
+            int spots = starsCupLeagueSpots[rank - 1];
+            int given = 0;
+            for (TeamCompetitionDetail d : standings) {
+                if (given >= spots) break;
+                long teamId = d.getTeamId();
+                if (alreadyQualified.contains(teamId)) continue;
+                saveStarsCupQualifier(teamId, starsCupCompetitionId, nextSeason);
+                alreadyQualified.add(teamId);
+                given++;
             }
         }
 

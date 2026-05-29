@@ -49,6 +49,7 @@ public class MatchdayCoordinator {
     @Autowired private UserContext userContext;
     @Autowired private MatchRoundSimulator matchRoundSimulator;
     @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
+    @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
 
     // ============================================================
     //  Matchday dispatch (calendar-driven). Mirrors {@code simulateRound}
@@ -98,7 +99,13 @@ public class MatchdayCoordinator {
         // === LoC (typeId 4) ===
         if (typeId == 4) {
             if (fmt.isPreliminaryRound(round)) {
-                fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
+                var plan = fmt.europeanPlan();
+                if (plan != null) {
+                    // Configurable format: trim with byes (strongest seeds skip the round).
+                    europeanCompetitionService.drawEuropeanPreliminarySeeded(competitionId, round, plan.slots());
+                } else {
+                    fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
+                }
                 matchRoundSimulator.simulateRound(compIdStr, roundStr);
                 europeanCompetitionService.assignLocLosersToStarsCup(competitionId, round);
                 return;
@@ -364,14 +371,15 @@ public class MatchdayCoordinator {
         String tactic2 = session.getDeferredTactic2();
         boolean knockout = session.isDeferredKnockout();
 
-        // Knockout extra-time decider (mirrors the live path in simulateMatchday)
+        // Knockout extra-time decider — routes through KnockoutTieResolver so the
+        // live-commit path uses the same config-driven rules as the rest of the
+        // engine (single-leg, like MatchRoundSimulator's decide). We use only the
+        // winner decision and keep the UI's "+1 extra-time winner goal" behaviour.
         if (knockout && teamScore1 == teamScore2) {
-            double total = teamPower1 + teamPower2;
-            double winChance = total > 0 ? (teamPower1 / total) * 0.3 + 0.35 : 0.5;
-            boolean homeWins = new Random().nextDouble() < winChance;
+            var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, new Random());
             long winnerTeamId, loserTeamId;
-            if (homeWins) { session.bumpHomeScore(); teamScore1++; winnerTeamId = teamId1; loserTeamId = teamId2; }
-            else          { session.bumpAwayScore(); teamScore2++; winnerTeamId = teamId2; loserTeamId = teamId1; }
+            if (d.teamAWon()) { session.bumpHomeScore(); teamScore1++; winnerTeamId = teamId1; loserTeamId = teamId2; }
+            else              { session.bumpAwayScore(); teamScore2++; winnerTeamId = teamId2; loserTeamId = teamId1; }
             appendKnockoutWinnerGoal(_competitionId, season, (int) _roundId, teamId1, teamId2, winnerTeamId, loserTeamId);
         }
 

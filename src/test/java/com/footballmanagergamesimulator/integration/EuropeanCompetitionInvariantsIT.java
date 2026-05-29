@@ -17,6 +17,7 @@ import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.EuropeanCoefficientService;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
 import com.footballmanagergamesimulator.service.EuropeanDisplayService;
+import com.footballmanagergamesimulator.testutil.BracketUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -305,6 +306,31 @@ class EuropeanCompetitionInvariantsIT {
     }
 
     @Test
+    @DisplayName("drawEuropeanGroups: under-filled field keeps the configured group count (empty slots)")
+    void drawEuropeanGroups_underfilled_keepsConfiguredGroupCount() {
+        // 10 teams into a 4×4 format → still 4 groups (the configured shape), with the
+        // 6 surplus slots left empty rather than collapsing to fewer groups.
+        List<Long> ten = pickTeams(10);
+        for (long teamId : ten) saveCti(teamId, locId, 2, 1, 0, 0);
+
+        europeanCompetitionService.drawEuropeanGroups(locId, 2);
+
+        List<CompetitionTeamInfo> grouped = ctiRepository.findAllBySeasonNumber(1).stream()
+                .filter(cti -> cti.getCompetitionId() == locId && cti.getRound() == 2 && cti.getGroupNumber() > 0)
+                .toList();
+        assertEquals(10, grouped.stream().map(CompetitionTeamInfo::getTeamId).distinct().count(),
+                "all 10 real teams must be placed (no placeholder rows persisted)");
+        Set<Integer> groupNumbers = grouped.stream().map(CompetitionTeamInfo::getGroupNumber)
+                .collect(Collectors.toSet());
+        assertEquals(4, groupNumbers.size(), "configured group count (4) is preserved");
+        for (int g : groupNumbers) {
+            long inGroup = grouped.stream().filter(c -> c.getGroupNumber() == g)
+                    .map(CompetitionTeamInfo::getTeamId).distinct().count();
+            assertTrue(inGroup <= 4, "group " + g + " must not exceed the group size");
+        }
+    }
+
+    @Test
     @DisplayName("generateGroupStageFixtures: LoC groups produce rounds 2-7, 8 matches each (double round-robin)")
     void generateGroupStageFixtures_locProducesRounds2to7() {
         seedGroupAssignment(pickTeams(16), locId);
@@ -341,6 +367,55 @@ class EuropeanCompetitionInvariantsIT {
         assertTrue(
                 ctimRepository.findAllByCompetitionIdAndRoundAndSeasonNumber(scId, 7L, "1").isEmpty(),
                 "Stars Cup round 7 (playoff) must NOT be populated as part of the group stage");
+    }
+
+    @Test
+    @DisplayName("generateGroupStageFixtures: group of 4 == BracketUtil.GROUP_SCHEDULE (same complete double round-robin)")
+    void generateGroupStageFixtures_matchesTestSchedule_forGroupOfFour() {
+        // Parity guard: production builds group fixtures from RoundRobin + a leg
+        // flip (EuropeanCompetitionService.generateGroupStageFixtures), while the
+        // outcome-simulation tests use the hardcoded BracketUtil.GROUP_SCHEDULE.
+        // The two MAY order the matchdays differently, but for a group of 4 they
+        // must yield the identical set of home/away fixtures (a complete double
+        // round-robin). This test pins that equivalence so the two engines can't
+        // silently drift apart.
+        List<Long> four = pickTeams(4);
+        for (int i = 0; i < 4; i++) {
+            saveCti(four.get(i), locId, 2, 1, 1, i + 1); // single group (1), pots 1..4
+        }
+
+        europeanCompetitionService.generateGroupStageFixtures(locId);
+
+        // Production fixtures across LoC group rounds (offset 1 → rounds 2..7).
+        Set<String> productionPairs = new HashSet<>();
+        int productionCount = 0;
+        for (long round = 2; round <= 7; round++) {
+            for (CompetitionTeamInfoMatch m : ctimRepository
+                    .findAllByCompetitionIdAndRoundAndSeasonNumber(locId, round, "1")) {
+                productionPairs.add(m.getTeam1Id() + ">" + m.getTeam2Id());
+                productionCount++;
+            }
+        }
+
+        // Canonical complete double round-robin: every ordered (home, away) pair
+        // of the 4 teams exactly once = 4 * 3 = 12 fixtures.
+        Set<String> expected = new HashSet<>();
+        for (long h : four) for (long a : four) if (h != a) expected.add(h + ">" + a);
+
+        assertEquals(12, productionCount, "group of 4 must yield 12 fixtures (double round-robin)");
+        assertEquals(expected, productionPairs,
+                "production group fixtures must be the complete set of ordered home/away pairs");
+
+        // The test engine's hardcoded schedule, mapped onto the same 4 teams,
+        // must produce the identical fixture set — proving parity.
+        Set<String> testSchedulePairs = new HashSet<>();
+        for (int[][] matchday : BracketUtil.GROUP_SCHEDULE) {
+            for (int[] match : matchday) {
+                testSchedulePairs.add(four.get(match[0]) + ">" + four.get(match[1]));
+            }
+        }
+        assertEquals(productionPairs, testSchedulePairs,
+                "BracketUtil.GROUP_SCHEDULE must produce the same fixture set as production");
     }
 
     // ============================================================

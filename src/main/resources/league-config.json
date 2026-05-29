@@ -1,7 +1,0 @@
-{
-  "description": "Number of times each team plays against every other team. Must be even (2, 4, 6...) and at least 2. Default: 2 for 18+ teams, 4 for smaller leagues.",
-  "defaultEncounters18Plus": 2,
-  "defaultEncountersUnder18": 4,
-  "leagueOverrides": {
-  }
-}

@@ -41,6 +41,8 @@ public final class CompetitionFormat {
     private final int defaultEncounters;
 
     // ---- group stage (GROUPS_THEN_KNOCKOUT only) ----
+    /** Total entrants the competition is sized for (drives the preliminary-round count). */
+    private final int totalTeams;
     private final int groupCount;
     private final int groupSize;
     private final int qualifyPerGroupToKnockout; // LoC: 2, SC: 1
@@ -65,12 +67,16 @@ public final class CompetitionFormat {
     private final Set<Integer> seededKnockoutDrawRounds; // LoC: {0, 1}; SC: {7}
     private final Set<Integer> twoLegRounds;             // LoC: {8, 9}
 
+    /** Derived round plan (preliminary/group/knockout structure); null unless a sized group stage. */
+    private final EuropeanFormatPlan europeanPlan;
+
     private CompetitionFormat(Builder b) {
         this.typeId = b.typeId;
         this.kind = b.kind;
         this.matchdayToRoundDelta = b.matchdayToRoundDelta;
         this.encountersByTeamCount = Map.copyOf(b.encountersByTeamCount);
         this.defaultEncounters = b.defaultEncounters;
+        this.totalTeams = b.totalTeams;
         this.groupCount = b.groupCount;
         this.groupSize = b.groupSize;
         this.qualifyPerGroupToKnockout = b.qualifyPerGroupToKnockout;
@@ -88,7 +94,15 @@ public final class CompetitionFormat {
         this.preliminaryRounds = Set.copyOf(b.preliminaryRounds);
         this.seededKnockoutDrawRounds = Set.copyOf(b.seededKnockoutDrawRounds);
         this.twoLegRounds = Set.copyOf(b.twoLegRounds);
+        this.europeanPlan = (kind == Kind.GROUPS_THEN_KNOCKOUT && totalTeams > 0)
+                ? EuropeanFormatPlan.derive(totalTeams, groupCount, groupSize, qualifyPerGroupToKnockout)
+                : null;
     }
+
+    public int totalTeams() { return totalTeams; }
+
+    /** Derived round plan, or null for formats that aren't a sized group stage. */
+    public EuropeanFormatPlan europeanPlan() { return europeanPlan; }
 
     public int typeId() { return typeId; }
     public Kind kind() { return kind; }
@@ -140,6 +154,7 @@ public final class CompetitionFormat {
         private int matchdayToRoundDelta = 0;
         private Map<Integer, Integer> encountersByTeamCount = Map.of();
         private int defaultEncounters = 2;
+        private int totalTeams = 0;
         private int groupCount = 0;
         private int groupSize = 0;
         private int qualifyPerGroupToKnockout = 0;
@@ -164,6 +179,7 @@ public final class CompetitionFormat {
         public Builder encounters(Map<Integer, Integer> byTeamCount, int defaultEncounters) {
             this.encountersByTeamCount = byTeamCount; this.defaultEncounters = defaultEncounters; return this;
         }
+        public Builder totalTeams(int v) { this.totalTeams = v; return this; }
         public Builder groups(int count, int size) { this.groupCount = count; this.groupSize = size; return this; }
         public Builder qualifyPerGroupToKnockout(int v) { this.qualifyPerGroupToKnockout = v; return this; }
         public Builder qualifyTargetRound(int v) { this.qualifyTargetRound = v; return this; }

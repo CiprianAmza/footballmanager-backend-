@@ -1,5 +1,7 @@
 package com.footballmanagergamesimulator.integration.europe;
 
+import com.footballmanagergamesimulator.config.CompetitionFormat;
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
@@ -73,10 +75,14 @@ class StarsCupOutcomeIT {
     private static final int TOURNAMENTS = 1000;
     private static final long BASE_SEED = 20260528L;
 
-    private static final int GROUP_TEAMS = 16;
-    private static final int GROUP_COUNT = 4;
-    private static final int GROUP_SIZE = 4;
-    private static final int KO_BRACKET = 8; // 4 group winners + 4 playoff winners → QF/SF/Final
+    // Format shape — read from the PRODUCTION CompetitionFormat (typeId 5) so the
+    // outcome simulation and the live game share one source of truth. Set in the
+    // test method; the knockout bracket = group winners + playoff winners (the
+    // Stars-Cup-specific playoff injects the group runners-up).
+    private int groupSlots;   // group-stage size (groupCount * groupSize)
+    private int groupCount;
+    private int groupSize;
+    private int koBracket;    // 2 * groupCount (group winners + playoff winners)
 
     private static final String TEAM_IDS_PROPERTY = "team.ids";
     private static final String LEG_FORMAT_PROPERTY = "leg.format";
@@ -86,6 +92,7 @@ class StarsCupOutcomeIT {
     @Autowired private MatchEngineConfig engineConfig;
     @Autowired private TournamentEngine engine;
     @Autowired private OutcomeTestSupport support;
+    @Autowired private CompetitionFormatConfig competitionFormat;
 
     private LegFormat legFormat = LegFormat.SINGLE_LEG;
 
@@ -98,11 +105,18 @@ class StarsCupOutcomeIT {
 
         legFormat = BracketUtil.parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
 
+        // Single source of truth: take the Stars Cup group shape from the production format.
+        CompetitionFormat fmt = competitionFormat.get(5);
+        groupCount = fmt.groupCount();
+        groupSize = fmt.groupSize();
+        groupSlots = groupCount * groupSize;
+        koBracket = 2 * groupCount; // group winners + playoff winners
+
         List<Long> teamIds = OutcomeTestSupport.parseTeamIds(idsProperty);
-        if (teamIds.size() < GROUP_TEAMS) {
+        if (teamIds.size() < groupSlots) {
             throw new IllegalArgumentException(
-                    "Need at least " + GROUP_TEAMS + " teams (the group stage always has "
-                            + GROUP_TEAMS + "). Got " + teamIds.size() + " (input: " + idsProperty + ")");
+                    "Need at least " + groupSlots + " teams (the group stage has "
+                            + groupSlots + "). Got " + teamIds.size() + " (input: " + idsProperty + ")");
         }
 
         List<TeamSetup> teams = support.loadTeamsByIds(teamIds);
@@ -123,7 +137,7 @@ class StarsCupOutcomeIT {
 
     private Aggregated runAggregate(List<TeamSetup> teams, StringBuilder firstEditionLog) {
         int n = teams.size();
-        int[] koStageSizes = BracketUtil.stageSizes(KO_BRACKET); // [8, 4, 2]
+        int[] koStageSizes = BracketUtil.stageSizes(koBracket); // [8, 4, 2]
         double[] powers = new double[n];
         for (int i = 0; i < n; i++) powers[i] = teams.get(i).power();
 
@@ -191,7 +205,7 @@ class StarsCupOutcomeIT {
         // ---- 1. Preliminaries: trim to exactly 16 ----
         List<Integer> allTeams = new ArrayList<>(n);
         for (int i = 0; i < n; i++) allTeams.add(i);
-        TournamentEngine.PrelimResult prelim = engine.trimToSize(allTeams, powers, GROUP_TEAMS, legFormat, drawRng);
+        TournamentEngine.PrelimResult prelim = engine.trimToSize(allTeams, powers, groupSlots, legFormat, drawRng);
         if (log != null) {
             int prelimRound = 1;
             for (TournamentEngine.PrelimRound round : prelim.rounds()) {
@@ -207,7 +221,7 @@ class StarsCupOutcomeIT {
         for (int t : groupTeams) reachedGroup[t] = true;
 
         // ---- 2. Group draw ----
-        List<List<Integer>> groups = engine.potSeededGroups(groupTeams, powers, GROUP_COUNT, GROUP_SIZE, drawRng);
+        List<List<Integer>> groups = engine.potSeededGroups(groupTeams, powers, groupCount, groupSize, drawRng);
         if (log != null) {
             log.append("## Group Stage Draw\n\n");
             for (int g = 0; g < groups.size(); g++) {
@@ -232,8 +246,8 @@ class StarsCupOutcomeIT {
                 log.append('\n');
             }
         }
-        List<Integer> directQf = new ArrayList<>(GROUP_COUNT);
-        List<Integer> playoffTeams = new ArrayList<>(GROUP_COUNT * 2);
+        List<Integer> directQf = new ArrayList<>(groupCount);
+        List<Integer> playoffTeams = new ArrayList<>(groupCount * 2);
         for (TournamentEngine.GroupResult gr : groupResults) {
             if (log != null) log.append("**Group ").append((char) ('A' + gr.groupIndex())).append(" final standings:**\n\n");
             for (int pos = 0; pos < gr.teams().size(); pos++) {
@@ -258,7 +272,7 @@ class StarsCupOutcomeIT {
         // ---- 4. Playoff (round 7): 8 teams → 4 QF slots ----
         if (log != null) log.append("## Playoff (for the last 4 quarterfinal places)\n\n");
         TournamentEngine.KnockoutRound playoff = engine.drawAndPlayRound(playoffTeams, powers, legFormat, drawRng);
-        List<Integer> playoffWinners = new ArrayList<>(GROUP_COUNT);
+        List<Integer> playoffWinners = new ArrayList<>(groupCount);
         for (TournamentEngine.TieOutcome t : playoff.ties()) {
             playoffWinners.add(t.winnerIdx());
             if (log != null) log.append(formatKoMatch(teams, t)).append('\n');
@@ -307,7 +321,7 @@ class StarsCupOutcomeIT {
 
     // ==================== REPORT ====================
 
-    private static String buildReport(List<TeamSetup> teams, Aggregated agg, String firstEditionLog, LegFormat legFormat) {
+    private String buildReport(List<TeamSetup> teams, Aggregated agg, String firstEditionLog, LegFormat legFormat) {
         int n = teams.size();
         int[] koStageSizes = agg.koStageSizes();
         int[] titles = agg.titles();
@@ -331,11 +345,11 @@ class StarsCupOutcomeIT {
         sb.append("# Stars Cup Outcome Simulation\n\n");
         sb.append("Run on ").append(java.time.LocalDateTime.now()).append('\n');
         sb.append("Format: ");
-        if (n > GROUP_TEAMS) sb.append("preliminary rounds trim ").append(n).append(" → ").append(GROUP_TEAMS).append(" teams, then ");
-        sb.append(GROUP_COUNT).append(" groups of ").append(GROUP_SIZE)
+        if (n > groupSlots) sb.append("preliminary rounds trim ").append(n).append(" → ").append(groupSlots).append(" teams, then ");
+        sb.append(groupCount).append(" groups of ").append(groupSize)
                 .append(" (double round-robin, 6 matchdays); group winners → QF, 2nd+3rd → ")
                 .append(legFormat == LegFormat.TWO_LEG ? "two-leg" : "single-leg")
-                .append(" playoff → ").append(KO_BRACKET).append("-team knockout (level ties → extra time → penalties)\n");
+                .append(" playoff → ").append(koBracket).append("-team knockout (level ties → extra time → penalties)\n");
         sb.append("Teams: ").append(n).append('\n');
         sb.append("Editions simulated: ").append(TOURNAMENTS).append('\n');
         sb.append("Elapsed: ").append(agg.elapsedMs()).append(" ms\n");

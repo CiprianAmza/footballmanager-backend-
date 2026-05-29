@@ -296,27 +296,17 @@ class SeasonTransitionInvariantsIT {
                     "LoC qualifier round must be 0/1/2 (got " + cti.getRound() + " for team " + cti.getTeamId() + ")");
         }
 
-        // Expected total LoC entries — depends on number of leagues. With N leagues (capped at 7):
-        // sum(directSpots[0..N-1]) + sum(qualifyingSpots[0..N-1]) + sum(preliminarySpots[0..N-1])
-        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
-        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
-        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
-        int n = Math.min(leagues.size(), 7);
-        int expectedDirect = 0, expectedQualifying = 0, expectedPreliminary = 0;
-        for (int i = 0; i < n; i++) {
-            expectedDirect += directSpots[i];
-            expectedQualifying += qualifyingSpots[i];
-            expectedPreliminary += preliminarySpots[i];
-        }
-        long actualDirect = locNextSeasonEntries.stream().filter(c -> c.getRound() == 2).count();
-        long actualQualifying = locNextSeasonEntries.stream().filter(c -> c.getRound() == 1).count();
-        long actualPreliminary = locNextSeasonEntries.stream().filter(c -> c.getRound() == 0).count();
-        assertEquals(expectedDirect, actualDirect,
-                "LoC direct-to-groups (round=2) count off; expected " + expectedDirect + " got " + actualDirect);
-        assertEquals(expectedQualifying, actualQualifying,
-                "LoC qualifying (round=1) count off; expected " + expectedQualifying + " got " + actualQualifying);
-        assertEquals(expectedPreliminary, actualPreliminary,
-                "LoC preliminary (round=0) count off; expected " + expectedPreliminary + " got " + actualPreliminary);
+        // Configurable LoC entry: the competition is sized for CompetitionFormat.totalTeams
+        // (default 40) entrants, allocated to leagues by coefficient (layered halving) and
+        // assigned to preliminary rounds — strongest enter at the group draw, weakest play
+        // the first prelim. For the 40 → 16 (4×4) shape the WHOLE field enters at round 0
+        // (the first trim round), so there are no direct-to-group (round 2) entries yet.
+        int expectedTotal = 40; // CompetitionFormatConfig LoC totalTeams
+        assertEquals(expectedTotal, locNextSeasonEntries.size(),
+                "LoC should have exactly " + expectedTotal + " entrants (configurable totalTeams)");
+        long atRound0 = locNextSeasonEntries.stream().filter(c -> c.getRound() == 0).count();
+        assertEquals(expectedTotal, atRound0,
+                "for the 40→16 shape every LoC entrant enters at the first preliminary round (round 0), got " + atRound0);
 
         // No duplicates: a team shouldn't be in LoC twice
         Set<Long> locTeams = new HashSet<>();

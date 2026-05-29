@@ -12,6 +12,21 @@ import java.util.List;
  * group-of-4 double round-robin schedule, and power-based seeding comparators.
  *
  * <p>All methods are stateless and operate on {@link TeamSetup}.
+ *
+ * <p><b>Parity with production.</b> Two of these helpers intentionally relate to
+ * production code:
+ * <ul>
+ *   <li>{@link #GROUP_SCHEDULE} yields the same complete set of home/away
+ *       fixtures as production's {@code EuropeanCompetitionService
+ *       .generateGroupStageFixtures} (RoundRobin + leg flip) for a group of 4 —
+ *       only the matchday ORDER may differ. Pinned by
+ *       {@code EuropeanCompetitionInvariantsIT
+ *       .generateGroupStageFixtures_matchesTestSchedule_forGroupOfFour}.</li>
+ *   <li>{@link #seedByPower} seeds groups/brackets by raw team power, whereas
+ *       production seeds by rolling club coefficient (and avoids same-nation
+ *       groups). This divergence is DELIBERATE: outcome tests use synthetic
+ *       teams with no coefficient history, so power is the only available proxy.</li>
+ * </ul>
  */
 public final class BracketUtil {
 

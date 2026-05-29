@@ -1,5 +1,8 @@
 package com.footballmanagergamesimulator.integration.europe;
 
+import com.footballmanagergamesimulator.config.CompetitionFormat;
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
+import com.footballmanagergamesimulator.config.EuropeanFormatPlan;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
@@ -69,11 +72,14 @@ class LeagueOfChampionsOutcomeIT {
     private static final int TOURNAMENTS = 1000;
     private static final long BASE_SEED = 20260528L;
 
-    private static final int GROUP_TEAMS = 16;   // teams entering the group stage
-    private static final int GROUP_COUNT = 4;
-    private static final int GROUP_SIZE = 4;
-    private static final int QUALIFY_PER_GROUP = 2;
-    private static final int KO_BRACKET = GROUP_COUNT * QUALIFY_PER_GROUP; // 8 → QF/SF/Final
+    // Format shape — read from the PRODUCTION CompetitionFormat (typeId 4) so the
+    // outcome simulation and the live game share a single source of truth. Set in
+    // the test method from the configured LoC format; do not hardcode here.
+    private int groupSlots;       // teams entering the group stage (groupCount * groupSize)
+    private int groupCount;
+    private int groupSize;
+    private int qualifyPerGroup;
+    private int koBracket;        // knockout entrants (groupCount * qualifyPerGroup)
 
     private static final String TEAM_IDS_PROPERTY = "team.ids";
     /** {@code -Dleg.format=single} (default) or {@code two-leg} for home-and-away knockout ties. */
@@ -84,6 +90,7 @@ class LeagueOfChampionsOutcomeIT {
     @Autowired private MatchEngineConfig engineConfig;
     @Autowired private TournamentEngine engine;
     @Autowired private OutcomeTestSupport support;
+    @Autowired private CompetitionFormatConfig competitionFormat;
 
     /** Leg format for knockout ties (groups are always single matches); from {@code -Dleg.format}. */
     private LegFormat legFormat = LegFormat.SINGLE_LEG;
@@ -101,12 +108,22 @@ class LeagueOfChampionsOutcomeIT {
 
         legFormat = BracketUtil.parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
 
+        // Single source of truth: take the LoC shape from the production format.
+        CompetitionFormat fmt = competitionFormat.get(4);
+        groupCount = fmt.groupCount();
+        groupSize = fmt.groupSize();
+        qualifyPerGroup = fmt.qualifyPerGroupToKnockout();
+        groupSlots = groupCount * groupSize;
+        koBracket = groupCount * qualifyPerGroup;
+
         List<Long> teamIds = OutcomeTestSupport.parseTeamIds(idsProperty);
-        if (teamIds.size() < GROUP_TEAMS) {
+        if (teamIds.size() < groupSlots) {
             throw new IllegalArgumentException(
-                    "Need at least " + GROUP_TEAMS + " teams (the group stage always has "
-                            + GROUP_TEAMS + "). Got " + teamIds.size() + " (input: " + idsProperty + ")");
+                    "Need at least " + groupSlots + " teams (the group stage has "
+                            + groupSlots + "). Got " + teamIds.size() + " (input: " + idsProperty + ")");
         }
+        // Validate the shape is a clean tournament (same rule as production).
+        EuropeanFormatPlan.derive(teamIds.size(), groupCount, groupSize, qualifyPerGroup);
 
         List<TeamSetup> teams = support.loadTeamsByIds(teamIds);
 
@@ -126,7 +143,7 @@ class LeagueOfChampionsOutcomeIT {
 
     private AggregatedLoc runAggregateLoc(List<TeamSetup> teams, StringBuilder firstEditionLog) {
         int n = teams.size();
-        int[] koStageSizes = BracketUtil.stageSizes(KO_BRACKET); // [8, 4, 2]
+        int[] koStageSizes = BracketUtil.stageSizes(koBracket); // [8, 4, 2]
         double[] powers = new double[n];
         for (int i = 0; i < n; i++) powers[i] = teams.get(i).power();
 
@@ -188,7 +205,7 @@ class LeagueOfChampionsOutcomeIT {
         // ---- 1. Preliminaries: trim the field down to exactly 16 ----
         List<Integer> allTeams = new ArrayList<>(n);
         for (int i = 0; i < n; i++) allTeams.add(i);
-        TournamentEngine.PrelimResult prelim = engine.trimToSize(allTeams, powers, GROUP_TEAMS, legFormat, drawRng);
+        TournamentEngine.PrelimResult prelim = engine.trimToSize(allTeams, powers, groupSlots, legFormat, drawRng);
         if (log != null) {
             int prelimRound = 1;
             for (TournamentEngine.PrelimRound round : prelim.rounds()) {
@@ -204,7 +221,7 @@ class LeagueOfChampionsOutcomeIT {
         for (int t : groupTeams) reachedGroup[t] = true;
 
         // ---- 2. Group draw (pot-seeded, one team per pot per group) ----
-        List<List<Integer>> groups = engine.potSeededGroups(groupTeams, powers, GROUP_COUNT, GROUP_SIZE, drawRng);
+        List<List<Integer>> groups = engine.potSeededGroups(groupTeams, powers, groupCount, groupSize, drawRng);
         if (log != null) {
             log.append("## Group Stage Draw\n\n");
             for (int g = 0; g < groups.size(); g++) {
@@ -228,14 +245,14 @@ class LeagueOfChampionsOutcomeIT {
                 log.append('\n');
             }
         }
-        List<Integer> qualifiers = new ArrayList<>(GROUP_COUNT * QUALIFY_PER_GROUP);
+        List<Integer> qualifiers = new ArrayList<>(groupCount * qualifyPerGroup);
         for (TournamentEngine.GroupResult gr : groupResults) {
             if (log != null) log.append("**Group ").append((char) ('A' + gr.groupIndex())).append(" final standings:**\n\n");
             for (int pos = 0; pos < gr.teams().size(); pos++) {
                 int teamIdx = gr.teamAtPosition(pos);
                 groupPoints[teamIdx] = gr.pointsAtPosition(pos);
                 groupPosition[teamIdx] = pos + 1;
-                boolean adv = pos < QUALIFY_PER_GROUP;
+                boolean adv = pos < qualifyPerGroup;
                 if (adv) { qualified[teamIdx] = true; qualifiers.add(teamIdx); }
                 if (log != null) {
                     log.append("  ").append(pos + 1).append(". ").append(teams.get(teamIdx).name())
@@ -290,7 +307,7 @@ class LeagueOfChampionsOutcomeIT {
 
     // ==================== REPORT ====================
 
-    private static String buildReport(List<TeamSetup> teams, AggregatedLoc agg, String firstEditionLog, LegFormat legFormat) {
+    private String buildReport(List<TeamSetup> teams, AggregatedLoc agg, String firstEditionLog, LegFormat legFormat) {
         int n = teams.size();
         int[] koStageSizes = agg.koStageSizes();
         int[] titles = agg.titles();
@@ -319,10 +336,10 @@ class LeagueOfChampionsOutcomeIT {
         sb.append("# League of Champions Outcome Simulation\n\n");
         sb.append("Run on ").append(java.time.LocalDateTime.now()).append('\n');
         sb.append("Format: ");
-        if (n > GROUP_TEAMS) sb.append("preliminary rounds trim ").append(n).append(" → ").append(GROUP_TEAMS).append(" teams, then ");
-        sb.append(GROUP_COUNT).append(" groups of ").append(GROUP_SIZE)
-                .append(" (double round-robin, 6 matchdays), top ").append(QUALIFY_PER_GROUP)
-                .append(" advance → ").append(KO_BRACKET).append("-team ")
+        if (n > groupSlots) sb.append("preliminary rounds trim ").append(n).append(" → ").append(groupSlots).append(" teams, then ");
+        sb.append(groupCount).append(" groups of ").append(groupSize)
+                .append(" (double round-robin, 6 matchdays), top ").append(qualifyPerGroup)
+                .append(" advance → ").append(koBracket).append("-team ")
                 .append(legFormat == LegFormat.TWO_LEG ? "two-leg (home-and-away)" : "single-leg")
                 .append(" knockout (level ties → extra time → penalties)\n");
         sb.append("Teams: ").append(n).append('\n');
@@ -335,7 +352,7 @@ class LeagueOfChampionsOutcomeIT {
         // ---- Main table ----
         sb.append("## Results After ").append(TOURNAMENTS).append(" Editions\n\n");
         sb.append("Sorted by trophies won. \"Reach grp\" = reached the group stage; ");
-        sb.append("\"Qualify\" = finished top ").append(QUALIFY_PER_GROUP).append(" in the group.\n\n");
+        sb.append("\"Qualify\" = finished top ").append(qualifyPerGroup).append(" in the group.\n\n");
         List<String> headers = new ArrayList<>(List.of(
                 "Rank", "Team", "Power", "Trophies", "Reach grp", "Qualify", "Avg grp pos", "Avg grp pts"));
         List<MarkdownTable.Align> aligns = new ArrayList<>(List.of(
@@ -402,7 +419,7 @@ class LeagueOfChampionsOutcomeIT {
         sb.append("- **Trophies** = % of editions this team won the LoC. Sums to 100% across all teams.\n");
         sb.append("- **Reach grp** = how often the team survived the preliminaries into the group stage ");
         sb.append("(100% when there are no preliminaries, i.e. exactly 16 teams).\n");
-        sb.append("- **Qualify** = how often it finished top ").append(QUALIFY_PER_GROUP)
+        sb.append("- **Qualify** = how often it finished top ").append(qualifyPerGroup)
                 .append(" in its group. **Avg grp pos/pts** are averaged over editions it reached the group stage.\n");
         sb.append("- **Final / Semi / QF %** = how often the team reached at least that knockout stage.\n");
 

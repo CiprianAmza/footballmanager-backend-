@@ -43,6 +43,7 @@ public class CompetitionFormatConfig {
         // QF + SF are two-leg.
         byType.put(4, CompetitionFormat.builder(4, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
                 .matchdayToRoundDelta(-1)
+                .totalTeams(40)
                 .groups(4, 4)
                 .qualifyPerGroupToKnockout(2)
                 .qualifyTargetRound(8)
