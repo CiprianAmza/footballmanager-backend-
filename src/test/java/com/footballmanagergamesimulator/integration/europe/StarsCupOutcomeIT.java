@@ -86,6 +86,7 @@ class StarsCupOutcomeIT {
 
     private static final String TEAM_IDS_PROPERTY = "team.ids";
     private static final String LEG_FORMAT_PROPERTY = "leg.format";
+    private static final String LOC_DROPOUT_IDS_PROPERTY = "loc.dropout.ids";
 
     @Autowired private TeamRepository teamRepo;
     @Autowired private MatchSimulationService matchSim;
@@ -133,9 +134,78 @@ class StarsCupOutcomeIT {
         System.out.println("Report written to: " + reportPath.toAbsolutePath());
     }
 
+    @Test
+    @DisplayName("Simulate Stars Cup with LoC drop-outs in the playoff — -Dteam.ids=... -Dloc.dropout.ids=...")
+    void simulateStarsCupWithLocDropoutsAndReport() throws Exception {
+        String idsProperty = System.getProperty(TEAM_IDS_PROPERTY);
+        String dropoutProperty = System.getProperty(LOC_DROPOUT_IDS_PROPERTY);
+        Assumptions.assumeTrue(idsProperty != null && !idsProperty.isBlank()
+                        && dropoutProperty != null && !dropoutProperty.isBlank(),
+                "Skipping — supply -Dteam.ids=... (group field) and -Dloc.dropout.ids=... (playoff entrants)");
+
+        legFormat = BracketUtil.parseLegFormat(System.getProperty(LEG_FORMAT_PROPERTY));
+
+        CompetitionFormat fmt = competitionFormat.get(5);
+        groupCount = fmt.groupCount();
+        groupSize = fmt.groupSize();
+        groupSlots = groupCount * groupSize;
+        koBracket = 2 * groupCount; // group winners + playoff winners
+
+        List<Long> scIds = OutcomeTestSupport.parseTeamIds(idsProperty);
+        List<Long> dropoutIds = OutcomeTestSupport.parseTeamIds(dropoutProperty);
+        if (scIds.size() < groupSlots) {
+            throw new IllegalArgumentException("Need at least " + groupSlots
+                    + " group teams (-Dteam.ids). Got " + scIds.size());
+        }
+        // The playoff pairs each group runner-up (one per group) with one LoC drop-out,
+        // so the drop-out count must equal the group count.
+        if (dropoutIds.size() != groupCount) {
+            throw new IllegalArgumentException("Need exactly " + groupCount
+                    + " LoC drop-outs (-Dloc.dropout.ids), one per group runner-up. Got " + dropoutIds.size());
+        }
+        if (scIds.stream().anyMatch(dropoutIds::contains)) {
+            throw new IllegalArgumentException("team.ids and loc.dropout.ids must be disjoint");
+        }
+
+        List<TeamSetup> teams = new ArrayList<>(support.loadTeamsByIds(scIds));
+        int groupFieldSize = teams.size();
+        teams.addAll(support.loadTeamsByIds(dropoutIds));
+
+        List<Integer> groupField = new ArrayList<>(groupFieldSize);
+        for (int i = 0; i < groupFieldSize; i++) groupField.add(i);
+        List<Integer> externals = new ArrayList<>(dropoutIds.size());
+        for (int i = groupFieldSize; i < teams.size(); i++) externals.add(i);
+
+        StringBuilder firstEditionLog = new StringBuilder();
+        Aggregated agg = runAggregate(teams, groupField, externals, firstEditionLog);
+
+        Path reportPath = Path.of("target",
+                "stars-cup-outcome-loc-dropouts-" + groupFieldSize + "plus" + dropoutIds.size() + ".md");
+        String md = buildReport(teams, agg, firstEditionLog.toString(), legFormat);
+        Files.writeString(reportPath, md);
+
+        System.out.println();
+        System.out.println(md);
+        System.out.println("Report written to: " + reportPath.toAbsolutePath());
+    }
+
     // ==================== TOURNAMENT SIMULATION ====================
 
     private Aggregated runAggregate(List<TeamSetup> teams, StringBuilder firstEditionLog) {
+        // Default: all teams contest the group stage; no external playoff entrants.
+        List<Integer> groupField = new ArrayList<>(teams.size());
+        for (int i = 0; i < teams.size(); i++) groupField.add(i);
+        return runAggregate(teams, groupField, List.of(), firstEditionLog);
+    }
+
+    /**
+     * @param groupField teams (by index) that contest the group stage
+     * @param externalPlayoffEntrants teams (by index) injected straight into the
+     *        playoff — models the real LoC drop-outs (3rd places). When non-empty,
+     *        only group RUNNERS-UP join them in the playoff (3rd places are out).
+     */
+    private Aggregated runAggregate(List<TeamSetup> teams, List<Integer> groupField,
+                                    List<Integer> externalPlayoffEntrants, StringBuilder firstEditionLog) {
         int n = teams.size();
         int[] koStageSizes = BracketUtil.stageSizes(koBracket); // [8, 4, 2]
         double[] powers = new double[n];
@@ -157,7 +227,7 @@ class StarsCupOutcomeIT {
         try {
             for (int c = 0; c < TOURNAMENTS; c++) {
                 StringBuilder log = (c == 0) ? firstEditionLog : null;
-                Outcome o = runOneTournament(teams, powers, drawRng, log);
+                Outcome o = runOneTournament(teams, powers, groupField, externalPlayoffEntrants, drawRng, log);
                 titles[o.champion]++;
                 for (int t = 0; t < n; t++) {
                     if (o.reachedGroup[t]) {
@@ -190,7 +260,8 @@ class StarsCupOutcomeIT {
      * knockout, all via the shared {@link TournamentEngine}. This method only
      * aggregates per-team statistics and (for the first edition) renders the log.
      */
-    private Outcome runOneTournament(List<TeamSetup> teams, double[] powers, Random drawRng, StringBuilder log) {
+    private Outcome runOneTournament(List<TeamSetup> teams, double[] powers, List<Integer> groupField,
+                                     List<Integer> externalPlayoffEntrants, Random drawRng, StringBuilder log) {
         int n = teams.size();
         boolean[] reachedGroup = new boolean[n];
         int[] groupPoints = new int[n];
@@ -202,9 +273,8 @@ class StarsCupOutcomeIT {
         int[] koStageReached = new int[n];
         java.util.Arrays.fill(koStageReached, Integer.MAX_VALUE);
 
-        // ---- 1. Preliminaries: trim to exactly 16 ----
-        List<Integer> allTeams = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) allTeams.add(i);
+        // ---- 1. Preliminaries: trim the group field to exactly groupSlots ----
+        List<Integer> allTeams = new ArrayList<>(groupField);
         TournamentEngine.PrelimResult prelim = engine.trimToSize(allTeams, powers, groupSlots, legFormat, drawRng);
         if (log != null) {
             int prelimRound = 1;
@@ -246,6 +316,9 @@ class StarsCupOutcomeIT {
                 log.append('\n');
             }
         }
+        // With external (LoC drop-out) entrants only the runners-up join the playoff
+        // (3rd places are out, as in the real game); otherwise 2nd+3rd both go through.
+        int lastPlayoffPos = externalPlayoffEntrants.isEmpty() ? 2 : 1;
         List<Integer> directQf = new ArrayList<>(groupCount);
         List<Integer> playoffTeams = new ArrayList<>(groupCount * 2);
         for (TournamentEngine.GroupResult gr : groupResults) {
@@ -256,7 +329,7 @@ class StarsCupOutcomeIT {
                 groupPosition[teamIdx] = pos + 1;
                 String tag;
                 if (pos == 0) { groupWinner[teamIdx] = true; directQf.add(teamIdx); tag = "  ✅ → QF"; }
-                else if (pos <= 2) { playoffTeams.add(teamIdx); tag = "  ↘ playoff"; }
+                else if (pos <= lastPlayoffPos) { playoffTeams.add(teamIdx); tag = "  ↘ playoff"; }
                 else tag = "  ✗ out";
                 if (log != null) {
                     log.append("  ").append(pos + 1).append(". ").append(teams.get(teamIdx).name())
@@ -266,6 +339,14 @@ class StarsCupOutcomeIT {
                 }
             }
             if (log != null) log.append('\n');
+        }
+        // Inject the external LoC drop-outs straight into the playoff.
+        if (!externalPlayoffEntrants.isEmpty()) {
+            if (log != null) {
+                log.append("**LoC drop-outs entering the playoff:** ")
+                   .append(namesOf(teams, externalPlayoffEntrants)).append("\n\n");
+            }
+            playoffTeams.addAll(externalPlayoffEntrants);
         }
         for (int t : playoffTeams) reachedPlayoff[t] = true;
 
