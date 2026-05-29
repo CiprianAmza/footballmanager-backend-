@@ -354,7 +354,7 @@ public class MatchRoundSimulator {
                     if (s != null) {
                         s.setDeferredContext(teamPower1, teamPower2, tactic1, tactic2,
                                 personalizedTactic1.orElse(null), personalizedTactic2.orElse(null),
-                                knockout);
+                                knockout, match.getLegNumber(), match.getTieId(), match.getMatchIndex());
                     }
                 }
 

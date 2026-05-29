@@ -1,12 +1,16 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
@@ -21,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Calendar-driven matchday dispatch + result lookups + interactive-live-match
@@ -50,6 +55,10 @@ public class MatchdayCoordinator {
     @Autowired private MatchRoundSimulator matchRoundSimulator;
     @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
     @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
+    @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
+    @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    @Autowired private CupBracketService cupBracketService;
+    @Autowired private GameStateService gameStateService;
 
     // ============================================================
     //  Matchday dispatch (calendar-driven). Mirrors {@code simulateRound}
@@ -409,17 +418,88 @@ public class MatchdayCoordinator {
         String tactic1 = session.getDeferredTactic1();
         String tactic2 = session.getDeferredTactic2();
         boolean knockout = session.isDeferredKnockout();
+        int legNumber = session.getDeferredLegNumber();
+        long tieId = session.getDeferredTieId();
+        int matchIndex = session.getDeferredMatchIndex();
 
-        // Knockout extra-time decider — routes through KnockoutTieResolver so the
-        // live-commit path uses the same config-driven rules as the rest of the
-        // engine (single-leg, like MatchRoundSimulator's decide). We use only the
-        // winner decision and keep the UI's "+1 extra-time winner goal" behaviour.
-        if (knockout && teamScore1 == teamScore2) {
-            var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, new Random());
-            long winnerTeamId, loserTeamId;
-            if (d.teamAWon()) { session.bumpHomeScore(); teamScore1++; winnerTeamId = teamId1; loserTeamId = teamId2; }
-            else              { session.bumpAwayScore(); teamScore2++; winnerTeamId = teamId2; loserTeamId = teamId1; }
-            appendKnockoutWinnerGoal(_competitionId, season, (int) _roundId, teamId1, teamId2, winnerTeamId, loserTeamId);
+        // Knockout progression — the AI/batch path runs this inline in
+        // MatchRoundSimulator; for interactive matches it is deferred to here.
+        // Routes through KnockoutTieResolver so the live-commit path uses the
+        // same config-driven rules. Leg-aware (mirrors MatchRoundSimulator):
+        //   leg 1 of a two-leg tie → record the score, decide/propagate nothing;
+        //   leg 2 → aggregate with leg 1, decide, propagate the winner;
+        //   single-leg → decide via extra time/penalties + propagate.
+        String koScoreSuffix = "";
+        Long winnerId = null; // null → propagation deferred (first leg of a two-leg tie)
+        if (knockout) {
+            if (legNumber == 1 && tieId != 0) {
+                // First leg: stash the score on the leg-1 row so leg 2 (a later
+                // calendar day) can aggregate with it. No decider, no propagation.
+                CompetitionTeamInfoMatch leg1Row = competitionTeamInfoMatchRepository
+                        .findByTieIdAndLegNumber(tieId, 1).orElse(null);
+                if (leg1Row != null) {
+                    leg1Row.setTeam1Score(teamScore1);
+                    leg1Row.setTeam2Score(teamScore2);
+                    competitionTeamInfoMatchRepository.save(leg1Row);
+                }
+                koScoreSuffix = " (1st leg)";
+            } else if (legNumber == 2 && tieId != 0) {
+                // Second leg: persist this leg, aggregate with leg 1, decide. The
+                // tie is settled on aggregate, so the live 90' score is NOT bumped.
+                CompetitionTeamInfoMatch leg2Row = competitionTeamInfoMatchRepository
+                        .findByTieIdAndLegNumber(tieId, 2).orElse(null);
+                if (leg2Row != null) {
+                    leg2Row.setTeam1Score(teamScore1);
+                    leg2Row.setTeam2Score(teamScore2);
+                    competitionTeamInfoMatchRepository.save(leg2Row);
+                }
+                CompetitionTeamInfoMatch leg1Row = competitionTeamInfoMatchRepository
+                        .findByTieIdAndLegNumber(tieId, 1).orElse(null);
+                if (leg1Row != null && leg1Row.getTeam1Score() >= 0) {
+                    // team1 here hosted leg 2 (= tie side B); team2 hosted leg 1 (= side A).
+                    int aggA = leg1Row.getTeam1Score() + teamScore2;
+                    int aggB = leg1Row.getTeam2Score() + teamScore1;
+                    var d = tieResolver.decide(teamPower2, teamPower1, aggA, aggB, new Random());
+                    winnerId = d.teamAWon() ? teamId2 : teamId1;
+                    koScoreSuffix = " (agg " + aggA + "-" + aggB
+                            + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
+                } else {
+                    // Lost leg-1 record — decide on this match alone (defensive).
+                    var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, new Random());
+                    winnerId = d.teamAWon() ? teamId1 : teamId2;
+                }
+            } else {
+                // Single-leg knockout: decide via extra time / penalties. Keep the
+                // UI's "+1 extra-time winner goal" bump on a level 90' score.
+                if (teamScore1 == teamScore2) {
+                    var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, new Random());
+                    long loserTeamId;
+                    if (d.teamAWon()) { session.bumpHomeScore(); teamScore1++; winnerId = teamId1; loserTeamId = teamId2; }
+                    else              { session.bumpAwayScore(); teamScore2++; winnerId = teamId2; loserTeamId = teamId1; }
+                    appendKnockoutWinnerGoal(_competitionId, season, (int) _roundId, teamId1, teamId2, winnerId, loserTeamId);
+                    if (d.penalties()) koScoreSuffix = " (pens)";
+                    else if (d.extraTime()) koScoreSuffix = " (a.e.t.)";
+                } else {
+                    winnerId = teamScore1 > teamScore2 ? teamId1 : teamId2;
+                }
+            }
+
+            // Propagate the winner into the next round (mirrors MatchRoundSimulator):
+            // national cup → fill the pre-created bracket slot; LoC/Stars Cup →
+            // legacy CompetitionTeamInfo flow keyed on round+1.
+            if (winnerId != null) {
+                Set<Long> cupIds = gameStateService.getCupCompetitionIdsCached();
+                if (cupIds != null && cupIds.contains(_competitionId) && matchIndex > 0) {
+                    cupBracketService.propagateWinner(_competitionId, season, _roundId, matchIndex, winnerId);
+                } else {
+                    CompetitionTeamInfo cti = new CompetitionTeamInfo();
+                    cti.setCompetitionId(_competitionId);
+                    cti.setRound(_roundId + 1);
+                    cti.setTeamId(winnerId);
+                    cti.setSeasonNumber((long) season);
+                    competitionTeamInfoRepository.save(cti);
+                }
+            }
         }
 
         // Scorer tracking + match stats from the live data
@@ -447,8 +527,9 @@ public class MatchdayCoordinator {
         detail.setTeam2Id(teamId2);
         detail.setTeamName1(matchRoundSimulator.roundTeamName(teamId1));
         detail.setTeamName2(matchRoundSimulator.roundTeamName(teamId2));
-        detail.setScore(teamScore1 + " - " + teamScore2);
+        detail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);
         detail.setSeasonNumber((long) season);
+        detail.setLegNumber(legNumber);
         competitionTeamInfoDetailRepository.save(detail);
 
         session.markCommitted();

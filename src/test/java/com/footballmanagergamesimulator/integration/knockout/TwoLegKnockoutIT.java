@@ -12,6 +12,8 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository
 import com.footballmanagergamesimulator.repository.MatchStatsRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
+import com.footballmanagergamesimulator.service.LiveMatchSession;
+import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import com.footballmanagergamesimulator.service.MatchRoundSimulator;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import org.junit.jupiter.api.AfterEach;
@@ -53,6 +55,7 @@ class TwoLegKnockoutIT {
 
     @Autowired private MatchRoundSimulator matchRoundSimulator;
     @Autowired private MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired private EuropeanCompetitionService europeanCompetitionService;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoMatchRepository matchRepo;
@@ -233,7 +236,117 @@ class TwoLegKnockoutIT {
                 .as("leg 2 advances exactly one winner per tie (2 ties → 2 winners)").hasSize(2);
     }
 
+    // ==================== interactive (human-watched) commit path ====================
+
+    @Test
+    @DisplayName("Interactive commit, leg 1: persists the score and propagates nothing")
+    void interactiveCommitLegOneDefersAndPersists() {
+        long loc = locCompetitionId();
+        String season = currentSeason();
+        long seasonLong = Long.parseLong(season);
+        int seasonInt = (int) seasonLong;
+        long teamA = 1L, teamB = 2L;
+        long tieId = 777_001L;
+        int round = 8;
+
+        isolateKnockout(loc, season, seasonLong, round, teamA, teamB);
+        matchRepo.save(leg(loc, season, teamA, teamB, 1, tieId)); // leg 1: A home
+        matchRepo.save(leg(loc, season, teamB, teamA, 2, tieId)); // leg 2: B home
+
+        commitInteractive(loc, seasonInt, round, teamA, teamB, /*legNumber*/ 1, tieId);
+
+        assertThat(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(round + 1, loc, seasonLong))
+                .as("interactive leg 1 must not advance anyone").isEmpty();
+
+        CompetitionTeamInfoMatch leg1 = matchRepo.findByTieIdAndLegNumber(tieId, 1).orElseThrow();
+        assertThat(leg1.getTeam1Score()).as("leg 1 score persisted on commit for cross-day aggregation")
+                .isGreaterThanOrEqualTo(0);
+
+        List<CompetitionTeamInfoDetail> details =
+                detailRepo.findAllByCompetitionIdAndRoundIdAndSeasonNumber(loc, round, seasonLong);
+        assertThat(details).hasSize(1);
+        assertThat(details.get(0).getScore()).as("leg 1 result annotated as first leg").contains("(1st leg)");
+        assertThat(details.get(0).getLegNumber()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Interactive commit, leg 2: aggregates with persisted leg 1 and advances one winner")
+    void interactiveCommitLegTwoAggregatesAndPropagates() {
+        long loc = locCompetitionId();
+        String season = currentSeason();
+        long seasonLong = Long.parseLong(season);
+        int seasonInt = (int) seasonLong;
+        long teamA = 1L, teamB = 2L;
+        long tieId = 777_002L;
+        int round = 8;
+
+        isolateKnockout(loc, season, seasonLong, round, teamA, teamB);
+        // Leg 1 already played (1-1) on a previous calendar day.
+        CompetitionTeamInfoMatch leg1 = leg(loc, season, teamA, teamB, 1, tieId);
+        leg1.setTeam1Score(1);
+        leg1.setTeam2Score(1);
+        matchRepo.save(leg1);
+        matchRepo.save(leg(loc, season, teamB, teamA, 2, tieId)); // leg 2: B home
+
+        // Leg 2 host = teamB (tie side B); visitor = teamA (side A).
+        commitInteractive(loc, seasonInt, round, teamB, teamA, /*legNumber*/ 2, tieId);
+
+        List<CompetitionTeamInfo> advanced =
+                ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(round + 1, loc, seasonLong);
+        assertThat(advanced).as("interactive leg 2 decides the tie and advances exactly one winner").hasSize(1);
+        assertThat(advanced.get(0).getTeamId()).isIn(teamA, teamB);
+
+        List<CompetitionTeamInfoDetail> details =
+                detailRepo.findAllByCompetitionIdAndRoundIdAndSeasonNumber(loc, round, seasonLong);
+        assertThat(details.stream().anyMatch(d -> d.getScore() != null && d.getScore().contains("(agg")))
+                .as("leg 2 result annotated with the aggregate").isTrue();
+    }
+
+    @Test
+    @DisplayName("Interactive commit, single-leg knockout: advances the winner (was previously dropped)")
+    void interactiveCommitSingleLegPropagatesWinner() {
+        long loc = locCompetitionId();
+        String season = currentSeason();
+        long seasonLong = Long.parseLong(season);
+        int seasonInt = (int) seasonLong;
+        long teamA = 1L, teamB = 2L;
+        int round = 10; // LoC final — single-leg
+
+        isolateKnockout(loc, season, seasonLong, round, teamA, teamB);
+
+        commitInteractive(loc, seasonInt, round, teamA, teamB, /*legNumber*/ 0, /*tieId*/ 0L);
+
+        List<CompetitionTeamInfo> advanced =
+                ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(round + 1, loc, seasonLong);
+        assertThat(advanced).as("a single-leg knockout winner must propagate on interactive commit").hasSize(1);
+        assertThat(advanced.get(0).getTeamId()).isIn(teamA, teamB);
+    }
+
     // ==================== helpers ====================
+
+    /** Drive a real interactive session to full time, then commit it. */
+    private void commitInteractive(long comp, int season, int round,
+                                   long teamId1, long teamId2, int legNumber, long tieId) {
+        String key = LiveMatchSimulationService.buildKey(comp, season, round, teamId1, teamId2);
+        LiveMatchSession session = liveMatchSimulationService.createInteractiveSession(
+                teamId1, teamId2, 1500.0, 1400.0, comp, season, round, false);
+        session.setDeferredContext(1500.0, 1400.0, "442", "442", null, null, true, legNumber, tieId, 0);
+        session.advanceUntilAndSnapshot(session.getTotalMinutes());
+        assertThat(session.isFinished()).as("session reaches full time before commit").isTrue();
+        matchSimulationOrchestrator.finalizeInteractiveLiveMatch(key);
+    }
+
+    /** Clear a knockout round's fixtures/details + the next round's winners + this
+     *  match's stats rows so the interactive commit runs against a clean slate. */
+    private void isolateKnockout(long loc, String season, long seasonLong, int round, long teamA, long teamB) {
+        matchRepo.deleteAll(matchRepo.findAllByCompetitionIdAndRoundAndSeasonNumber(loc, round, season));
+        detailRepo.deleteAll(detailRepo.findAllByCompetitionIdAndRoundIdAndSeasonNumber(loc, round, seasonLong));
+        ctiRepo.deleteAll(ctiRepo.findAllByRoundAndCompetitionIdAndSeasonNumber(round + 1, loc, seasonLong));
+        matchStatsRepo.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(loc, (int) seasonLong, round, teamA, teamB)
+                .ifPresent(matchStatsRepo::delete);
+        matchStatsRepo.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(loc, (int) seasonLong, round, teamB, teamA)
+                .ifPresent(matchStatsRepo::delete);
+    }
 
     private CompetitionTeamInfoMatch leg(long comp, String season, long home, long away, int legNumber, long tieId) {
         CompetitionTeamInfoMatch m = new CompetitionTeamInfoMatch();

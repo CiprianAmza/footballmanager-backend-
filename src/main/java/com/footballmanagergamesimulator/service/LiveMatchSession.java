@@ -120,12 +120,21 @@ public class LiveMatchSession {
     PersonalizedTactic deferredPersonalizedTactic1;
     PersonalizedTactic deferredPersonalizedTactic2;
     boolean deferredKnockout;
+    // Two-leg / bracket context so /commit can aggregate legs and propagate the
+    // winner the same way the AI/batch path does in MatchRoundSimulator.
+    // legNumber: 0 = single match, 1 = first leg, 2 = second leg.
+    // tieId: 0 for single matches; links the two legs of a two-leg tie.
+    // matchIndex: 1-based bracket slot for national-cup propagation (0 = N/A).
+    int deferredLegNumber;
+    long deferredTieId;
+    int deferredMatchIndex;
 
     public void setDeferredContext(double teamPower1, double teamPower2,
                                    String tactic1, String tactic2,
                                    PersonalizedTactic pt1,
                                    PersonalizedTactic pt2,
-                                   boolean knockout) {
+                                   boolean knockout,
+                                   int legNumber, long tieId, int matchIndex) {
         this.deferredTeamPower1 = teamPower1;
         this.deferredTeamPower2 = teamPower2;
         this.deferredTactic1 = tactic1;
@@ -133,6 +142,9 @@ public class LiveMatchSession {
         this.deferredPersonalizedTactic1 = pt1;
         this.deferredPersonalizedTactic2 = pt2;
         this.deferredKnockout = knockout;
+        this.deferredLegNumber = legNumber;
+        this.deferredTieId = tieId;
+        this.deferredMatchIndex = matchIndex;
     }
 
     public double getDeferredTeamPower1() { return deferredTeamPower1; }
@@ -142,6 +154,9 @@ public class LiveMatchSession {
     public PersonalizedTactic getDeferredPersonalizedTactic1() { return deferredPersonalizedTactic1; }
     public PersonalizedTactic getDeferredPersonalizedTactic2() { return deferredPersonalizedTactic2; }
     public boolean isDeferredKnockout() { return deferredKnockout; }
+    public int getDeferredLegNumber() { return deferredLegNumber; }
+    public long getDeferredTieId() { return deferredTieId; }
+    public int getDeferredMatchIndex() { return deferredMatchIndex; }
 
     /** Mutators for /commit's knockout extra-time decider. */
     public synchronized void bumpHomeScore() { this.homeScore++; }
