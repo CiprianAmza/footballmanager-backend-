@@ -661,28 +661,32 @@ public class EuropeanCompetitionService {
                     })
                     .toList();
 
-            if (!standings.isEmpty()) {
-                long winnerId = standings.get(0).getTeamId();
+            // Config-driven routing: the top `directQualify` finishers go straight to
+            // the knockout (QF), the next `playoffQualify` go to the playoff, the rest
+            // are eliminated.
+            int directQualify = fmt.qualifyPerGroupToKnockout();
+            int playoffQualify = fmt.playoffQualifyPerGroup();
+            for (int pos = 0; pos < standings.size(); pos++) {
+                long teamId = standings.get(pos).getTeamId();
+                long targetRound;
+                String label;
+                if (pos < directQualify) {
+                    targetRound = fmt.qualifyTargetRound();
+                    label = "group qualifier to QF";
+                } else if (pos < directQualify + playoffQualify) {
+                    targetRound = fmt.playoffRound();
+                    label = "group team to playoff";
+                } else {
+                    break; // remaining positions are eliminated
+                }
                 CompetitionTeamInfo cti = new CompetitionTeamInfo();
-                cti.setTeamId(winnerId);
+                cti.setTeamId(teamId);
                 cti.setCompetitionId(starsCupCompetitionId);
                 cti.setSeasonNumber(currentSeason);
-                cti.setRound(fmt.qualifyTargetRound());
+                cti.setRound(targetRound);
                 competitionTeamInfoRepository.save(cti);
-                String teamName = teamRepository.findById(winnerId).map(t -> t.getName()).orElse("?");
-                System.out.println("  -> Stars Cup group winner to QF: " + teamName);
-            }
-
-            if (standings.size() >= 2) {
-                long runnerUpId = standings.get(1).getTeamId();
-                CompetitionTeamInfo cti = new CompetitionTeamInfo();
-                cti.setTeamId(runnerUpId);
-                cti.setCompetitionId(starsCupCompetitionId);
-                cti.setSeasonNumber(currentSeason);
-                cti.setRound(fmt.playoffRound());
-                competitionTeamInfoRepository.save(cti);
-                String teamName = teamRepository.findById(runnerUpId).map(t -> t.getName()).orElse("?");
-                System.out.println("  -> Stars Cup runner-up to playoff: " + teamName);
+                String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
+                System.out.println("  -> Stars Cup " + label + ": " + teamName);
             }
         }
     }

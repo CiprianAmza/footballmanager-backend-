@@ -46,6 +46,7 @@ public final class CompetitionFormat {
     private final int groupCount;
     private final int groupSize;
     private final int qualifyPerGroupToKnockout; // LoC: 2, SC: 1
+    private final int playoffQualifyPerGroup;    // group positions routed to a playoff (SC: 1, LoC: 0)
     private final int qualifyTargetRound;        // round group qualifiers enter (8 = QF)
     private final int groupStartRound;           // also the group-draw round
     private final int groupEndRound;             // also the qualify round
@@ -80,6 +81,7 @@ public final class CompetitionFormat {
         this.groupCount = b.groupCount;
         this.groupSize = b.groupSize;
         this.qualifyPerGroupToKnockout = b.qualifyPerGroupToKnockout;
+        this.playoffQualifyPerGroup = b.playoffQualifyPerGroup;
         this.qualifyTargetRound = b.qualifyTargetRound;
         this.groupStartRound = b.groupStartRound;
         this.groupEndRound = b.groupEndRound;
@@ -110,6 +112,8 @@ public final class CompetitionFormat {
     public int groupCount() { return groupCount; }
     public int groupSize() { return groupSize; }
     public int qualifyPerGroupToKnockout() { return qualifyPerGroupToKnockout; }
+    /** Group finishing positions (after the direct-to-knockout ones) routed to a playoff. */
+    public int playoffQualifyPerGroup() { return playoffQualifyPerGroup; }
 
     // When a derived plan exists (sized group stage), round boundaries come from
     // it so changing totalTeams/groups/qualifyPerGroup adapts the whole format in
@@ -199,6 +203,7 @@ public final class CompetitionFormat {
         private int groupCount = 0;
         private int groupSize = 0;
         private int qualifyPerGroupToKnockout = 0;
+        private int playoffQualifyPerGroup = 0;
         private int qualifyTargetRound = 0;
         private int groupStartRound = 0;
         private int groupEndRound = 0;
@@ -223,6 +228,7 @@ public final class CompetitionFormat {
         public Builder totalTeams(int v) { this.totalTeams = v; return this; }
         public Builder groups(int count, int size) { this.groupCount = count; this.groupSize = size; return this; }
         public Builder qualifyPerGroupToKnockout(int v) { this.qualifyPerGroupToKnockout = v; return this; }
+        public Builder playoffQualifyPerGroup(int v) { this.playoffQualifyPerGroup = v; return this; }
         public Builder qualifyTargetRound(int v) { this.qualifyTargetRound = v; return this; }
         public Builder groupRounds(int start, int end) { this.groupStartRound = start; this.groupEndRound = end; return this; }
         public Builder groupFixtureRoundOffset(int v) { this.groupFixtureRoundOffset = v; return this; }

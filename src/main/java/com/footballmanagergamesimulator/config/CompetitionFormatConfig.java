@@ -56,8 +56,9 @@ public class CompetitionFormatConfig {
 
         // --- Stars Cup (5) — round boundaries derived from the group shape ---
         // 4 groups of 4 → 1-6 groups, 7 playoff, 8 QF, 9 SF, 10 Final (identical to
-        // the previous hardcoded values). See starsCupFormat for the derivation.
-        byType.put(5, starsCupFormat(4, 4));
+        // the previous hardcoded values). Per-group routing: 1 winner → knockout,
+        // 1 runner-up → playoff. See starsCupFormat for the derivation.
+        byType.put(5, starsCupFormat(4, 4, 1, 1));
     }
 
     /**
@@ -77,13 +78,17 @@ public class CompetitionFormatConfig {
      * </pre>
      * With 4 groups of 4: G=6, K=3 → groups 1-6, playoff 7, QF/SF/Final 8-10.
      */
-    private CompetitionFormat starsCupFormat(int groupCount, int groupSize) {
+    private CompetitionFormat starsCupFormat(int groupCount, int groupSize,
+                                             int directQualifyPerGroup, int playoffQualifyPerGroup) {
         int groupStart = 1;
         int groupEnd = groupStart + (groupSize - 1) * 2 - 1;
         int playoff = groupEnd + 1;
-        int knockoutEntrants = 2 * groupCount; // group winners + playoff winners
+        // Knockout field = direct qualifiers + playoff winners. The playoff pairs each
+        // group's playoff qualifiers with an equal number of external (LoC) drop-outs,
+        // so it yields groupCount × playoffQualifyPerGroup winners.
+        int knockoutEntrants = groupCount * (directQualifyPerGroup + playoffQualifyPerGroup);
         if (Integer.bitCount(knockoutEntrants) != 1) {
-            throw new IllegalArgumentException("Stars Cup knockout field (2 × groupCount = "
+            throw new IllegalArgumentException("Stars Cup knockout field (groupCount × (direct+playoff) = "
                     + knockoutEntrants + ") must be a power of two");
         }
         int knockoutRounds = Integer.numberOfTrailingZeros(knockoutEntrants); // log2
@@ -92,7 +97,8 @@ public class CompetitionFormatConfig {
         return CompetitionFormat.builder(5, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
                 .matchdayToRoundDelta(0)
                 .groups(groupCount, groupSize)
-                .qualifyPerGroupToKnockout(1)
+                .qualifyPerGroupToKnockout(directQualifyPerGroup)
+                .playoffQualifyPerGroup(playoffQualifyPerGroup)
                 .qualifyTargetRound(playoff + 1)   // group winners enter the QF
                 .groupRounds(groupStart, groupEnd)
                 .groupFixtureRoundOffset(0)
