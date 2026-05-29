@@ -223,6 +223,8 @@
                         <exclude>**/*SensitivityIT.java</exclude>
                         <exclude>**/*InteractionIT.java</exclude>
                         <exclude>**/integration/league/*IT.java</exclude>
+                        <exclude>**/integration/cup/*IT.java</exclude>
+                        <exclude>**/integration/europe/*IT.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
@@ -304,6 +306,8 @@
                                 <include>**/*SensitivityIT.java</include>
                                 <include>**/*InteractionIT.java</include>
                                 <include>**/integration/league/*IT.java</include>
+                                <include>**/integration/cup/*IT.java</include>
+                                <include>**/integration/europe/*IT.java</include>
                             </includes>
                         </configuration>
                     </plugin>
