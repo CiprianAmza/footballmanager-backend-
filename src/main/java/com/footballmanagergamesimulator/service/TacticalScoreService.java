@@ -1,0 +1,164 @@
+package com.footballmanagergamesimulator.service;
+
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+
+/**
+ * Two-axis tactical match model (trade-off + matchup). A squad's value is split into an
+ * <b>attack</b> and a <b>defense</b> rating by the position of each starter; tactic settings then
+ * <b>redistribute</b> between them (push to attack ⇒ less defense — a trade-off, not a free bonus)
+ * and open/slow the game. Goals come from each side's effective <b>attack vs the other's
+ * defense</b> (matchup), so there is no universally-best tactic — what beats an attacking side can
+ * lose to a defensive one.
+ *
+ * <p>This is the foundation for richer AI tactics: {@link #expectedGoalDifference} gives a cheap,
+ * deterministic quality score used to rank candidate tactics for a squad.
+ */
+@Service
+public class TacticalScoreService {
+
+    @Autowired MatchEngineConfig engineConfig;
+
+    /** A starter's used (base) position and match value, for splitting a squad into attack/defense. */
+    public record StarterValue(String usedPosition, double value) {}
+
+    /** A squad's attack and defense ratings (before tactic redistribution). */
+    public record TeamProfile(double attack, double defense) {}
+
+    /** A tactic reduced to three numeric axes: attack bias, openness risk, defensive control. */
+    public record TacticVector(double attackBias, double risk, double control) {}
+
+    /**
+     * Apply the manager's coaching to a raw squad profile: the offensive ability amplifies attack,
+     * the defensive ability amplifies defense (each ±{@code coachStrength} at the 0/100 extremes,
+     * neutral at 50). A lopsided coach makes his team strong on one side and shapes which tactic
+     * suits him.
+     */
+    public TeamProfile coachedProfile(TeamProfile raw, double offensiveAbility, double defensiveAbility) {
+        double k = engineConfig.getTacticalModel().getCoachStrength();
+        return new TeamProfile(
+                raw.attack() * coachFactor(offensiveAbility, k),
+                raw.defense() * coachFactor(defensiveAbility, k));
+    }
+
+    private static double coachFactor(double ability, double strength) {
+        double a = Math.max(0, Math.min(100, ability));
+        return 1 + strength * (a - 50) / 50.0;
+    }
+
+    /** Split a squad into attack/defense by position (config-driven {@code attackShare}). */
+    public TeamProfile profile(List<StarterValue> starters) {
+        MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
+        double attack = 0, defense = 0;
+        for (StarterValue s : starters) {
+            double share = cfg.attackShareFor(s.usedPosition());
+            attack += s.value() * share;
+            defense += s.value() * (1.0 - share);
+        }
+        return new TeamProfile(attack, defense);
+    }
+
+    /** Reduce a {@link PersonalizedTactic} to its numeric axes. Neutral (all-default) ⇒ all zero. */
+    public TacticVector vector(PersonalizedTactic t) {
+        String mentality = orDefault(t.getMentality(), "Balanced");
+        String tempo = orDefault(t.getTempo(), "Standard");
+        String passing = orDefault(t.getPassingType(), "Normal");
+        String possession = orDefault(t.getInPossession(), "Standard");
+        String timeWasting = orDefault(t.getTimeWasting(), "Sometimes");
+
+        double bias = MENTALITY_BIAS.getOrDefault(mentality, 0.0)
+                + POSSESSION_BIAS.getOrDefault(possession, 0.0);
+        double risk = TEMPO_RISK.getOrDefault(tempo, 0.0)
+                + PASSING_RISK.getOrDefault(passing, 0.0);
+        double control = POSSESSION_CONTROL.getOrDefault(possession, 0.0)
+                + TIME_WASTING_CONTROL.getOrDefault(timeWasting, 0.0);
+
+        return new TacticVector(
+                clamp(bias, -1.2, 1.5),
+                clamp(risk, -1.5, 1.5),
+                clamp(control, 0.0, 1.5));
+    }
+
+    /** Sample a scoreline for a matchup. team1 is the home side. */
+    public List<Integer> score(TeamProfile p1, TacticVector t1, TeamProfile p2, TacticVector t2, Random rng) {
+        MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
+        double[] xg = expectedGoals(p1, t1, p2, t2, cfg, true);
+        int g1 = poisson(rng, xg[0], cfg.getMaxGoalsPerTeam());
+        int g2 = poisson(rng, xg[1], cfg.getMaxGoalsPerTeam());
+        return List.of(g1, g2);
+    }
+
+    /**
+     * Deterministic quality of {@code myTactic} for a squad against a representative opponent:
+     * expected goal difference (my xG − their xG). Higher = better. Used to rank candidate tactics
+     * cheaply (no simulation), so an AI manager can pick a tactic at a rank set by his skill.
+     */
+    public double expectedGoalDifference(TeamProfile mine, TacticVector myTactic,
+                                         TeamProfile opponent, TacticVector opponentTactic) {
+        double[] xg = expectedGoals(mine, myTactic, opponent, opponentTactic,
+                engineConfig.getTacticalModel(), false);
+        return xg[0] - xg[1];
+    }
+
+    // ==================== internals ====================
+
+    /** Returns {xgHome, xgAway}. {@code homeAdvantage} applies the home attack bonus to side 1. */
+    private double[] expectedGoals(TeamProfile p1, TacticVector t1, TeamProfile p2, TacticVector t2,
+                                   MatchEngineConfig.TacticalModel cfg, boolean homeAdvantage) {
+        double effAtt1 = p1.attack() * (1 + cfg.getBiasStrength() * t1.attackBias());
+        double effDef1 = p1.defense() * (1 - cfg.getBiasStrength() * t1.attackBias())
+                * (1 + cfg.getControlStrength() * t1.control());
+        double effAtt2 = p2.attack() * (1 + cfg.getBiasStrength() * t2.attackBias());
+        double effDef2 = p2.defense() * (1 - cfg.getBiasStrength() * t2.attackBias())
+                * (1 + cfg.getControlStrength() * t2.control());
+
+        effAtt1 = Math.max(1e-6, effAtt1); effDef1 = Math.max(1e-6, effDef1);
+        effAtt2 = Math.max(1e-6, effAtt2); effDef2 = Math.max(1e-6, effDef2);
+
+        double openness = cfg.getBaseOpenness()
+                * (1 + cfg.getOpennessStrength() * (t1.risk() + t2.risk()) / 2.0)
+                * (1 - cfg.getControlOpennessStrength() * (t1.control() + t2.control()) / 2.0);
+        openness = Math.max(0.2, openness);
+
+        double ratio1 = effAtt1 / (effAtt1 + effDef2);
+        double ratio2 = effAtt2 / (effAtt2 + effDef1);
+
+        double xg1 = openness * ratio1 * (homeAdvantage ? 1 + cfg.getHomeAttackBonus() : 1);
+        double xg2 = openness * ratio2;
+        return new double[]{xg1, xg2};
+    }
+
+    private static int poisson(Random random, double expectedGoals, int maxGoals) {
+        double l = Math.exp(-expectedGoals);
+        int k = 0;
+        double p = 1.0;
+        do {
+            k++;
+            p *= random.nextDouble();
+        } while (p > l);
+        return Math.min(k - 1, maxGoals);
+    }
+
+    private static String orDefault(String v, String def) { return v == null || v.isBlank() ? def : v; }
+    private static double clamp(double v, double lo, double hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    // Categorical setting -> numeric axis contributions (tunable defaults; could move to config later).
+    private static final Map<String, Double> MENTALITY_BIAS = Map.of(
+            "Very Defensive", -1.0, "Defensive", -0.5, "Balanced", 0.0, "Attacking", 0.5, "Very Attacking", 1.0);
+    private static final Map<String, Double> POSSESSION_BIAS = Map.of(
+            "Standard", 0.0, "Keep Ball", -0.10, "Free Ball Early", 0.15);
+    private static final Map<String, Double> TEMPO_RISK = Map.of(
+            "Much Lower", -1.0, "Lower", -0.5, "Standard", 0.0, "Higher", 0.5, "Much Higher", 1.0);
+    private static final Map<String, Double> PASSING_RISK = Map.of(
+            "Short", -0.15, "Normal", 0.0, "Long", 0.20, "Direct", 0.20);
+    private static final Map<String, Double> POSSESSION_CONTROL = Map.of(
+            "Standard", 0.0, "Keep Ball", 0.6, "Free Ball Early", -0.1);
+    private static final Map<String, Double> TIME_WASTING_CONTROL = Map.of(
+            "Never", -0.1, "Sometimes", 0.0, "Frequently", 0.4, "Always", 0.6);
+}

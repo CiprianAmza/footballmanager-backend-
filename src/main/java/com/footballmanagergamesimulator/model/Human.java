@@ -118,6 +118,20 @@ public class Human {
     private String knownTactics;
     private int managerReputation = 500;
 
+    /**
+     * Manager's OFFENSIVE coaching ability on a 0-100 scale. Unlike {@link #managerReputation}
+     * (derived from the club's reputation), this is the coach's own skill on the attacking side:
+     * it amplifies the squad's effective attack and makes attacking tactics suit him better — so a
+     * lopsided coach develops an identity. Seeded at generation from the club's level with
+     * independent noise, so a coach can be (e.g.) attack-strong but defence-weak.
+     */
+    @Column(columnDefinition = "double default 50")
+    private double offensiveAbility = 50;
+
+    /** Manager's DEFENSIVE coaching ability on a 0-100 scale (see {@link #offensiveAbility}). */
+    @Column(columnDefinition = "double default 50")
+    private double defensiveAbility = 50;
+
     // Manager responsibilities
     @Column(columnDefinition = "boolean default true")
     private boolean attendPressConferences = true;

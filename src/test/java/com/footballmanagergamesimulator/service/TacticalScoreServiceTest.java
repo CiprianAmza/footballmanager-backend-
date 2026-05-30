@@ -38,6 +38,21 @@ class TacticalScoreServiceTest {
     }
 
     @Test
+    void coaching_amplifiesEachSideByAbility() {
+        TeamProfile raw = new TeamProfile(1000, 1000);
+        double k = cfg.getTacticalModel().getCoachStrength(); // default 0.12
+
+        TeamProfile neutral = service.coachedProfile(raw, 50, 50);
+        assertThat(neutral.attack()).isCloseTo(1000, within(1e-9));
+        assertThat(neutral.defense()).isCloseTo(1000, within(1e-9));
+
+        // Attack-strong, defence-weak coach: attack up, defense down.
+        TeamProfile lopsided = service.coachedProfile(raw, 100, 0);
+        assertThat(lopsided.attack()).isCloseTo(1000 * (1 + k), within(1e-9));
+        assertThat(lopsided.defense()).isCloseTo(1000 * (1 - k), within(1e-9));
+    }
+
+    @Test
     void profile_splitsValueByPositionAttackShare() {
         TeamProfile p = service.profile(List.of(
                 new StarterValue("ST", 100), // 0.95 attack
@@ -73,38 +88,37 @@ class TacticalScoreServiceTest {
     }
 
     @Test
-    void mentalityIsATradeOff_notAFreeBoost() {
-        // Equal squads. Attacking raises your attack but lowers your defense, so it is not a
-        // strictly-better choice — its goal difference vs a neutral opponent differs from defensive,
-        // and stays in a sane band (no uncapped +stacking).
-        TeamProfile mine = service.profile(List.of(new StarterValue("MC", 1500)));
+    void mentalityIsATradeOff_leanIntoYourStrength() {
+        // An attack-heavy squad gains from going attacking (amplifies its strong side) more than
+        // from going defensive (which buffs its weak side at the cost of its strength). The trade-off
+        // is bounded — a tactic alone is not a blowout.
+        TeamProfile attackHeavy = service.profile(List.of(new StarterValue("ST", 2000))); // ~att 1900 / def 100
         TeamProfile opp = service.profile(List.of(new StarterValue("MC", 1500)));
         TacticVector neutral = service.vector(new PersonalizedTactic());
 
-        double egdAttacking = service.expectedGoalDifference(mine, service.vector(tactic("Very Attacking", "Standard")), opp, neutral);
-        double egdDefensive = service.expectedGoalDifference(mine, service.vector(tactic("Very Defensive", "Standard")), opp, neutral);
+        double attacking = service.expectedGoalDifference(attackHeavy, service.vector(tactic("Very Attacking", "Standard")), opp, neutral);
+        double defensive = service.expectedGoalDifference(attackHeavy, service.vector(tactic("Very Defensive", "Standard")), opp, neutral);
 
-        assertThat(egdAttacking).as("tactics must change the expected outcome").isNotEqualTo(egdDefensive);
-        // Bounded: a tactic alone can't turn an even matchup into a blowout.
-        assertThat(Math.abs(egdAttacking)).isLessThan(2.0);
-        assertThat(Math.abs(egdDefensive)).isLessThan(2.0);
+        assertThat(attacking).as("attack-heavy squad should prefer attacking").isGreaterThan(defensive);
+        assertThat(Math.abs(attacking - defensive)).as("tactic swing is bounded").isLessThan(1.0);
     }
 
     @Test
-    void noUniversallyBestTactic_attackingBeatsAttackerButNotParker() {
-        // The optimal answer depends on the opponent (matchup): going attacking yields a better
-        // goal difference against an attacking opponent than against a defensive (parked) one.
-        TeamProfile mine = service.profile(List.of(new StarterValue("MC", 1500)));
+    void noUniversallyBestTactic_bestMentalityDependsOnYourSquad() {
+        // The best mentality is not universal: an attack-heavy squad prefers attacking, a
+        // defence-heavy squad prefers defending. Tactics must suit your players.
+        TeamProfile attackHeavy = service.profile(List.of(new StarterValue("ST", 2000)));
+        TeamProfile defenceHeavy = service.profile(List.of(new StarterValue("DC", 2000)));
         TeamProfile opp = service.profile(List.of(new StarterValue("MC", 1500)));
-        TacticVector attackingOpp = service.vector(tactic("Very Attacking", "Much Higher"));
-        TacticVector defensiveOpp = service.vector(tactic("Very Defensive", "Much Lower"));
-        TacticVector myAttacking = service.vector(tactic("Very Attacking", "Higher"));
+        TacticVector neutral = service.vector(new PersonalizedTactic());
+        TacticVector attacking = service.vector(tactic("Very Attacking", "Standard"));
+        TacticVector defending = service.vector(tactic("Very Defensive", "Standard"));
 
-        double vsAttacker = service.expectedGoalDifference(mine, myAttacking, opp, attackingOpp);
-        double vsParker = service.expectedGoalDifference(mine, myAttacking, opp, defensiveOpp);
-
-        assertThat(vsAttacker)
-                .as("attacking should fare better vs an attacking opponent than vs a parked defense")
-                .isGreaterThan(vsParker);
+        assertThat(service.expectedGoalDifference(attackHeavy, attacking, opp, neutral))
+                .as("attack-heavy prefers attacking")
+                .isGreaterThan(service.expectedGoalDifference(attackHeavy, defending, opp, neutral));
+        assertThat(service.expectedGoalDifference(defenceHeavy, defending, opp, neutral))
+                .as("defence-heavy prefers defending")
+                .isGreaterThan(service.expectedGoalDifference(defenceHeavy, attacking, opp, neutral));
     }
 }

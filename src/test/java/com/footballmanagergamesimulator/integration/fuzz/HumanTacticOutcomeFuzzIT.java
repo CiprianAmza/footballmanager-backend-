@@ -3,18 +3,23 @@ package com.footballmanagergamesimulator.integration.fuzz;
 import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
+import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.GameStateService;
-import com.footballmanagergamesimulator.service.LineupRatingService;
-import com.footballmanagergamesimulator.service.MatchSimulationService;
+import com.footballmanagergamesimulator.service.ManagerTacticService;
 import com.footballmanagergamesimulator.service.PlayerValueService;
 import com.footballmanagergamesimulator.service.TacticService;
+import com.footballmanagergamesimulator.service.TacticalScoreService;
+import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
+import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import com.footballmanagergamesimulator.testutil.MarkdownTable;
 import com.footballmanagergamesimulator.testutil.TeamSetup;
+import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,44 +35,35 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeSet;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Human-tactic outcome explorer. Pick YOUR team and a full tactic (formation + mentality,
- * time-wasting, in-possession, passing, tempo); the harness simulates {@code SEASONS} full
- * league campaigns in that team's league and reports where your team finishes on average —
- * then sweeps each tactic axis one value at a time so a single run shows how every setting
- * moves your average position (relative to your squad's value).
+ * Human-tactic outcome explorer on the two-axis (attack/defense) tactical model. Pick YOUR team and
+ * a full tactic; the harness simulates {@code SEASONS} league campaigns in your league and reports
+ * your average finishing position. Crucially, every OTHER team now picks its tactic via its
+ * manager's tactical ability ({@link ManagerTacticService}) — better coaches play better tactics —
+ * so you are measured against a realistic spread of opponents, not a passive default.
  *
- * <p>Model (mirrors the production human path): every team's base power = its best-eleven match
- * value via {@link PlayerValueService} (always the best 11). For YOUR team's matches the base is
- * adjusted per opponent by {@link LineupRatingService#adjustTeamPowerByTacticalProperties} — the
- * mentality/tempo/etc. lever, which is opponent-relative — then goals come from
- * {@link MatchSimulationService#calculateScores}. Opponents use a neutral 4-4-2 with no tactic
- * adjustment (they stand in for the AI). Seeded RNG → fully deterministic and A/B-comparable:
- * every sweep variation replays the identical match stream, so any change in your finishing
- * position is purely the tactic change.
+ * <p>Scoring uses {@link TacticalScoreService}: each squad's value is split into attack/defense by
+ * position, tactic settings redistribute between them (trade-off) and open/slow the game, and goals
+ * come from each side's attack vs the other's defense (matchup). Seeded RNG → deterministic and
+ * A/B-comparable.
  *
- * <h2>How to run</h2>
  * <pre>
- *   mvn verify -Pfuzz -Dit.test=HumanTacticOutcomeFuzzIT -Dteam.id=1
- *   mvn verify -Pfuzz -Dit.test=HumanTacticOutcomeFuzzIT -Dteam.id=1 \
- *       -Dformation=433 -Dmentality=Attacking -Dtempo=Higher -DpassingType=Short \
- *       -DinPossession="Keep Ball" -DtimeWasting=Never -Dseasons=100
+ *   mvn verify -Pfuzz -Dit.test=HumanTacticOutcomeFuzzIT -Dteam.id=104
+ *   mvn verify -Pfuzz -Dit.test='HumanTacticOutcomeFuzzIT#searchBestTacticAndReport' -Dteam.id=104
  * </pre>
- * Output: {@code target/human-tactic-outcome-{teamId}.md}. Gated behind {@code -Pfuzz}; skipped
- * unless {@code -Dteam.id} is supplied.
+ * Gated behind {@code -Pfuzz}; skipped unless {@code -Dteam.id} is supplied.
  */
 @SpringBootTest
 @TestPropertySource(properties = "bootstrap.seed=20260528")
-@DisplayName("Human tactic outcome — your mean league position per tactic setting over N seasons")
+@DisplayName("Human tactic outcome (two-axis) — your mean league position vs manager-skill opponents")
 class HumanTacticOutcomeFuzzIT {
 
     private static final long BASE_SEED = 20260528L;
-    private static final String OPPONENT_FORMATION = "442";
 
-    // Tactic axis value sets (must match the strings adjustTeamPowerByTacticalProperties understands).
     private static final List<String> MENTALITIES = List.of("Very Attacking", "Attacking", "Balanced", "Defensive", "Very Defensive");
     private static final List<String> TIME_WASTING = List.of("Never", "Sometimes", "Frequently", "Always");
     private static final List<String> IN_POSSESSION = List.of("Standard", "Keep Ball", "Free Ball Early");
@@ -76,414 +72,378 @@ class HumanTacticOutcomeFuzzIT {
 
     @Autowired private CompetitionTeamInfoRepository ctiRepo;
     @Autowired private TeamRepository teamRepo;
-    @Autowired private MatchSimulationService matchSim;
+    @Autowired private HumanRepository humanRepo;
     @Autowired private GameStateService gameState;
     @Autowired private CompetitionFormatConfig competitionFormat;
-    @Autowired private LineupRatingService lineupRatingService;
     @Autowired private TacticController tacticController;
     @Autowired private PlayerValueService playerValueService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private TacticService tacticService;
+    @Autowired private TacticalScoreService tacticalScoreService;
+    @Autowired private ManagerTacticService managerTacticService;
 
     @Test
-    @DisplayName("Simulate your team + tactic for N seasons, sweep each axis, write target/human-tactic-outcome-{teamId}.md")
+    @DisplayName("Run your configured tactic + sweep each axis (opponents use manager-skill tactics)")
     void simulateHumanTacticAndReport() throws Exception {
-        String teamIdProp = System.getProperty("team.id");
-        Assumptions.assumeTrue(teamIdProp != null && !teamIdProp.isBlank(),
-                "Skipping — supply -Dteam.id=ID (your team) to run this harness");
-        long humanTeamId = Long.parseLong(teamIdProp.trim());
+        Ctx ctx = setUp();
+        Assumptions.assumeTrue(ctx != null, "Skipping — supply -Dteam.id=ID (your team) to run this harness");
 
-        int seasons = Integer.getInteger("seasons", 100);
-        String formation = System.getProperty("formation", "442");
+        String formation = System.getProperty("formation", ctx.bestFormation);
+        if (!formation.equals(ctx.humanFormation)) ctx.setHumanFormation(formation);
         PersonalizedTactic baseTactic = buildTactic(
                 System.getProperty("mentality", "Balanced"),
                 System.getProperty("timeWasting", "Sometimes"),
                 System.getProperty("inPossession", "Standard"),
                 System.getProperty("passingType", "Normal"),
                 System.getProperty("tempo", "Standard"));
+        TacticVector baseVec = tacticalScoreService.vector(baseTactic);
 
-        int season = gameState.currentSeason();
-        long compId = findLeagueForTeam(humanTeamId, season);
+        double baselineMeanPos = ctx.meanPosForHumanTactic(baseVec);
 
-        // ---- Load league + compute every team's base match value (best 11) ----
-        List<Long> ids = distinctSortedTeamIds(compId, season);
-        int n = ids.size();
-        assertThat(n).as("league must have at least 2 teams").isGreaterThanOrEqualTo(2);
-
-        final int humanIdx = ids.indexOf(humanTeamId);
-        assertThat(humanIdx).as("your team must be in the resolved league").isGreaterThanOrEqualTo(0);
-
-        double[] baseValues = new double[n];
-        List<TeamSetup> teams = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-            long id = ids.get(i);
-            String f = id == humanTeamId ? formation : OPPONENT_FORMATION;
-            double base = teamMatchValue(id, f);
-            baseValues[i] = base;
-            String name = teamRepo.findNameById(id);
-            teams.add(new TeamSetup(id, name == null ? "Team#" + id : name, base));
-        }
-
-        int encounters = competitionFormat.get(1).encountersFor(n);
-
-        // ---- Baseline: configured tactic ----
-        Aggregate baseline = runSeasons(teams, baseValues, humanIdx, baseTactic, encounters, seasons);
-        double baselineMeanPos = meanPosition(baseline.positionCounts()[humanIdx], seasons);
-
-        // ---- Build report: baseline + per-axis sweeps (hold everything else at the configured value) ----
         StringBuilder sb = new StringBuilder();
-        sb.append("# Human Tactic Outcome\n\n");
+        sb.append("# Human Tactic Outcome (two-axis model)\n\n");
         sb.append("Run on ").append(java.time.LocalDateTime.now()).append('\n');
-        sb.append("Your team: ").append(teams.get(humanIdx).name()).append(" (id=").append(humanTeamId).append(")\n");
-        sb.append("League: comp id=").append(compId).append(", season=").append(season)
-                .append(", ").append(n).append(" teams, ").append((n - 1) * encounters).append(" matches/season\n");
-        sb.append("Seasons simulated: ").append(seasons).append("  •  Seed: ").append(BASE_SEED)
-                .append(" (deterministic, A/B-comparable)\n");
-        sb.append(String.format("Your squad base value (best 11, %s): %.0f%n", formation, baseValues[humanIdx]));
+        ctx.appendHeader(sb, formation);
         sb.append("Configured tactic: ").append(describe(formation, baseTactic)).append("\n\n");
-        sb.append("Valid `-D` values — formation: `")
-                .append(String.join("`, `", tacticService.getAllExistingTactics())).append("`\n");
-        sb.append("mentality: `").append(String.join("`, `", MENTALITIES))
-                .append("`  •  tempo: `").append(String.join("`, `", TEMPO)).append("`\n");
-        sb.append("passingType: `").append(String.join("`, `", PASSING))
-                .append("`  •  inPossession: `").append(String.join("`, `", IN_POSSESSION))
-                .append("`  •  timeWasting: `").append(String.join("`, `", TIME_WASTING)).append("`\n\n");
-        sb.append(String.format("## Baseline: your mean finishing position = **%.2f / %d**  (avg pts %.1f, title %.1f%%)%n%n",
-                baselineMeanPos, n,
-                baseline.totalPoints()[humanIdx] / (double) seasons,
-                baseline.championships()[humanIdx] * 100.0 / seasons));
+        sb.append(String.format("## Baseline: your mean finishing position = **%.2f / %d**%n%n", baselineMeanPos, ctx.n));
+        sb.append(ctx.standings(baseVec)).append('\n');
 
-        sb.append(baselineStandings(teams, baseline, humanIdx, seasons)).append('\n');
-
-        // Sweep each tactic axis.
         sb.append("## How each setting moves your average position\n\n");
-        sb.append("One axis varied at a time; everything else stays at your configured value. ");
-        sb.append("Lower mean position = better. Δ is vs your baseline above (negative = better).\n\n");
-
-        sb.append(sweepTable("Mentality", MENTALITIES, baseTactic.getMentality(), baselineMeanPos,
-                v -> teamMeanPos(teams, baseValues, humanIdx, withMentality(baseTactic, v), encounters, seasons)));
-        sb.append(sweepTable("Tempo", TEMPO, baseTactic.getTempo(), baselineMeanPos,
-                v -> teamMeanPos(teams, baseValues, humanIdx, withTempo(baseTactic, v), encounters, seasons)));
-        sb.append(sweepTable("Passing", PASSING, baseTactic.getPassingType(), baselineMeanPos,
-                v -> teamMeanPos(teams, baseValues, humanIdx, withPassing(baseTactic, v), encounters, seasons)));
-        sb.append(sweepTable("In possession", IN_POSSESSION, baseTactic.getInPossession(), baselineMeanPos,
-                v -> teamMeanPos(teams, baseValues, humanIdx, withInPossession(baseTactic, v), encounters, seasons)));
-        sb.append(sweepTable("Time wasting", TIME_WASTING, baseTactic.getTimeWasting(), baselineMeanPos,
-                v -> teamMeanPos(teams, baseValues, humanIdx, withTimeWasting(baseTactic, v), encounters, seasons)));
-
-        // Formation sweep — changes which best 11 plays (recomputes your base value).
-        sb.append(formationSweep(teams, baseValues, humanIdx, humanTeamId, baseTactic, formation,
-                baselineMeanPos, encounters, seasons));
+        sb.append("One axis varied at a time; everything else at your configured value; opponents fixed at ");
+        sb.append("their manager-skill tactics. Lower mean position = better; Δ is vs your baseline.\n\n");
+        sb.append(sweep("Mentality", MENTALITIES, baseTactic.getMentality(), baselineMeanPos,
+                v -> ctx.meanPosForHumanTactic(tacticalScoreService.vector(withMentality(baseTactic, v)))));
+        sb.append(sweep("Tempo", TEMPO, baseTactic.getTempo(), baselineMeanPos,
+                v -> ctx.meanPosForHumanTactic(tacticalScoreService.vector(withTempo(baseTactic, v)))));
+        sb.append(sweep("Passing", PASSING, baseTactic.getPassingType(), baselineMeanPos,
+                v -> ctx.meanPosForHumanTactic(tacticalScoreService.vector(withPassing(baseTactic, v)))));
+        sb.append(sweep("In possession", IN_POSSESSION, baseTactic.getInPossession(), baselineMeanPos,
+                v -> ctx.meanPosForHumanTactic(tacticalScoreService.vector(withInPossession(baseTactic, v)))));
+        sb.append(sweep("Time wasting", TIME_WASTING, baseTactic.getTimeWasting(), baselineMeanPos,
+                v -> ctx.meanPosForHumanTactic(tacticalScoreService.vector(withTimeWasting(baseTactic, v)))));
 
         sb.append("\n## How to read this\n\n");
-        sb.append("- **Mean position**: average league finish over ").append(seasons)
-                .append(" seasons (1 = champion). Compare rows within an axis to see that setting's effect *for your squad*.\n");
-        sb.append("- Effects are **opponent-relative**: a setting that helps a weak side overperform may not help a favourite, and vice versa.\n");
-        sb.append("- Mentality/time-wasting/in-possession only bite when mentality ≠ Balanced (engine rule); passing+tempo always apply.\n");
+        sb.append("- Opponents are NOT passive: each picks a tactic by its manager's ability, so there is no single ");
+        sb.append("dominant setting — a tactic that beats attacking sides can lose to defensive ones.\n");
+        sb.append("- Settings are a TRADE-OFF (attacking raises attack but lowers defense), so you cannot stack a huge edge.\n");
 
-        Path reportPath = Path.of("target", "human-tactic-outcome-" + humanTeamId + ".md");
+        Path reportPath = Path.of("target", "human-tactic-outcome-" + ctx.humanTeamId + ".md");
         Files.writeString(reportPath, sb.toString());
         System.out.println();
         System.out.println(sb);
         System.out.println("Report written to: " + reportPath.toAbsolutePath());
-
-        // Sanity: the simulation produced a valid position for your team.
-        assertThat(baselineMeanPos).isBetween(1.0, (double) n);
+        assertThat(baselineMeanPos).isBetween(1.0, (double) ctx.n);
     }
 
-    /**
-     * Search the full tactic-setting space (mentality × time-wasting × in-possession × passing ×
-     * tempo = 900 combos) for YOUR team and recommend the single best tactic — accounting for the
-     * interactions that a one-axis sweep misses. The formation is auto-picked as the one that best
-     * fits your players (highest best-11 match value), unless {@code -Dformation} overrides it.
-     *
-     * <pre>
-     *   mvn verify -Pfuzz -Dit.test=HumanTacticOutcomeFuzzIT#searchBestTacticAndReport -Dteam.id=104
-     *   # pin the formation, or change season count:
-     *   mvn verify -Pfuzz -Dit.test=HumanTacticOutcomeFuzzIT#searchBestTacticAndReport \
-     *       -Dteam.id=104 -Dformation=433 -Dseasons=100
-     * </pre>
-     * Output: {@code target/best-tactic-104.md}.
-     */
     @Test
-    @DisplayName("Search all 900 tactic combos and recommend the best tactic for your players")
+    @DisplayName("Search all 900 tactic combos and recommend the best vs manager-skill opponents")
     void searchBestTacticAndReport() throws Exception {
-        String teamIdProp = System.getProperty("team.id");
-        Assumptions.assumeTrue(teamIdProp != null && !teamIdProp.isBlank(),
-                "Skipping — supply -Dteam.id=ID (your team) to run this search");
-        long humanTeamId = Long.parseLong(teamIdProp.trim());
-        int seasons = Integer.getInteger("seasons", 100);
+        Ctx ctx = setUp();
+        Assumptions.assumeTrue(ctx != null, "Skipping — supply -Dteam.id=ID (your team) to run this search");
+        int seasons = ctx.seasons;
 
-        int season = gameState.currentSeason();
-        long compId = findLeagueForTeam(humanTeamId, season);
-        List<Long> ids = distinctSortedTeamIds(compId, season);
-        int n = ids.size();
-        final int humanIdx = ids.indexOf(humanTeamId);
-        assertThat(humanIdx).as("your team must be in the resolved league").isGreaterThanOrEqualTo(0);
-        int encounters = competitionFormat.get(1).encountersFor(n);
+        double neutralMean = ctx.meanPosForHumanTactic(tacticalScoreService.vector(
+                buildTactic("Balanced", "Sometimes", "Standard", "Normal", "Standard")));
 
-        // Opponents = neutral 4-4-2, no tactic adjustment (stand-in AI). Human slot filled after
-        // the formation is chosen.
-        double[] baseValues = new double[n];
-        List<TeamSetup> teams = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-            long id = ids.get(i);
-            String name = teamRepo.findNameById(id);
-            double base = i == humanIdx ? 0 : teamMatchValue(id, OPPONENT_FORMATION);
-            baseValues[i] = base;
-            teams.add(new TeamSetup(id, name == null ? "Team#" + id : name, base));
-        }
-
-        // ---- Pick the formation that best fits your players (max base value), or honour -Dformation ----
-        String formationOverride = System.getProperty("formation");
-        String bestFormation;
-        double humanBase;
-        if (formationOverride != null && !formationOverride.isBlank()) {
-            bestFormation = formationOverride.trim();
-            humanBase = teamMatchValue(humanTeamId, bestFormation);
-        } else {
-            bestFormation = null;
-            humanBase = -1;
-            for (String f : tacticService.getAllExistingTactics()) {
-                double v = teamMatchValue(humanTeamId, f);
-                if (v > humanBase) { humanBase = v; bestFormation = f; }
-            }
-        }
-        baseValues[humanIdx] = humanBase;
-        teams.set(humanIdx, new TeamSetup(humanTeamId, teams.get(humanIdx).name(), humanBase));
-
-        // ---- Neutral-tactic baseline for reference ----
-        double neutralMean = teamMeanPos(teams, baseValues, humanIdx,
-                buildTactic("Balanced", "Sometimes", "Standard", "Normal", "Standard"), encounters, seasons);
-
-        // ---- Exhaustive search over the 900 setting combinations ----
         List<TacticResult> results = new ArrayList<>(900);
-        for (String mentality : MENTALITIES)
-            for (String timeWasting : TIME_WASTING)
-                for (String inPossession : IN_POSSESSION)
-                    for (String passing : PASSING)
-                        for (String tempo : TEMPO) {
-                            PersonalizedTactic t = buildTactic(mentality, timeWasting, inPossession, passing, tempo);
-                            Aggregate agg = runSeasons(teams, baseValues, humanIdx, t, encounters, seasons);
-                            results.add(new TacticResult(t,
-                                    meanPosition(agg.positionCounts()[humanIdx], seasons),
-                                    agg.championships()[humanIdx] * 100.0 / seasons));
-                        }
+        for (PersonalizedTactic t : managerTacticService.candidateTactics()) {
+            double mp = ctx.meanPosForHumanTactic(tacticalScoreService.vector(t));
+            results.add(new TacticResult(t, mp));
+        }
         results.sort(java.util.Comparator.comparingDouble(TacticResult::meanPos));
         TacticResult best = results.get(0);
 
-        // ---- Report ----
         StringBuilder sb = new StringBuilder();
-        sb.append("# Best Tactic Search\n\n");
+        sb.append("# Best Tactic Search (two-axis model)\n\n");
         sb.append("Run on ").append(java.time.LocalDateTime.now()).append('\n');
-        sb.append("Your team: ").append(teams.get(humanIdx).name()).append(" (id=").append(humanTeamId).append(")\n");
-        sb.append("League: comp id=").append(compId).append(", ").append(n).append(" teams, ")
-                .append((n - 1) * encounters).append(" matches/season\n");
-        sb.append("Formation: ").append(bestFormation)
-                .append(formationOverride != null ? " (pinned via -Dformation)" : " (auto — best fit for your players)")
-                .append(String.format(", base value %.0f%n", humanBase));
-        sb.append("Seasons/combo: ").append(seasons).append("  •  Combos tried: ").append(results.size())
-                .append("  •  Seed: ").append(BASE_SEED).append(" (deterministic)\n");
-        sb.append(String.format("Neutral-tactic baseline: mean position %.2f / %d%n%n", neutralMean, n));
+        ctx.appendHeader(sb, ctx.humanFormation);
+        sb.append(String.format("Neutral-tactic baseline: mean position %.2f / %d%n%n", neutralMean, ctx.n));
 
         sb.append("## ★ Recommended tactic\n\n");
-        sb.append(String.format("**Mean position %.2f / %d**  (title %.1f%%)  —  %+.2f vs neutral%n%n",
-                best.meanPos(), n, best.titlePct(), best.meanPos() - neutralMean));
-        sb.append("- Formation: `").append(bestFormation).append("`\n");
+        sb.append(String.format("**Mean position %.2f / %d**  —  %+.2f vs neutral%n%n",
+                best.meanPos(), ctx.n, best.meanPos() - neutralMean));
+        sb.append("- Formation: `").append(ctx.humanFormation).append("`\n");
         sb.append("- Mentality: `").append(best.tactic().getMentality()).append("`\n");
         sb.append("- Tempo: `").append(best.tactic().getTempo()).append("`\n");
         sb.append("- Passing: `").append(best.tactic().getPassingType()).append("`\n");
         sb.append("- In possession: `").append(best.tactic().getInPossession()).append("`\n");
         sb.append("- Time wasting: `").append(best.tactic().getTimeWasting()).append("`\n\n");
-        sb.append("Reproduce / verify:\n```\n").append(reproduceCommand(humanTeamId, bestFormation, best.tactic(), seasons))
-                .append("\n```\n\n");
 
         sb.append("## Top 15 tactics\n\n");
         MarkdownTable table = new MarkdownTable(
-                List.of("#", "Mentality", "Tempo", "Passing", "Possession", "Time-wasting", "Mean Pos", "Title %"),
+                List.of("#", "Mentality", "Tempo", "Passing", "Possession", "Time-wasting", "Mean Pos"),
                 List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
-                        MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
-                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
+                        MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
         for (int i = 0; i < Math.min(15, results.size()); i++) {
             TacticResult r = results.get(i);
-            table.addRow(String.valueOf(i + 1),
-                    r.tactic().getMentality(), r.tactic().getTempo(), r.tactic().getPassingType(),
-                    r.tactic().getInPossession(), r.tactic().getTimeWasting(),
-                    String.format("%.2f", r.meanPos()), String.format("%.1f%%", r.titlePct()));
+            table.addRow(String.valueOf(i + 1), r.tactic().getMentality(), r.tactic().getTempo(),
+                    r.tactic().getPassingType(), r.tactic().getInPossession(), r.tactic().getTimeWasting(),
+                    String.format("%.2f", r.meanPos()));
         }
         sb.append(table.render()).append('\n');
+        sb.append("\nOpponents pick tactics by their managers' ability, so the best tactic is the one that fares ");
+        sb.append("best across that spread — not a setting that beats a passive default.\n");
 
-        sb.append("## Note\n\n");
-        sb.append("- This searches the full 900-combo space, so it captures interactions a one-axis sweep misses ");
-        sb.append("(e.g. the best passing depends on tempo; mentality gates possession/time-wasting).\n");
-        sb.append("- The tactic effect is **opponent-relative** and the engine stacks the per-axis percentages, ");
-        sb.append("so a strong combination can be a large swing. Tune `adjustTeamPowerByTacticalProperties` if you ");
-        sb.append("want tactics to be a smaller lever relative to squad value.\n");
-
-        Path reportPath = Path.of("target", "best-tactic-" + humanTeamId + ".md");
+        Path reportPath = Path.of("target", "best-tactic-" + ctx.humanTeamId + ".md");
         Files.writeString(reportPath, sb.toString());
         System.out.println();
         System.out.println(sb);
         System.out.println("Report written to: " + reportPath.toAbsolutePath());
-
-        assertThat(best.meanPos()).isBetween(1.0, (double) n);
-        assertThat(best.meanPos()).as("best tactic must be at least as good as neutral")
-                .isLessThanOrEqualTo(neutralMean + 1e-9);
+        assertThat(best.meanPos()).isBetween(1.0, (double) ctx.n);
     }
 
-    private static String reproduceCommand(long teamId, String formation, PersonalizedTactic t, int seasons) {
-        return "mvn verify -Pfuzz -Dit.test=HumanTacticOutcomeFuzzIT -Dteam.id=" + teamId
-                + " -Dformation=" + formation
-                + " -Dmentality=\"" + t.getMentality() + "\""
-                + " -Dtempo=\"" + t.getTempo() + "\""
-                + " -DpassingType=\"" + t.getPassingType() + "\""
-                + " -DinPossession=\"" + t.getInPossession() + "\""
-                + " -DtimeWasting=\"" + t.getTimeWasting() + "\""
-                + " -Dseasons=" + seasons;
+    // ==================== context (league, profiles, opponent tactics) ====================
+
+    /** Builds the simulation context once: league teams, each team's attack/defense profile, and the
+     *  manager-skill tactic every opponent will use. Returns null if -Dteam.id is absent. */
+    private Ctx setUp() {
+        String teamIdProp = System.getProperty("team.id");
+        if (teamIdProp == null || teamIdProp.isBlank()) return null;
+        long humanTeamId = Long.parseLong(teamIdProp.trim());
+        int seasons = Integer.getInteger("seasons", 100);
+        int season = gameState.currentSeason();
+        long compId = findLeagueForTeam(humanTeamId, season);
+
+        List<Long> ids = distinctSortedTeamIds(compId, season);
+        int n = ids.size();
+        int humanIdx = ids.indexOf(humanTeamId);
+        if (humanIdx < 0) throw new IllegalArgumentException("Team " + humanTeamId + " not in league " + compId);
+        int encounters = competitionFormat.get(1).encountersFor(n);
+
+        // Best formation for the human's players (max total value); opponents use 4-4-2.
+        String bestFormation = bestFormationFor(humanTeamId);
+        String humanFormation = bestFormation;
+
+        Coach[] coaches = new Coach[n];
+        TeamProfile[] profiles = new TeamProfile[n];
+        List<TeamSetup> teams = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            long id = ids.get(i);
+            coaches[i] = coachFor(id);
+            String f = id == humanTeamId ? humanFormation : "442";
+            profiles[i] = coachedTeamProfile(id, f, coaches[i]); // squad value × manager coaching
+            String name = teamRepo.findNameById(id);
+            teams.add(new TeamSetup(id, name == null ? "Team#" + id : name, profiles[i].attack() + profiles[i].defense()));
+        }
+
+        // Representative opponent = league average (coached) attack/defense.
+        double avgAtt = 0, avgDef = 0;
+        for (TeamProfile p : profiles) { avgAtt += p.attack(); avgDef += p.defense(); }
+        TeamProfile avgProfile = new TeamProfile(avgAtt / n, avgDef / n);
+
+        // Each opponent picks a tactic suited to its (coached) profile, at a rank set by its manager's
+        // ability; the human's is set per-run.
+        TacticVector[] tactics = new TacticVector[n];
+        for (int i = 0; i < n; i++) {
+            if (i == humanIdx) { tactics[i] = tacticalScoreService.vector(new PersonalizedTactic()); continue; }
+            tactics[i] = tacticalScoreService.vector(
+                    managerTacticService.chooseTactic(profiles[i], avgProfile, coaches[i].pickAbility()));
+        }
+
+        return new Ctx(humanTeamId, compId, season, n, humanIdx, encounters, seasons, bestFormation,
+                humanFormation, teams, profiles, tactics, avgProfile, coaches);
     }
 
-    private record TacticResult(PersonalizedTactic tactic, double meanPos, double titlePct) {}
+    /** Mutable simulation context + the season runner. */
+    private final class Ctx {
+        final long humanTeamId; final long compId; final int season; final int n; final int humanIdx;
+        final int encounters; final int seasons; final String bestFormation;
+        String humanFormation;
+        final List<TeamSetup> teams; final TeamProfile[] profiles; final TacticVector[] tactics; final TeamProfile avgProfile;
+        final Coach[] coaches;
 
-    // ==================== simulation ====================
+        Ctx(long humanTeamId, long compId, int season, int n, int humanIdx, int encounters, int seasons,
+            String bestFormation, String humanFormation, List<TeamSetup> teams, TeamProfile[] profiles,
+            TacticVector[] tactics, TeamProfile avgProfile, Coach[] coaches) {
+            this.humanTeamId = humanTeamId; this.compId = compId; this.season = season; this.n = n;
+            this.humanIdx = humanIdx; this.encounters = encounters; this.seasons = seasons;
+            this.bestFormation = bestFormation; this.humanFormation = humanFormation; this.teams = teams;
+            this.profiles = profiles; this.tactics = tactics; this.avgProfile = avgProfile; this.coaches = coaches;
+        }
 
-    /** One team's matchday base value: best-11 match value (PlayerValueService), mirrors getSimpleTeamRating. */
-    private double teamMatchValue(long teamId, String formation) {
+        void setHumanFormation(String f) {
+            this.humanFormation = f;
+            this.profiles[humanIdx] = coachedTeamProfile(humanTeamId, f, coaches[humanIdx]);
+        }
+
+        /** Your team's mean finishing position over the season set, given your tactic vector. */
+        double meanPosForHumanTactic(TacticVector humanTactic) {
+            tactics[humanIdx] = humanTactic;
+            long[][] positionCounts = runSeasons();
+            double mp = 0;
+            for (int pos = 0; pos < n; pos++) mp += (pos + 1) * positionCounts[humanIdx][pos];
+            return mp / seasons;
+        }
+
+        long[][] runSeasons() {
+            long[][] positionCounts = new long[n][n];
+            Random rng = new Random(BASE_SEED);
+            for (int s = 0; s < seasons; s++) {
+                int[] points = new int[n], gf = new int[n], ga = new int[n];
+                int fullDoubles = encounters / 2;
+                boolean extraSingle = (encounters % 2) == 1;
+                for (int d = 0; d < fullDoubles; d++)
+                    for (int home = 0; home < n; home++)
+                        for (int away = 0; away < n; away++) {
+                            if (home == away) continue;
+                            playMatch(home, away, points, gf, ga, rng);
+                        }
+                if (extraSingle)
+                    for (int i = 0; i < n; i++)
+                        for (int j = i + 1; j < n; j++)
+                            playMatch(i, j, points, gf, ga, rng);
+                int[] order = standingsOrder(points, gf, ga);
+                for (int pos = 0; pos < n; pos++) positionCounts[order[pos]][pos]++;
+            }
+            return positionCounts;
+        }
+
+        void playMatch(int home, int away, int[] points, int[] gf, int[] ga, Random rng) {
+            List<Integer> scores = tacticalScoreService.score(
+                    profiles[home], tactics[home], profiles[away], tactics[away], rng);
+            int sH = scores.get(0), sA = scores.get(1);
+            gf[home] += sH; ga[home] += sA; gf[away] += sA; ga[away] += sH;
+            if (sH > sA) points[home] += 3;
+            else if (sH == sA) { points[home]++; points[away]++; }
+            else points[away] += 3;
+        }
+
+        int[] standingsOrder(int[] points, int[] gf, int[] ga) {
+            Integer[] idx = new Integer[n];
+            for (int i = 0; i < n; i++) idx[i] = i;
+            java.util.Arrays.sort(idx, (a, b) -> {
+                if (points[a] != points[b]) return points[b] - points[a];
+                int gdA = gf[a] - ga[a], gdB = gf[b] - ga[b];
+                if (gdA != gdB) return gdB - gdA;
+                if (gf[a] != gf[b]) return gf[b] - gf[a];
+                return teams.get(a).name().compareTo(teams.get(b).name());
+            });
+            int[] order = new int[n];
+            for (int i = 0; i < n; i++) order[i] = idx[i];
+            return order;
+        }
+
+        void appendHeader(StringBuilder sb, String formation) {
+            sb.append("Your team: ").append(teams.get(humanIdx).name()).append(" (id=").append(humanTeamId).append(")\n");
+            sb.append("League: comp id=").append(compId).append(", ").append(n).append(" teams, ")
+                    .append((n - 1) * encounters).append(" matches/season\n");
+            TeamProfile hp = profiles[humanIdx];
+            sb.append(String.format("Your manager: offensive %.0f, defensive %.0f (coaching applied to your squad)%n",
+                    coaches[humanIdx].off(), coaches[humanIdx].def()));
+            sb.append(String.format("Your squad (formation %s, coached): attack %.0f, defense %.0f (total %.0f)%n",
+                    formation, hp.attack(), hp.defense(), hp.attack() + hp.defense()));
+            sb.append("Seasons: ").append(seasons).append("  •  Seed: ").append(BASE_SEED)
+                    .append("  •  Opponents pick tactics by their managers' offensive/defensive ability.\n");
+        }
+
+        String standings(TacticVector humanTactic) {
+            tactics[humanIdx] = humanTactic;
+            long[][] pc = runSeasons();
+            double[] meanPos = new double[n];
+            for (int t = 0; t < n; t++) for (int pos = 0; pos < n; pos++) meanPos[t] += (pos + 1) * pc[t][pos] / (double) seasons;
+            Integer[] order = new Integer[n];
+            for (int i = 0; i < n; i++) order[i] = i;
+            java.util.Arrays.sort(order, (a, b) -> Double.compare(meanPos[a], meanPos[b]));
+            MarkdownTable table = new MarkdownTable(
+                    List.of("Rank", "Team", "Att", "Def", "Mean Pos"),
+                    List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT,
+                            MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
+            int rank = 1;
+            for (int t : order) {
+                table.addRow(String.valueOf(rank++), teams.get(t).name() + (t == humanIdx ? "  «YOU»" : ""),
+                        String.format("%.0f", profiles[t].attack()), String.format("%.0f", profiles[t].defense()),
+                        String.format("%.2f", meanPos[t]));
+            }
+            return "## League standings with your configured tactic (mean over " + seasons + " seasons)\n\n" + table.render();
+        }
+    }
+
+    // ==================== profiles + lookups ====================
+
+    /** A team's attack/defense profile from its best 11 for a formation (PlayerValueService values). */
+    private TeamProfile teamProfile(long teamId, String formation) {
         List<TacticController.StarterSlot> slots = tacticController.getBestElevenWithSlots(String.valueOf(teamId), formation);
         List<Long> ids = slots.stream().map(s -> s.player().getId()).toList();
         Map<Long, PlayerSkills> skills = new HashMap<>();
         for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skills.put(s.getPlayerId(), s);
-
-        double sum = 0;
+        List<TacticalScoreService.StarterValue> starters = new ArrayList<>(slots.size());
         for (TacticController.StarterSlot slot : slots) {
             var pv = slot.player();
             String natural = pv.getPosition();
             String used = slot.usedPosition();
             PlayerSkills sk = skills.get(pv.getId());
-            sum += sk != null
+            double value = sk != null
                     ? playerValueService.evaluatePlayer(sk, natural, used, pv.getMorale(), pv.getFitness())
                     : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
+            starters.add(new TacticalScoreService.StarterValue(used, value));
         }
-        return sum;
+        return tacticalScoreService.profile(starters);
     }
 
-    /** Effective power of {@code team} when facing {@code opp}: the human team gets the tactic adjustment. */
-    private double effectivePower(int team, int opp, double[] baseValues, int humanIdx, PersonalizedTactic tactic) {
-        if (team == humanIdx) {
-            return lineupRatingService.adjustTeamPowerByTacticalProperties(baseValues[team], baseValues[opp], tactic);
+    /** Formation maximizing the squad's total value (best fit for the players). */
+    private String bestFormationFor(long teamId) {
+        String best = "442";
+        double bestTotal = -1;
+        for (String f : tacticService.getAllExistingTactics()) {
+            TeamProfile p = teamProfile(teamId, f);
+            double total = p.attack() + p.defense();
+            if (total > bestTotal) { bestTotal = total; best = f; }
         }
-        return baseValues[team];
+        return best;
     }
 
-    /** Run N seasons; aggregate per-team position counts, points and titles. Seed reset each call for A/B parity. */
-    private Aggregate runSeasons(List<TeamSetup> teams, double[] baseValues, int humanIdx,
-                                 PersonalizedTactic tactic, int encounters, int seasons) {
-        int n = teams.size();
-        long[][] positionCounts = new long[n][n];
-        long[] totalPoints = new long[n];
-        int[] championships = new int[n];
-
-        matchSim.setRandomForTesting(new Random(BASE_SEED));
-        try {
-            for (int s = 0; s < seasons; s++) {
-                int[] points = new int[n], gf = new int[n], ga = new int[n];
-                int fullDoubles = encounters / 2;
-                boolean extraSingle = (encounters % 2) == 1;
-                for (int d = 0; d < fullDoubles; d++) {
-                    for (int home = 0; home < n; home++) {
-                        for (int away = 0; away < n; away++) {
-                            if (home == away) continue;
-                            playMatch(home, away, baseValues, humanIdx, tactic, points, gf, ga);
-                        }
-                    }
-                }
-                if (extraSingle) {
-                    for (int i = 0; i < n; i++)
-                        for (int j = i + 1; j < n; j++)
-                            playMatch(i, j, baseValues, humanIdx, tactic, points, gf, ga);
-                }
-                int[] order = standingsOrder(teams, points, gf, ga);
-                for (int pos = 0; pos < n; pos++) positionCounts[order[pos]][pos]++;
-                for (int t = 0; t < n; t++) totalPoints[t] += points[t];
-                championships[order[0]]++;
-            }
-        } finally {
-            matchSim.setRandomForTesting(new Random());
-        }
-        return new Aggregate(positionCounts, totalPoints, championships);
+    /** A manager's offensive/defensive coaching abilities (0-100); neutral 50 when absent. */
+    private record Coach(double off, double def) {
+        double pickAbility() { return (off + def) / 2.0; }
     }
 
-    private void playMatch(int home, int away, double[] baseValues, int humanIdx, PersonalizedTactic tactic,
-                           int[] points, int[] gf, int[] ga) {
-        double pHome = effectivePower(home, away, baseValues, humanIdx, tactic);
-        double pAway = effectivePower(away, home, baseValues, humanIdx, tactic);
-        List<Integer> scores = matchSim.calculateScores(pHome, pAway);
-        int sH = scores.get(0), sA = scores.get(1);
-        gf[home] += sH; ga[home] += sA; gf[away] += sA; ga[away] += sH;
-        if (sH > sA) points[home] += 3;
-        else if (sH == sA) { points[home]++; points[away]++; }
-        else points[away] += 3;
+    private Coach coachFor(long teamId) {
+        return humanRepo.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
+                .filter(m -> !m.isRetired())
+                .findFirst()
+                .map(m -> new Coach(m.getOffensiveAbility(), m.getDefensiveAbility()))
+                .orElse(new Coach(50.0, 50.0));
     }
 
-    private int[] standingsOrder(List<TeamSetup> teams, int[] points, int[] gf, int[] ga) {
-        int n = teams.size();
-        Integer[] idx = new Integer[n];
-        for (int i = 0; i < n; i++) idx[i] = i;
-        java.util.Arrays.sort(idx, (a, b) -> {
-            if (points[a] != points[b]) return points[b] - points[a];
-            int gdA = gf[a] - ga[a], gdB = gf[b] - ga[b];
-            if (gdA != gdB) return gdB - gdA;
-            if (gf[a] != gf[b]) return gf[b] - gf[a];
-            return teams.get(a).name().compareTo(teams.get(b).name());
-        });
-        int[] order = new int[n];
-        for (int i = 0; i < n; i++) order[i] = idx[i];
-        return order;
+    /** Squad profile for a formation, with the manager's coaching applied. */
+    private TeamProfile coachedTeamProfile(long teamId, String formation, Coach coach) {
+        return tacticalScoreService.coachedProfile(teamProfile(teamId, formation), coach.off(), coach.def());
     }
-
-    /** Convenience: run a variation and return only your team's mean finishing position. */
-    private double teamMeanPos(List<TeamSetup> teams, double[] baseValues, int humanIdx,
-                               PersonalizedTactic tactic, int encounters, int seasons) {
-        Aggregate agg = runSeasons(teams, baseValues, humanIdx, tactic, encounters, seasons);
-        return meanPosition(agg.positionCounts()[humanIdx], seasons);
-    }
-
-    private static double meanPosition(long[] positionRow, int seasons) {
-        double mp = 0;
-        for (int pos = 0; pos < positionRow.length; pos++) mp += (pos + 1) * positionRow[pos];
-        return mp / seasons;
-    }
-
-    // ==================== league resolution ====================
 
     private long findLeagueForTeam(long teamId, int season) {
-        for (long compId : gameState.getLeagueCompetitionIdsCached().stream().sorted().toList()) {
-            for (CompetitionTeamInfo cti : ctiRepo.findAllByCompetitionIdAndSeasonNumber(compId, season)) {
+        for (long compId : gameState.getLeagueCompetitionIdsCached().stream().sorted().toList())
+            for (CompetitionTeamInfo cti : ctiRepo.findAllByCompetitionIdAndSeasonNumber(compId, season))
                 if (cti.getTeamId() == teamId) return compId;
-            }
-        }
-        throw new IllegalArgumentException(
-                "Team " + teamId + " is not in any top-tier league for season " + season
-                        + ". Available leagues: " + gameState.getLeagueCompetitionIdsCached());
+        throw new IllegalArgumentException("Team " + teamId + " not in any top-tier league for season " + season);
     }
 
     private List<Long> distinctSortedTeamIds(long compId, int season) {
         TreeSet<Long> ids = new TreeSet<>();
-        for (CompetitionTeamInfo cti : ctiRepo.findAllByCompetitionIdAndSeasonNumber(compId, season)) {
+        for (CompetitionTeamInfo cti : ctiRepo.findAllByCompetitionIdAndSeasonNumber(compId, season))
             if (cti.getTeamId() > 0) ids.add(cti.getTeamId());
-        }
         return new ArrayList<>(ids);
     }
 
-    // ==================== tactic builders ====================
+    // ==================== report helpers + tactic builders ====================
 
-    private static PersonalizedTactic buildTactic(String mentality, String timeWasting,
-                                                  String inPossession, String passingType, String tempo) {
+    private static String sweep(String axis, List<String> values, String configured, double baseline, Function<String, Double> fn) {
+        MarkdownTable table = new MarkdownTable(
+                List.of(axis, "Mean Pos", "Δ vs baseline", ""),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT));
+        String best = null; double bestPos = Double.MAX_VALUE;
+        Map<String, Double> results = new java.util.LinkedHashMap<>();
+        for (String v : values) { double mp = fn.apply(v); results.put(v, mp); if (mp < bestPos) { bestPos = mp; best = v; } }
+        for (Map.Entry<String, Double> e : results.entrySet()) {
+            String tag = (e.getKey().equals(configured) ? "« configured " : "") + (e.getKey().equals(best) ? "★ best" : "");
+            table.addRow(e.getKey(), String.format("%.2f", e.getValue()), String.format("%+.2f", e.getValue() - baseline), tag.trim());
+        }
+        return "### " + axis + "\n\n" + table.render() + "\n";
+    }
+
+    private static PersonalizedTactic buildTactic(String mentality, String timeWasting, String inPossession, String passingType, String tempo) {
         PersonalizedTactic t = new PersonalizedTactic();
-        t.setMentality(mentality);
-        t.setTimeWasting(timeWasting);
-        t.setInPossession(inPossession);
-        t.setPassingType(passingType);
-        t.setTempo(tempo);
+        t.setMentality(mentality); t.setTimeWasting(timeWasting); t.setInPossession(inPossession);
+        t.setPassingType(passingType); t.setTempo(tempo);
         return t;
     }
 
@@ -502,85 +462,5 @@ class HumanTacticOutcomeFuzzIT {
                 formation, t.getMentality(), t.getTempo(), t.getPassingType(), t.getInPossession(), t.getTimeWasting());
     }
 
-    // ==================== report ====================
-
-    private interface PosFn { double meanPosFor(String value); }
-
-    private static String sweepTable(String axis, List<String> values, String configured,
-                                     double baseline, PosFn fn) {
-        MarkdownTable table = new MarkdownTable(
-                List.of(axis, "Mean Pos", "Δ vs baseline", ""),
-                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT));
-        String bestValue = null;
-        double bestPos = Double.MAX_VALUE;
-        Map<String, Double> results = new java.util.LinkedHashMap<>();
-        for (String v : values) {
-            double mp = fn.meanPosFor(v);
-            results.put(v, mp);
-            if (mp < bestPos) { bestPos = mp; bestValue = v; }
-        }
-        for (Map.Entry<String, Double> e : results.entrySet()) {
-            String v = e.getKey();
-            double mp = e.getValue();
-            String tag = (v.equals(configured) ? "« configured " : "") + (v.equals(bestValue) ? "★ best" : "");
-            table.addRow(v, String.format("%.2f", mp), String.format("%+.2f", mp - baseline), tag.trim());
-        }
-        return "### " + axis + "\n\n" + table.render() + "\n";
-    }
-
-    private String formationSweep(List<TeamSetup> teams, double[] baseValues, int humanIdx, long humanTeamId,
-                                  PersonalizedTactic tactic, String configuredFormation,
-                                  double baseline, int encounters, int seasons) {
-        double original = baseValues[humanIdx];
-        MarkdownTable table = new MarkdownTable(
-                List.of("Formation", "Your base value", "Mean Pos", "Δ vs baseline", ""),
-                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
-                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT));
-        String best = null;
-        double bestPos = Double.MAX_VALUE;
-        Map<String, double[]> results = new java.util.LinkedHashMap<>(); // formation -> [baseValue, meanPos]
-        for (String f : tacticService.getAllExistingTactics()) {
-            baseValues[humanIdx] = teamMatchValue(humanTeamId, f);
-            double mp = teamMeanPos(teams, baseValues, humanIdx, tactic, encounters, seasons);
-            results.put(f, new double[]{baseValues[humanIdx], mp});
-            if (mp < bestPos) { bestPos = mp; best = f; }
-        }
-        baseValues[humanIdx] = original; // restore
-        for (Map.Entry<String, double[]> e : results.entrySet()) {
-            String f = e.getKey();
-            double bv = e.getValue()[0], mp = e.getValue()[1];
-            String tag = (f.equals(configuredFormation) ? "« configured " : "") + (f.equals(best) ? "★ best" : "");
-            table.addRow(f, String.format("%.0f", bv), String.format("%.2f", mp),
-                    String.format("%+.2f", mp - baseline), tag.trim());
-        }
-        return "### Formation (changes which best 11 plays → your base value)\n\n" + table.render() + "\n";
-    }
-
-    private static String baselineStandings(List<TeamSetup> teams, Aggregate agg, int humanIdx, int seasons) {
-        int n = teams.size();
-        double[] meanPos = new double[n];
-        for (int t = 0; t < n; t++) meanPos[t] = meanPosition(agg.positionCounts()[t], seasons);
-        Integer[] order = new Integer[n];
-        for (int i = 0; i < n; i++) order[i] = i;
-        java.util.Arrays.sort(order, (a, b) -> Double.compare(meanPos[a], meanPos[b]));
-
-        MarkdownTable table = new MarkdownTable(
-                List.of("Rank", "Team", "Base value", "Mean Pos", "Avg Pts", "Title %"),
-                List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT,
-                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
-        int rank = 1;
-        for (int t : order) {
-            String name = teams.get(t).name() + (t == humanIdx ? "  «YOU»" : "");
-            table.addRow(
-                    String.valueOf(rank++),
-                    name,
-                    String.format("%.0f", teams.get(t).power()),
-                    String.format("%.2f", meanPos[t]),
-                    String.format("%.1f", agg.totalPoints()[t] / (double) seasons),
-                    String.format("%.1f%%", agg.championships()[t] * 100.0 / seasons));
-        }
-        return "## League standings with your configured tactic (mean over " + seasons + " seasons)\n\n" + table.render();
-    }
-
-    private record Aggregate(long[][] positionCounts, long[] totalPoints, int[] championships) {}
+    private record TacticResult(PersonalizedTactic tactic, double meanPos) {}
 }

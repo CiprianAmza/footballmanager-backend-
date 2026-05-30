@@ -54,6 +54,7 @@ public class MatchEngineConfig {
     private RoleWeights roleWeights = new RoleWeights();
     private InstructionWeights instructionWeights = new InstructionWeights();
     private TeamTalk teamTalk = new TeamTalk();
+    private TacticalModel tacticalModel = new TacticalModel();
 
     public Power getPower() { return power; }
     public void setPower(Power power) { this.power = power; }
@@ -89,6 +90,8 @@ public class MatchEngineConfig {
     public void setInstructionWeights(InstructionWeights instructionWeights) { this.instructionWeights = instructionWeights; }
     public TeamTalk getTeamTalk() { return teamTalk; }
     public void setTeamTalk(TeamTalk teamTalk) { this.teamTalk = teamTalk; }
+    public TacticalModel getTacticalModel() { return tacticalModel; }
+    public void setTacticalModel(TacticalModel tacticalModel) { this.tacticalModel = tacticalModel; }
 
     // ==================== POWER / POISSON ====================
     public static class Power {
@@ -1286,6 +1289,77 @@ public class MatchEngineConfig {
             double f = (managerReputation - neutralReputation) / reputationSpan;
             f = Math.max(-1.0, Math.min(1.0, f));
             return 1.0 + maxSwing * f;
+        }
+    }
+
+    // ==================== TWO-AXIS TACTICAL MODEL (trade-off + matchup) ====================
+    /**
+     * Knobs for {@code TacticalScoreService} — the attack/defense match model where tactic
+     * settings redistribute a squad's value between attacking and defending (a trade-off) and
+     * open/slow the game, and goals come from each side's attack vs the other's defense (matchup).
+     * Replaces flat additive percentage bonuses. The categorical setting → numeric mapping
+     * (mentality → bias, tempo → risk, …) lives in {@code TacticalScoreService}; these are the
+     * strength scalars and the per-position attack share.
+     */
+    public static class TacticalModel {
+        /** How far mentality shifts value between attack and defense (trade-off magnitude). */
+        private double biasStrength = 0.30;
+        /** How much "control" settings (keep ball / time-wasting) raise effective defense. */
+        private double controlStrength = 0.20;
+        /** How much tempo/risk opens the game (raises total goals). */
+        private double opennessStrength = 0.40;
+        /** How much control settings slow the game (lower total goals). */
+        private double controlOpennessStrength = 0.25;
+        /** Base total-goals scale when both sides are balanced. */
+        private double baseOpenness = 3.0;
+        /** Home-side attack bonus (multiplicative on xG). */
+        private double homeAttackBonus = 0.08;
+        /** Max ± boost a coach's offensive/defensive ability gives to the squad's attack/defense
+         *  (e.g. 0.12 → a 100-ability coach is +12%, a 0-ability coach −12%, 50 is neutral). */
+        private double coachStrength = 0.12;
+        /** Hard cap per team. */
+        private int maxGoalsPerTeam = 7;
+        /** OVERRIDE: used base position → share of a player's value assigned to attack (rest = defense). */
+        private Map<String, Double> attackShare = new HashMap<>();
+
+        public double getBiasStrength() { return biasStrength; }
+        public void setBiasStrength(double v) { this.biasStrength = v; }
+        public double getControlStrength() { return controlStrength; }
+        public void setControlStrength(double v) { this.controlStrength = v; }
+        public double getOpennessStrength() { return opennessStrength; }
+        public void setOpennessStrength(double v) { this.opennessStrength = v; }
+        public double getControlOpennessStrength() { return controlOpennessStrength; }
+        public void setControlOpennessStrength(double v) { this.controlOpennessStrength = v; }
+        public double getBaseOpenness() { return baseOpenness; }
+        public void setBaseOpenness(double v) { this.baseOpenness = v; }
+        public double getHomeAttackBonus() { return homeAttackBonus; }
+        public void setHomeAttackBonus(double v) { this.homeAttackBonus = v; }
+        public double getCoachStrength() { return coachStrength; }
+        public void setCoachStrength(double v) { this.coachStrength = v; }
+        public int getMaxGoalsPerTeam() { return maxGoalsPerTeam; }
+        public void setMaxGoalsPerTeam(int v) { this.maxGoalsPerTeam = v; }
+        public Map<String, Double> getAttackShare() { return attackShare; }
+        public void setAttackShare(Map<String, Double> v) { this.attackShare = v; }
+
+        /** Attack share for a used base position: override → shipped default → 0.5. */
+        public double attackShareFor(String position) {
+            Double o = attackShare.get(position);
+            if (o != null) return o;
+            Double d = DEFAULT_ATTACK_SHARE.get(position);
+            return d == null ? 0.5 : d;
+        }
+
+        /** Shipped attack/defense split per position (1.0 = pure attack, 0.0 = pure defense). */
+        private static final Map<String, Double> DEFAULT_ATTACK_SHARE = new HashMap<>();
+        static {
+            DEFAULT_ATTACK_SHARE.put("ST", 0.95);
+            DEFAULT_ATTACK_SHARE.put("ML", 0.80);
+            DEFAULT_ATTACK_SHARE.put("MR", 0.80);
+            DEFAULT_ATTACK_SHARE.put("MC", 0.50);
+            DEFAULT_ATTACK_SHARE.put("DL", 0.45);
+            DEFAULT_ATTACK_SHARE.put("DR", 0.45);
+            DEFAULT_ATTACK_SHARE.put("DC", 0.12);
+            DEFAULT_ATTACK_SHARE.put("GK", 0.00);
         }
     }
 }

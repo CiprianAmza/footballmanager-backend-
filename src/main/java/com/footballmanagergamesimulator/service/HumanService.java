@@ -67,6 +67,12 @@ public class HumanService {
         mgr.setMorale(100D);
         mgr.setFitness(100D);
         mgr.setRating(0);
+        // Offensive/defensive coaching ability (0-100): bigger clubs tend to attract better coaches,
+        // but with INDEPENDENT noise per side so a coach can be lopsided (attack-strong, defence-weak).
+        // These amplify the squad on each side and shape which tactic suits the coach.
+        double repShare = Math.max(0.0, Math.min(1.0, team.getReputation() / 10000.0));
+        mgr.setOffensiveAbility(Math.max(1, Math.min(100, 40 + repShare * 40 + (random.nextDouble() * 40 - 20))));
+        mgr.setDefensiveAbility(Math.max(1, Math.min(100, 40 + repShare * 40 + (random.nextDouble() * 40 - 20))));
         String[] kit = tacticService.buildManagerTacticKit((int) mgr.getRating(), random);
         mgr.setTacticStyle(kit[0]);
         mgr.setKnownTactics(kit[1]);
