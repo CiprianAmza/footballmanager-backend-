@@ -1,5 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.FacilityTraining;
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
@@ -35,6 +37,8 @@ public class HumanService {
     StaffService staffService;
     @Autowired
     TacticService tacticService;
+    @Autowired
+    MatchEngineConfig engineConfig;
 
     /**
      * Spawn a fresh AI manager for {@code teamId} if no manager is currently
@@ -80,10 +84,10 @@ public class HumanService {
       double facilityMultiplier;
       if (human.getTeamId() != null && human.getTeamId() > 0) {
           double staffMultiplier = staffService.getCoachingMultiplier(human.getTeamId());
-          double facilityBase = 0.5 + (teamFacilities.getSeniorTrainingLevel() / 20.0);
+          double facilityBase = FacilityTraining.developmentFactor(engineConfig.getTraining(), teamFacilities, age);
           facilityMultiplier = staffMultiplier * 0.6 + facilityBase * 0.4;
       } else {
-          facilityMultiplier = 0.5 + (teamFacilities.getSeniorTrainingLevel() / 20.0);
+          facilityMultiplier = FacilityTraining.developmentFactor(engineConfig.getTraining(), teamFacilities, age);
       }
 
       // Try attribute-based training first
@@ -151,7 +155,7 @@ public class HumanService {
 
       // Fallback: old-style rating-only training
       if (age <= 20) {
-          double youthFacilityBase = 0.5 + (teamFacilities.getYouthTrainingLevel() / 20.0);
+          double youthFacilityBase = FacilityTraining.developmentFactor(engineConfig.getTraining(), teamFacilities, age);
           double youthFacility;
           if (human.getTeamId() != null && human.getTeamId() > 0) {
               double youthStaff = staffService.getYouthCoachingMultiplier(human.getTeamId());

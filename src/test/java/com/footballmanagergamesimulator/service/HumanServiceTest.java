@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.TeamFacilities;
@@ -53,9 +54,14 @@ class HumanServiceTest {
     @Mock
     private StaffService staffService;
 
+    @Mock
+    private MatchEngineConfig engineConfig;
+
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        // FacilityTraining reads the training config; give it real defaults.
+        when(engineConfig.getTraining()).thenReturn(new MatchEngineConfig.Training());
     }
 
     @Test

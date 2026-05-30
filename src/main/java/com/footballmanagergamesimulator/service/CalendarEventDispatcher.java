@@ -77,6 +77,7 @@ public class CalendarEventDispatcher {
     @Autowired private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired @Lazy private FinanceService financeService;
     @Autowired @Lazy private FriendlyMatchService friendlyMatchService;
+    @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
 
     // Cache of competition IDs all human teams participate in (per season)
     private Set<Long> humanTeamCompetitionIds = null;
@@ -468,7 +469,8 @@ public class CalendarEventDispatcher {
             if (facilities == null) continue;
 
             double staffMult = coachingMultiplierCache.getOrDefault(teamId, 0.5);
-            double facilityBase = 0.5 + (facilities.getSeniorTrainingLevel() / 20.0);
+            double facilityBase = com.footballmanagergamesimulator.config.FacilityTraining
+                    .developmentFactor(engineConfig.getTraining(), facilities, player.getAge());
             double facilityMultiplier = staffMult * 0.6 + facilityBase * 0.4;
 
             PlayerSkills skills = skillsMap.get(player.getId());

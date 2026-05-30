@@ -4,6 +4,9 @@ import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Injury;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.TrainingSchedule;
+import com.footballmanagergamesimulator.config.FacilityTraining;
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.model.TeamFacilities;
 import com.footballmanagergamesimulator.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -30,6 +33,10 @@ public class TrainingService {
     @Autowired
     @Lazy
     MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired
+    TeamFacilitiesRepository teamFacilitiesRepository;
+    @Autowired
+    MatchEngineConfig engineConfig;
 
     private static final String[] TRAINING_INJURY_TYPES = {
             "Muscle Strain", "Twisted Ankle", "Minor Knock", "Hamstring Tweak", "Bruised Shin"
@@ -80,6 +87,11 @@ public class TrainingService {
         String trainingFocus = getTrainingFocus(teamId);
         Set<String> focusAttrs = TRAINING_FOCUS_ATTRS.getOrDefault(trainingFocus, TRAINING_FOCUS_ATTRS.get("General"));
 
+        // Club training facilities scale how fast players develop / recover (single
+        // source: config + FacilityTraining, age-based youth vs senior level).
+        TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
+        MatchEngineConfig.Training trainingCfg = engineConfig.getTraining();
+
         List<Human> modifiedPlayers = new ArrayList<>();
         List<PlayerSkills> modifiedSkills = new ArrayList<>();
 
@@ -89,8 +101,12 @@ public class TrainingService {
                 continue;
             }
 
-            // Increase fitness by random(0.5, 1.5), cap at 100
+            double facilityFactor = FacilityTraining.developmentFactor(trainingCfg, facilities, player.getAge());
+
+            // Increase fitness by random(0.5, 1.5), cap at 100. Better facilities
+            // recover condition faster when scale-fitness-gain is enabled.
             double fitnessGain = random.nextDouble(0.5, 1.5);
+            if (trainingCfg.isScaleFitnessGain()) fitnessGain *= facilityFactor;
             player.setFitness(Math.min(100.0, player.getFitness() + fitnessGain));
 
             // Determine effective training focus for this player (individual overrides team)
@@ -100,7 +116,7 @@ public class TrainingService {
             Optional<PlayerSkills> skillsOpt = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId());
             if (skillsOpt.isPresent()) {
                 PlayerSkills skills = skillsOpt.get();
-                boolean attributeChanged = trainAttributes(player, skills, effectiveFocusAttrs, random);
+                boolean attributeChanged = trainAttributes(player, skills, effectiveFocusAttrs, random, facilityFactor);
 
                 if (attributeChanged) {
                     // Recompute overall rating from updated attributes
@@ -171,7 +187,8 @@ public class TrainingService {
      * Peak players: mental attributes still develop, physical/technical maintain
      * Old players: physical attributes decline, mental can still grow slightly
      */
-    private boolean trainAttributes(Human player, PlayerSkills skills, Set<String> focusAttrs, Random random) {
+    private boolean trainAttributes(Human player, PlayerSkills skills, Set<String> focusAttrs, Random random,
+                                    double facilityFactor) {
         int age = player.getAge();
         int matchesPlayed = player.getSeasonMatchesPlayed();
         double matchBonus = Math.min(matchesPlayed * 0.002, 0.05);
@@ -249,6 +266,13 @@ public class TrainingService {
                     changeChance = 0.08;
                     changeAmount = -random.nextDouble(0.1, 0.4);
                 }
+            }
+
+            // Better facilities amplify GROWTH only (decline is never accelerated),
+            // matching HumanService.trainIndividualAttributes. Single source: the
+            // factor comes from FacilityTraining + MatchEngineConfig.Training.
+            if (changeAmount > 0) {
+                changeAmount *= facilityFactor;
             }
 
             if (random.nextDouble() < changeChance) {

@@ -44,6 +44,7 @@ public class MatchEngineConfig {
     private Reputation reputation = new Reputation();
     private Stats stats = new Stats();
     private Knockout knockout = new Knockout();
+    private Training training = new Training();
 
     public Power getPower() { return power; }
     public void setPower(Power power) { this.power = power; }
@@ -69,6 +70,8 @@ public class MatchEngineConfig {
     public void setStats(Stats stats) { this.stats = stats; }
     public Knockout getKnockout() { return knockout; }
     public void setKnockout(Knockout knockout) { this.knockout = knockout; }
+    public Training getTraining() { return training; }
+    public void setTraining(Training training) { this.training = training; }
 
     // ==================== POWER / POISSON ====================
     public static class Power {
@@ -849,5 +852,31 @@ public class MatchEngineConfig {
         public void setExtraTimeExpectedGoals(double v) { this.extraTimeExpectedGoals = v; }
         public double getPenaltyWeakerTeamWinChance() { return penaltyWeakerTeamWinChance; }
         public void setPenaltyWeakerTeamWinChance(double v) { this.penaltyWeakerTeamWinChance = v; }
+    }
+
+    // ==================== TRAINING (facility-scaled development) ====================
+    public static class Training {
+        /** Facility development factor: base + level / divisor. Level is the club's
+         *  TeamFacilities training level (1..20) chosen by age (youth vs senior).
+         *  Defaults (0.5, 20) reproduce the previous hardcoded {@code 0.5 + level/20}
+         *  → factor 0.55 (level 1) .. 1.5 (level 20). The factor scales positive
+         *  attribute growth (decline is unaffected) and, when enabled, fitness gain. */
+        private double facilityBase = 0.5;
+        private double facilityDivisor = 20.0;
+        /** Players aged ≤ this use the youth training facility level; older players use
+         *  the senior training facility level. */
+        private int youthMaxAge = 22;
+        /** When true, per-session fitness recovery is also multiplied by the facility
+         *  factor (better facilities recover condition faster). */
+        private boolean scaleFitnessGain = true;
+
+        public double getFacilityBase() { return facilityBase; }
+        public void setFacilityBase(double v) { this.facilityBase = v; }
+        public double getFacilityDivisor() { return facilityDivisor; }
+        public void setFacilityDivisor(double v) { this.facilityDivisor = v; }
+        public int getYouthMaxAge() { return youthMaxAge; }
+        public void setYouthMaxAge(int v) { this.youthMaxAge = v; }
+        public boolean isScaleFitnessGain() { return scaleFitnessGain; }
+        public void setScaleFitnessGain(boolean v) { this.scaleFitnessGain = v; }
     }
 }
