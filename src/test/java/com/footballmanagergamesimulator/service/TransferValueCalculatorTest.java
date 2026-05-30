@@ -27,16 +27,15 @@ class TransferValueCalculatorTest {
     }
 
     @Test
-    void calculate_decayAccelerates_pastThirty() {
-        long age29 = TransferValueCalculator.calculate(29, "ST", 100);
-        long age31 = TransferValueCalculator.calculate(31, "ST", 100);
+    void calculate_primePlateauThenCliffAt34() {
+        long age27 = TransferValueCalculator.calculate(27, "ST", 100);
+        long age33 = TransferValueCalculator.calculate(33, "ST", 100);
         long age34 = TransferValueCalculator.calculate(34, "ST", 100);
 
-        assertTrue(age29 > age31, "value drops 29→31");
-        assertTrue(age31 > age34, "value drops further 31→34");
-        // The age-34 multiplier (0.08) is below half of age-31 (0.45),
-        // so the later drop should be steeper relative to the earlier.
-        assertTrue(age34 * 5L < age31, "post-33 decay should be steep");
+        // Extended prime: only a gentle taper across the 24-33 plateau.
+        assertTrue(age27 > age33, "prime tapers gently 27→33");
+        // The single-year drop at the 33→34 cliff exceeds the whole 27→33 taper.
+        assertTrue(age33 - age34 > age27 - age33, "post-33 cliff is steeper than the prime taper");
     }
 
     @Test

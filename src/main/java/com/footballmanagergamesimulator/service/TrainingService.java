@@ -215,44 +215,19 @@ public class TrainingService {
             } else if (age <= 23) {
                 changeChance = (isFocused ? 0.08 : 0.04) + matchBonus;
                 changeAmount = random.nextDouble(0.2, 0.8);
-            } else if (age <= 26) {
-                changeChance = (isFocused ? 0.05 : 0.02) + matchBonus;
-                changeAmount = random.nextDouble(0.1, 0.5);
-            } else if (age <= 29) {
-                // Peak: mental still grows, physical starts to stagnate
-                if (isPhysical) {
-                    changeChance = 0.02;
-                    changeAmount = random.nextDouble(-0.2, 0.2);
-                } else if (isMental) {
-                    changeChance = (isFocused ? 0.04 : 0.02) + matchBonus * 0.5;
-                    changeAmount = random.nextDouble(0.1, 0.4);
-                } else {
-                    changeChance = 0.02;
-                    changeAmount = random.nextDouble(0.0, 0.3);
-                }
-            } else if (age <= 31) {
-                // Early decline
-                if (isPhysical) {
-                    changeChance = 0.06;
-                    changeAmount = -random.nextDouble(0.1, 0.4);
-                } else if (isMental) {
-                    changeChance = 0.03;
-                    changeAmount = random.nextDouble(-0.1, 0.3);
-                } else {
-                    changeChance = 0.03;
-                    changeAmount = random.nextDouble(-0.2, 0.1);
-                }
             } else if (age <= 33) {
-                // Noticeable decline
+                // Extended prime plateau (24-33): net change ~0. Physical jitters
+                // symmetrically (no systematic loss), mental can still nudge up a
+                // little (experience), so ability stays roughly flat until 34.
                 if (isPhysical) {
-                    changeChance = 0.10;
-                    changeAmount = -random.nextDouble(0.2, 0.6);
-                } else if (isMental) {
                     changeChance = 0.02;
-                    changeAmount = random.nextDouble(-0.1, 0.15);
+                    changeAmount = random.nextDouble(-0.15, 0.15);
+                } else if (isMental) {
+                    changeChance = (isFocused ? 0.03 : 0.02) + matchBonus * 0.5;
+                    changeAmount = random.nextDouble(0.0, 0.2);
                 } else {
-                    changeChance = 0.06;
-                    changeAmount = -random.nextDouble(0.1, 0.3);
+                    changeChance = 0.02;
+                    changeAmount = random.nextDouble(-0.1, 0.1);
                 }
             } else {
                 // 34+: significant decline, especially physical
