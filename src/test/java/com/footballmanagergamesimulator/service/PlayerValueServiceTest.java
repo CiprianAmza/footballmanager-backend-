@@ -30,12 +30,13 @@ class PlayerValueServiceTest {
     }
 
     @Test
-    void defaultWeights_isMeanOfAllAttributes_andEqualAcrossPositions() {
+    void uniformSkills_giveTheSameValueRegardlessOfPositionWeights() {
         MatchEngineConfig cfg = new MatchEngineConfig();
         PlayerValueService svc = service(cfg);
         PlayerSkills s = uniformSkills("ST", 10);
 
-        // mean of 36 attrs (all 10) × scaleMultiplier(15) = 150, regardless of position
+        // Any weighted average of all-10 attributes is 10 → ×scaleMultiplier(15) = 150, so the
+        // value is position-independent for a uniform player whatever the per-position weights are.
         assertThat(svc.computePositionalValue(s, "ST")).isCloseTo(150.0, within(1e-9));
         assertThat(svc.computePositionalValue(s, "GK")).isCloseTo(150.0, within(1e-9));
         assertThat(svc.computePositionalValue(s, "DC")).isCloseTo(150.0, within(1e-9));
@@ -49,12 +50,15 @@ class PlayerValueServiceTest {
         PlayerSkills s = uniformSkills("ST", 10);
         s.setFinishing(20); // one standout attribute
 
-        double withDefaultWeights = svc.computePositionalValue(s, "ST");
+        // Override only Finishing's weight (other attrs keep their ST default profile); raising it
+        // must pull the weighted average toward the standout 20.
+        cfg.getPlayerValue().setWeights(Map.of("ST", Map.of("Finishing", 1.0)));
+        double lowFinishingWeight = svc.computePositionalValue(s, "ST");
 
         cfg.getPlayerValue().setWeights(Map.of("ST", Map.of("Finishing", 5.0)));
-        double withFinishingWeighted = svc.computePositionalValue(s, "ST");
+        double highFinishingWeight = svc.computePositionalValue(s, "ST");
 
-        assertThat(withFinishingWeighted).isGreaterThan(withDefaultWeights);
+        assertThat(highFinishingWeight).isGreaterThan(lowFinishingWeight);
     }
 
     @Test
@@ -71,15 +75,16 @@ class PlayerValueServiceTest {
     }
 
     @Test
-    void familiarity_naturalIsOne_configuredPairExact_absentPairDefault() {
+    void familiarity_naturalIsOne_overrideWins_thenDefaultMatrix_thenDefaultPenalty() {
         MatchEngineConfig cfg = new MatchEngineConfig();
         cfg.getPlayerValue().setDefaultFamiliarityPenalty(0.5);
-        cfg.getPlayerValue().setFamiliarityPenalty(Map.of("MR", Map.of("ML", 0.8)));
+        cfg.getPlayerValue().setFamiliarityPenalty(Map.of("MR", Map.of("ML", 0.95)));
         PlayerValueService svc = service(cfg);
 
-        assertThat(svc.familiarityFactor("ST", "ST")).isEqualTo(1.0);
-        assertThat(svc.familiarityFactor("MR", "ML")).isEqualTo(0.8);
-        assertThat(svc.familiarityFactor("ST", "DC")).isEqualTo(0.5); // absent ⇒ default
+        assertThat(svc.familiarityFactor("ST", "ST")).isEqualTo(1.0);              // natural
+        assertThat(svc.familiarityFactor("MR", "ML")).isEqualTo(0.95);             // override wins
+        assertThat(svc.familiarityFactor("ST", "DC")).isEqualTo(0.2);              // shipped default matrix
+        assertThat(svc.familiarityFactor("XX", "YY")).isEqualTo(0.5);              // unknown ⇒ default penalty
     }
 
     @Test

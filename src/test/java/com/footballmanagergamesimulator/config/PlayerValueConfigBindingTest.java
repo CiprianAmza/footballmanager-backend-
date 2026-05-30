@@ -36,12 +36,15 @@ class PlayerValueConfigBindingTest {
         MatchEngineConfig cfg = bind(props);
 
         assertThat(cfg.getPlayerValue().getScaleMultiplier()).isEqualTo(12.0);
+        // overrides win per-attribute over the shipped default profile
         assertThat(cfg.getPlayerValue().weight("ST", "Finishing")).isEqualTo(3.0);
         assertThat(cfg.getPlayerValue().weight("ST", "First Touch")).isEqualTo(4.0);
-        // absent attribute still defaults to 1.0
-        assertThat(cfg.getPlayerValue().weight("ST", "Heading")).isEqualTo(1.0);
-        // untouched position is fully default
-        assertThat(cfg.getPlayerValue().weight("DC", "Tackling")).isEqualTo(1.0);
+        // a non-overridden attribute keeps its shipped ST default (Heading = 4)
+        assertThat(cfg.getPlayerValue().weight("ST", "Heading")).isEqualTo(4.0);
+        // an attribute irrelevant to the position's default profile resolves to 0.0 (DC has no Finishing)
+        assertThat(cfg.getPlayerValue().weight("DC", "Finishing")).isEqualTo(0.0);
+        // a non-overridden position keeps its shipped default (DC Tackling = 5)
+        assertThat(cfg.getPlayerValue().weight("DC", "Tackling")).isEqualTo(5.0);
     }
 
     @Test
@@ -53,9 +56,10 @@ class PlayerValueConfigBindingTest {
 
         MatchEngineConfig cfg = bind(props);
 
-        assertThat(cfg.getPlayerValue().familiarity("MR", "MR")).isEqualTo(1.0);
-        assertThat(cfg.getPlayerValue().familiarity("MR", "ML")).isEqualTo(0.8);
-        assertThat(cfg.getPlayerValue().familiarity("ST", "DC")).isEqualTo(0.2);
-        assertThat(cfg.getPlayerValue().familiarity("ST", "GK")).isEqualTo(0.4); // absent ⇒ default
+        assertThat(cfg.getPlayerValue().familiarity("MR", "MR")).isEqualTo(1.0); // natural
+        assertThat(cfg.getPlayerValue().familiarity("MR", "ML")).isEqualTo(0.8); // override
+        assertThat(cfg.getPlayerValue().familiarity("ST", "DC")).isEqualTo(0.2); // override
+        assertThat(cfg.getPlayerValue().familiarity("ST", "GK")).isEqualTo(0.1); // shipped default matrix
+        assertThat(cfg.getPlayerValue().familiarity("XX", "YY")).isEqualTo(0.4); // unknown ⇒ configured default
     }
 }

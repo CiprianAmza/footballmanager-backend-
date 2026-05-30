@@ -920,35 +920,53 @@ public class MatchEngineConfig {
         private double defaultFamiliarityPenalty = 0.5;
 
         /**
-         * position → (attributeName → weight 0..5). Attribute keys use the 36
+         * User OVERRIDES: position → (attributeName → weight 0..5). Attribute keys use the 36
          * {@code PlayerSkillsService.GETTER_MAP} display names ("First Touch", "Off The Ball", …).
-         * Any attribute absent for a position defaults to weight 1.0, so an empty map means
-         * "every attribute counts equally for every position" (the initial state). Set a weight
-         * to 0 to mark an attribute irrelevant to that position.
+         * Entries here win per-attribute over the shipped {@link #DEFAULT_WEIGHTS} profiles, so
+         * designers only list the few weights they want to change. Set a weight to 0 to mark an
+         * attribute irrelevant to that position.
          */
         private Map<String, Map<String, Double>> weights = new HashMap<>();
 
         /**
-         * natural base position → (used base position → factor in (0,1]). Missing pair defaults
-         * to {@link #defaultFamiliarityPenalty}; a player on his natural position is always 1.0.
+         * User OVERRIDES: natural base position → (used base position → factor in (0,1]). Entries
+         * here win over the shipped {@link #DEFAULT_FAMILIARITY} matrix; missing pairs fall back
+         * to the default matrix and then to {@link #defaultFamiliarityPenalty}.
          */
         private Map<String, Map<String, Double>> familiarityPenalty = new HashMap<>();
 
-        /** Never-null weight lookup; absent attribute ⇒ 1.0. */
+        /**
+         * Resolved weight for (position, attribute):
+         * user override → shipped default profile → 1.0. Within a defined default profile an
+         * unlisted attribute is treated as irrelevant (0.0); positions with no profile are neutral (1.0).
+         */
         public double weight(String position, String attribute) {
-            Map<String, Double> byAttr = weights.get(position);
-            if (byAttr == null) return 1.0;
-            Double w = byAttr.get(attribute);
-            return w == null ? 1.0 : w;
+            Map<String, Double> override = weights.get(position);
+            if (override != null && override.containsKey(attribute)) {
+                return override.get(attribute);
+            }
+            Map<String, Double> profile = DEFAULT_WEIGHTS.get(position);
+            if (profile != null) {
+                return profile.getOrDefault(attribute, 0.0);
+            }
+            return 1.0;
         }
 
-        /** Never-null familiarity lookup; natural==used ⇒ 1.0, absent pair ⇒ defaultFamiliarityPenalty. */
+        /**
+         * Resolved familiarity for (natural → used):
+         * 1.0 on the natural position, else user override → shipped default matrix → defaultFamiliarityPenalty.
+         */
         public double familiarity(String natural, String used) {
             if (natural != null && natural.equals(used)) return 1.0;
-            Map<String, Double> byUsed = familiarityPenalty.get(natural);
-            if (byUsed == null) return defaultFamiliarityPenalty;
-            Double f = byUsed.get(used);
-            return f == null ? defaultFamiliarityPenalty : f;
+            Map<String, Double> override = familiarityPenalty.get(natural);
+            if (override != null && override.containsKey(used)) {
+                return override.get(used);
+            }
+            Map<String, Double> def = DEFAULT_FAMILIARITY.get(natural);
+            if (def != null && def.containsKey(used)) {
+                return def.get(used);
+            }
+            return defaultFamiliarityPenalty;
         }
 
         public double getScaleMultiplier() { return scaleMultiplier; }
@@ -969,6 +987,99 @@ public class MatchEngineConfig {
         public void setWeights(Map<String, Map<String, Double>> v) { this.weights = v; }
         public Map<String, Map<String, Double>> getFamiliarityPenalty() { return familiarityPenalty; }
         public void setFamiliarityPenalty(Map<String, Map<String, Double>> v) { this.familiarityPenalty = v; }
+
+        // ---- Shipped defaults (football-informed starting point; tune via the override maps) ----
+
+        /** Build a sparse weight profile from alternating (attributeName, weight) pairs. */
+        private static Map<String, Double> prof(Object... kv) {
+            Map<String, Double> m = new HashMap<>();
+            for (int i = 0; i < kv.length; i += 2) {
+                m.put((String) kv[i], ((Number) kv[i + 1]).doubleValue());
+            }
+            return m;
+        }
+
+        /**
+         * Per-position attribute weights (0..5). Sparse: attributes not listed for a position are
+         * treated as irrelevant (0.0) by {@link #weight}. DL/DR share the full-back profile and
+         * ML/MR share the wide profile.
+         */
+        private static final Map<String, Map<String, Double>> DEFAULT_WEIGHTS = new HashMap<>();
+
+        /** Per-position familiarity when used out of position (natural → used → factor in (0,1]). */
+        private static final Map<String, Map<String, Double>> DEFAULT_FAMILIARITY = new HashMap<>();
+
+        static {
+            DEFAULT_WEIGHTS.put("GK", prof(
+                    "Reflexes", 5, "Handling", 5, "One On Ones", 4, "Positioning", 4,
+                    "Command Of Area", 4, "Anticipation", 4, "Concentration", 3, "Agility", 3,
+                    "Composure", 3, "Decisions", 3, "Kicking", 3, "Throwing", 2, "First Touch", 2,
+                    "Bravery", 2, "Jumping Reach", 2, "Passing", 1, "Vision", 1, "Determination", 1,
+                    "Leadership", 1, "Balance", 1, "Strength", 1, "Natural Fitness", 1));
+
+            DEFAULT_WEIGHTS.put("DC", prof(
+                    "Tackling", 5, "Marking", 5, "Positioning", 5, "Heading", 4, "Strength", 4,
+                    "Anticipation", 4, "Concentration", 4, "Bravery", 3, "Jumping Reach", 3,
+                    "Composure", 3, "Decisions", 3, "Aggression", 2, "Pace", 2, "Acceleration", 2,
+                    "Passing", 2, "Determination", 2, "Leadership", 2, "Teamwork", 2, "Work Rate", 1,
+                    "Balance", 1, "Agility", 1, "Stamina", 1, "First Touch", 1, "Technique", 1,
+                    "Natural Fitness", 1));
+
+            Map<String, Double> fullBack = prof(
+                    "Pace", 5, "Tackling", 4, "Marking", 4, "Positioning", 4, "Acceleration", 4,
+                    "Stamina", 4, "Work Rate", 4, "Crossing", 4, "Anticipation", 3, "Concentration", 3,
+                    "Teamwork", 3, "Decisions", 3, "Dribbling", 3, "Passing", 3, "Technique", 2,
+                    "First Touch", 2, "Agility", 2, "Balance", 2, "Strength", 2, "Off The Ball", 2,
+                    "Determination", 2, "Aggression", 1, "Heading", 1, "Natural Fitness", 1,
+                    "Composure", 1, "Vision", 1);
+            DEFAULT_WEIGHTS.put("DL", fullBack);
+            DEFAULT_WEIGHTS.put("DR", fullBack);
+
+            DEFAULT_WEIGHTS.put("MC", prof(
+                    "Passing", 5, "Decisions", 4, "Vision", 4, "Teamwork", 4, "Work Rate", 4,
+                    "Stamina", 4, "Technique", 3, "First Touch", 3, "Composure", 3, "Positioning", 3,
+                    "Anticipation", 3, "Concentration", 3, "Tackling", 3, "Determination", 3,
+                    "Dribbling", 2, "Off The Ball", 2, "Long Shots", 2, "Marking", 2, "Balance", 2,
+                    "Agility", 2, "Strength", 2, "Flair", 2, "Leadership", 2, "Aggression", 1,
+                    "Pace", 1, "Acceleration", 1));
+
+            Map<String, Double> wide = prof(
+                    "Crossing", 5, "Dribbling", 5, "Pace", 5, "Acceleration", 4, "Technique", 4,
+                    "Off The Ball", 4, "Stamina", 4, "First Touch", 3, "Flair", 3, "Agility", 3,
+                    "Work Rate", 3, "Passing", 3, "Decisions", 3, "Anticipation", 3, "Finishing", 3,
+                    "Long Shots", 2, "Balance", 2, "Composure", 2, "Teamwork", 2, "Determination", 2,
+                    "Vision", 2, "Marking", 1, "Tackling", 1, "Positioning", 1, "Strength", 1,
+                    "Concentration", 1);
+            DEFAULT_WEIGHTS.put("ML", wide);
+            DEFAULT_WEIGHTS.put("MR", wide);
+
+            DEFAULT_WEIGHTS.put("ST", prof(
+                    "Finishing", 5, "Off The Ball", 5, "Composure", 4, "First Touch", 4,
+                    "Anticipation", 4, "Heading", 4, "Pace", 4, "Acceleration", 4, "Dribbling", 3,
+                    "Technique", 3, "Decisions", 3, "Strength", 3, "Flair", 3, "Balance", 3,
+                    "Agility", 3, "Jumping Reach", 3, "Long Shots", 3, "Determination", 3,
+                    "Bravery", 2, "Aggression", 2, "Teamwork", 2, "Work Rate", 2, "Passing", 2,
+                    "Vision", 2, "Stamina", 2, "Concentration", 2, "Penalty Taking", 2));
+
+            // Familiarity: goalkeepers are unusable outfield (and vice versa); within a line the
+            // penalty is mild, across lines it grows, defender↔striker is the harshest.
+            DEFAULT_FAMILIARITY.put("GK", prof(
+                    "DL", 0.1, "DR", 0.1, "DC", 0.1, "MC", 0.1, "ML", 0.1, "MR", 0.1, "ST", 0.1));
+            DEFAULT_FAMILIARITY.put("DC", prof(
+                    "GK", 0.1, "DL", 0.7, "DR", 0.7, "MC", 0.6, "ML", 0.4, "MR", 0.4, "ST", 0.2));
+            DEFAULT_FAMILIARITY.put("DL", prof(
+                    "GK", 0.1, "DR", 0.85, "DC", 0.7, "ML", 0.75, "MR", 0.6, "MC", 0.55, "ST", 0.3));
+            DEFAULT_FAMILIARITY.put("DR", prof(
+                    "GK", 0.1, "DL", 0.85, "DC", 0.7, "MR", 0.75, "ML", 0.6, "MC", 0.55, "ST", 0.3));
+            DEFAULT_FAMILIARITY.put("MC", prof(
+                    "GK", 0.1, "ML", 0.7, "MR", 0.7, "DC", 0.6, "DL", 0.55, "DR", 0.55, "ST", 0.65));
+            DEFAULT_FAMILIARITY.put("ML", prof(
+                    "GK", 0.1, "MR", 0.8, "MC", 0.7, "DL", 0.75, "DR", 0.6, "ST", 0.7, "DC", 0.4));
+            DEFAULT_FAMILIARITY.put("MR", prof(
+                    "GK", 0.1, "ML", 0.8, "MC", 0.7, "DR", 0.75, "DL", 0.6, "ST", 0.7, "DC", 0.4));
+            DEFAULT_FAMILIARITY.put("ST", prof(
+                    "GK", 0.1, "ML", 0.7, "MR", 0.7, "MC", 0.6, "DC", 0.2, "DL", 0.3, "DR", 0.3));
+        }
     }
 
     // ==================== ROLE SUITABILITY BLEND ====================
