@@ -1,0 +1,244 @@
+# =============================================================
+# Match Engine Configuration
+# =============================================================
+# Single source of truth for every numeric constant that
+# influences a match outcome. Sweep these via fuzz tests
+# (-Pfuzz) or override per profile / @TestPropertySource.
+# Defaults match the hardcoded values in MatchEngineConfig.java
+# so behaviour is unchanged unless explicitly overridden.
+
+match:
+  engine:
+
+    power:
+      ratio-exponent: 2.0          # Math.pow(ratio, X). Higher = stronger dominates more.
+      expected-goals-total: 3.0    # Total ~goals/match, split by adjusted ratio.
+      max-goals-per-team: 7        # Hard cap to prevent Poisson tail blowups.
+      morale-floor: 0.8            # morale=0 → power ×0.8 (tuner value).
+      morale-spread: 0.4           # morale=100 → power ×1.2 (floor+spread).
+      home-advantage: 1.08         # home side power ×1.08 (~+8%, tuner value).
+
+    morale:
+      tier-big-diff: 500           # Power-diff thresholds for outcome tiers.
+      tier-mid-diff: 200
+      tier-small-diff: 0
+      # Win ranges (favorite → giant-killing)
+      win-favorite-big:      { min: 0,  max: 1 }
+      win-favorite:          { min: 1,  max: 2 }
+      win-slight-favorite:   { min: 1,  max: 3 }
+      win-slight-underdog:   { min: 2,  max: 5 }
+      win-underdog:          { min: 4,  max: 7 }
+      win-giant-killing:     { min: 5,  max: 10 }
+      # Draw ranges
+      draw-favorite-big:     { min: -6, max: -2 }
+      draw-favorite:         { min: -4, max: 0 }
+      draw-slight-favorite:  { min: -2, max: 1 }
+      draw-slight-underdog:  { min: 1,  max: 3 }
+      draw-underdog:         { min: 2,  max: 5 }
+      draw-giant-hold:       { min: 3,  max: 7 }
+      # Loss ranges (shocking → expected)
+      loss-favorite-big:     { min: -15, max: -5 }
+      loss-favorite:         { min: -8,  max: -3 }
+      loss-slight-favorite:  { min: -5,  max: -2 }
+      loss-slight-underdog:  { min: -3,  max: -1 }
+      loss-underdog:         { min: -2,  max: 0 }
+      loss-expected:         { min: -1,  max: 0 }
+      bench-loss-penalty: -3
+      bench-draw-penalty: -4
+      bench-win-penalty: -2
+      bench-consecutive-extra: -2
+      bench-consecutive-threshold: 5
+      contentment-drop-chance: 0.3
+      min-matches-content: 5
+      transfer-demand-chance-7-plus: 0.5
+      transfer-demand-chance-5-plus: 0.3
+      transfer-demand-chance-3-plus: 0.1
+      individual-variance: 1.0
+
+    tactic:
+      tempo-high-multiplier: 1.25
+      tempo-low-multiplier: 0.85
+      man-advantage-attack-eleven: 1.0
+      man-advantage-attack-ten: 0.7
+      man-advantage-attack-nine: 0.5
+      man-advantage-attack-eight: 0.35
+      possession-shift-per-missing: 0.08
+
+    stamina:
+      base-cost-per-minute: 0.5
+      min-attribute-multiplier: 0.15
+      pace-discount-on-tempo: 0.5
+      natural-fitness-recovery-max: 0.15
+      position-goalkeeper: 0.4
+      position-defender: 0.75
+      position-def-mid: 1.0
+      position-midfielder: 1.15
+      position-att-mid: 1.05
+      position-striker: 0.85
+      stamina-pick-floor: 0.5
+      stamina-pick-range: 0.5
+      post-match-dampening: 0.7
+      post-match-floor: 20.0
+      start-stamina-min: 20.0
+      start-stamina-max: 100.0
+      batch-match-fitness-drain: 8.0
+
+    training:
+      facility-base: 0.5
+      facility-divisor: 20.0
+      youth-max-age: 22
+      scale-fitness-gain: true
+
+    injuries:
+      base-chance: 0.002
+      low-fitness-bonus: 0.001
+      low-fitness-threshold: 50.0
+      minor-threshold: 0.55
+      moderate-threshold: 0.85
+      minor-min-days: 1
+      minor-max-days: 3
+      moderate-min-days: 4
+      moderate-max-days: 8
+      serious-min-days: 10
+      serious-max-days: 20
+
+    fouls:
+      synthetic-max-yellow-cards-per-team: 5
+      synthetic-red-card-chance: 0.05
+      synthetic-red-card-min-minute: 20
+      synthetic-red-card-max-minute: 91
+      live-yellow-card-rate-min: 0.14
+      live-yellow-card-rate-spread: 0.08
+      live-red-card-base: 0.005
+      live-red-card-per-foul: 0.002
+
+    live:
+      big-chances-baseline: 0.5
+      big-chances-scale: 3.0
+      big-chances-hard-cap: 4
+      penalty-share: 0.15
+      free-kick-share: 0.35
+      attacker-pace-floor: 0.8
+      attacker-pace-range: 0.4
+      fouler-pace-inverse-base: 1.2
+      sub-earliest-minute: 35
+      sub-minute-boundary-2: 55
+      sub-minute-boundary-3: 70
+      sub-minute-boundary-4: 80
+      sub-stamina-phase-2: 60.0
+      sub-stamina-phase-3: 70.0
+      sub-stamina-phase-4: 78.0
+      sub-stamina-phase-5: 85.0
+      sub-offensive-minute: 75
+      sub-offensive-goal-diff: -2
+      sub-defensive-minute: 80
+      sub-defensive-goal-diff: 1
+      stamina-factor-floor: 0.5
+      stamina-factor-range: 0.5
+
+    events:
+      goal-minute-min: 1
+      goal-minute-max: 91
+      assist-probability: 0.7
+      substitutions-per-team: 3
+      substitution-minute-min: 46
+      substitution-minute-max: 86
+      yellow-card-minute-min: 1
+      yellow-card-minute-max: 91
+      sub-insertions-exclusive-max: 6
+
+    ratings:
+      base: 6.0
+      per-goal: 1.0
+      goal-contribution-max: 3.0
+      per-assist: 0.5
+      assist-contribution-max: 1.5
+      clean-sheet-bonus: 0.5
+      win-bonus: 0.3
+      loss-penalty: -0.3
+      substitute-penalty: -0.2
+      variance-sigma: 0.4
+      min: 1.0
+      max: 10.0
+
+    reputation:
+      strength-factor-divisor: 50.0
+      strength-factor-min: 0.2
+      strength-factor-max: 5.0
+      shocking-threshold: 50.0
+      win-shocking-base: 10.0
+      win-expected-base: 2.0
+      draw-favored-opp: 1.0
+      draw-disfavored-opp: -1.0
+      loss-shocking-base: -10.0
+      loss-expected-base: -2.0
+
+    stats:
+      possession-base: 50.0
+      possession-edge-scale: 30.0
+      possession-noise-sigma: 2.0
+      home-possession-boost: 2.0
+      passes-base: 450.0
+      passes-noise-sigma: 20.0
+      pass-accuracy-base: 78.0
+      pass-accuracy-edge-scale: 30.0
+      pass-accuracy-noise-sigma: 1.5
+      pass-accuracy-keep-ball-bonus: 3.0
+      pass-accuracy-long-ball-penalty: -5.0
+      shots-base: 6.0
+      shots-edge-scale: 16.0
+      shots-goals-bonus: 1.5
+      shots-on-target-base: 0.40
+      shots-on-target-edge-span: 0.10
+      shots-on-target-noise: 0.08
+      blocked-shots-base: 0.22
+      blocked-shots-noise-span: 0.08
+      corners-base: 3.0
+      corners-per-shot: 0.3
+      corners-noise: 1.0
+      fouls-base: 12.0
+      fouls-edge-span: 8.0
+      offsides-base: 1.5
+      offsides-pivot-ratio: 0.3
+      offsides-scale: 4.0
+      tackles-base: 18.0
+      tackles-possession-coefficient: 0.25
+      interceptions-base: 11.0
+      interceptions-possession-coefficient: 0.18
+      clearances-base: 18.0
+      clearances-possession-coefficient: 0.2
+      clearances-shot-bonus: 0.5
+      duels-base: 55.0
+      duels-noise: 4.0
+      duel-win-base: 0.50
+      duel-win-edge-scale: 0.35
+      duel-win-noise: 0.025
+      aerial-duels-base: 14.0
+      aerial-duels-edge-scale: 8.0
+      aerial-duels-noise: 1.5
+      cross-accuracy-base: 0.28
+      cross-accuracy-edge-scale: 0.08
+      cross-accuracy-noise: 0.08
+      big-chances-so-t-ratio: 0.6
+      xg-per-big-chance: 0.35
+      xg-per-sot-miss: 0.12
+      xg-per-wide-shot: 0.05
+      tactical-possession-keep-ball: 5.0
+      tactical-possession-free-ball-early: -3.0
+      tactical-possession-short-passing: 3.0
+      tactical-possession-long-ball: -4.0
+      tactical-possession-tempo-low: 2.0
+      tactical-possession-tempo-high: -1.0
+      shot-bonus-very-attacking: 4.0
+      shot-bonus-attacking: 2.0
+      shot-bonus-defensive: -2.0
+      shot-bonus-very-defensive: -4.0
+      very-defensive-foul-bonus: 3.0
+
+    knockout:
+      aet-win-chance-base: 0.35
+      aet-win-chance-weight: 0.3
+      extra-time-expected-goals: 1.0      # 30-min ET mini-match: far fewer goals than a full 90.
+      penalty-weaker-team-win-chance: 0.5 # Shootout coin-flip; 0.55 gives the weaker side a slight edge.
+      # NOTE: which knockout rounds are two-leg is tournament *structure* — it now lives in
+      # CompetitionFormatConfig (the format single-source), not here.

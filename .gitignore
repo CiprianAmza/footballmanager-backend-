@@ -6,3 +6,9 @@ target/
 
 target/
 .idea/
+
+# local Claude Code state (plans, memory, sessions)
+.claude/
+
+# stray local installers / large binaries
+*.pkg
