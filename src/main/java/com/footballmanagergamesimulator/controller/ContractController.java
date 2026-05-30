@@ -32,9 +32,6 @@ public class ContractController {
     @Autowired
     private UserContext userContext;
 
-    @Autowired
-    private com.footballmanagergamesimulator.service.WageService wageService;
-
     /**
      * Calculate a player's wage demand based on rating, age, and market value.
      * Higher-rated players demand more. Young stars with high potential demand premium.
@@ -45,7 +42,7 @@ public class ContractController {
         int age = player.getAge();
 
         // Base wage from rating (shared curve — same one squad generation uses)
-        long baseWage = wageService.baseWage(rating);
+        long baseWage = com.footballmanagergamesimulator.service.WageService.baseWage(rating);
 
         // Age modifier: young talents with high potential demand a premium
         double ageMultiplier;

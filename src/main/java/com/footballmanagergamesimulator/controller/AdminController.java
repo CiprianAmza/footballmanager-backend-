@@ -56,8 +56,6 @@ public class AdminController {
     private com.footballmanagergamesimulator.service.JobOfferService jobOfferService;
     @Autowired
     private com.footballmanagergamesimulator.user.UserRepository userRepository;
-    @Autowired
-    private com.footballmanagergamesimulator.service.WageService wageService;
 
     private final Random random = new Random();
 
@@ -147,7 +145,7 @@ public class AdminController {
         if (body.containsKey("wage")) {
             wage = ((Number) body.get("wage")).longValue();
         } else {
-            wage = wageService.baseWage(rating);
+            wage = com.footballmanagergamesimulator.service.WageService.baseWage(rating);
         }
 
         String name;

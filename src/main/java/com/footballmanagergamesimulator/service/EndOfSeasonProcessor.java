@@ -90,7 +90,6 @@ public class EndOfSeasonProcessor {
     @Autowired private EuropeanCoefficientService europeanCoefficientService;
     @Autowired private TransferMarketService transferMarketService;
     @Autowired private SeasonObjectiveService seasonObjectiveService;
-    @Autowired private WageService wageService;
     @Autowired private FinanceService financeService;
     @Autowired @Lazy private MatchSimulationOrchestrator matchSimulationOrchestrator;
 
@@ -439,7 +438,7 @@ public class EndOfSeasonProcessor {
                 // AI team: 50% auto-renew, 50% free agent
                 if (random.nextBoolean()) {
                     player.setContractEndSeason(newSeason + random.nextInt(2, 5));
-                    player.setWage(wageService.baseWage(player.getRating()));
+                    player.setWage(WageService.baseWage(player.getRating()));
                     humanRepository.save(player);
                 } else {
                     player.setTeamId(null);

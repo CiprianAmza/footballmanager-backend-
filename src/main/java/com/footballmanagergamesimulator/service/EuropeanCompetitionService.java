@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
+import java.util.Comparator;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
@@ -602,26 +603,37 @@ public class EuropeanCompetitionService {
                 .map(CompetitionTeamInfo::getTeamId)
                 .collect(Collectors.toSet());
 
-        // Every eliminated team drops to the Stars Cup group stage. No hard slot cap
-        // here — drawEuropeanGroups already seeds the SC field and trims the lowest
-        // coefficients fairly if there are more entrants than group slots, so capping
-        // by iteration order here would silently (and arbitrarily) eliminate eligible
-        // droppers instead of letting the seeded draw decide.
-        for (long teamId : participants) {
-            if (!winners.contains(teamId)) {
-                boolean alreadyInStarsCup = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
-                        .anyMatch(cti -> cti.getTeamId() == teamId && cti.getCompetitionId() == starsCupCompetitionId);
-                if (!alreadyInStarsCup) {
-                    CompetitionTeamInfo cti = new CompetitionTeamInfo();
-                    cti.setTeamId(teamId);
-                    cti.setCompetitionId(starsCupCompetitionId);
-                    cti.setSeasonNumber(currentSeason);
-                    cti.setRound(fmt.losersDropRound());
-                    competitionTeamInfoRepository.save(cti);
-                    String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
-                    System.out.println("=== LoC round " + locRound + " loser to Stars Cup: " + teamName + " ===");
-                }
-            }
+        // Eliminated teams drop into the Stars Cup group stage, up to its capacity
+        // (groupCount × groupSize). assignLocLosersToStarsCup runs per preliminary round
+        // (0 and 1), so the cap is cumulative across calls. When more losers are eligible
+        // than free slots, the strongest (by reputation) fill them — deterministic, not
+        // arbitrary Set-iteration order.
+        com.footballmanagergamesimulator.config.CompetitionFormat scFmt = formatOf(starsCupCompetitionId);
+        int scSlots = scFmt.groupCount() * scFmt.groupSize();
+        final int dropRound = fmt.losersDropRound();
+        List<CompetitionTeamInfo> scSeasonRows = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
+                .filter(cti -> cti.getCompetitionId() == starsCupCompetitionId)
+                .toList();
+        Set<Long> alreadyInStarsCup = scSeasonRows.stream().map(CompetitionTeamInfo::getTeamId).collect(Collectors.toSet());
+        long filled = scSeasonRows.stream().filter(cti -> cti.getRound() == dropRound).count();
+
+        List<Long> eligible = participants.stream()
+                .filter(teamId -> !winners.contains(teamId) && !alreadyInStarsCup.contains(teamId))
+                .sorted(Comparator.comparingInt(
+                        (Long teamId) -> teamRepository.findById(teamId).map(Team::getReputation).orElse(0)).reversed())
+                .toList();
+
+        for (long teamId : eligible) {
+            if (filled >= scSlots) break;
+            CompetitionTeamInfo cti = new CompetitionTeamInfo();
+            cti.setTeamId(teamId);
+            cti.setCompetitionId(starsCupCompetitionId);
+            cti.setSeasonNumber(currentSeason);
+            cti.setRound(dropRound);
+            competitionTeamInfoRepository.save(cti);
+            filled++;
+            String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
+            System.out.println("=== LoC round " + locRound + " loser to Stars Cup: " + teamName + " ===");
         }
     }
 

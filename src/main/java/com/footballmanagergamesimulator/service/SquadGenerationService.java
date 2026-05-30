@@ -35,7 +35,6 @@ public class SquadGenerationService {
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private CompetitionService competitionService;
     @Autowired private CompositeNameGenerator compositeNameGenerator;
-    @Autowired private WageService wageService;
 
     /** Standard 22-man squad template (2 GK, 2 DL, 2 DR, 4 DC, 2 ML, 2 MR,
      *  4 MC, 4 ST). Indices map deterministically to positions so the squad
@@ -80,7 +79,7 @@ public class SquadGenerationService {
             player.setBestEverRating(computedRating);
             player.setTransferValue(TransferValueCalculator.calculate(
                     player.getAge(), player.getPosition(), computedRating));
-            player.setWage(wageService.baseWage(computedRating));
+            player.setWage(WageService.baseWage(computedRating));
             generatedSquad.add(player);
         }
 
@@ -115,7 +114,7 @@ public class SquadGenerationService {
         long transferVal = TransferValueCalculator.calculate(player.getAge(), position, player.getRating());
         player.setTransferValue(transferVal);
         player.setContractEndSeason(currentSeason + random.nextInt(2, 6));
-        player.setWage(wageService.baseWage(player.getRating()));
+        player.setWage(WageService.baseWage(player.getRating()));
         player.setReleaseClause(random.nextInt(10) < 3 ? 0 : transferVal * 2);
         return player;
     }
