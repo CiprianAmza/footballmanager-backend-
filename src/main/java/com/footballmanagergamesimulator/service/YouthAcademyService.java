@@ -38,6 +38,8 @@ public class YouthAcademyService {
     CompetitionController competitionController;
     @Autowired
     StaffService staffService;
+    @Autowired
+    GameLock gameLock;
 
     private static final String[] POSITIONS = {"GK", "DC", "DL", "DR", "MC", "ML", "MR", "AMC", "ST"};
     private static final int[] POSITION_WEIGHTS = {5, 15, 10, 10, 15, 10, 10, 10, 15};
@@ -91,6 +93,18 @@ public class YouthAcademyService {
     }
 
     public Human promoteToFirstTeam(long youthPlayerId, long teamId) {
+        // Serialize against the calendar advance / season transition: both write
+        // the same TEAM row (salary budget) and racing them tripped H2's
+        // lock-timeout during the off-season transition.
+        gameLock.lock();
+        try {
+            return promoteToFirstTeamLocked(youthPlayerId, teamId);
+        } finally {
+            gameLock.unlock();
+        }
+    }
+
+    private Human promoteToFirstTeamLocked(long youthPlayerId, long teamId) {
 
         YouthPlayer yp = youthPlayerRepository.findById(youthPlayerId)
                 .orElseThrow(() -> new RuntimeException("Youth player not found: " + youthPlayerId));

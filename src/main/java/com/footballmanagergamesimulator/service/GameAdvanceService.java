@@ -45,6 +45,7 @@ public class GameAdvanceService {
     @Autowired private CalendarEventDispatcher calendarEventDispatcher;
     @Autowired private MatchdayBatchProcessor matchdayBatchProcessor;
     @Autowired @Lazy private LiveMatchSimulationService liveMatchSimulationService;
+    @Autowired private GameLock gameLock;
 
     private final Random random = new Random();
 
@@ -63,12 +64,22 @@ public class GameAdvanceService {
             "SPONSOR_OFFER", "NATIONAL_TEAM_CALL", "YOUTH_ACADEMY_REPORT"
     );
 
-    public synchronized Map<String, Object> advance(int season) {
-        // synchronized so two concurrent /game/advance calls (e.g. autoContinue
-        // firing rapidly, double-click on CONTINUE, two tabs) can't both update
-        // the same human/team rows in parallel. H2 row-level lock timeout was
-        // the symptom — single-user game, simplest correct serialization.
+    public Map<String, Object> advance(int season) {
+        // gameLock so two concurrent /game/advance calls (e.g. autoContinue
+        // firing rapidly, double-click on CONTINUE, two tabs) AND user squad
+        // mutations (youth promotion etc.) can't update the same human/team rows
+        // in parallel. H2 row-level lock timeout was the symptom — single-user
+        // game, simplest correct serialization. ReentrantLock so advanceToDay's
+        // re-entrant advance() calls don't self-deadlock.
+        gameLock.lock();
+        try {
+            return advanceLocked(season);
+        } finally {
+            gameLock.unlock();
+        }
+    }
 
+    private Map<String, Object> advanceLocked(int season) {
         // Recovery: any PROCESSING events left over from a previous crash/exception
         // are flipped back to PENDING so they can be retried. Safe because we're
         // synchronized and nothing else is mid-processing right now.
