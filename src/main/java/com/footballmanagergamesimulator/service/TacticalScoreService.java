@@ -25,6 +25,12 @@ public class TacticalScoreService {
 
     @Autowired MatchEngineConfig engineConfig;
 
+    /** Field RNG so determinism tests can inject a seeded {@link Random}; defaults to unseeded. */
+    private Random random = new Random();
+
+    /** Test seam: swap the RNG so the same seed reproduces the same scorelines. */
+    public void setRandomForTesting(Random random) { this.random = random; }
+
     /** A starter's used (base) position and match value, for splitting a squad into attack/defense. */
     public record StarterValue(String usedPosition, double value) {}
 
@@ -83,6 +89,11 @@ public class TacticalScoreService {
                 clamp(bias, -1.2, 1.5),
                 clamp(risk, -1.5, 1.5),
                 clamp(control, 0.0, 1.5));
+    }
+
+    /** Sample a scoreline for a matchup using the field RNG (production path). team1 is home. */
+    public List<Integer> score(TeamProfile p1, TacticVector t1, TeamProfile p2, TacticVector t2) {
+        return score(p1, t1, p2, t2, random);
     }
 
     /** Sample a scoreline for a matchup. team1 is the home side. */

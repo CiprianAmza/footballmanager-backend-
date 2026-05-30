@@ -1302,6 +1302,11 @@ public class MatchEngineConfig {
      * strength scalars and the per-position attack share.
      */
     public static class TacticalModel {
+        /** When true, production match scoring uses this two-axis model instead of the scalar
+         *  {@code calculateScores} + additive {@code adjustTeamPowerByTacticalProperties} path.
+         *  Default OFF — the scalar engine (and its tuned invariant/outcome test baselines) stays
+         *  in force until a deliberate cutover. The harness uses this model regardless of the flag. */
+        private boolean enabled = false;
         /** How far mentality shifts value between attack and defense (trade-off magnitude). */
         private double biasStrength = 0.30;
         /** How much "control" settings (keep ball / time-wasting) raise effective defense. */
@@ -1322,6 +1327,8 @@ public class MatchEngineConfig {
         /** OVERRIDE: used base position → share of a player's value assigned to attack (rest = defense). */
         private Map<String, Double> attackShare = new HashMap<>();
 
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
         public double getBiasStrength() { return biasStrength; }
         public void setBiasStrength(double v) { this.biasStrength = v; }
         public double getControlStrength() { return controlStrength; }

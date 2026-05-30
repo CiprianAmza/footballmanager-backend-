@@ -88,6 +88,8 @@ public class MatchRoundSimulator {
     @Autowired private TacticController tacticController;
     @Autowired private PlayerValueService playerValueService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
+    @Autowired private TacticalScoreService tacticalScoreService;
+    @Autowired private ManagerTacticService managerTacticService;
     @Autowired private UserContext userContext;
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
@@ -117,6 +119,10 @@ public class MatchRoundSimulator {
     private final Map<Long, String> managerTacticCache = new HashMap<>();
     private final Map<Long, List<PlayerView>> bestElevenCache = new HashMap<>();
     private final Map<Long, List<PlayerView>> substitutionsCache = new HashMap<>();
+    // Two-axis tactical-model caches (only populated when tactical-model.enabled): a team's coached
+    // attack/defense profile and the tactic its manager picked for the season.
+    private final Map<Long, TacticalScoreService.TeamProfile> profileCache = new HashMap<>();
+    private final Map<Long, TacticalScoreService.TacticVector> tacticVectorCache = new HashMap<>();
 
     // ===== Per-round caches (populated at start of simulateRound, cleared at end). =====
     // simulateRound runs sequentially (one competition's round at a time from the
@@ -306,6 +312,14 @@ public class MatchRoundSimulator {
                     if (adminScore != null) {
                         teamScore1 = adminScore[0];
                         teamScore2 = adminScore[1];
+                    } else if (engineConfig.getTacticalModel().isEnabled()) {
+                        // Two-axis model: the human's chosen PersonalizedTactic (if any) drives its
+                        // tactic vector; the opponent (AI) uses its manager's skill-picked tactic.
+                        List<Integer> scores = twoAxisScores(
+                                teamId1, personalizedTactic1.orElse(null),
+                                teamId2, personalizedTactic2.orElse(null));
+                        teamScore1 = scores.get(0);
+                        teamScore2 = scores.get(1);
                     } else {
                         // All match scoring goes through the config-driven, tuned engine
                         // (MatchSimulationService). Per-player morale + fitness are already
@@ -376,6 +390,11 @@ public class MatchRoundSimulator {
                 if (adminScoreAi != null) {
                     teamScore1 = adminScoreAi[0];
                     teamScore2 = adminScoreAi[1];
+                } else if (engineConfig.getTacticalModel().isEnabled()) {
+                    // Two-axis model: attack/defense + coaching + each manager's skill-picked tactic.
+                    List<Integer> scores = twoAxisScores(teamId1, null, teamId2, null);
+                    teamScore1 = scores.get(0);
+                    teamScore2 = scores.get(1);
                 } else {
                     // All scoring via the tuned, config-driven engine (same as the tests).
                     // Per-player morale + fitness are already inside teamPower (PlayerValueService);
@@ -868,11 +887,81 @@ public class MatchRoundSimulator {
      * team's squad or ratings change mid-session (training, transfers) so AI base
      * power actually evolves over a simulated season instead of staying frozen.
      */
+    // ============================================================
+    //  Two-axis tactical model (production path; only when tactical-model.enabled)
+    // ============================================================
+
+    /** Coached attack/defense profile for a team (best 11 → positional split → manager coaching),
+     *  cached per round like the scalar rating. */
+    private TacticalScoreService.TeamProfile teamTacticalProfile(long teamId) {
+        TacticalScoreService.TeamProfile cached = profileCache.get(teamId);
+        if (cached != null) return cached;
+
+        String tactic = getManagerTacticCached(teamId);
+        List<TacticController.StarterSlot> starters = tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
+        List<Long> ids = starters.stream().map(s -> s.player().getId()).toList();
+        Map<Long, PlayerSkills> skillsById = new HashMap<>();
+        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skillsById.put(s.getPlayerId(), s);
+
+        List<TacticalScoreService.StarterValue> values = new ArrayList<>();
+        for (TacticController.StarterSlot slot : starters) {
+            PlayerView pv = slot.player();
+            String natural = pv.getPosition(), used = slot.usedPosition();
+            PlayerSkills sk = skillsById.get(pv.getId());
+            double v = sk != null
+                    ? playerValueService.evaluatePlayer(sk, natural, used, pv.getMorale(), pv.getFitness())
+                    : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
+            values.add(new TacticalScoreService.StarterValue(used, v));
+        }
+        double[] coach = coachAbilities(teamId);
+        TacticalScoreService.TeamProfile coached =
+                tacticalScoreService.coachedProfile(tacticalScoreService.profile(values), coach[0], coach[1]);
+        profileCache.put(teamId, coached);
+        return coached;
+    }
+
+    /** The tactic vector a team plays: a human's chosen {@code PersonalizedTactic} when present,
+     *  otherwise the AI manager's skill-ranked pick (cached per round). */
+    private TacticalScoreService.TacticVector teamTacticVector(long teamId,
+            TacticalScoreService.TeamProfile profile, PersonalizedTactic personalized) {
+        if (personalized != null) {
+            return tacticalScoreService.vector(personalized);
+        }
+        TacticalScoreService.TacticVector cached = tacticVectorCache.get(teamId);
+        if (cached != null) return cached;
+        double[] coach = coachAbilities(teamId);
+        double pickAbility = (coach[0] + coach[1]) / 2.0;
+        // AI optimizes against a mirror of its own coached profile (an even, representative matchup).
+        PersonalizedTactic chosen = managerTacticService.chooseTactic(profile, profile, pickAbility);
+        TacticalScoreService.TacticVector v = tacticalScoreService.vector(chosen);
+        tacticVectorCache.put(teamId, v);
+        return v;
+    }
+
+    /** Two-axis scoreline for a match (team1 = home). */
+    private List<Integer> twoAxisScores(long teamId1, PersonalizedTactic pt1, long teamId2, PersonalizedTactic pt2) {
+        TacticalScoreService.TeamProfile p1 = teamTacticalProfile(teamId1);
+        TacticalScoreService.TeamProfile p2 = teamTacticalProfile(teamId2);
+        return tacticalScoreService.score(
+                p1, teamTacticVector(teamId1, p1, pt1),
+                p2, teamTacticVector(teamId2, p2, pt2));
+    }
+
+    private double[] coachAbilities(long teamId) {
+        return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
+                .filter(m -> !m.isRetired())
+                .findFirst()
+                .map(m -> new double[]{m.getOffensiveAbility(), m.getDefensiveAbility()})
+                .orElse(new double[]{50.0, 50.0});
+    }
+
     public void invalidateRatingCache(long teamId) {
         simpleRatingCache.remove(teamId);
         bestElevenCache.remove(teamId);
         substitutionsCache.remove(teamId);
         managerTacticCache.remove(teamId);
+        profileCache.remove(teamId);
+        tacticVectorCache.remove(teamId);
     }
 
     /** Drop ALL cached AI ratings — used at season transition (ageing + mass
@@ -882,6 +971,8 @@ public class MatchRoundSimulator {
         bestElevenCache.clear();
         substitutionsCache.clear();
         managerTacticCache.clear();
+        profileCache.clear();
+        tacticVectorCache.clear();
     }
 
     /** Test-only: expose the (cached) AI base rating so tests can prove the cache
