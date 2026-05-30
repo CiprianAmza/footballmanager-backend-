@@ -137,8 +137,12 @@ public class TacticalScoreService {
                 * (1 - cfg.getControlOpennessStrength() * (t1.control() + t2.control()) / 2.0);
         openness = Math.max(0.2, openness);
 
-        double ratio1 = effAtt1 / (effAtt1 + effDef2);
-        double ratio2 = effAtt2 / (effAtt2 + effDef1);
+        // Amplify the attack-vs-defense gap so stronger squads dominate more (squad value decisive).
+        double exp = cfg.getRatioExponent();
+        double a1 = Math.pow(effAtt1, exp), d2 = Math.pow(effDef2, exp);
+        double a2 = Math.pow(effAtt2, exp), d1 = Math.pow(effDef1, exp);
+        double ratio1 = a1 / (a1 + d2);
+        double ratio2 = a2 / (a2 + d1);
 
         double xg1 = openness * ratio1 * (homeAdvantage ? 1 + cfg.getHomeAttackBonus() : 1);
         double xg2 = openness * ratio2;

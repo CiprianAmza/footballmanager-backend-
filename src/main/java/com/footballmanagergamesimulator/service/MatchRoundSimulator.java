@@ -265,13 +265,25 @@ public class MatchRoundSimulator {
                 teamPower1 = lineupRatingService.getBestElevenRatingByTactic(teamId1, tactic1);
                 teamPower2 = lineupRatingService.getBestElevenRatingByTactic(teamId2, tactic2);
 
+                // When the two-axis model is the engine, use its scalar total (attack+defense of the
+                // team-talk-scaled coached profile) so the live/interactive match and its deferred
+                // post-match work stay consistent with the instant two-axis scoreline.
+                if (engineConfig.getTacticalModel().isEnabled()) {
+                    teamPower1 = twoAxisScalarPower(teamId1);
+                    teamPower2 = twoAxisScalarPower(teamId2);
+                }
+
                 Optional<PersonalizedTactic> personalizedTactic1 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
                 Optional<PersonalizedTactic> personalizedTactic2 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
 
-                if (personalizedTactic1.isPresent())
-                    teamPower1 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower1, teamPower2, personalizedTactic1.get());
-                if (personalizedTactic2.isPresent())
-                    teamPower2 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
+                // The old additive tactical adjustment is the SCALAR engine's tactic lever; the
+                // two-axis model handles tactics itself (via the tactic vector), so skip it when enabled.
+                if (!engineConfig.getTacticalModel().isEnabled()) {
+                    if (personalizedTactic1.isPresent())
+                        teamPower1 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower1, teamPower2, personalizedTactic1.get());
+                    if (personalizedTactic2.isPresent())
+                        teamPower2 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
+                }
 
                 // Admin override — if a score has been forced for this match, skip the
                 // live engine entirely and use the instant path with the forced score.
@@ -315,11 +327,14 @@ public class MatchRoundSimulator {
                     } else if (engineConfig.getTacticalModel().isEnabled()) {
                         // Two-axis model: the human's chosen PersonalizedTactic (if any) drives its
                         // tactic vector; the opponent (AI) uses its manager's skill-picked tactic.
-                        List<Integer> scores = twoAxisScores(
+                        // Replace teamPower with the two-axis total for consistent stats/morale/events.
+                        TwoAxisResult r = twoAxisScores(
                                 teamId1, personalizedTactic1.orElse(null),
                                 teamId2, personalizedTactic2.orElse(null));
-                        teamScore1 = scores.get(0);
-                        teamScore2 = scores.get(1);
+                        teamScore1 = r.score1();
+                        teamScore2 = r.score2();
+                        teamPower1 = r.power1();
+                        teamPower2 = r.power2();
                     } else {
                         // All match scoring goes through the config-driven, tuned engine
                         // (MatchSimulationService). Per-player morale + fitness are already
@@ -392,9 +407,12 @@ public class MatchRoundSimulator {
                     teamScore2 = adminScoreAi[1];
                 } else if (engineConfig.getTacticalModel().isEnabled()) {
                     // Two-axis model: attack/defense + coaching + each manager's skill-picked tactic.
-                    List<Integer> scores = twoAxisScores(teamId1, null, teamId2, null);
-                    teamScore1 = scores.get(0);
-                    teamScore2 = scores.get(1);
+                    // Replace the scalar teamPower with the two-axis total so stats/morale/knockout stay consistent.
+                    TwoAxisResult r = twoAxisScores(teamId1, null, teamId2, null);
+                    teamScore1 = r.score1();
+                    teamScore2 = r.score2();
+                    teamPower1 = r.power1();
+                    teamPower2 = r.power2();
                 } else {
                     // All scoring via the tuned, config-driven engine (same as the tests).
                     // Per-player morale + fitness are already inside teamPower (PlayerValueService);
@@ -938,13 +956,33 @@ public class MatchRoundSimulator {
         return v;
     }
 
-    /** Two-axis scoreline for a match (team1 = home). */
-    private List<Integer> twoAxisScores(long teamId1, PersonalizedTactic pt1, long teamId2, PersonalizedTactic pt2) {
-        TacticalScoreService.TeamProfile p1 = teamTacticalProfile(teamId1);
-        TacticalScoreService.TeamProfile p2 = teamTacticalProfile(teamId2);
-        return tacticalScoreService.score(
+    /** Two-axis match result: scoreline + the scalar "team power" (attack+defense of the
+     *  team-talk-scaled coached profile) so downstream consumers (match stats, morale power-diff,
+     *  knockout tie resolution, live deferred context) stay consistent with the new model. */
+    private record TwoAxisResult(int score1, int score2, double power1, double power2) {}
+
+    /** Score a match with the two-axis model (team1 = home). Applies the manager-reputation team
+     *  talk by scaling each side's profile, and uses the simulator's seeded RNG for determinism. */
+    private TwoAxisResult twoAxisScores(long teamId1, PersonalizedTactic pt1, long teamId2, PersonalizedTactic pt2) {
+        TacticalScoreService.TeamProfile p1 = scaleProfile(teamTacticalProfile(teamId1), teamTalkFactor(teamId1));
+        TacticalScoreService.TeamProfile p2 = scaleProfile(teamTacticalProfile(teamId2), teamTalkFactor(teamId2));
+        List<Integer> scores = tacticalScoreService.score(
                 p1, teamTacticVector(teamId1, p1, pt1),
-                p2, teamTacticVector(teamId2, p2, pt2));
+                p2, teamTacticVector(teamId2, p2, pt2),
+                this.random);
+        return new TwoAxisResult(scores.get(0), scores.get(1),
+                p1.attack() + p1.defense(), p2.attack() + p2.defense());
+    }
+
+    private static TacticalScoreService.TeamProfile scaleProfile(TacticalScoreService.TeamProfile p, double k) {
+        return new TacticalScoreService.TeamProfile(p.attack() * k, p.defense() * k);
+    }
+
+    /** Two-axis-consistent scalar "team power" (attack+defense of the team-talk-scaled coached
+     *  profile) — used where the scalar engine fed a single power (live match, stats, morale). */
+    private double twoAxisScalarPower(long teamId) {
+        TacticalScoreService.TeamProfile p = scaleProfile(teamTacticalProfile(teamId), teamTalkFactor(teamId));
+        return p.attack() + p.defense();
     }
 
     private double[] coachAbilities(long teamId) {

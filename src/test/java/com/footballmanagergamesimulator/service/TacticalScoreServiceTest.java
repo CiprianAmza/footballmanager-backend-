@@ -38,6 +38,19 @@ class TacticalScoreServiceTest {
     }
 
     @Test
+    void score_isDeterministicForASeed() {
+        // Production scoring passes the simulator's seeded RNG into score(...), so a fixed seed must
+        // reproduce the same scoreline (the basis of round-level determinism).
+        TeamProfile a = service.profile(List.of(new StarterValue("ST", 1500), new StarterValue("DC", 1500)));
+        TeamProfile b = service.profile(List.of(new StarterValue("MC", 1400), new StarterValue("DC", 1400)));
+        TacticVector ta = service.vector(tactic("Attacking", "Higher"));
+        TacticVector tb = service.vector(tactic("Defensive", "Lower"));
+
+        assertThat(service.score(a, ta, b, tb, new Random(20260528L)))
+                .isEqualTo(service.score(a, ta, b, tb, new Random(20260528L)));
+    }
+
+    @Test
     void coaching_amplifiesEachSideByAbility() {
         TeamProfile raw = new TeamProfile(1000, 1000);
         double k = cfg.getTacticalModel().getCoachStrength(); // default 0.12

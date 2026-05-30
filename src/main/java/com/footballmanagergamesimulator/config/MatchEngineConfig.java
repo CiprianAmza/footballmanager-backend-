@@ -1304,9 +1304,10 @@ public class MatchEngineConfig {
     public static class TacticalModel {
         /** When true, production match scoring uses this two-axis model instead of the scalar
          *  {@code calculateScores} + additive {@code adjustTeamPowerByTacticalProperties} path.
-         *  Default OFF — the scalar engine (and its tuned invariant/outcome test baselines) stays
-         *  in force until a deliberate cutover. The harness uses this model regardless of the flag. */
-        private boolean enabled = false;
+         *  Default ON (cutover, 2026-05-30): the two-axis model is the production engine. The scalar
+         *  methods are retained (and some legacy scalar-engine tests still exercise them directly),
+         *  but production scoring no longer routes through them. Set false to fall back to the scalar engine. */
+        private boolean enabled = true;
         /** How far mentality shifts value between attack and defense (trade-off magnitude). */
         private double biasStrength = 0.30;
         /** How much "control" settings (keep ball / time-wasting) raise effective defense. */
@@ -1317,6 +1318,9 @@ public class MatchEngineConfig {
         private double controlOpennessStrength = 0.25;
         /** Base total-goals scale when both sides are balanced. */
         private double baseOpenness = 3.0;
+        /** Amplifies the attack-vs-defense gap: each side's xG ratio uses {@code att^exp/(att^exp+def^exp)}.
+         *  >1 makes stronger squads dominate more (squad value decisive); 1.0 = raw ratio. */
+        private double ratioExponent = 2.0;
         /** Home-side attack bonus (multiplicative on xG). */
         private double homeAttackBonus = 0.08;
         /** Max ± boost a coach's offensive/defensive ability gives to the squad's attack/defense
@@ -1339,6 +1343,8 @@ public class MatchEngineConfig {
         public void setControlOpennessStrength(double v) { this.controlOpennessStrength = v; }
         public double getBaseOpenness() { return baseOpenness; }
         public void setBaseOpenness(double v) { this.baseOpenness = v; }
+        public double getRatioExponent() { return ratioExponent; }
+        public void setRatioExponent(double v) { this.ratioExponent = v; }
         public double getHomeAttackBonus() { return homeAttackBonus; }
         public void setHomeAttackBonus(double v) { this.homeAttackBonus = v; }
         public double getCoachStrength() { return coachStrength; }

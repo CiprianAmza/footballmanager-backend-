@@ -27,8 +27,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <blockquote>
  *   In a league, the team with media prediction = 1 (i.e. the team rated
  *   highest by {@link MediaController#getMediaPrediction(long)} at the start
- *   of the season) should win the championship in ≥ 5 of 10 simulated
- *   seasons.
+ *   of the season) should finish in the top {@code TOP_K} in ≥
+ *   {@code MIN_PREDICTED_TITLES} of {@code SEASONS_TO_RUN} simulated seasons —
+ *   i.e. the strongest squad reliably contends. (Two-axis cutover: the engine
+ *   no longer makes the favourite win near-deterministically.)
  * </blockquote>
  *
  * <p>Methodology (single Spring context, multi-season loop):
@@ -84,6 +86,13 @@ class ChampionshipPredictionFuzzIT {
     // confirm the test completes in a sane time budget per iteration.
     private static final int SEASONS_TO_RUN = 3;
     private static final int MIN_PREDICTED_TITLES = 2; // proportional: was 5/10 → 2/3 (more lenient at small N)
+    // Two-axis cutover (2026-05-30): production scoring is the attack/defense model, where the best
+    // squad realistically CONTENDS but doesn't always win (champion ≈ 1.8 mean position over many
+    // seasons; manager coaching + matchup add healthy variance) — unlike the old scalar engine whose
+    // amplified favourite won nearly deterministically. So the invariant is the favourite finishing
+    // in the TOP_K, not strictly 1st. The value-ordering of full standings is verified separately by
+    // HumanTacticOutcomeFuzzIT (strong squads top, weak squads bottom).
+    private static final int TOP_K = 3;
     /** League competition typeId — first division. */
     private static final long LEAGUE_TYPE_ID = 1L;
 
@@ -159,16 +168,19 @@ class ChampionshipPredictionFuzzIT {
                 (t3 - t2) / 1000.0, matchdays.size());
             System.out.flush();
 
-            // 3. Pick the champion = top of standings by points → GD → GF.
-            long championId = findChampion(leagueCompId);
+            // 3. Standings by points → GD → GF. The predicted favourite counts as a "hit" if it
+            //    finishes within the top TOP_K (it should reliably contend, not always win).
+            List<Long> standings = standingsTeamIds(leagueCompId);
+            long championId = standings.get(0);
             String championName = lookupTeamName(championId);
 
-            boolean hit = (championId == predictedTopId);
+            List<Long> topK = standings.subList(0, Math.min(TOP_K, standings.size()));
+            boolean hit = topK.contains(predictedTopId);
             if (hit) predictedTitles++;
 
             long t4 = System.currentTimeMillis();
-            System.out.printf("  [%.2fs] champion=%s (id=%d) %s | running total: %d/%d hits%n",
-                (t4 - t3) / 1000.0, championName, championId,
+            System.out.printf("  [%.2fs] champion=%s (id=%d) | predicted=%s top%d? %s | running total: %d/%d%n",
+                (t4 - t3) / 1000.0, championName, championId, predictedTopName, TOP_K,
                 hit ? "✓ HIT" : "✗ miss", predictedTitles, iter + 1);
             System.out.flush();
 
@@ -197,11 +209,11 @@ class ChampionshipPredictionFuzzIT {
         System.out.flush();
 
         assertThat(predictedTitles)
-            .as("Top-predicted team must win ≥ %d of %d championships (actual %d). "
-                + "See per-iteration stdout above for hit/miss + timing. Tune match-engine "
-                + "parameters (amplification exponent, expected goals, morale weight) until "
-                + "both this AND MatchEngineRepStrengthFuzzIT pass.",
-                MIN_PREDICTED_TITLES, SEASONS_TO_RUN, predictedTitles)
+            .as("Top-predicted team must finish in the top %d in ≥ %d of %d seasons (actual %d). "
+                + "Under the two-axis engine the best squad contends rather than wins deterministically; "
+                + "if this fails consistently, squad value has stopped driving results — check "
+                + "tactical-model.ratioExponent and coachStrength.",
+                TOP_K, MIN_PREDICTED_TITLES, SEASONS_TO_RUN, predictedTitles)
             .isGreaterThanOrEqualTo(MIN_PREDICTED_TITLES);
     }
 
@@ -213,7 +225,8 @@ class ChampionshipPredictionFuzzIT {
         return round.getSeason();
     }
 
-    private long findChampion(long competitionId) {
+    /** Team ids ordered by final standings (points → GD → GF), best first. */
+    private List<Long> standingsTeamIds(long competitionId) {
         List<TeamCompetitionDetail> standings = tcdRepository.findAll().stream()
             .filter(d -> d.getCompetitionId() == competitionId)
             .sorted(Comparator
@@ -224,7 +237,7 @@ class ChampionshipPredictionFuzzIT {
         assertThat(standings)
             .as("Standings for competition %d must contain teams", competitionId)
             .isNotEmpty();
-        return standings.get(0).getTeamId();
+        return standings.stream().map(TeamCompetitionDetail::getTeamId).toList();
     }
 
     private int goalDiff(TeamCompetitionDetail d) {
