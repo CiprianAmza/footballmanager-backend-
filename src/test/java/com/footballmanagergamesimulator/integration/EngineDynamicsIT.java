@@ -1,19 +1,27 @@
 package com.footballmanagergamesimulator.integration;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Injury;
 import com.footballmanagergamesimulator.model.PlayerSkills;
+import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.LineupRatingService;
+import com.footballmanagergamesimulator.service.MatchRoundSimulator;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import com.footballmanagergamesimulator.service.TrainingService;
 import com.footballmanagergamesimulator.util.TypeNames;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,8 +30,10 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -57,11 +67,15 @@ class EngineDynamicsIT {
     @Autowired private LineupRatingService lineupRatingService;
     @Autowired private TrainingService trainingService;
     @Autowired private MatchSimulationService matchSimulationService;
+    @Autowired private MatchRoundSimulator matchRoundSimulator;
     @Autowired private MatchEngineConfig engineConfig;
     @Autowired private HumanRepository humanRepository;
     @Autowired private InjuryRepository injuryRepository;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private TeamRepository teamRepository;
+    @Autowired private CompetitionRepository competitionRepository;
+    @Autowired private CompetitionTeamInfoMatchRepository matchRepo;
+    @Autowired private RoundRepository roundRepository;
 
     private static final String TACTIC = "442";
     private static final long SEED = 20260528L;
@@ -183,6 +197,51 @@ class EngineDynamicsIT {
     private double meanFitness(long teamId) {
         List<Human> squad = players(teamId).stream().filter(p -> !p.isRetired()).toList();
         return squad.stream().mapToDouble(Human::getFitness).average().orElse(0);
+    }
+
+    @Test
+    @DisplayName("A batch (instant) match drains the fitness of the players who played")
+    void batchMatchDrainsPlayedFitness() {
+        String season = roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
+
+        // First league (typeId 1) that has round-1 fixtures to play.
+        long leagueId = -1;
+        List<CompetitionTeamInfoMatch> roundMatches = List.of();
+        for (Competition c : competitionRepository.findAll()) {
+            if (c.getTypeId() != 1) continue;
+            List<CompetitionTeamInfoMatch> m =
+                    matchRepo.findAllByCompetitionIdAndRoundAndSeasonNumber(c.getId(), 1, season);
+            if (!m.isEmpty()) { leagueId = c.getId(); roundMatches = m; break; }
+        }
+        Assumptions.assumeTrue(leagueId > 0 && !roundMatches.isEmpty(),
+                "no league with round-1 fixtures in bootstrap");
+
+        Set<Long> participantTeams = new HashSet<>();
+        for (CompetitionTeamInfoMatch m : roundMatches) {
+            participantTeams.add(m.getTeam1Id());
+            participantTeams.add(m.getTeam2Id());
+        }
+        participantTeams.forEach(t -> setSquadFitness(t, 100.0));
+
+        long sampleTeam = roundMatches.get(0).getTeam1Id();
+        double before = meanFitness(sampleTeam);
+
+        matchRoundSimulator.setRandomForTesting(new Random(SEED));
+        try {
+            matchRoundSimulator.simulateRound(String.valueOf(leagueId), "1");
+        } finally {
+            matchRoundSimulator.setRandomForTesting(new Random());
+        }
+
+        double after = meanFitness(sampleTeam);
+        double floor = engineConfig.getStamina().getPostMatchFloor();
+        // The eleven who played lose batch-match-fitness-drain each; benched players are
+        // unchanged, so the squad mean drops but never breaches the post-match floor.
+        assertThat(after)
+                .as("playing an instant batch match must drain squad fitness (before=%.2f, after=%.2f)",
+                        before, after)
+                .isLessThan(before)
+                .isGreaterThanOrEqualTo(floor);
     }
 
     // ==================== morale + home → effectivePower ====================

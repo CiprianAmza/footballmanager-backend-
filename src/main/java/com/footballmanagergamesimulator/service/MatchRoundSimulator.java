@@ -111,7 +111,6 @@ public class MatchRoundSimulator {
     // ===== AI rating caches (lifetime: app, mirrors original controller behavior). =====
     private final Map<Long, Double> simpleRatingCache = new HashMap<>();
     private final Map<Long, String> managerTacticCache = new HashMap<>();
-    private final Map<Long, Double> managerMoraleCache = new HashMap<>();
     private final Map<Long, List<PlayerView>> bestElevenCache = new HashMap<>();
     private final Map<Long, List<PlayerView>> substitutionsCache = new HashMap<>();
 
@@ -310,8 +309,8 @@ public class MatchRoundSimulator {
                         // here via effectivePower (team1 is the home side). Knockout ties are
                         // broken later (extra time / penalties, aggregate for two-leg).
                         List<Integer> scores = matchSimulationService.calculateScores(
-                                matchSimulationService.effectivePower(teamPower1, getManagerMoraleCached(teamId1), true),
-                                matchSimulationService.effectivePower(teamPower2, getManagerMoraleCached(teamId2), false));
+                                matchSimulationService.effectivePower(teamPower1, squadMorale(teamId1), true),
+                                matchSimulationService.effectivePower(teamPower2, squadMorale(teamId2), false));
                         teamScore1 = scores.get(0);
                         teamScore2 = scores.get(1);
                     }
@@ -376,8 +375,8 @@ public class MatchRoundSimulator {
                     // All scoring via the tuned, config-driven engine (same as the tests),
                     // with morale curve + home advantage applied (team1 = home side).
                     List<Integer> scores = matchSimulationService.calculateScores(
-                            matchSimulationService.effectivePower(teamPower1, getManagerMoraleCached(teamId1), true),
-                            matchSimulationService.effectivePower(teamPower2, getManagerMoraleCached(teamId2), false));
+                            matchSimulationService.effectivePower(teamPower1 * squadFitnessFactor(teamId1), squadMorale(teamId1), true),
+                            matchSimulationService.effectivePower(teamPower2 * squadFitnessFactor(teamId2), squadMorale(teamId2), false));
                     teamScore1 = scores.get(0);
                     teamScore2 = scores.get(1);
                 }
@@ -623,6 +622,8 @@ public class MatchRoundSimulator {
         double demand7 = moraleCfg.getTransferDemandChance7Plus();
         double demand5 = moraleCfg.getTransferDemandChance5Plus();
         double demand3 = moraleCfg.getTransferDemandChance3Plus();
+        double fitnessDrain = engineConfig.getStamina().getBatchMatchFitnessDrain();
+        double fitnessFloor = engineConfig.getStamina().getPostMatchFloor();
 
         for (Human player : allPlayers) {
             if (player.isRetired()) continue;
@@ -633,6 +634,10 @@ public class MatchRoundSimulator {
                 moraleChange = baseMoraleChange + random.nextDouble(-indVariance, indVariance);
                 player.setSeasonMatchesPlayed(player.getSeasonMatchesPlayed() + 1);
                 player.setConsecutiveBenched(0);
+
+                // Fatigue: a played (instant/batch) match drains fitness, recovered
+                // later via training. Live matches use the per-minute stamina model.
+                player.setFitness(Math.max(fitnessFloor, player.getFitness() - fitnessDrain));
 
                 // AI player calms down if getting regular game time
                 if (player.isWantsTransfer() && player.getSeasonMatchesPlayed() > contentMinMatches) {
@@ -843,15 +848,40 @@ public class MatchRoundSimulator {
         return tactic;
     }
 
-    /** Squad morale (0..100) used by the effective-power curve. Manager morale is the
-     *  team-level scalar; defaults to the neutral 70 when a team has no manager. */
-    private double getManagerMoraleCached(long teamId) {
-        Double cached = managerMoraleCache.get(teamId);
-        if (cached != null) return cached;
-        double morale = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
-                .stream().findFirst().map(Human::getMorale).orElse(70.0);
-        managerMoraleCache.put(teamId, morale);
-        return morale;
+    /** Ids of a team's best eleven. AI teams have them in the (frozen) rating cache;
+     *  human/other teams are selected fresh via the tactic. */
+    private Set<Long> bestElevenIds(long teamId) {
+        List<PlayerView> xi = bestElevenCache.get(teamId);
+        if (xi == null || xi.isEmpty()) {
+            xi = tacticController.getBestEleven(String.valueOf(teamId), getManagerTacticCached(teamId));
+        }
+        Set<Long> ids = new HashSet<>();
+        for (PlayerView pv : xi) ids.add(pv.getId());
+        return ids;
+    }
+
+    /** Average CURRENT morale (0..100) of the best eleven, used by the effective-power
+     *  curve. Read fresh from the per-round player snapshot (not the app-lifetime
+     *  rating cache), so morale gained/lost in prior rounds actually moves team power
+     *  over a season. Neutral 70 when the squad can't be resolved. */
+    private double squadMorale(long teamId) {
+        Set<Long> xi = bestElevenIds(teamId);
+        return roundPlayers(teamId).stream()
+                .filter(p -> xi.contains(p.getId()))
+                .mapToDouble(Human::getMorale)
+                .average().orElse(70.0);
+    }
+
+    /** Average CURRENT fitness multiplier (floored at 0.7, same as the human
+     *  best-eleven path) of the best eleven, read fresh each round. Squad fatigue
+     *  lowers AI team power across a congested season; recovered via training.
+     *  Returns 1.0 (no effect) when the squad can't be resolved. */
+    private double squadFitnessFactor(long teamId) {
+        Set<Long> xi = bestElevenIds(teamId);
+        return roundPlayers(teamId).stream()
+                .filter(p -> xi.contains(p.getId()))
+                .mapToDouble(p -> Math.max(0.7, p.getFitness() / 100.0))
+                .average().orElse(1.0);
     }
 
     /**

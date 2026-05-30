@@ -289,6 +289,10 @@ public class MatchEngineConfig {
         /** Start-of-match stamina clamping. */
         private double startStaminaMin = 20.0;
         private double startStaminaMax = 100.0;
+        /** Fitness lost by each player who played an instant/batch match (the live
+         *  engine uses the per-minute model instead). Recovered via training; never
+         *  drops below {@link #postMatchFloor}. */
+        private double batchMatchFitnessDrain = 8.0;
 
         public double getBaseCostPerMinute() { return baseCostPerMinute; }
         public void setBaseCostPerMinute(double v) { this.baseCostPerMinute = v; }
@@ -322,6 +326,8 @@ public class MatchEngineConfig {
         public void setStartStaminaMin(double v) { this.startStaminaMin = v; }
         public double getStartStaminaMax() { return startStaminaMax; }
         public void setStartStaminaMax(double v) { this.startStaminaMax = v; }
+        public double getBatchMatchFitnessDrain() { return batchMatchFitnessDrain; }
+        public void setBatchMatchFitnessDrain(double v) { this.batchMatchFitnessDrain = v; }
     }
 
     // ==================== INJURIES ====================
