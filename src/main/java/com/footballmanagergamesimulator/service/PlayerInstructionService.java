@@ -1,5 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -17,6 +19,9 @@ import java.util.*;
  */
 @Service
 public class PlayerInstructionService {
+
+    @Autowired
+    private MatchEngineConfig engineConfig;
 
     // All available instructions with their categories, applicable positions, and descriptions
     private static final List<InstructionDef> ALL_INSTRUCTIONS = List.of(
@@ -122,9 +127,10 @@ public class PlayerInstructionService {
      * @param matchContext "attacking" or "defending" phase
      * @return power multiplier (0.95 - 1.05 range)
      */
-    public static double computeInstructionMultiplier(List<String> instructions, String position, String matchContext) {
+    public double computeInstructionMultiplier(List<String> instructions, String position, String matchContext) {
         if (instructions == null || instructions.isEmpty()) return 1.0;
 
+        MatchEngineConfig.InstructionWeights cfg = engineConfig.getInstructionWeights();
         double bonus = 0;
 
         for (String instruction : instructions) {
@@ -194,17 +200,21 @@ public class PlayerInstructionService {
             }
         }
 
-        // Check for conflicting instructions (penalty)
-        Set<String> instrSet = new HashSet<>(instructions);
-        if (instrSet.contains("Close Down More") && instrSet.contains("Close Down Less")) bonus -= 0.02;
-        if (instrSet.contains("Shoot More Often") && instrSet.contains("Shoot Less Often")) bonus -= 0.02;
-        if (instrSet.contains("Dribble More") && instrSet.contains("Dribble Less")) bonus -= 0.02;
-        if (instrSet.contains("Sit Narrower") && instrSet.contains("Stay Wider")) bonus -= 0.02;
-        if (instrSet.contains("Cross From Byline") && instrSet.contains("Cross From Deep")) bonus -= 0.02;
-        if (instrSet.contains("Tackle Harder") && instrSet.contains("Ease Off Tackles")) bonus -= 0.02;
-        if (instrSet.contains("Get Further Forward") && instrSet.contains("Hold Position")) bonus -= 0.02;
+        // A global scale lets designers dial overall instruction impact up or down.
+        bonus *= cfg.getBonusScale();
 
-        return Math.max(0.92, Math.min(1.08, 1.0 + bonus));
+        // Check for conflicting instructions (penalty)
+        double conflict = cfg.getConflictPenalty();
+        Set<String> instrSet = new HashSet<>(instructions);
+        if (instrSet.contains("Close Down More") && instrSet.contains("Close Down Less")) bonus -= conflict;
+        if (instrSet.contains("Shoot More Often") && instrSet.contains("Shoot Less Often")) bonus -= conflict;
+        if (instrSet.contains("Dribble More") && instrSet.contains("Dribble Less")) bonus -= conflict;
+        if (instrSet.contains("Sit Narrower") && instrSet.contains("Stay Wider")) bonus -= conflict;
+        if (instrSet.contains("Cross From Byline") && instrSet.contains("Cross From Deep")) bonus -= conflict;
+        if (instrSet.contains("Tackle Harder") && instrSet.contains("Ease Off Tackles")) bonus -= conflict;
+        if (instrSet.contains("Get Further Forward") && instrSet.contains("Hold Position")) bonus -= conflict;
+
+        return Math.max(cfg.getClampMin(), Math.min(cfg.getClampMax(), 1.0 + bonus));
     }
 
     public static class InstructionDef {

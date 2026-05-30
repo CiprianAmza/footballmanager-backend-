@@ -9,6 +9,7 @@ import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.PlayerInstructionService;
 import com.footballmanagergamesimulator.service.PlayerRoleService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
+import com.footballmanagergamesimulator.service.PlayerValueService;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.annotation.PostConstruct;
@@ -46,6 +47,8 @@ public class TacticController {
     PlayerRoleService playerRoleService;
     @Autowired
     PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    PlayerValueService playerValueService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -562,7 +565,49 @@ public class TacticController {
 //        personalizedTacticRepository.save(personalizedTactic);
 //    }
 
+    /**
+     * Pairs a selected starter with the base tactic-position slot they occupy. The slot may
+     * differ from the player's natural position when an out-of-position filler is used —
+     * downstream {@code PlayerValueService} applies a familiarity penalty for that mismatch.
+     */
+    public record StarterSlot(PlayerView player, String usedPosition) {}
+
+    /**
+     * Same selection as {@link #getBestEleven}, but preserves which base-position slot each
+     * starter occupies (so the match-value engine can apply position familiarity).
+     */
+    public List<StarterSlot> getBestElevenWithSlots(String teamId, String tactic) {
+        long _teamId = Long.parseLong(teamId);
+        Team team = teamRepository.findById(_teamId).orElse(null);
+        if (team == null)
+            throw new RuntimeException("Team not found.");
+        // Display order (by the player's natural position) matches the legacy getBestEleven
+        // ordering, so consumers that map slots → players keep a stable, deterministic sequence.
+        return selectStarterSlots(team, tacticService.getRoomInTeamByTactic(tactic))
+                .stream()
+                .sorted(Comparator.comparingInt(s ->
+                        tacticService.getValueForTacticDisplay(s.player().getPosition())))
+                .toList();
+    }
+
     private List<PlayerView> getBestElevenPlayers(Team team, Map<String, Integer> tacticFormat) {
+        return selectStarterSlots(team, tacticFormat)
+                .stream()
+                .map(StarterSlot::player)
+                .sorted((p1, p2) ->
+                        Integer.compare(
+                                tacticService.getValueForTacticDisplay(p1.getPosition()),
+                                tacticService.getValueForTacticDisplay(p2.getPosition())))
+                .toList();
+    }
+
+    /**
+     * Pick the eleven starters for a tactic and record the slot each occupies.
+     * Players are chosen by "aptness" = generic skill ({@code rating}) × fitness, so a fitter
+     * player is preferred when ratings are close. Per position the best apt players fill the
+     * required slots; remaining slots are filled by the best apt leftovers (out of position).
+     */
+    private List<StarterSlot> selectStarterSlots(Team team, Map<String, Integer> tacticFormat) {
 
         Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(team.getId(), 0)
                 .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
@@ -574,63 +619,68 @@ public class TacticController {
         Map<String, List<PlayerView>> positionToPlayers = new HashMap<>();
 
         for (PlayerView playerView: players) {
-            if (!positionToPlayers.containsKey(playerView.getPosition()))
-                positionToPlayers.put(playerView.getPosition(), new ArrayList<>());
-            positionToPlayers.get(playerView.getPosition()).add(playerView);
+            positionToPlayers.computeIfAbsent(playerView.getPosition(), k -> new ArrayList<>()).add(playerView);
         }
 
-        Map<String, List<PlayerView>> bestEleven = new HashMap<>();
-        int available = 11;
+        List<StarterSlot> slots = new ArrayList<>();
         List<PlayerView> restPlayers = new ArrayList<>();
+        Deque<String> openSlots = new ArrayDeque<>();
+        int available = 11;
 
-        for (Map.Entry<String, Integer> entry: tacticFormat.entrySet()) {
+        // Stable position order so out-of-position fillers map to open slots deterministically
+        // (familiarity now depends on the slot, and tacticFormat is an unordered Map.of).
+        List<Map.Entry<String, Integer>> orderedSlots = tacticFormat.entrySet().stream()
+                .sorted(Comparator.comparingInt(e -> tacticService.getValueForTacticDisplay(e.getKey())))
+                .toList();
+        for (Map.Entry<String, Integer> entry: orderedSlots) {
             String position = entry.getKey();
-            Integer needed = entry.getValue();
-            bestEleven.put(position, new ArrayList<>());
+            int needed = entry.getValue();
 
             List<PlayerView> playersForThisPosition = positionToPlayers.getOrDefault(position, new ArrayList<>()).stream()
-                    .sorted((x, y) -> Double.compare(y.getRating(), x.getRating()))
+                    .sorted((x, y) -> Double.compare(aptness(y), aptness(x)))
                     .toList();
 
-            for (int i = 0; i < Math.min(needed, playersForThisPosition.size()); i++) {
-                bestEleven.get(position).add(playersForThisPosition.get(i));
+            int taken = Math.min(needed, playersForThisPosition.size());
+            for (int i = 0; i < taken; i++) {
+                slots.add(new StarterSlot(playersForThisPosition.get(i), position));
                 available -= 1;
             }
-
             for (int i = needed; i < playersForThisPosition.size(); i++) {
                 restPlayers.add(playersForThisPosition.get(i));
             }
+            for (int i = taken; i < needed; i++) {
+                openSlots.add(position);
+            }
         }
 
-        List<PlayerView> firstEleven = new ArrayList<>();
-        for (List<PlayerView> playerViews: bestEleven.values())
-            firstEleven.addAll(playerViews);
-
-        firstEleven.sort((p1, p2) -> Double.compare(p2.getRating(), p1.getRating()));
-        for (int i = 0; i < Math.min(available, restPlayers.size()); i++) { // todo handle case where team does not have at least 11 players...
-            firstEleven.add(restPlayers.get(i));
+        restPlayers.sort((x, y) -> Double.compare(aptness(y), aptness(x)));
+        int fill = Math.min(available, restPlayers.size());
+        for (int i = 0; i < fill; i++) {
+            String slot = openSlots.isEmpty() ? "MC" : openSlots.poll();
+            slots.add(new StarterSlot(restPlayers.get(i), slot));
         }
 
-        if (firstEleven.size() < 11) {
-            System.out.println("WARNING: Team " + team.getName() + " only has " + firstEleven.size() + " available players! Filling with youth placeholders.");
+        if (slots.size() < 11) {
+            System.out.println("WARNING: Team " + team.getName() + " only has " + slots.size() + " available players! Filling with youth placeholders.");
         }
-        for (int i = firstEleven.size(); i < 11; i++) {
+        while (slots.size() < 11) {
+            String slot = openSlots.isEmpty() ? "MC" : openSlots.poll();
             PlayerView playerView = new PlayerView();
             playerView.setAge(16);
             playerView.setName("Youth Player");
-            playerView.setPosition("MC");
+            playerView.setPosition(slot);
             playerView.setRating(10);
-
-            firstEleven.add(playerView);
+            playerView.setFitness(100);
+            playerView.setMorale(70);
+            slots.add(new StarterSlot(playerView, slot));
         }
 
-        return firstEleven
-                .stream()
-                .sorted((p1, p2) ->
-                        Integer.compare(
-                                tacticService.getValueForTacticDisplay(p1.getPosition()),
-                                tacticService.getValueForTacticDisplay(p2.getPosition())))
-                .toList();
+        return slots;
+    }
+
+    /** Squad-selection "aptness": generic skill weighted by fitness (an unfit star may be benched). */
+    private double aptness(PlayerView player) {
+        return player.getRating() * playerValueService.fitnessFactor(player.getFitness());
     }
 
     private List<PlayerView> getBestSubstitutions(Team team, Map<String, Integer> substitutionFormat, List<PlayerView> playersInFirstEleven) {

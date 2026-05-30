@@ -322,16 +322,14 @@ class EngineDynamicsIT {
         return sum / n;
     }
 
-    // ==================== pace: live-only, ignored by the batch path ====================
+    // ==================== pace: now feeds the batch path via the weighted match value ====================
 
     @Test
-    @DisplayName("Batch power ignores pace — mutating PlayerSkills.pace does not move the best-eleven rating")
-    void batchPowerIgnoresPace() {
+    @DisplayName("Batch power reflects pace — pace is one of the weighted match-value attributes")
+    void batchPowerReflectsPace() {
         long teamId = pickPopulatedTeamId();
         setSquadFitness(teamId, 100.0);
         setSquadMorale(teamId, 70.0);
-
-        double baseline = lineupRatingService.getBestElevenRatingByTactic(teamId, TACTIC);
 
         List<Long> playerIds = players(teamId).stream().map(Human::getId).toList();
         List<PlayerSkills> skills = playerSkillsRepository.findAllByPlayerIdIn(playerIds);
@@ -345,18 +343,13 @@ class EngineDynamicsIT {
         playerSkillsRepository.saveAll(skills);
         double paceMax = lineupRatingService.getBestElevenRatingByTactic(teamId, TACTIC);
 
-        // Pace feeds ONLY the live engine (LiveMatchSimulationService). The batch power path
-        // (LineupRatingService → effectivePower → calculateScores) never reads it, so the squad
-        // rating is identical regardless of pace. This characterises the known limitation that
-        // pace dynamics are absent from AI/batch simulation.
-        assertThat(paceFloor)
-                .as("pace=1 must not change the batch best-eleven rating (baseline=%.6f, paced=%.6f)",
-                        baseline, paceFloor)
-                .isEqualTo(baseline);
+        // The config-driven match value (PlayerValueService) weights all 36 attributes, so pace
+        // now contributes to the batch best-eleven rating. With default weights = 1 a higher pace
+        // strictly raises the squad value. (Pace still also drives the live engine separately.)
         assertThat(paceMax)
-                .as("pace=20 must not change the batch best-eleven rating (baseline=%.6f, paced=%.6f)",
-                        baseline, paceMax)
-                .isEqualTo(baseline);
+                .as("pace=20 must yield a higher batch best-eleven rating than pace=1 (floor=%.6f, max=%.6f)",
+                        paceFloor, paceMax)
+                .isGreaterThan(paceFloor);
     }
 
     // ==================== attribute drift through training ====================
@@ -429,17 +422,20 @@ class EngineDynamicsIT {
     }
 
     @Test
-    @DisplayName("AI base rating stays cached until invalidated, then reflects the new ratings")
+    @DisplayName("AI base rating stays cached until invalidated, then reflects the new attribute values")
     void aiBaseRatingRefreshesAfterInvalidation() {
         long teamId = pickPopulatedTeamId();
         matchRoundSimulator.invalidateRatingCache(teamId); // start from a clean cache
 
         double r1 = matchRoundSimulator.aiBaseRatingForTest(teamId); // computes + caches
 
-        // Boost every player's rating in the DB.
-        List<Human> squad = players(teamId);
-        squad.forEach(p -> p.setRating(p.getRating() + 25));
-        humanRepository.saveAll(squad);
+        // Boost every player's match-value attributes in the DB (the AI base rating is derived
+        // from PlayerSkills via PlayerValueService, not from the generic Human.rating). Maxing
+        // the attributes guarantees a higher positional value for the same selected eleven.
+        List<Long> ids = players(teamId).stream().map(Human::getId).toList();
+        List<PlayerSkills> squadSkills = playerSkillsRepository.findAllByPlayerIdIn(ids);
+        squadSkills.forEach(s -> PlayerSkillsService.SETTER_MAP.values().forEach(setter -> setter.accept(s, 20)));
+        playerSkillsRepository.saveAll(squadSkills);
 
         // Without invalidation the cached value is frozen — the boost is invisible.
         double rStale = matchRoundSimulator.aiBaseRatingForTest(teamId);
@@ -448,11 +444,11 @@ class EngineDynamicsIT {
                         + "(r1=%.4f, stale=%.4f)", r1, rStale)
                 .isEqualTo(r1);
 
-        // After invalidation it recomputes from the boosted ratings.
+        // After invalidation it recomputes from the boosted attributes.
         matchRoundSimulator.invalidateRatingCache(teamId);
         double r2 = matchRoundSimulator.aiBaseRatingForTest(teamId);
         assertThat(r2)
-                .as("after invalidation the AI base rating must reflect the higher player ratings "
+                .as("after invalidation the AI base rating must reflect the higher attribute values "
                         + "(r1=%.4f, r2=%.4f)", r1, r2)
                 .isGreaterThan(r1);
     }

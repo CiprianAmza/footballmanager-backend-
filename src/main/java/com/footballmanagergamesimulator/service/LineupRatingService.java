@@ -62,6 +62,8 @@ public class LineupRatingService {
 
     @Autowired private TacticService tacticService;
     @Autowired private PlayerRoleService playerRoleService;
+    @Autowired private PlayerInstructionService playerInstructionService;
+    @Autowired private PlayerValueService playerValueService;
     @Autowired private CompetitionService competitionService;
     @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private TeamPostMatchService teamPostMatchService;
@@ -104,37 +106,36 @@ public class LineupRatingService {
                     if (injuredIds.contains(player.getId())) continue;
 
                     String tacticPosition = tacticService.getPositionFromIndex(data.getPositionIndex());
+                    String naturalPos = TacticService.getBasePosition(player.getPosition());
+                    String usedPos = TacticService.getBasePosition(tacticPosition);
 
-                    // Morale neutral at 70 (1.0), swing reduced 10x — squad value should
-                    // dominate, morale only nudges. Range now ~0.97..1.012.
-                    double moraleMultiplier = 1.0 + (player.getMorale() - 70) * 0.0004;
-                    double fitnessMultiplier = Math.max(0.7, player.getFitness() / 100D);
-
-                    double playerRating;
-                    String basePlayerPos = TacticService.getBasePosition(player.getPosition());
-                    String baseTacticPos = TacticService.getBasePosition(tacticPosition);
-                    if (basePlayerPos.equals(baseTacticPos)) {
-                        if (data.getRole() != null && !data.getRole().isEmpty()) {
-                            PlayerSkills skills = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()).orElse(null);
-                            if (skills != null) {
-                                playerRating = playerRoleService.computeEffectiveRating(skills, data.getRole());
-                            } else {
-                                playerRating = player.getRating();
-                            }
-                        } else {
-                            playerRating = player.getRating();
-                        }
-                        double instructionMultiplier = PlayerInstructionService.computeInstructionMultiplier(
-                                data.getInstructions(), baseTacticPos, "general");
-                        rating += playerRating * moraleMultiplier * fitnessMultiplier * instructionMultiplier;
+                    // Base = position-weighted attribute value (config-driven). Role suitability,
+                    // when a role is set, blends into the base via PlayerRoleService.
+                    PlayerSkills skills = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()).orElse(null);
+                    double base;
+                    if (skills != null) {
+                        double positional = playerValueService.computePositionalValue(skills, usedPos);
+                        base = (data.getRole() != null && !data.getRole().isEmpty())
+                                ? playerRoleService.computeEffectiveRating(skills, data.getRole(), positional)
+                                : positional;
                     } else {
-                        rating += player.getRating() / 2 * moraleMultiplier * fitnessMultiplier;
+                        base = player.getRating();
                     }
+
+                    // Familiarity (slot vs natural position) replaces the old flat /2 penalty;
+                    // morale + fitness are per-player; the instruction multiplier is layered on.
+                    double instructionMultiplier = playerInstructionService.computeInstructionMultiplier(
+                            data.getInstructions(), usedPos, "general");
+                    rating += base
+                            * playerValueService.familiarityFactor(naturalPos, usedPos)
+                            * playerValueService.moraleFactor(player.getMorale())
+                            * playerValueService.fitnessFactor(player.getFitness())
+                            * instructionMultiplier;
                 }
 
-                // Manager morale + home advantage are applied centrally at the scoring
-                // call (MatchSimulationService.effectivePower) using the tuned curve, so
-                // this returns the squad rating without the old manager-morale multiplier.
+                // Team talk + home advantage are applied centrally at the scoring call
+                // (MatchSimulationService.effectiveTeamPower); this returns the squad value
+                // with per-player morale/fitness/familiarity already included.
                 return rating;
 
             } catch (Exception e) {
@@ -142,19 +143,27 @@ public class LineupRatingService {
             }
         }
 
-        // Fallback: auto-picked best eleven.
-        List<PlayerView> playerViews = tacticController.getBestEleven(String.valueOf(teamId), tactic);
+        // Fallback: auto-picked best eleven (no roles/instructions in this path).
+        List<TacticController.StarterSlot> starters = tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
 
-        double fallbackRating = playerViews
-                .stream()
-                .mapToDouble(playerView -> {
-                    double moraleMul = 1.0 + (playerView.getMorale() - 70) * 0.0004;
-                    double fitMul = Math.max(0.7, playerView.getFitness() / 100D);
-                    return playerView.getRating() * moraleMul * fitMul;
-                })
-                .sum();
+        List<Long> ids = starters.stream().map(s -> s.player().getId()).toList();
+        Map<Long, PlayerSkills> skillsById = new java.util.HashMap<>();
+        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) {
+            skillsById.put(s.getPlayerId(), s);
+        }
 
-        // Manager morale applied centrally via effectivePower (see above).
+        double fallbackRating = 0;
+        for (TacticController.StarterSlot slot : starters) {
+            PlayerView pv = slot.player();
+            String naturalPos = TacticService.getBasePosition(pv.getPosition());
+            String usedPos = slot.usedPosition();
+            PlayerSkills skills = skillsById.get(pv.getId());
+            fallbackRating += skills != null
+                    ? playerValueService.evaluatePlayer(skills, naturalPos, usedPos, pv.getMorale(), pv.getFitness())
+                    : playerValueService.evaluatePlayer(pv.getRating(), naturalPos, usedPos, pv.getMorale(), pv.getFitness());
+        }
+
+        // Team talk applied centrally via effectiveTeamPower (see above).
         return fallbackRating;
     }
 

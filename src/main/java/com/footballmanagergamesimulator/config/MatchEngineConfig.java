@@ -3,6 +3,9 @@ package com.footballmanagergamesimulator.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Single source of truth for every numeric constant that influences a match
  * outcome. Externalized so a fuzz/auto-tuner can sweep values without
@@ -45,6 +48,9 @@ public class MatchEngineConfig {
     private Stats stats = new Stats();
     private Knockout knockout = new Knockout();
     private Training training = new Training();
+    private PlayerValue playerValue = new PlayerValue();
+    private RoleWeights roleWeights = new RoleWeights();
+    private InstructionWeights instructionWeights = new InstructionWeights();
 
     public Power getPower() { return power; }
     public void setPower(Power power) { this.power = power; }
@@ -72,6 +78,12 @@ public class MatchEngineConfig {
     public void setKnockout(Knockout knockout) { this.knockout = knockout; }
     public Training getTraining() { return training; }
     public void setTraining(Training training) { this.training = training; }
+    public PlayerValue getPlayerValue() { return playerValue; }
+    public void setPlayerValue(PlayerValue playerValue) { this.playerValue = playerValue; }
+    public RoleWeights getRoleWeights() { return roleWeights; }
+    public void setRoleWeights(RoleWeights roleWeights) { this.roleWeights = roleWeights; }
+    public InstructionWeights getInstructionWeights() { return instructionWeights; }
+    public void setInstructionWeights(InstructionWeights instructionWeights) { this.instructionWeights = instructionWeights; }
 
     // ==================== POWER / POISSON ====================
     public static class Power {
@@ -878,5 +890,127 @@ public class MatchEngineConfig {
         public void setYouthMaxAge(int v) { this.youthMaxAge = v; }
         public boolean isScaleFitnessGain() { return scaleFitnessGain; }
         public void setScaleFitnessGain(boolean v) { this.scaleFitnessGain = v; }
+    }
+
+    // ==================== PLAYER MATCH VALUE (weighted, config-driven) ====================
+    /**
+     * Drives {@code PlayerValueService} — the matchday team rating. A starter's match
+     * value is {@code clamp(weightedAvgAttrs × scaleMultiplier, floor, ceil) × familiarity
+     * × moraleFactor × fitnessFactor}. Team value = Σ over the 11 starters. This is the
+     * single source of truth for the power fed to {@code calculateScores}.
+     *
+     * <p>Unlike {@code Human.rating} (the generic skill used only for squad-selection
+     * sorting, transfer values and UI), this value is computed only at matchday and uses
+     * per-position attribute weights so designers can express what matters per position.
+     */
+    public static class PlayerValue {
+        /** weightedAvg of attrs (1..20) × this → the ~1..300 scale. Default 15 matches
+         *  {@code PlayerSkillsService.computeOverallRating} so there is no scale shock. */
+        private double scaleMultiplier = 15.0;
+        private double ratingFloor = 1.0;
+        private double ratingCeil = 300.0;
+
+        /** Per-player morale factor: {@code 1.0 + (morale - moraleNeutral) × moraleSlope}. */
+        private double moraleNeutral = 70.0;
+        private double moraleSlope = 0.0004;
+        /** Per-player fitness factor: {@code max(fitnessFloor, fitness / 100)}. */
+        private double fitnessFloor = 0.7;
+
+        /** Familiarity factor used when a (natural → used) position pair is absent from the matrix. */
+        private double defaultFamiliarityPenalty = 0.5;
+
+        /**
+         * position → (attributeName → weight 0..5). Attribute keys use the 36
+         * {@code PlayerSkillsService.GETTER_MAP} display names ("First Touch", "Off The Ball", …).
+         * Any attribute absent for a position defaults to weight 1.0, so an empty map means
+         * "every attribute counts equally for every position" (the initial state). Set a weight
+         * to 0 to mark an attribute irrelevant to that position.
+         */
+        private Map<String, Map<String, Double>> weights = new HashMap<>();
+
+        /**
+         * natural base position → (used base position → factor in (0,1]). Missing pair defaults
+         * to {@link #defaultFamiliarityPenalty}; a player on his natural position is always 1.0.
+         */
+        private Map<String, Map<String, Double>> familiarityPenalty = new HashMap<>();
+
+        /** Never-null weight lookup; absent attribute ⇒ 1.0. */
+        public double weight(String position, String attribute) {
+            Map<String, Double> byAttr = weights.get(position);
+            if (byAttr == null) return 1.0;
+            Double w = byAttr.get(attribute);
+            return w == null ? 1.0 : w;
+        }
+
+        /** Never-null familiarity lookup; natural==used ⇒ 1.0, absent pair ⇒ defaultFamiliarityPenalty. */
+        public double familiarity(String natural, String used) {
+            if (natural != null && natural.equals(used)) return 1.0;
+            Map<String, Double> byUsed = familiarityPenalty.get(natural);
+            if (byUsed == null) return defaultFamiliarityPenalty;
+            Double f = byUsed.get(used);
+            return f == null ? defaultFamiliarityPenalty : f;
+        }
+
+        public double getScaleMultiplier() { return scaleMultiplier; }
+        public void setScaleMultiplier(double v) { this.scaleMultiplier = v; }
+        public double getRatingFloor() { return ratingFloor; }
+        public void setRatingFloor(double v) { this.ratingFloor = v; }
+        public double getRatingCeil() { return ratingCeil; }
+        public void setRatingCeil(double v) { this.ratingCeil = v; }
+        public double getMoraleNeutral() { return moraleNeutral; }
+        public void setMoraleNeutral(double v) { this.moraleNeutral = v; }
+        public double getMoraleSlope() { return moraleSlope; }
+        public void setMoraleSlope(double v) { this.moraleSlope = v; }
+        public double getFitnessFloor() { return fitnessFloor; }
+        public void setFitnessFloor(double v) { this.fitnessFloor = v; }
+        public double getDefaultFamiliarityPenalty() { return defaultFamiliarityPenalty; }
+        public void setDefaultFamiliarityPenalty(double v) { this.defaultFamiliarityPenalty = v; }
+        public Map<String, Map<String, Double>> getWeights() { return weights; }
+        public void setWeights(Map<String, Map<String, Double>> v) { this.weights = v; }
+        public Map<String, Map<String, Double>> getFamiliarityPenalty() { return familiarityPenalty; }
+        public void setFamiliarityPenalty(Map<String, Map<String, Double>> v) { this.familiarityPenalty = v; }
+    }
+
+    // ==================== ROLE SUITABILITY BLEND ====================
+    /**
+     * Tunable knobs for {@code PlayerRoleService}. The per-role attribute tables stay as
+     * code data; these are the formula-level levers. Defaults reproduce the previous
+     * hardcoded behaviour: effectiveRating = overall × {@code overallBlend} + suitability ×
+     * {@code roleBlend}; suitability = clamp(weightedAvg × {@code suitabilityScale}, 1, 100).
+     */
+    public static class RoleWeights {
+        private double overallBlend = 0.4;
+        private double roleBlend = 0.6;
+        private double suitabilityScale = 5.0;
+
+        public double getOverallBlend() { return overallBlend; }
+        public void setOverallBlend(double v) { this.overallBlend = v; }
+        public double getRoleBlend() { return roleBlend; }
+        public void setRoleBlend(double v) { this.roleBlend = v; }
+        public double getSuitabilityScale() { return suitabilityScale; }
+        public void setSuitabilityScale(double v) { this.suitabilityScale = v; }
+    }
+
+    // ==================== INSTRUCTION MULTIPLIER ====================
+    /**
+     * Tunable knobs for {@code PlayerInstructionService.computeInstructionMultiplier}. The
+     * per-instruction bonus table stays as code; {@code bonusScale} globally scales the
+     * accumulated bonus (1.0 = unchanged), and the clamp bounds / conflict penalty are
+     * externalized. Defaults reproduce the previous hardcoded behaviour.
+     */
+    public static class InstructionWeights {
+        private double bonusScale = 1.0;
+        private double conflictPenalty = 0.02;
+        private double clampMin = 0.92;
+        private double clampMax = 1.08;
+
+        public double getBonusScale() { return bonusScale; }
+        public void setBonusScale(double v) { this.bonusScale = v; }
+        public double getConflictPenalty() { return conflictPenalty; }
+        public void setConflictPenalty(double v) { this.conflictPenalty = v; }
+        public double getClampMin() { return clampMin; }
+        public void setClampMin(double v) { this.clampMin = v; }
+        public double getClampMax() { return clampMax; }
+        public void setClampMax(double v) { this.clampMax = v; }
     }
 }

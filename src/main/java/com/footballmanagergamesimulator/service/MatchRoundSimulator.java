@@ -10,6 +10,7 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Injury;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
@@ -22,6 +23,7 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
+import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
@@ -84,6 +86,8 @@ public class MatchRoundSimulator {
     @Autowired private EuropeanCoefficientService europeanCoefficientService;
     @Autowired private CupBracketService cupBracketService;
     @Autowired private TacticController tacticController;
+    @Autowired private PlayerValueService playerValueService;
+    @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private UserContext userContext;
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
@@ -304,13 +308,14 @@ public class MatchRoundSimulator {
                         teamScore2 = adminScore[1];
                     } else {
                         // All match scoring goes through the config-driven, tuned engine
-                        // (MatchSimulationService) — the same mechanism the invariant/tuner
-                        // tests validate, including the morale curve + home advantage applied
-                        // here via effectivePower (team1 is the home side). Knockout ties are
-                        // broken later (extra time / penalties, aggregate for two-leg).
+                        // (MatchSimulationService). Per-player morale + fitness are already
+                        // baked into teamPower (LineupRatingService → PlayerValueService); here
+                        // we apply only the team-level modifiers — team talk + home advantage
+                        // (team1 is the home side). Knockout ties are broken later (extra time /
+                        // penalties, aggregate for two-leg).
                         List<Integer> scores = matchSimulationService.calculateScores(
-                                matchSimulationService.effectivePower(teamPower1, squadMorale(teamId1), true),
-                                matchSimulationService.effectivePower(teamPower2, squadMorale(teamId2), false));
+                                matchSimulationService.effectiveTeamPower(teamPower1, teamTalkFactor(teamId1), true),
+                                matchSimulationService.effectiveTeamPower(teamPower2, teamTalkFactor(teamId2), false));
                         teamScore1 = scores.get(0);
                         teamScore2 = scores.get(1);
                     }
@@ -372,11 +377,12 @@ public class MatchRoundSimulator {
                     teamScore1 = adminScoreAi[0];
                     teamScore2 = adminScoreAi[1];
                 } else {
-                    // All scoring via the tuned, config-driven engine (same as the tests),
-                    // with morale curve + home advantage applied (team1 = home side).
+                    // All scoring via the tuned, config-driven engine (same as the tests).
+                    // Per-player morale + fitness are already inside teamPower (PlayerValueService);
+                    // only team talk + home advantage are applied here (team1 = home side).
                     List<Integer> scores = matchSimulationService.calculateScores(
-                            matchSimulationService.effectivePower(teamPower1 * squadFitnessFactor(teamId1), squadMorale(teamId1), true),
-                            matchSimulationService.effectivePower(teamPower2 * squadFitnessFactor(teamId2), squadMorale(teamId2), false));
+                            matchSimulationService.effectiveTeamPower(teamPower1, teamTalkFactor(teamId1), true),
+                            matchSimulationService.effectiveTeamPower(teamPower2, teamTalkFactor(teamId2), false));
                     teamScore1 = scores.get(0);
                     teamScore2 = scores.get(1);
                 }
@@ -808,9 +814,14 @@ public class MatchRoundSimulator {
     // ============================================================
 
     /**
-     * Fast team rating for AI teams: selects best 11 by manager's tactic, cached per round.
-     * Uses the same position-based selection as the original getBestEleven but without
-     * morale/fitness multipliers or JSON tactic parsing.
+     * Matchday team value for AI teams: selects the best 11 by the manager's tactic, then
+     * sums each starter's match value via {@link PlayerValueService} — position-weighted
+     * attributes × familiarity (slot vs natural position) × morale × fitness. Cached per round.
+     *
+     * <p>Per-player morale and fitness now live inside this value (not the team-level
+     * effective-power curve), so a fitter / higher-morale eleven yields a higher team value.
+     * Team talk and home advantage are applied later via
+     * {@link MatchSimulationService#effectiveTeamPower}.
      */
     private double getSimpleTeamRating(long teamId) {
         if (simpleRatingCache.containsKey(teamId)) return simpleRatingCache.get(teamId);
@@ -818,22 +829,34 @@ public class MatchRoundSimulator {
         // Get and cache manager's preferred tactic
         String tactic = getManagerTacticCached(teamId);
 
-        // Select and cache best 11 by tactic positions
-        List<PlayerView> bestEleven = tacticController.getBestEleven(String.valueOf(teamId), tactic);
-        bestElevenCache.put(teamId, bestEleven);
+        // Select the best 11 with their assigned tactic slots (for familiarity)
+        List<TacticController.StarterSlot> starters = tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
+        bestElevenCache.put(teamId, starters.stream().map(TacticController.StarterSlot::player).toList());
 
         // Also pre-cache substitutions (will be needed by getScorersForTeamSimplified)
         List<PlayerView> subs = tacticController.getSubstitutions(String.valueOf(teamId), tactic);
         substitutionsCache.put(teamId, subs);
 
-        double rating = bestEleven.stream()
-                .mapToDouble(PlayerView::getRating)
-                .sum();
+        // Batch-load skills for the starters (1 query). Players without a skills row
+        // (youth placeholders, data gaps) fall back to their generic rating as the base.
+        List<Long> ids = starters.stream().map(s -> s.player().getId()).toList();
+        Map<Long, PlayerSkills> skillsById = new HashMap<>();
+        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) {
+            skillsById.put(s.getPlayerId(), s);
+        }
 
-        // Morale (and home advantage) are applied centrally via
-        // MatchSimulationService.effectivePower at the scoring call, so the game
-        // uses the same tuned curve as the invariant catalog. This cache holds the
-        // raw squad rating.
+        double rating = 0;
+        for (TacticController.StarterSlot slot : starters) {
+            PlayerView pv = slot.player();
+            String natural = pv.getPosition();
+            String used = slot.usedPosition();
+            PlayerSkills skills = skillsById.get(pv.getId());
+            if (skills != null) {
+                rating += playerValueService.evaluatePlayer(skills, natural, used, pv.getMorale(), pv.getFitness());
+            } else {
+                rating += playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
+            }
+        }
 
         simpleRatingCache.put(teamId, rating);
         return rating;
@@ -877,40 +900,11 @@ public class MatchRoundSimulator {
         return tactic;
     }
 
-    /** Ids of a team's best eleven. AI teams have them in the (frozen) rating cache;
-     *  human/other teams are selected fresh via the tactic. */
-    private Set<Long> bestElevenIds(long teamId) {
-        List<PlayerView> xi = bestElevenCache.get(teamId);
-        if (xi == null || xi.isEmpty()) {
-            xi = tacticController.getBestEleven(String.valueOf(teamId), getManagerTacticCached(teamId));
-        }
-        Set<Long> ids = new HashSet<>();
-        for (PlayerView pv : xi) ids.add(pv.getId());
-        return ids;
-    }
-
-    /** Average CURRENT morale (0..100) of the best eleven, used by the effective-power
-     *  curve. Read fresh from the per-round player snapshot (not the app-lifetime
-     *  rating cache), so morale gained/lost in prior rounds actually moves team power
-     *  over a season. Neutral 70 when the squad can't be resolved. */
-    private double squadMorale(long teamId) {
-        Set<Long> xi = bestElevenIds(teamId);
-        return roundPlayers(teamId).stream()
-                .filter(p -> xi.contains(p.getId()))
-                .mapToDouble(Human::getMorale)
-                .average().orElse(70.0);
-    }
-
-    /** Average CURRENT fitness multiplier (floored at 0.7, same as the human
-     *  best-eleven path) of the best eleven, read fresh each round. Squad fatigue
-     *  lowers AI team power across a congested season; recovered via training.
-     *  Returns 1.0 (no effect) when the squad can't be resolved. */
-    private double squadFitnessFactor(long teamId) {
-        Set<Long> xi = bestElevenIds(teamId);
-        return roundPlayers(teamId).stream()
-                .filter(p -> xi.contains(p.getId()))
-                .mapToDouble(p -> Math.max(0.7, p.getFitness() / 100.0))
-                .average().orElse(1.0);
+    /** Team-level team-talk multiplier (centered on 1.0). AI managers give no team talk, so
+     *  this is neutral; the hook exists so a future human team-talk feature can modulate team
+     *  power without touching the per-player match value. */
+    private double teamTalkFactor(long teamId) {
+        return 1.0;
     }
 
     /**

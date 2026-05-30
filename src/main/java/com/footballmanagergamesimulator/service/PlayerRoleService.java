@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.PlayerSkills;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -15,6 +17,9 @@ import java.util.*;
  */
 @Service
 public class PlayerRoleService {
+
+    @Autowired
+    private MatchEngineConfig engineConfig;
 
     /**
      * Get available roles for a given position.
@@ -53,27 +58,32 @@ public class PlayerRoleService {
             }
         }
 
-        // Scale from 1-20 weighted average to 0-100
-        return Math.max(1, Math.min(100, weighted * 5));
+        // Scale from 1-20 weighted average to 0-100 (scale factor is config-tunable).
+        return Math.max(1, Math.min(100, weighted * engineConfig.getRoleWeights().getSuitabilityScale()));
     }
 
     /**
-     * Compute the effective match rating for a player in a specific role.
-     * This blends overall rating with role suitability.
-     * A player perfectly suited to their role gets a bonus; a poor fit gets a penalty.
+     * Compute the effective match rating for a player in a specific role, blending the
+     * generic overall rating with role suitability (config-tunable blend weights).
      */
     public double computeEffectiveRating(PlayerSkills skills, String roleName) {
-        double overallRating = PlayerSkillsService.computeOverallRating(skills);
+        return computeEffectiveRating(skills, roleName, PlayerSkillsService.computeOverallRating(skills));
+    }
 
+    /**
+     * Same blend as {@link #computeEffectiveRating(PlayerSkills, String)} but with a
+     * caller-supplied base value (e.g. the position-weighted match value from
+     * {@code PlayerValueService}) standing in for the generic overall rating. The blend
+     * weights live in {@code match.engine.role-weights} so designers can tune how much role
+     * suitability matters relative to raw attribute value.
+     */
+    public double computeEffectiveRating(PlayerSkills skills, String roleName, double baseValue) {
         if (roleName == null || roleName.isEmpty()) {
-            return overallRating;
+            return baseValue;
         }
-
         double roleSuitability = computeRoleSuitability(skills, roleName);
-
-        // Blend: 40% overall + 60% role suitability
-        // This means role assignment matters significantly
-        return overallRating * 0.4 + roleSuitability * 0.6;
+        MatchEngineConfig.RoleWeights rw = engineConfig.getRoleWeights();
+        return baseValue * rw.getOverallBlend() + roleSuitability * rw.getRoleBlend();
     }
 
     /**

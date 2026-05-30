@@ -104,6 +104,22 @@ public class MatchSimulationService {
     }
 
     /**
+     * Production scoring path: the team value already carries per-player morale and fitness
+     * (computed in {@link PlayerValueService}), so this overload applies ONLY the team-level
+     * modifiers — the manager's team talk and home advantage:
+     * {@code base × teamTalk × (home ? homeAdvantage : 1)}.
+     *
+     * <p>The {@link #effectivePower(double, double, boolean)} morale-curve overload is kept
+     * for the invariant/tuner harness, which validates that curve in isolation.
+     *
+     * @param teamTalk team-talk multiplier centered on 1.0 (neutral). AI uses 1.0.
+     */
+    public double effectiveTeamPower(double basePower, double teamTalk, boolean home) {
+        double homeMult = home ? engineConfig.getPower().getHomeAdvantage() : 1.0;
+        return basePower * teamTalk * homeMult;
+    }
+
+    /**
      * Same as {@link #calculateScores(double, double)} but with a caller-supplied
      * total expected goals. Used for short matches such as the 30-minute extra-time
      * "mini match" in knockout ties, where far fewer goals are expected than over a
