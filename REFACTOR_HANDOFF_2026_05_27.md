@@ -158,7 +158,7 @@ Nevalidat: echipă umană cu `viewFullMatch` în QF/SF LoC pe zile separate (leg
 **Cauza secundară — RĂMASĂ = piață ilichidă**: 22 `NO_BUY_TARGETS` (Academy nu cumpără — întoarce `null`) + 77 `NO_MARKET_MATCH` (buget insuficient SAU niciun vânzător tânăr). Levier: mai multă lichiditate (Academy/youth să listeze tineri, sau bugete mai mari). Decizie de design. *(Re-rulează `TransferEconomyFuzzIT` cu noua curbă ca să vezi cât a scăzut pierderea de ~16–20%.)*
 
 ### D. Diverse / polish
-- **Balans tactic — ✅ REZOLVAT prin model nou (fundație, vezi §12), de cablat în producție**: în loc să temperăm modelul aditiv vechi, am construit modelul pe două axe (atac/apărare, trade-off + matchup + coaching). În harness, echipa slabă plafonează la mijloc (loc ~11) în loc de loc 2. RĂMAS: cablarea modelului nou în producția AI-vs-AI + meciul uman (acum producția folosește încă `adjustTeamPowerByTacticalProperties` aditiv din `service/LineupRatingService`).
+- **Balans tactic — ✅ REZOLVAT + CABLAT în producție în spatele flag-ului (vezi §12)**: model pe două axe (atac/apărare, trade-off + matchup + coaching), activabil cu `match.engine.tactical-model.enabled=true`. În harness echipa slabă plafonează la loc ~11 (vs loc 2 în modelul aditiv vechi). RĂMAS: pasul B = cutover deliberat (flag default ON + re-baseline invariante/outcome + retragerea path-ului scalar aditiv).
 - **Tuning engine 92→97**: favoritul nu câștigă consistent titlul (varianță mare) — vezi harness-ul + `MatchEngineRepStrengthFuzzIT` (gap pre-existent ~92%, feed sintetic direct în `calculateScores`, neatins de munca de valoare). Acum cu moral/fitness per-jucător + ponderi reale + team talk, merită un sweep nou pe `power.ratioExponent`/`expectedGoalsTotal` cu `-Ptune`, fără a strica predicția campionatului.
 - **Pace în batch — ✅ cablat** (sesiunea 2026-05-30): pace e unul din cele 36 de atribute ponderate, deci intră acum în valoarea de batch. Testul a devenit `EngineDynamicsIT.batchPowerReflectsPace`.
 - **Fitness uman-instant**: drenajul batch e doar pe path-ul AI; meciul uman jucat instant (viewFullMatch off) nu drenează (live drenează). Simetrie ușoară dacă vrei.
@@ -275,15 +275,19 @@ Valorile cu spații trebuie încadrate în ghilimele: `-Dmentality="Very Attacki
 
 ## 11. Comituri (2026-05-30, toate pe `master`, nepush-uite)
 
-`fae4ea6` motor valoare · `f860ed9` default-uri ponderi/familiaritate · `055c1fc` tabele rol/instrucțiuni + team talk · `188165f` harness tactică · `fb9b890` curbă vârstă (prime 24–33 + cliff 34, vezi §6.C) · `e9f42f1` docs + `application*.yml` + `.gitignore` (ignoră `.claude/` + `*.pkg`) · `82a0c84`+`66ccdb1` model tactic pe două axe + coaching (vezi §12).
+`fae4ea6` motor valoare · `f860ed9` default-uri ponderi/familiaritate · `055c1fc` tabele rol/instrucțiuni + team talk · `188165f` harness tactică · `fb9b890` curbă vârstă (prime 24–33 + cliff 34, vezi §6.C) · `e9f42f1` docs + `application*.yml` + `.gitignore` (ignoră `.claude/` + `*.pkg`) · `82a0c84`+`66ccdb1` model tactic pe două axe + coaching · `f018acb` cablare model în producție (flag OFF default) (vezi §12).
 
 Convenție: `application.yml` a fost totuși comis în `e9f42f1` (fără secrete); dacă vrei să respecți regula „knob-uri prin default-uri Java", scoate-l cu `git rm --cached src/main/resources/application.yml`. `mvn verify` default verde (145 unit + 75 IT).
 
 ---
 
-## 12. Model tactic pe două axe (atac/apărare) + coaching — fundație, NEcablat în producție
+## 12. Model tactic pe două axe (atac/apărare) + coaching — cablat în producție (în spatele unui flag)
 
-Comis `82a0c84`+`66ccdb1`. **Componente NOI, în paralel cu engine-ul vechi** — producția (AI-vs-AI, meciul uman) folosește încă `calculateScores` scalar + `adjustTeamPowerByTacticalProperties` aditiv. Modelul nou e folosit deocamdată **doar de harness**. Următorul pas mare: cablarea în producție.
+Comis `82a0c84`+`66ccdb1` (fundație) + `f018acb` (cablare producție). **Cablat în producție în spatele flag-ului `match.engine.tactical-model.enabled` (default OFF).** Cu OFF, producția folosește engine-ul scalar de dinainte (`calculateScores` + `adjustTeamPowerByTacticalProperties` aditiv) — neatins, cele 75 IT + invariantele rămân verzi. Cu ON, scorul de meci (AI-vs-AI + uman instant) trece prin modelul pe două axe.
+
+**Cablare (`MatchRoundSimulator`, doar când flag ON)**: `teamTacticalProfile(teamId)` (primul 11 → split atac/apărare → coaching, cache per rundă) + `teamTacticVector` (uman: `PersonalizedTactic`; AI: tactica aleasă de manager după skill via `ManagerTacticService`, cache per rundă) + `twoAxisScores` → `TacticalScoreService.score`. `TacticalScoreService` are RNG seedabil (`setRandomForTesting`). Caches invalidate alături de `simpleRatingCache`. IT: `TwoAxisProductionScoringIT` (flag ON, simulează o rundă reală end-to-end). `mvn verify` verde: 151 unit + 76 IT.
+
+**RĂMAS — pasul B (cutover deliberat)**: flag default ON + **re-baseline invariante/outcome** pe modelul nou (suita scalară de invariante/tuning/`*OutcomeIT`/`ChampionshipPredictionFuzzIT` presupune engine-ul scalar) + retragerea path-ului scalar aditiv `adjustTeamPowerByTacticalProperties`. Decizie separată, mare (rescrie baseline-urile de test). Limitare actuală: meciul interactiv live (`viewFullMatch`) folosește încă puterile scalare la `createInteractiveSession` — de cablat și acolo la cutover.
 
 ### De ce (problema rezolvată)
 Modelul vechi (`adjustTeamPowerByTacticalProperties`) dădea bonusuri procentuale **aditive, necapate** (~+80%), deci o echipă slabă putea ajunge vicecampioană pur din tactică (vezi §10). Modelul nou face tactica un **trade-off** mărginit, cu **matchup**, astfel încât valoarea lotului rămâne decisivă.
