@@ -39,6 +39,8 @@ public class HumanService {
     TacticService tacticService;
     @Autowired
     MatchEngineConfig engineConfig;
+    @Autowired
+    WageService wageService;
 
     /**
      * Spawn a fresh AI manager for {@code teamId} if no manager is currently
@@ -436,7 +438,7 @@ public class HumanService {
 
       // Initialize contract
       human.setContractEndSeason((int) currentSeason + random.nextInt(2, 6));
-      human.setWage((long) (human.getRating() * 50));
+      human.setWage(wageService.baseWage(human.getRating()));
       long transferVal = (long) (human.getRating() * 10000);
       human.setTransferValue(transferVal);
       human.setReleaseClause(random.nextInt(10) < 3 ? 0 : transferVal * 2);
