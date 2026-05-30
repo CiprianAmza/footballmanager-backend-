@@ -102,6 +102,7 @@ public class NewSeasonSetupProcessor {
     @Lazy @Autowired private ScoutManagementController scoutManagementController;
     @Lazy @Autowired private SeasonObjectiveService seasonObjectiveService;
     @Lazy @Autowired private EndOfSeasonProcessor endOfSeasonProcessor;
+    @Lazy @Autowired private MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     private long currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).orElse(1L);
@@ -269,6 +270,11 @@ public class NewSeasonSetupProcessor {
         // This wipes whatever cup CompetitionTeamInfo/Match rows the legacy per-league
         // loop wrote earlier and replaces them with a proper full bracket.
         regenerateAllCupBrackets((int) round.getSeason());
+
+        // Ageing, retirements, overachiever rewards and the pre-season training
+        // boost all recomputed player ratings — drop every cached AI base rating so
+        // the new season starts from current squad strength.
+        matchSimulationOrchestrator.invalidateAllRatingCaches();
 
         System.out.println("=== NEW SEASON " + round.getSeason() + " STARTED ===");
     }

@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.TrainingSchedule;
 import com.footballmanagergamesimulator.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -26,6 +27,9 @@ public class TrainingService {
     TrainingScheduleRepository trainingScheduleRepository;
     @Autowired
     TeamRepository teamRepository;
+    @Autowired
+    @Lazy
+    MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     private static final String[] TRAINING_INJURY_TYPES = {
             "Muscle Strain", "Twisted Ankle", "Minor Knock", "Hamstring Tweak", "Bruised Shin"
@@ -153,6 +157,10 @@ public class TrainingService {
         if (!modifiedSkills.isEmpty()) {
             playerSkillsRepository.saveAll(modifiedSkills);
         }
+
+        // Training recomputed player ratings — drop this team's cached AI base
+        // rating so its match power reflects the new values from the next match.
+        matchSimulationOrchestrator.invalidateRatingCache(teamId);
     }
 
     /**

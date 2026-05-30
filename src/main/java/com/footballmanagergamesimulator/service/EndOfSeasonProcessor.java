@@ -29,6 +29,7 @@ import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -90,6 +91,7 @@ public class EndOfSeasonProcessor {
     @Autowired private TransferMarketService transferMarketService;
     @Autowired private SeasonObjectiveService seasonObjectiveService;
     @Autowired private FinanceService financeService;
+    @Autowired @Lazy private MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     /** Dedup flags — owned by the processor so re-entry protection lives next
      *  to the body that needs it. {@link #reset()} clears them at new-season setup. */
@@ -286,6 +288,10 @@ public class EndOfSeasonProcessor {
                 human.setConsecutiveBenched(0);
                 humanRepository.save(human);
 
+                // Both squads changed — refresh their cached AI base ratings.
+                matchSimulationOrchestrator.invalidateRatingCache(buyTeam.getId());
+                matchSimulationOrchestrator.invalidateRatingCache(sellTeam.getId());
+
                 // Record transfer as financial transaction
                 financeService.recordExpense(buyTeam.getId(), currentSeasonInt, 0,
                         "TRANSFER_BUY", "Bought " + human.getName(), transferFee);
@@ -338,6 +344,9 @@ public class EndOfSeasonProcessor {
                     long loanFee = (long) (loanPlayer.getTransferValue() * 0.05);
                     loanPlayer.setTeamId(loanTeam.getId());
                     humanRepository.save(loanPlayer);
+                    // Parent loses the player, loan team gains it — refresh both caches.
+                    matchSimulationOrchestrator.invalidateRatingCache(parentTeam.getId());
+                    matchSimulationOrchestrator.invalidateRatingCache(loanTeam.getId());
                     Loan loan = new Loan();
                     loan.setPlayerId(loanPlayer.getId());
                     loan.setPlayerName(loanPlayer.getName());

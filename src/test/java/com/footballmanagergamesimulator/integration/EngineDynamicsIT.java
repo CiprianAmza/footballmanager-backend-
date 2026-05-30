@@ -21,6 +21,7 @@ import com.footballmanagergamesimulator.service.MatchSimulationService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import com.footballmanagergamesimulator.service.TrainingService;
 import com.footballmanagergamesimulator.util.TypeNames;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -416,5 +417,43 @@ class EngineDynamicsIT {
             sum += PlayerSkillsService.GETTER_MAP.get(name).apply(skills);
         }
         return sum;
+    }
+
+    // ==================== AI base-rating cache: frozen until invalidated ====================
+
+    /** The AI rating cache is app-lifetime, so clear it after each test to keep the
+     *  shared Spring context clean (the cache is not transactional; DB changes roll back). */
+    @AfterEach
+    void clearAiRatingCache() {
+        matchRoundSimulator.invalidateAllRatingCaches();
+    }
+
+    @Test
+    @DisplayName("AI base rating stays cached until invalidated, then reflects the new ratings")
+    void aiBaseRatingRefreshesAfterInvalidation() {
+        long teamId = pickPopulatedTeamId();
+        matchRoundSimulator.invalidateRatingCache(teamId); // start from a clean cache
+
+        double r1 = matchRoundSimulator.aiBaseRatingForTest(teamId); // computes + caches
+
+        // Boost every player's rating in the DB.
+        List<Human> squad = players(teamId);
+        squad.forEach(p -> p.setRating(p.getRating() + 25));
+        humanRepository.saveAll(squad);
+
+        // Without invalidation the cached value is frozen — the boost is invisible.
+        double rStale = matchRoundSimulator.aiBaseRatingForTest(teamId);
+        assertThat(rStale)
+                .as("AI base rating must stay frozen at the cached value until invalidated "
+                        + "(r1=%.4f, stale=%.4f)", r1, rStale)
+                .isEqualTo(r1);
+
+        // After invalidation it recomputes from the boosted ratings.
+        matchRoundSimulator.invalidateRatingCache(teamId);
+        double r2 = matchRoundSimulator.aiBaseRatingForTest(teamId);
+        assertThat(r2)
+                .as("after invalidation the AI base rating must reflect the higher player ratings "
+                        + "(r1=%.4f, r2=%.4f)", r1, r2)
+                .isGreaterThan(r1);
     }
 }

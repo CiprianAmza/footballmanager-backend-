@@ -81,4 +81,15 @@ public class MatchSimulationOrchestrator {
     public Map<String, Object> finalizeInteractiveLiveMatch(String liveKey) {
         return matchdayCoordinator.finalizeInteractiveLiveMatch(liveKey);
     }
+
+    /** Invalidate one team's cached AI base rating after its squad/ratings change
+     *  (training, transfers) so the next match recomputes from current data. */
+    public void invalidateRatingCache(long teamId) {
+        matchRoundSimulator.invalidateRatingCache(teamId);
+    }
+
+    /** Invalidate all cached AI base ratings — used at season transition. */
+    public void invalidateAllRatingCaches() {
+        matchRoundSimulator.invalidateAllRatingCaches();
+    }
 }

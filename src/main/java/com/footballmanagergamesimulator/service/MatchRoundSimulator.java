@@ -839,6 +839,35 @@ public class MatchRoundSimulator {
         return rating;
     }
 
+    /**
+     * Drop the cached base rating / best-eleven / substitutions / tactic for one
+     * team so the next match recomputes them from current data. Called when a
+     * team's squad or ratings change mid-session (training, transfers) so AI base
+     * power actually evolves over a simulated season instead of staying frozen.
+     */
+    public void invalidateRatingCache(long teamId) {
+        simpleRatingCache.remove(teamId);
+        bestElevenCache.remove(teamId);
+        substitutionsCache.remove(teamId);
+        managerTacticCache.remove(teamId);
+    }
+
+    /** Drop ALL cached AI ratings — used at season transition (ageing + mass
+     *  rating recompute affect every team at once). */
+    public void invalidateAllRatingCaches() {
+        simpleRatingCache.clear();
+        bestElevenCache.clear();
+        substitutionsCache.clear();
+        managerTacticCache.clear();
+    }
+
+    /** Test-only: expose the (cached) AI base rating so tests can prove the cache
+     *  refreshes after {@link #invalidateRatingCache(long)}. Never call from
+     *  production code. */
+    public double aiBaseRatingForTest(long teamId) {
+        return getSimpleTeamRating(teamId);
+    }
+
     private String getManagerTacticCached(long teamId) {
         if (managerTacticCache.containsKey(teamId)) return managerTacticCache.get(teamId);
         List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
