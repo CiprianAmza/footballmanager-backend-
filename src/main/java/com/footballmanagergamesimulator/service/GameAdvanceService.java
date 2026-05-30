@@ -41,6 +41,7 @@ public class GameAdvanceService {
     @Autowired private UserRepository userRepository;
     @Autowired @Lazy private JobOfferService jobOfferService;
     @Autowired @Lazy private AdminController adminController;
+    @Autowired @Lazy private ManagerCareerService managerCareerService;
 
     @Autowired private CalendarEventDispatcher calendarEventDispatcher;
     @Autowired private MatchdayBatchProcessor matchdayBatchProcessor;
@@ -120,9 +121,10 @@ public class GameAdvanceService {
             gameCalendarRepository.save(calendar);
         }
 
-        // Run the offer generator — admin force OR periodic (low chance per advance)
+        // Run the offer generator — admin force OR sacking-driven (a club sacks
+        // its AI manager and offers the open seat to an in-band human).
         try {
-            maybeGenerateJobOffers();
+            maybeGenerateJobOffers(season);
         } catch (Exception ex) {
             System.err.println("Job offer generator failed: " + ex);
         }
@@ -399,33 +401,28 @@ public class GameAdvanceService {
 
     /**
      * Decide whether to spawn job offers this tick. Two paths:
-     *  - Admin force flag → guaranteed offer for every active user.
-     *  - Periodic random → tiny chance per advance per user (about once every
-     *    ~50 advances), only if the master switch is on.
+     *  - Admin force flag → guaranteed opportunistic offer for every active user.
+     *  - Sacking-driven → a club whose AI manager is sacked mid-season (enough
+     *    matches played AND sitting far below its predicted rank) leaves the seat
+     *    open and offers it to a free-agent human whose reputation is in band.
+     *    Declined clubs respect a multi-month cooldown.
      */
-    private void maybeGenerateJobOffers() {
-        boolean forced = adminController.consumeForceOfferFlag();
-        if (!forced && !adminController.areJobOffersEnabled()) return;
+    private void maybeGenerateJobOffers(int season) {
+        if (!adminController.areJobOffersEnabled()) return;
 
-        for (var u : userRepository.findAll()) {
-            if (jobOfferService.userHasPendingOffer(u.getId())) continue;
-
-            // Free agents (no team) get help finding work: spawn fresh offers more
-            // aggressively than the standard 2% so they're not stuck after declining
-            // the welcome batch. Fired veterans share this path.
-            boolean isFreeAgent = (u.getTeamId() == null) && u.isFired();
-            double chance = isFreeAgent ? 0.15 : 0.02;
-            if (!forced && random.nextDouble() > chance) continue;
-
-            // Employed users with a managerId opt out of generated offers
-            // — they should only see opportunistic offers (handled by 2% above).
-            if (u.getTeamId() != null && u.isFired()) continue; // shouldn't happen, but guard
-
-            try {
-                jobOfferService.generateOpportunisticOffer(u.getId());
-            } catch (Exception ex) {
-                System.err.println("Failed to generate offer for user " + u.getId() + ": " + ex);
+        if (adminController.consumeForceOfferFlag()) {
+            for (var u : userRepository.findAll()) {
+                if (jobOfferService.userHasPendingOffer(u.getId())) continue;
+                try {
+                    jobOfferService.generateOpportunisticOffer(u.getId());
+                } catch (Exception ex) {
+                    System.err.println("Failed to force offer for user " + u.getId() + ": " + ex);
+                }
             }
+            return;
         }
+
+        // Normal path: offers come ONLY from clubs that sack their AI manager.
+        managerCareerService.evaluateMidSeasonSackings(season);
     }
 }

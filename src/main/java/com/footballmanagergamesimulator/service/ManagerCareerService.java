@@ -4,6 +4,7 @@ import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionHistory;
 import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.JobOffer;
 import com.footballmanagergamesimulator.model.ManagerHistory;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.SeasonObjective;
@@ -18,6 +19,9 @@ import com.footballmanagergamesimulator.repository.ManagerHistoryRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.SeasonObjectiveRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
@@ -26,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
@@ -68,6 +73,15 @@ public class ManagerCareerService {
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private CompositeNameGenerator compositeNameGenerator;
     @Autowired private TacticService tacticService;
+    @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
+    @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    @Autowired @org.springframework.context.annotation.Lazy private JobOfferService jobOfferService;
+    @Autowired @org.springframework.context.annotation.Lazy private HumanService humanService;
+
+    /** Minimum league matches an AI manager must have played before they can be sacked mid-season. */
+    private static final int MIN_MATCHES_FOR_SACKING = 10;
+    /** How many places below their reputation-predicted rank a manager must sit to be sacked. */
+    private static final int POSITION_SHORTFALL_FOR_SACKING = 4;
 
     // ============================================================
     //  ManagerHistory record + reputation delta
@@ -338,5 +352,128 @@ public class ManagerCareerService {
                         + " | Replaced by: " + newManager.getName() + " ===");
             }
         }
+    }
+
+    // ============================================================
+    //  Mid-season AI sackings -> human job offers (B3)
+    // ============================================================
+
+    /**
+     * Scan AI-managed teams mid-season: if a manager has played enough matches
+     * and sits far below their reputation-predicted league rank, sack them and
+     * leave the seat OPEN — then offer it to a free-agent human whose reputation
+     * is within the club's band. Only if no human is offered (no in-band human,
+     * or already pending/cooldown) do we auto-respawn an AI replacement so the
+     * simulator never finds a managerless team.
+     *
+     * <p>Called from the advance loop each tick (cheap: skips teams with too few
+     * games). This is the ONLY path that produces opportunistic human offers.
+     */
+    public void evaluateMidSeasonSackings(int season) {
+        List<TeamCompetitionDetail> allDetails = teamCompetitionDetailRepository.findAll();
+        if (allDetails.isEmpty()) return;
+
+        List<Team> allTeams = teamRepository.findAll();
+        List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
+        List<Competition> allCompetitions = competitionRepository.findAll();
+        List<CompetitionTeamInfo> allCompInfos = competitionTeamInfoRepository.findAll();
+
+        Set<Long> leagueCompIds = allCompetitions.stream()
+                .filter(c -> c.getTypeId() == 1 || c.getTypeId() == 3)
+                .map(Competition::getId)
+                .collect(Collectors.toSet());
+
+        for (Team team : allTeams) {
+            if (userContext.isHumanTeam(team.getId())) continue;
+            Human manager = allManagers.stream()
+                    .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
+                    .findFirst().orElse(null);
+            if (manager == null) continue;
+
+            TeamCompetitionDetail leagueDetail = allDetails.stream()
+                    .filter(d -> d.getTeamId() == team.getId() && leagueCompIds.contains(d.getCompetitionId()))
+                    .findFirst().orElse(null);
+            if (leagueDetail == null || leagueDetail.getGames() < MIN_MATCHES_FOR_SACKING) continue;
+
+            long competitionId = leagueDetail.getCompetitionId();
+            List<TeamCompetitionDetail> standings = allDetails.stream()
+                    .filter(d -> d.getCompetitionId() == competitionId)
+                    .sorted((o1, o2) -> {
+                        if (o1.getPoints() != o2.getPoints()) return o2.getPoints() - o1.getPoints();
+                        if (o1.getGoalDifference() != o2.getGoalDifference()) return o2.getGoalDifference() - o1.getGoalDifference();
+                        return o2.getGoalsFor() - o1.getGoalsFor();
+                    })
+                    .toList();
+            int currentPosition = 1;
+            for (TeamCompetitionDetail s : standings) {
+                if (s.getTeamId() == team.getId()) break;
+                currentPosition++;
+            }
+
+            int predicted = predictedLeaguePosition(team, competitionId, allTeams, allCompInfos, allDetails, season);
+            if (currentPosition - predicted < POSITION_SHORTFALL_FOR_SACKING) continue;
+
+            // Sack the AI manager — seat stays open for now.
+            manager.setTeamId(0L);
+            manager.setRetired(true);
+            humanRepository.save(manager);
+
+            boolean offered = offerVacantSeatToHuman(team, season);
+            if (!offered) {
+                // No human took it — respawn an AI so the team isn't managerless.
+                humanService.ensureTeamHasManager(team.getId());
+            }
+            System.out.println("=== AI MANAGER SACKED MID-SEASON: " + manager.getName() + " from " + team.getName()
+                    + " (pos " + currentPosition + " vs predicted " + predicted + ") | seat offered to human: " + offered + " ===");
+        }
+    }
+
+    /** Reputation-predicted league rank for a team within a competition (1-based). */
+    private int predictedLeaguePosition(Team team, long competitionId, List<Team> allTeams,
+                                        List<CompetitionTeamInfo> allCompInfos,
+                                        List<TeamCompetitionDetail> allDetails, int season) {
+        List<Team> teamsInComp = allTeams.stream()
+                .filter(t -> allCompInfos.stream()
+                        .anyMatch(i -> i.getTeamId() == t.getId() && i.getCompetitionId() == competitionId && i.getSeasonNumber() == season)
+                        || allDetails.stream()
+                        .anyMatch(d -> d.getTeamId() == t.getId() && d.getCompetitionId() == competitionId))
+                .sorted(Comparator.comparingInt(Team::getReputation).reversed())
+                .toList();
+        for (int i = 0; i < teamsInComp.size(); i++) {
+            if (teamsInComp.get(i).getId() == team.getId()) return i + 1;
+        }
+        return teamsInComp.isEmpty() ? 1 : teamsInComp.size() / 2;
+    }
+
+    /**
+     * Offer a vacant seat to a free-agent human whose reputation is within the
+     * club's band, unless they have a pending offer or the club is still in the
+     * decline cooldown for them. Returns true if an offer was created.
+     */
+    private boolean offerVacantSeatToHuman(Team team, int season) {
+        for (User user : userRepository.findAll()) {
+            // Only free agents (no current team) are eligible for opportunistic offers here.
+            if (user.getTeamId() != null) continue;
+            if (jobOfferService.userHasPendingOffer(user.getId())) continue;
+            if (jobOfferService.isClubInDeclineCooldown(user.getId(), team.getId(), season)) continue;
+
+            int humanRep = humanReputationFor(user);
+            // Reputation band: human must be within reach of the club (not absurdly under/over).
+            int low = (int) (team.getReputation() * 0.4);
+            int high = team.getReputation() + 1500;
+            if (humanRep < low || humanRep > high) continue;
+
+            JobOffer offer = jobOfferService.generateOffer(user.getId(), team.getId());
+            if (offer != null) return true;
+        }
+        return false;
+    }
+
+    private int humanReputationFor(User user) {
+        Human mgr = null;
+        if (user.getManagerId() != null) {
+            mgr = humanRepository.findById(user.getManagerId()).orElse(null);
+        }
+        return mgr != null ? mgr.getManagerReputation() : 500;
     }
 }

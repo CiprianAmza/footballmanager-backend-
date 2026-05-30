@@ -312,10 +312,49 @@ public class JobOfferService {
             result.put("message", "Offer not available.");
             return result;
         }
+        // Stamp the decline with the real current (season, day) so the cooldown
+        // window is measured from when the user actually said no, not when the
+        // offer was minted.
+        int[] now = currentSeasonAndDay();
+        offer.setSeasonOffered(now[0]);
+        offer.setDayOffered(now[1]);
         offer.setStatus("DECLINED");
         jobOfferRepository.save(offer);
         result.put("success", true);
         return result;
+    }
+
+    /** Number of in-game months a declined club must wait before re-offering. */
+    private static final int DECLINE_COOLDOWN_MONTHS = 4;
+    private static final int DAYS_PER_SEASON = 365;
+    private static final int DAYS_PER_MONTH = 30;
+
+    /**
+     * True if {@code clubTeamId} recently had an offer DECLINED by this user and
+     * is still inside the cooldown window — used by the sacking-driven offer path
+     * to avoid re-offering the same club every tick.
+     */
+    public boolean isClubInDeclineCooldown(int userId, long clubTeamId, int currentSeason) {
+        int[] now = currentSeasonAndDay();
+        int nowMonths = absoluteMonth(currentSeason, now[1]);
+        for (JobOffer o : jobOfferRepository.findAllByUserIdAndStatus(userId, "DECLINED")) {
+            if (o.getTeamId() != clubTeamId) continue;
+            int declinedMonths = absoluteMonth(o.getSeasonOffered(), o.getDayOffered());
+            if (nowMonths - declinedMonths < DECLINE_COOLDOWN_MONTHS) return true;
+        }
+        return false;
+    }
+
+    private int absoluteMonth(int season, int dayOfSeason) {
+        return season * (DAYS_PER_SEASON / DAYS_PER_MONTH) + (dayOfSeason / DAYS_PER_MONTH);
+    }
+
+    private int[] currentSeasonAndDay() {
+        int season = currentSeason();
+        int day = 1;
+        List<GameCalendar> cals = gameCalendarRepository.findBySeason(season);
+        if (!cals.isEmpty()) day = Math.max(1, cals.get(0).getCurrentDay());
+        return new int[]{season, day};
     }
 
     /** Convenience: true if the user has at least one PENDING offer (pause condition). */
