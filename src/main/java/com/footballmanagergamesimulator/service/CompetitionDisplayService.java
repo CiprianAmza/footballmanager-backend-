@@ -242,8 +242,20 @@ public class CompetitionDisplayService {
         List<CompetitionTeamInfo> teamCompetitions = competitionTeamInfoRepository
                 .findAllByTeamIdAndSeasonNumber(teamId, curSeason);
 
-        List<Map<String, Object>> result = new ArrayList<>();
+        // Each round advancement inserts a NEW CTI row for the same competition, so a
+        // team can have several rows per competition. Collapse to one row per
+        // competition — the highest round is the team's current state — so the FE
+        // renders a single card per competition instead of one per round.
+        Map<Long, CompetitionTeamInfo> latestByComp = new LinkedHashMap<>();
         for (CompetitionTeamInfo cti : teamCompetitions) {
+            CompetitionTeamInfo existing = latestByComp.get(cti.getCompetitionId());
+            if (existing == null || cti.getRound() > existing.getRound()) {
+                latestByComp.put(cti.getCompetitionId(), cti);
+            }
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (CompetitionTeamInfo cti : latestByComp.values()) {
             Map<String, Object> comp = new HashMap<>();
             Competition competition = competitionRepository.findById(cti.getCompetitionId()).orElse(null);
             if (competition == null) continue;

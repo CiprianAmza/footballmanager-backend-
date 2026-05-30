@@ -40,6 +40,7 @@ public class SeasonObjectiveService {
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
+    @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormatConfig;
 
     @Autowired private ManagerCareerService managerCareerService;
 
@@ -153,38 +154,47 @@ public class SeasonObjectiveService {
                 } else if (comp.getTypeId() == 4) { // LoC — scale by predicted strength
                     objective.setObjectiveType("european_round");
                     objective.setImportance("high");
+                    com.footballmanagergamesimulator.config.CompetitionFormat fmt = competitionFormatConfig.get(4);
                     if (predicted <= 2) {
-                        objective.setTargetValue(4);
+                        objective.setTargetValue(fmt.finalRound());
                         objective.setDescription("Win the League of Champions");
                     } else if (predicted <= 5) {
-                        objective.setTargetValue(3);
+                        objective.setTargetValue(fmt.finalRound());
                         objective.setDescription("Reach the LoC final");
                     } else if (predicted <= 8) {
-                        objective.setTargetValue(2);
+                        objective.setTargetValue(fmt.knockoutStartRound() + 1);
                         objective.setDescription("Reach the LoC semi-final");
                     } else if (predicted <= 11) {
-                        objective.setTargetValue(1);
+                        objective.setTargetValue(fmt.knockoutStartRound());
                         objective.setDescription("Reach the LoC quarter-final");
                     } else {
-                        // Mid/lower-table side qualifying through coefficient cascade —
-                        // just getting past the group stage is the realistic ceiling.
-                        objective.setTargetValue(0);
-                        objective.setDescription("Qualify from the group stage");
+                        // Weak entrant via the coefficient cascade: the realistic target
+                        // is reaching the group stage itself (past the preliminaries),
+                        // so the round boundary is the group-start round — a prelim/
+                        // qualifying loser correctly fails this.
+                        objective.setTargetValue(fmt.groupStartRound());
+                        objective.setDescription("Reach the group stage");
                     }
                 } else if (comp.getTypeId() == 5) { // Stars Cup — scale by predicted strength
                     objective.setObjectiveType("european_round");
                     objective.setImportance("medium");
+                    // SC rounds: groups 1-6, playoff 7, QF 8, SF 9, Final 10.
+                    // qualifyTargetRound() = the QF (group winners enter there).
+                    com.footballmanagergamesimulator.config.CompetitionFormat fmt = competitionFormatConfig.get(5);
+                    int scQf = fmt.qualifyTargetRound();
                     if (predicted <= 3) {
-                        objective.setTargetValue(3);
+                        objective.setTargetValue(fmt.finalRound());
                         objective.setDescription("Reach the Stars Cup final");
                     } else if (predicted <= 8) {
-                        objective.setTargetValue(2);
+                        objective.setTargetValue(scQf + 1);
                         objective.setDescription("Reach the Stars Cup semi-final");
                     } else if (predicted <= 11) {
-                        objective.setTargetValue(1);
+                        objective.setTargetValue(scQf);
                         objective.setDescription("Reach the Stars Cup quarter-final");
                     } else {
-                        objective.setTargetValue(0);
+                        // Realistic floor: advance out of the groups into the knockout
+                        // (the playoff round is the first knockout-type round).
+                        objective.setTargetValue(fmt.knockoutStartRound());
                         objective.setDescription("Qualify from the group stage");
                     }
                 } else {
@@ -229,16 +239,19 @@ public class SeasonObjectiveService {
                     position++;
                 }
             } else if ("cup_round".equals(objective.getObjectiveType()) || "european_round".equals(objective.getObjectiveType())) {
-                // Find highest round reached (check current season's CompetitionTeamInfo, or match data)
-                CompetitionTeamInfo info = allCompTeamInfos.stream()
+                // Highest round reached: each round advancement inserts a new CTI row,
+                // so take the MAX round across this team's rows for the competition —
+                // findFirst() could pick the team's starting (earliest) round and
+                // falsely report a deep run / early-eliminated achievement.
+                Integer roundReached = allCompTeamInfos.stream()
                         .filter(i -> i.getTeamId() == objective.getTeamId()
                                 && i.getCompetitionId() == objective.getCompetitionId()
                                 && i.getSeasonNumber() == season)
-                        .findFirst()
+                        .map(i -> (int) i.getRound())
+                        .max(Integer::compareTo)
                         .orElse(null);
 
-                if (info != null) {
-                    int roundReached = (int) info.getRound();
+                if (roundReached != null) {
                     objective.setActualValue(roundReached);
                     objective.setStatus(roundReached >= objective.getTargetValue() ? "achieved" : "failed");
                 } else {
