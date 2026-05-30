@@ -154,7 +154,8 @@ Vezi §9 pentru designul complet al motorului de valoare. Pe scurt, comise pe `m
 Nevalidat: echipă umană cu `viewFullMatch` în QF/SF LoC pe zile separate (leg1 nu decide, leg2 agregă, runda următoare corectă) + afișarea `knockoutResultText`. **Frontend NEcomis** (`app.component.ts/html/css`): directorul FE **nu e repo git propriu** (git rezolvă la HOME) → comite-le într-un repo dedicat al frontend-ului.
 
 ### C. Follow-up economie de transfer (din raportul `TransferEconomyFuzzIT`)
-Toate strategiile pierd ~16–20% din valoarea top-11 în 2 sezoane. **Cauza primară = curba de aging din `TransferValueCalculator`** (×0.75 la 28, ×0.45 la 30, ×0.2 la 32) — NU numărul de echipe. **Cauza secundară = piață ilichidă**: 22 `NO_BUY_TARGETS` (Academy nu cumpără — întoarce `null`) + 77 `NO_MARKET_MATCH` (buget insuficient SAU niciun vânzător tânăr). Levier: (a) aging mai blând peste 28, și/sau (b) mai multă lichiditate (Academy/youth să listeze tineri, sau bugete mai mari). Decizie de design.
+**Cauza primară — ✅ ADRESATĂ** (commit `fb9b890`, 2026-05-30): curba de vârstă rescrisă în `TrainingService` (platou de prime 24–33 cu schimbare netă ~0, declin abia de la 34) + multiplicatorul de valoare aliniat în `TransferValueCalculator` (youth premium ≤21→1.30/≤23→1.15, platou ≤27→1.00/≤31→0.90/≤33→0.80, cliff ≤35→0.45/else 0.20 — mult mai blând decât vechiul ×0.75/0.45/0.2/0.08). Valoarea nu se mai prăbușește în prime.
+**Cauza secundară — RĂMASĂ = piață ilichidă**: 22 `NO_BUY_TARGETS` (Academy nu cumpără — întoarce `null`) + 77 `NO_MARKET_MATCH` (buget insuficient SAU niciun vânzător tânăr). Levier: mai multă lichiditate (Academy/youth să listeze tineri, sau bugete mai mari). Decizie de design. *(Re-rulează `TransferEconomyFuzzIT` cu noua curbă ca să vezi cât a scăzut pierderea de ~16–20%.)*
 
 ### D. Diverse / polish
 - **Balans tactic — necapat (vezi §10)**: `adjustTeamPowerByTacticalProperties` (`service/LineupRatingService`) **adună** procentele tactice fără plafon → o combinație poate da ~+80%, suficient ca o echipă slabă să devină campioană pur din tactică (anulează valoarea lotului). De temperat (cap total ±10–15% și/sau termeni mai mici). Expus de `HumanTacticOutcomeFuzzIT#searchBestTacticAndReport`. **Decizie de design — nedecis.**
@@ -244,7 +245,7 @@ test integration/fuzz/HumanTacticOutcomeFuzzIT — explorare tactică umană: sw
 
 ## 10. Harness de explorare a tacticii umane + analiză de balans (2026-05-30, partea 3)
 
-### `HumanTacticOutcomeFuzzIT` (NEcomis, gated `-Pfuzz`, skip fără `-Dteam.id`)
+### `HumanTacticOutcomeFuzzIT` (comis `188165f`, gated `-Pfuzz`, skip fără `-Dteam.id`)
 Test de explorare a căii de tactică umană: alegi echipa + tactica completă (formație + mentalitate, time-wasting, in-possession, passing, tempo), se simulează N sezoane (default 100) în liga echipei și se raportează poziția medie. Două moduri:
 
 - **`simulateHumanTacticAndReport`** — rulează tactica configurată + face **sweep pe fiecare axă** (o axă variată, restul la baseline) → arată cum mută fiecare setare poziția ta. Raport `target/human-tactic-outcome-{teamId}.md`.
@@ -269,3 +270,11 @@ Valorile cu spații trebuie încadrate în ghilimele: `-Dmentality="Very Attacki
 - mentality: `Very Attacking, Attacking, Balanced, Defensive, Very Defensive`
 - tempo: `Much Lower, Lower, Standard, Higher, Much Higher`
 - passingType: `Short, Normal, Long`  •  inPossession: `Standard, Keep Ball, Free Ball Early`  •  timeWasting: `Never, Sometimes, Frequently, Always`
+
+---
+
+## 11. Comituri (2026-05-30, toate pe `master`, nepush-uite)
+
+`fae4ea6` motor valoare · `f860ed9` default-uri ponderi/familiaritate · `055c1fc` tabele rol/instrucțiuni + team talk · `188165f` harness tactică · `fb9b890` curbă vârstă (prime 24–33 + cliff 34, vezi §6.C) · `e9f42f1` docs + `application*.yml` + `.gitignore` (ignoră `.claude/` + `*.pkg`).
+
+Convenție: `application.yml` a fost totuși comis în `e9f42f1` (fără secrete); dacă vrei să respecți regula „knob-uri prin default-uri Java", scoate-l cu `git rm --cached src/main/resources/application.yml`. `mvn verify` default verde (145 unit + 75 IT).
