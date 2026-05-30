@@ -339,12 +339,36 @@ public class CalendarEventDispatcher {
             // Check if finances went negative -> create debt
             financeService.checkAndCreateDebt(team.getId());
 
+            // Credit the team's manager their monthly salary into career earnings.
+            accrueManagerSalary(team);
+
             // Send financial report to human managers
             if (userContext.isHumanTeam(team.getId())) {
                 financeService.sendMonthlyFinancialReport(team.getId(), season, currentDay, wagesPaid);
             }
         }
         System.out.println("=== Monthly wages processed for season " + season + " ===");
+    }
+
+    /**
+     * Pays a team's manager their monthly salary, accumulating it into the
+     * manager's {@code careerEarnings}. Salary is lazily derived from the club's
+     * reputation the first time it's unset, so existing/seeded managers get a
+     * sensible wage without touching every creation site.
+     */
+    private void accrueManagerSalary(Team team) {
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.MANAGER_TYPE);
+        for (Human mgr : managers) {
+            if (mgr.isRetired()) continue;
+            long salary = mgr.getSalary();
+            if (salary <= 0) {
+                // Reputation 0-10000 -> ~€2k..€50k/month.
+                salary = Math.max(2000L, team.getReputation() * 5L);
+                mgr.setSalary(salary);
+            }
+            mgr.setCareerEarnings(mgr.getCareerEarnings() + salary);
+            humanRepository.save(mgr);
+        }
     }
 
     /**

@@ -118,6 +118,10 @@ public class Human {
     private String knownTactics;
     private int managerReputation = 500;
 
+    /** Total salary the manager has earned across their whole career (accrued monthly). */
+    @Column(columnDefinition = "bigint default 0")
+    private long careerEarnings = 0;
+
     /**
      * Manager's OFFENSIVE coaching ability on a 0-100 scale. Unlike {@link #managerReputation}
      * (derived from the club's reputation), this is the coach's own skill on the attacking side:

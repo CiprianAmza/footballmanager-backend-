@@ -605,15 +605,16 @@ public class MatchEngineConfig {
         private double strengthFactorMax = 5.0;
         /** Threshold to qualify as "shocking" win/loss (vs much-stronger/weaker opp). */
         private double shockingThreshold = 50.0;
-        /** Win rep change base values. */
-        private double winShockingBase = 10.0;
-        private double winExpectedBase = 2.0;
+        /** Win rep change base values. Kept small so a normal win moves reputation
+         *  by well under 1% — big jumps are reserved for trophies (season-end). */
+        private double winShockingBase = 2.0;
+        private double winExpectedBase = 0.3;
         /** Draw rep change values. */
-        private double drawFavoredOpp = 1.0;
-        private double drawDisfavoredOpp = -1.0;
+        private double drawFavoredOpp = 0.15;
+        private double drawDisfavoredOpp = -0.15;
         /** Loss rep change base values. */
-        private double lossShockingBase = -10.0;
-        private double lossExpectedBase = -2.0;
+        private double lossShockingBase = -1.5;
+        private double lossExpectedBase = -0.3;
 
         public double getStrengthFactorDivisor() { return strengthFactorDivisor; }
         public void setStrengthFactorDivisor(double v) { this.strengthFactorDivisor = v; }
