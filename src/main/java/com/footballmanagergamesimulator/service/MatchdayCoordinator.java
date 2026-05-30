@@ -248,6 +248,26 @@ public class MatchdayCoordinator {
      * team via position+rating weighting (mirrors the live-sim attacker pick)
      * and writes the goal at minute 120.
      */
+    /**
+     * Resolve a deferred (live-commit) knockout tie's tiebreak. When the session carries two-axis
+     * profiles + vectors (production model), the extra time runs on the attack-vs-defense engine;
+     * otherwise it falls back to the scalar powers. {@code team1IsA} maps the session's team1/team2
+     * onto the resolver's A/B sides so the deferred profiles line up with the aggregates.
+     */
+    private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver.TieDecision decideTie(
+            LiveMatchSession session, boolean team1IsA, double powerA, double powerB, int aggA, int aggB) {
+        var p1 = session.getDeferredProfile1();
+        var p2 = session.getDeferredProfile2();
+        if (p1 != null && p2 != null) {
+            var v1 = session.getDeferredVector1();
+            var v2 = session.getDeferredVector2();
+            return team1IsA
+                    ? tieResolver.decide(p1, v1, p2, v2, aggA, aggB, new Random())
+                    : tieResolver.decide(p2, v2, p1, v1, aggA, aggB, new Random());
+        }
+        return tieResolver.decide(powerA, powerB, aggA, aggB, new Random());
+    }
+
     public void appendKnockoutWinnerGoal(long competitionId, int season, int roundNumber,
                                          long teamId1, long teamId2,
                                          long winnerTeamId, long loserTeamId) {
@@ -463,7 +483,7 @@ public class MatchdayCoordinator {
                     // team1 here hosted leg 2 (= tie side B); team2 hosted leg 1 (= side A).
                     int aggA = leg1Row.getTeam1Score() + teamScore2;
                     int aggB = leg1Row.getTeam2Score() + teamScore1;
-                    var d = tieResolver.decide(teamPower2, teamPower1, aggA, aggB, new Random());
+                    var d = decideTie(session, false, teamPower2, teamPower1, aggA, aggB);
                     winnerId = d.teamAWon() ? teamId2 : teamId1;
                     koScoreSuffix = " (agg " + aggA + "-" + aggB
                             + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
@@ -474,7 +494,7 @@ public class MatchdayCoordinator {
                             + " advance " + winnerAgg + "-" + loserAgg + " on aggregate" + tail;
                 } else {
                     // Lost leg-1 record — decide on this match alone (defensive).
-                    var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, new Random());
+                    var d = decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
                     koResultText = matchRoundSimulator.roundTeamName(winnerId) + " advance";
                 }
@@ -482,7 +502,7 @@ public class MatchdayCoordinator {
                 // Single-leg knockout: decide via extra time / penalties. Keep the
                 // UI's "+1 extra-time winner goal" bump on a level 90' score.
                 if (teamScore1 == teamScore2) {
-                    var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, new Random());
+                    var d = decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
                     long loserTeamId;
                     if (d.teamAWon()) { session.bumpHomeScore(); teamScore1++; winnerId = teamId1; loserTeamId = teamId2; }
                     else              { session.bumpAwayScore(); teamScore2++; winnerId = teamId2; loserTeamId = teamId1; }

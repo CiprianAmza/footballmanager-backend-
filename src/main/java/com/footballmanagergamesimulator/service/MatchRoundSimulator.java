@@ -40,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -86,6 +87,7 @@ public class MatchRoundSimulator {
     @Autowired private EuropeanCoefficientService europeanCoefficientService;
     @Autowired private CupBracketService cupBracketService;
     @Autowired private TacticController tacticController;
+    @Autowired private TacticService tacticService;
     @Autowired private PlayerValueService playerValueService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private TacticalScoreService tacticalScoreService;
@@ -310,10 +312,26 @@ public class MatchRoundSimulator {
                     // post-match PC) once the user finishes the playback.
                     interactiveMatch = true;
                     boolean generateGoalAnims = humanManager != null && humanManager.isWatchGoalHighlights();
-                    liveMatchSimulationService.createInteractiveSession(
+                    // Two-axis engine: derive the live chances from the attack-vs-defense matchup
+                    // (same profiles + vectors the instant path uses), and stash them so /commit
+                    // resolves any knockout extra time on the same model.
+                    TacticalScoreService.Matchup liveMatchup = null;
+                    TacticalScoreService.TeamProfile liveP1 = null, liveP2 = null;
+                    TacticalScoreService.TacticVector liveT1 = null, liveT2 = null;
+                    if (engineConfig.getTacticalModel().isEnabled()) {
+                        liveP1 = scaleProfile(teamTacticalProfile(teamId1), teamTalkFactor(teamId1));
+                        liveP2 = scaleProfile(teamTacticalProfile(teamId2), teamTalkFactor(teamId2));
+                        liveT1 = teamTacticVector(teamId1, liveP1, personalizedTactic1.orElse(null));
+                        liveT2 = teamTacticVector(teamId2, liveP2, personalizedTactic2.orElse(null));
+                        liveMatchup = tacticalScoreService.matchup(liveP1, liveT1, liveP2, liveT2);
+                    }
+                    LiveMatchSession liveSession = liveMatchSimulationService.createInteractiveSession(
                             teamId1, teamId2, teamPower1, teamPower2,
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            generateGoalAnims);
+                            generateGoalAnims, liveMatchup);
+                    if (liveMatchup != null) {
+                        liveSession.setDeferredTwoAxis(liveP1, liveT1, liveP2, liveT2);
+                    }
                     // Placeholder score — /commit overwrites with the real one
                     // after the user finishes the live playback.
                     teamScore1 = 0;
@@ -494,13 +512,13 @@ public class MatchRoundSimulator {
                     // Second leg: team1 here hosted leg 2 (= tie side B); team2 hosted leg 1 (= side A).
                     int aggA = leg1[0] + teamScore2; // side A: leg-1 home goals + leg-2 away goals
                     int aggB = leg1[1] + teamScore1; // side B: leg-1 away goals + leg-2 home goals
-                    var d = tieResolver.decide(teamPower2, teamPower1, aggA, aggB, random);
+                    var d = decideTie(teamId2, teamPower2, teamId1, teamPower1, aggA, aggB);
                     winnerId = d.teamAWon() ? teamId2 : teamId1;
                     koScoreSuffix = " (agg " + aggA + "-" + aggB
                             + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
                 } else {
                     // Single-leg knockout (or a leg-2 that lost its leg-1 record — decide on this match).
-                    var d = tieResolver.decide(teamPower1, teamPower2, teamScore1, teamScore2, random);
+                    var d = decideTie(teamId1, teamPower1, teamId2, teamPower2, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
                     if (d.penalties()) koScoreSuffix = " (pens)";
                     else if (d.extraTime()) koScoreSuffix = " (a.e.t.)";
@@ -916,7 +934,17 @@ public class MatchRoundSimulator {
         if (cached != null) return cached;
 
         String tactic = getManagerTacticCached(teamId);
-        List<TacticController.StarterSlot> starters = tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
+        double[] coach = coachAbilities(teamId);
+        TacticalScoreService.TeamProfile coached = tacticalScoreService.coachedProfile(
+                tacticalScoreService.profile(starterValues(teamId, tactic)), coach[0], coach[1]);
+        profileCache.put(teamId, coached);
+        return coached;
+    }
+
+    /** Evaluate the best-eleven match values for a team under a given formation (used position kept
+     *  for position familiarity). Shared by the profile build and the formation ranking. */
+    private List<TacticalScoreService.StarterValue> starterValues(long teamId, String formation) {
+        List<TacticController.StarterSlot> starters = tacticController.getBestElevenWithSlots(String.valueOf(teamId), formation);
         List<Long> ids = starters.stream().map(s -> s.player().getId()).toList();
         Map<Long, PlayerSkills> skillsById = new HashMap<>();
         for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skillsById.put(s.getPlayerId(), s);
@@ -931,11 +959,7 @@ public class MatchRoundSimulator {
                     : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
             values.add(new TacticalScoreService.StarterValue(used, v));
         }
-        double[] coach = coachAbilities(teamId);
-        TacticalScoreService.TeamProfile coached =
-                tacticalScoreService.coachedProfile(tacticalScoreService.profile(values), coach[0], coach[1]);
-        profileCache.put(teamId, coached);
-        return coached;
+        return values;
     }
 
     /** The tactic vector a team plays: a human's chosen {@code PersonalizedTactic} when present,
@@ -976,6 +1000,23 @@ public class MatchRoundSimulator {
 
     private static TacticalScoreService.TeamProfile scaleProfile(TacticalScoreService.TeamProfile p, double k) {
         return new TacticalScoreService.TeamProfile(p.attack() * k, p.defense() * k);
+    }
+
+    /** Resolve a knockout tie's tiebreak (extra time + penalties). Under the two-axis model the
+     *  extra-time mini-match runs on the attack-vs-defense engine (rebuilding each side's team-talk
+     *  scaled profile + tactic vector, as used to score the match); otherwise it falls back to the
+     *  scalar resolver. "A" is the side whose aggregate is {@code aggA}. */
+    private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver.TieDecision decideTie(
+            long teamIdA, double powerA, long teamIdB, double powerB, int aggA, int aggB) {
+        if (engineConfig.getTacticalModel().isEnabled()) {
+            TacticalScoreService.TeamProfile pA = scaleProfile(teamTacticalProfile(teamIdA), teamTalkFactor(teamIdA));
+            TacticalScoreService.TeamProfile pB = scaleProfile(teamTacticalProfile(teamIdB), teamTalkFactor(teamIdB));
+            PersonalizedTactic ptA = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamIdA).orElse(null);
+            PersonalizedTactic ptB = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamIdB).orElse(null);
+            return tieResolver.decide(pA, teamTacticVector(teamIdA, pA, ptA),
+                    pB, teamTacticVector(teamIdB, pB, ptB), aggA, aggB, random);
+        }
+        return tieResolver.decide(powerA, powerB, aggA, aggB, random);
     }
 
     /** Two-axis-consistent scalar "team power" (attack+defense of the team-talk-scaled coached
@@ -1020,13 +1061,51 @@ public class MatchRoundSimulator {
         return getSimpleTeamRating(teamId);
     }
 
+    /** Test-only: the AI formation chosen for a team (value-ranked, skill-picked). */
+    public String chooseFormationForTest(long teamId) {
+        return chooseFormation(teamId);
+    }
+
+    /** Test-only: the base squad value a formation yields for a team. */
+    public double formationBaseValueForTest(long teamId, String formation) {
+        return formationBaseValue(teamId, formation);
+    }
+
     private String getManagerTacticCached(long teamId) {
         if (managerTacticCache.containsKey(teamId)) return managerTacticCache.get(teamId);
-        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
-        String tactic = (!managers.isEmpty() && managers.get(0).getTacticStyle() != null)
-                ? managers.get(0).getTacticStyle() : "442";
+        String tactic = chooseFormation(teamId);
         managerTacticCache.put(teamId, tactic);
         return tactic;
+    }
+
+    /**
+     * Pick a team's formation. A human-managed team (or the scalar fallback when the two-axis model
+     * is off) keeps the manager's chosen {@code tacticStyle}. An AI manager under the two-axis model
+     * ranks all formations by the base value they yield for his squad and picks at a rank set by his
+     * skill — so a better coach lands a better-fitting shape (mirrors {@code ManagerTacticService}).
+     */
+    private String chooseFormation(long teamId) {
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        String preferred = (!managers.isEmpty() && managers.get(0).getTacticStyle() != null)
+                ? managers.get(0).getTacticStyle() : "442";
+        if (!engineConfig.getTacticalModel().isEnabled() || userContext.isHumanTeam(teamId)) {
+            return preferred;
+        }
+        List<String> formations = tacticService.getAllExistingTactics();
+        if (formations.isEmpty()) return preferred;
+        List<String> ranked = formations.stream()
+                .sorted(Comparator.comparingDouble((String f) -> formationBaseValue(teamId, f)).reversed())
+                .toList();
+        double[] coach = coachAbilities(teamId);
+        double skill = Math.max(0, Math.min(100, (coach[0] + coach[1]) / 2.0));
+        int index = (int) Math.round((100 - skill) / 100.0 * (ranked.size() - 1));
+        return ranked.get(index);
+    }
+
+    /** The base squad value (attack + defense, pre-coaching) a formation yields for a team. */
+    private double formationBaseValue(long teamId, String formation) {
+        TacticalScoreService.TeamProfile p = tacticalScoreService.profile(starterValues(teamId, formation));
+        return p.attack() + p.defense();
     }
 
     /** Team-level team-talk multiplier (centered on 1.0): a better man-manager rallies the squad

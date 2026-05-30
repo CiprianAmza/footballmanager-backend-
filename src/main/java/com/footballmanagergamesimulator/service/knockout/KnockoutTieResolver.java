@@ -2,6 +2,9 @@ package com.footballmanagergamesimulator.service.knockout;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
+import com.footballmanagergamesimulator.service.TacticalScoreService;
+import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
+import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -33,10 +36,13 @@ public class KnockoutTieResolver {
 
     private final MatchSimulationService matchSim;
     private final MatchEngineConfig config;
+    private final TacticalScoreService tacticalScoreService;
 
-    public KnockoutTieResolver(MatchSimulationService matchSim, MatchEngineConfig config) {
+    public KnockoutTieResolver(MatchSimulationService matchSim, MatchEngineConfig config,
+                               TacticalScoreService tacticalScoreService) {
         this.matchSim = matchSim;
         this.config = config;
+        this.tacticalScoreService = tacticalScoreService;
     }
 
     /**
@@ -102,6 +108,36 @@ public class KnockoutTieResolver {
         // Still level → penalty shootout. Near coin-flip, optional weaker-team edge.
         double weakerWinChance = config.getKnockout().getPenaltyWeakerTeamWinChance();
         boolean aIsWeaker = powerA < powerB;
+        double aWinChance = aIsWeaker ? weakerWinChance : 1.0 - weakerWinChance;
+        boolean aWon = tiebreakRng.nextDouble() < aWinChance;
+        return new TieDecision(aWon, true, etA, etB, true);
+    }
+
+    /**
+     * Two-axis variant of {@link #decide(double, double, int, int, Random)}: the extra-time
+     * mini-match is played on the attack-vs-defense {@link TacticalScoreService} model (the
+     * production engine when {@code tactical-model.enabled}) instead of the scalar engine. The
+     * penalty weaker-team edge compares total profile strength (attack + defense).
+     *
+     * @param pA team A coached profile (team-talk-scaled), tA its tactic vector
+     * @param pB team B coached profile, tB its tactic vector
+     * @param tiebreakRng RNG for the extra-time goals and the shootout coin-flip
+     */
+    public TieDecision decide(TeamProfile pA, TacticVector tA, TeamProfile pB, TacticVector tB,
+                              int aggregateA, int aggregateB, Random tiebreakRng) {
+        if (aggregateA != aggregateB) {
+            return new TieDecision(aggregateA > aggregateB, false, 0, 0, false);
+        }
+
+        List<Integer> et = tacticalScoreService.scoreExtraTime(pA, tA, pB, tB, tiebreakRng);
+        int etA = et.get(0);
+        int etB = et.get(1);
+        if (aggregateA + etA != aggregateB + etB) {
+            return new TieDecision((aggregateA + etA) > (aggregateB + etB), true, etA, etB, false);
+        }
+
+        double weakerWinChance = config.getKnockout().getPenaltyWeakerTeamWinChance();
+        boolean aIsWeaker = (pA.attack() + pA.defense()) < (pB.attack() + pB.defense());
         double aWinChance = aIsWeaker ? weakerWinChance : 1.0 - weakerWinChance;
         boolean aWon = tiebreakRng.nextDouble() < aWinChance;
         return new TieDecision(aWon, true, etA, etB, true);

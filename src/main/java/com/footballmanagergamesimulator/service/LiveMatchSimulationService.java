@@ -870,9 +870,23 @@ public class LiveMatchSimulationService {
             double power1, double power2,
             long competitionId, int season, int round,
             boolean generateGoalAnimations) {
+        return createInteractiveSession(teamId1, teamId2, power1, power2,
+                competitionId, season, round, generateGoalAnimations, null);
+    }
+
+    /**
+     * Two-axis variant: when {@code matchup} is non-null the live engine derives possession + attack
+     * chances from the attack-vs-defense matchup (production model) instead of the scalar power ratio.
+     */
+    public LiveMatchSession createInteractiveSession(
+            long teamId1, long teamId2,
+            double power1, double power2,
+            long competitionId, int season, int round,
+            boolean generateGoalAnimations,
+            TacticalScoreService.Matchup matchup) {
         LiveMatchSession session = new LiveMatchSession(this,
                 teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations);
+                competitionId, season, round, generateGoalAnimations, matchup, new Random());
         String key = buildKey(competitionId, season, round, teamId1, teamId2);
         liveMatchSessions.put(key, session);
         // Also seed liveMatchCache with the initial snapshot so legacy

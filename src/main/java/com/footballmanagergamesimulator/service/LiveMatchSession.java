@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.frontend.GoalAnimationData;
 import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.frontend.LiveMatchData.LiveMatchMinute;
@@ -128,6 +129,10 @@ public class LiveMatchSession {
     int deferredLegNumber;
     long deferredTieId;
     int deferredMatchIndex;
+    // Two-axis profiles + tactic vectors so /commit runs the knockout extra time on the same
+    // attack-vs-defense model as the AI/batch path (null = scalar fallback).
+    TacticalScoreService.TeamProfile deferredProfile1, deferredProfile2;
+    TacticalScoreService.TacticVector deferredVector1, deferredVector2;
 
     public void setDeferredContext(double teamPower1, double teamPower2,
                                    String tactic1, String tactic2,
@@ -146,6 +151,21 @@ public class LiveMatchSession {
         this.deferredTieId = tieId;
         this.deferredMatchIndex = matchIndex;
     }
+
+    /** Stash the two-axis profiles + tactic vectors used to score this match, so /commit can resolve
+     *  a knockout tie's extra time on the same model. Pass null when the scalar engine is active. */
+    public void setDeferredTwoAxis(TacticalScoreService.TeamProfile p1, TacticalScoreService.TacticVector v1,
+                                   TacticalScoreService.TeamProfile p2, TacticalScoreService.TacticVector v2) {
+        this.deferredProfile1 = p1;
+        this.deferredVector1 = v1;
+        this.deferredProfile2 = p2;
+        this.deferredVector2 = v2;
+    }
+
+    public TacticalScoreService.TeamProfile getDeferredProfile1() { return deferredProfile1; }
+    public TacticalScoreService.TeamProfile getDeferredProfile2() { return deferredProfile2; }
+    public TacticalScoreService.TacticVector getDeferredVector1() { return deferredVector1; }
+    public TacticalScoreService.TacticVector getDeferredVector2() { return deferredVector2; }
 
     public double getDeferredTeamPower1() { return deferredTeamPower1; }
     public double getDeferredTeamPower2() { return deferredTeamPower2; }
@@ -172,19 +192,36 @@ public class LiveMatchSession {
                      long competitionId, int season, int round,
                      boolean generateGoalAnimations) {
         this(svc, teamId1, teamId2, power1, power2, competitionId, season, round,
-                generateGoalAnimations, new Random());
+                generateGoalAnimations, null, new Random());
+    }
+
+    LiveMatchSession(LiveMatchSimulationService svc,
+                     long teamId1, long teamId2,
+                     double power1, double power2,
+                     long competitionId, int season, int round,
+                     boolean generateGoalAnimations,
+                     Random random) {
+        this(svc, teamId1, teamId2, power1, power2, competitionId, season, round,
+                generateGoalAnimations, null, random);
     }
 
     /**
      * Seeded constructor — used by determinism IT / fuzz tests to make a live
      * match reproducible given a fixed seed. Same (seed, config, inputs) →
      * identical event timeline + score.
+     *
+     * <p>When {@code matchup} is non-null (two-axis production engine), the per-minute possession and
+     * attack chances are derived from the attack-vs-defense matchup (each side's effective attack vs
+     * the other's defense, amplified by {@code ratioExponent}, modulated by openness + home bonus) so
+     * the live scoreline tracks the same model as the instant engine. When null, the legacy scalar
+     * power ratio drives the chances (flag OFF).
      */
     LiveMatchSession(LiveMatchSimulationService svc,
                      long teamId1, long teamId2,
                      double power1, double power2,
                      long competitionId, int season, int round,
                      boolean generateGoalAnimations,
+                     TacticalScoreService.Matchup matchup,
                      Random random) {
         this.svc = svc;
         this.teamId1 = teamId1;
@@ -215,13 +252,37 @@ public class LiveMatchSession {
 
         this.goalAnimations = generateGoalAnimations ? new LinkedHashMap<>() : null;
 
-        double totalPower = power1 + power2;
-        double t1Poss = totalPower > 0 ? power1 / totalPower : 0.5;
-        this.team1PossChance = Math.min(0.65, t1Poss + 0.03);
-        double rawRatio1 = totalPower > 0 ? power1 / totalPower : 0.5;
-        double rawRatio2 = 1.0 - rawRatio1;
-        this.team1AttackChance = 0.04 + Math.min(0.14, rawRatio1 * 0.18);
-        this.team2AttackChance = 0.04 + Math.min(0.14, rawRatio2 * 0.18);
+        double rawRatio1, rawRatio2;
+        if (matchup != null) {
+            // Two-axis: chances come from the attack-vs-defense matchup, not a symmetric power ratio.
+            MatchEngineConfig.TacticalModel cfg = svc.engineConfig.getTacticalModel();
+            double exp = cfg.getRatioExponent();
+            double a1 = Math.pow(matchup.effAtt1(), exp), d2 = Math.pow(matchup.effDef2(), exp);
+            double a2 = Math.pow(matchup.effAtt2(), exp), d1 = Math.pow(matchup.effDef1(), exp);
+            double atkRatio1 = a1 / (a1 + d2); // team1 attack effectiveness vs team2 defense
+            double atkRatio2 = a2 / (a2 + d1); // team2 attack effectiveness vs team1 defense
+            // Possession from each side's overall strength (effective attack + defense).
+            double tot1 = matchup.effAtt1() + matchup.effDef1();
+            double tot2 = matchup.effAtt2() + matchup.effDef2();
+            double poss1 = (tot1 + tot2) > 0 ? tot1 / (tot1 + tot2) : 0.5;
+            // An open game lifts both sides' chances; home side gets the attack bonus.
+            double opennessFactor = cfg.getBaseOpenness() > 0 ? matchup.openness() / cfg.getBaseOpenness() : 1.0;
+            double homeBonus = 1 + cfg.getHomeAttackBonus();
+            this.team1PossChance = Math.min(0.65, poss1 + 0.03);
+            this.team1AttackChance = Math.min(0.22, (0.04 + Math.min(0.14, atkRatio1 * 0.18)) * opennessFactor * homeBonus);
+            this.team2AttackChance = Math.min(0.22, (0.04 + Math.min(0.14, atkRatio2 * 0.18)) * opennessFactor);
+            rawRatio1 = atkRatio1;
+            rawRatio2 = atkRatio2;
+        } else {
+            // Scalar fallback (flag OFF): symmetric power ratio.
+            double totalPower = power1 + power2;
+            double t1Poss = totalPower > 0 ? power1 / totalPower : 0.5;
+            this.team1PossChance = Math.min(0.65, t1Poss + 0.03);
+            rawRatio1 = totalPower > 0 ? power1 / totalPower : 0.5;
+            rawRatio2 = 1.0 - rawRatio1;
+            this.team1AttackChance = 0.04 + Math.min(0.14, rawRatio1 * 0.18);
+            this.team2AttackChance = 0.04 + Math.min(0.14, rawRatio2 * 0.18);
+        }
 
         int team1BigChances = svc.computeBigChances(rawRatio1, random);
         int team2BigChances = svc.computeBigChances(rawRatio2, random);

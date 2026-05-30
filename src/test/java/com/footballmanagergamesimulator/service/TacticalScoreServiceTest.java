@@ -134,4 +134,50 @@ class TacticalScoreServiceTest {
                 .as("defence-heavy prefers defending")
                 .isGreaterThan(service.expectedGoalDifference(defenceHeavy, attacking, opp, neutral));
     }
+
+    @Test
+    void scoreExtraTime_yieldsFarFewerGoalsThanAFullMatch() {
+        // The ET mini-match scales openness down (default ~0.33), so over many samples it must
+        // produce substantially fewer total goals than a full-90 score for the same matchup.
+        TeamProfile a = service.profile(List.of(new StarterValue("ST", 1500), new StarterValue("DC", 1500)));
+        TeamProfile b = service.profile(List.of(new StarterValue("MC", 1500), new StarterValue("DC", 1500)));
+        TacticVector ta = service.vector(new PersonalizedTactic());
+        TacticVector tb = service.vector(new PersonalizedTactic());
+
+        int fullTotal = 0, etTotal = 0;
+        Random rng = new Random(20260530L);
+        for (int i = 0; i < 4000; i++) {
+            var full = service.score(a, ta, b, tb, rng);
+            fullTotal += full.get(0) + full.get(1);
+            var et = service.scoreExtraTime(a, ta, b, tb, rng);
+            etTotal += et.get(0) + et.get(1);
+        }
+        assertThat(etTotal).as("extra time produces fewer goals than a full match").isLessThan(fullTotal / 2);
+    }
+
+    @Test
+    void scoreExtraTime_isDeterministicForASeed() {
+        TeamProfile a = service.profile(List.of(new StarterValue("ST", 1600)));
+        TeamProfile b = service.profile(List.of(new StarterValue("DC", 1400)));
+        TacticVector t = service.vector(new PersonalizedTactic());
+        assertThat(service.scoreExtraTime(a, t, b, t, new Random(7L)))
+                .isEqualTo(service.scoreExtraTime(a, t, b, t, new Random(7L)));
+    }
+
+    @Test
+    void matchup_redistributesValueByTactic() {
+        // The exposed matchup decomposition must agree with the model: an attacking bias raises
+        // effective attack and lowers effective defense (the trade-off).
+        TeamProfile a = service.profile(List.of(new StarterValue("ST", 1000), new StarterValue("MC", 1000), new StarterValue("DC", 1000)));
+        TeamProfile b = service.profile(List.of(new StarterValue("ST", 1000), new StarterValue("MC", 1000), new StarterValue("DC", 1000)));
+        TacticVector attacking = service.vector(tactic("Very Attacking", "Standard"));
+        TacticVector neutral = service.vector(new PersonalizedTactic());
+
+        var balanced = service.matchup(a, neutral, b, neutral);
+        var biased = service.matchup(a, attacking, b, neutral);
+        assertThat(biased.effAtt1()).as("attacking lifts effective attack").isGreaterThan(balanced.effAtt1());
+        assertThat(biased.effDef1()).as("attacking drops effective defense").isLessThan(balanced.effDef1());
+        assertThat(balanced.effAtt1()).isPositive();
+        assertThat(balanced.openness()).isPositive();
+    }
 }

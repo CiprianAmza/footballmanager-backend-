@@ -1,7 +1,12 @@
 package com.footballmanagergamesimulator.integration.knockout;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
+import com.footballmanagergamesimulator.service.TacticalScoreService;
+import com.footballmanagergamesimulator.service.TacticalScoreService.StarterValue;
+import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
+import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver;
 import com.footballmanagergamesimulator.service.knockout.LegFormat;
 import com.footballmanagergamesimulator.service.knockout.TieResult;
@@ -11,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.util.List;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +41,7 @@ class KnockoutTieResolverIT {
     @Autowired private KnockoutTieResolver resolver;
     @Autowired private MatchSimulationService matchSim;
     @Autowired private MatchEngineConfig config;
+    @Autowired private TacticalScoreService tacticalScoreService;
 
     private double savedEtGoals;
     private double savedPenWeaker;
@@ -185,6 +192,44 @@ class KnockoutTieResolverIT {
         TieResult[] run1 = runSeeded();
         TieResult[] run2 = runSeeded();
         assertThat(run2).as("same seeds must reproduce identical tie results").containsExactly(run1);
+    }
+
+    @Test
+    @DisplayName("Two-axis decide: unequal aggregate is decided without extra time")
+    void twoAxisUnequalAggregateNoExtraTime() {
+        TeamProfile a = profile(8000, "ST");
+        TeamProfile b = profile(4000, "DC");
+        TacticVector neutral = tacticalScoreService.vector(new PersonalizedTactic());
+
+        var d = resolver.decide(a, neutral, b, neutral, 3, 1, new Random(SEED));
+        assertThat(d.teamAWon()).isTrue();
+        assertThat(d.extraTime()).isFalse();
+        assertThat(d.penalties()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Two-axis decide: level aggregate runs extra time on the attack-vs-defense model")
+    void twoAxisLevelAggregateGoesToExtraTimeAndFavoursStronger() {
+        TeamProfile strong = profile(9000, "ST");
+        TeamProfile weak = profile(4500, "DC");
+        TacticVector neutral = tacticalScoreService.vector(new PersonalizedTactic());
+        Random rng = new Random(SEED);
+
+        int strongWins = 0, decisiveEt = 0, n = 4000;
+        for (int i = 0; i < n; i++) {
+            var d = resolver.decide(strong, neutral, weak, neutral, 1, 1, rng);
+            // Always decisive (ET then penalties).
+            assertThat(d.extraTime()).isTrue();
+            if (d.teamAWon()) strongWins++;
+            if (!d.penalties()) decisiveEt++;
+        }
+        assertThat(decisiveEt).as("some level ties are settled in extra time, not just penalties").isGreaterThan(0);
+        assertThat(strongWins).as("the stronger squad advances from a level tie more often than not")
+                .isGreaterThan(n / 2);
+    }
+
+    private TeamProfile profile(double value, String position) {
+        return tacticalScoreService.profile(List.of(new StarterValue(position, value)));
     }
 
     private double strongWinRate(LegFormat format, int n) {

@@ -1328,6 +1328,10 @@ public class MatchEngineConfig {
         private double coachStrength = 0.12;
         /** Hard cap per team. */
         private int maxGoalsPerTeam = 7;
+        /** Openness multiplier for a knockout extra-time mini-match (30' vs a full 90'): scales the
+         *  matchup goal scale down. Default ≈ {@code knockout.extraTimeExpectedGoals / power.expectedGoalsTotal}
+         *  (1.0/3.0). Used by {@code TacticalScoreService.scoreExtraTime}. */
+        private double extraTimeOpennessScale = 0.33;
         /** OVERRIDE: used base position → share of a player's value assigned to attack (rest = defense). */
         private Map<String, Double> attackShare = new HashMap<>();
 
@@ -1351,6 +1355,8 @@ public class MatchEngineConfig {
         public void setCoachStrength(double v) { this.coachStrength = v; }
         public int getMaxGoalsPerTeam() { return maxGoalsPerTeam; }
         public void setMaxGoalsPerTeam(int v) { this.maxGoalsPerTeam = v; }
+        public double getExtraTimeOpennessScale() { return extraTimeOpennessScale; }
+        public void setExtraTimeOpennessScale(double v) { this.extraTimeOpennessScale = v; }
         public Map<String, Double> getAttackShare() { return attackShare; }
         public void setAttackShare(Map<String, Double> v) { this.attackShare = v; }
 
