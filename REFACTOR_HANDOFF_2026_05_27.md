@@ -315,3 +315,39 @@ Acum **fiecare adversar își alege tactica după abilitățile managerului lui*
 - **Caveat date**: managerii din DB-ul bootstrap-at predate câmpurile off/def → au default 50/50. Un joc nou îi seamănă real. Pentru a vedea stilurile în harness, trebuie bootstrap proaspăt.
 - Config: `MatchEngineConfig.TacticalModel` (strengths trade-off/openness/coach, `attackShare`); mapările categorice→numerice (mentalitate→bias etc.) sunt în `TacticalScoreService` (externalizabile ulterior).
 - Teste: `TacticalScoreServiceTest` (split, trade-off „leagă-te de forță", matchup pe lot, coaching).
+
+---
+
+## 13. Unificarea engine-ului pe două axe — live + ET + formație (2026-05-31)
+
+Cele trei excepții care încă rulau scalar (cu flag ON) au fost unificate pe modelul pe două axe. Engine-ul scalar rămâne fallback pentru flag OFF + suita de tuning/invariante (neatins).
+
+- **Meciul live interactiv** (`viewFullMatch` → `LiveMatchSession`): primește un `TacticalScoreService.Matchup` (effAtt/effDef redistribuite de tactică+coaching+team talk + openness); șansele de atac/posesie/big-chance derivă din matchup (atac vs apărarea adversarului, amplificat cu `ratioExponent`), nu din raportul scalar simetric. Mecanica de minut (cartonașe, man-advantage, stamina, pace) **neatinsă**. `Matchup=null` → formulele scalare vechi.
+- **Prelungiri (ET) + penalty**: `KnockoutTieResolver.decide(profileA, vectorA, profileB, vectorB, aggA, aggB, rng)` rulează ET prin `TacticalScoreService.scoreExtraTime` (openness scalat cu `TacticalModel.extraTimeOpennessScale=0.33`); penalty „weaker" comparat pe `attack+defense`. Cablat în `MatchRoundSimulator.decideTie` + `MatchdayCoordinator.decideTie` (commit-ul live, prin profilele din deferred context). Scalarul `decide(double,double,...)` rămâne fallback.
+- **Formația AI**: `MatchRoundSimulator.chooseFormation` rankuiește cele 15 formații după valoarea de bază a lotului și alege la rangul dat de skill (`round((100-skill)/100×(N-1))`, ca `ManagerTacticService`). Uman/flag OFF → `tacticStyle`. Helper `starterValues(teamId, formation)`.
+- **Surse noi**: `TacticalScoreService.Matchup`/`matchup()`/`scoreExtraTime()`; `MatchEngineConfig.TacticalModel.extraTimeOpennessScale`. Teste: `TacticalScoreServiceTest` (scoreExtraTime, matchup), `KnockoutTieResolverIT` (decide two-axis), `AiFormationSelectionIT`.
+
+---
+
+## 14. Batch de fix-uri din feedback de frontend (2026-05-31) — pe `master`, `mvn verify` verde (155 unit + 79 IT)
+
+Patru streamuri rezolvate în paralel (agenți pe worktree, merge-uite) + fix de regresie. Comit trail: `e42aaed` (D) · `002955f` (E1+F) · `524eeea` (A+G) · `d587c1a` (B) · `3de684d` (fix regresii merge).
+
+| Stream | Livrat | Fișiere cheie |
+|---|---|---|
+| **A** perf/lock | `GameLock` (ReentrantLock partajat): `advance()` + `promoteToFirstTeam` se serializează → gata cu `JdbcSQLTimeoutException`/concurrent-update pe `team` la tranziție. Colaps `findAll()` duplicat. | `GameLock`, `GameAdvanceService`, `YouthAcademyService`, `NewSeasonSetupProcessor` |
+| **G** tactică | `NewSeasonSetupProcessor` șterge doar `PersonalizedTactic` AI, păstrează rândul echipei umane peste sezoane. | `NewSeasonSetupProcessor` |
+| **D1** carduri | `CompetitionDisplayService.getTeamCompetitions` dedup pe `competitionId` (runda max) → un card per competiție. | `CompetitionDisplayService` |
+| **D2** obiective | Evaluare pe `max(round)` (nu `findFirst`); target european = runda reală de grupă → prelim-loser **eșuează corect**, nu „achieved". | `SeasonObjectiveService` |
+| **D3** Stars Cup | Loserii LoC din rundele 0+1 picat în SC, **cap la capacitate** (`groupCount×groupSize`), umplut cu cei mai puternici pe reputație (nu Set-order arbitrar). | `EuropeanCompetitionService` |
+| **B1** salariu | Salariu lunar manager + `Human.careerEarnings` (în `processMonthlyWages`), expus în My Manager. | `Human`, `CalendarEventDispatcher`, `ManagerController` |
+| **B2** reputație | Rebalansat în `MatchEngineConfig.Reputation` (win 2.0→0.3 etc.) → <1%/victorie; trofeele rămân salturile mari. | `MatchEngineConfig`, `ManagerCareerService` |
+| **B3** oferte | `evaluateMidSeasonSackings`: demitere reală (≥10 meciuri + poziție mult sub prediction) → ofertă doar la uman cu reputație în bandă; cooldown 4 luni per club (`declineOffer` stampilează ziua). Înlocuiește random-ul plat. | `ManagerCareerService`, `JobOfferService`, `GameAdvanceService` |
+| **E1** goluri AI | `scorer.setRating(pv.getRating())` în `getScorersForTeamSimplified` → distribuție ponderată pe rating ca la human (golgheteri reali), nu uniformă. | `MatchRoundSimulator` |
+| **F** salarii jucători | `WageService.baseWage` (static util) sursă unică pentru generare ȘI negociere → gata cu 8k-vs-1M. Toate site-urile de generare aliniate. | `WageService`, `SquadGenerationService`, `ContractController`, `HumanService`, `EndOfSeasonProcessor`, `AdminController` |
+
+**RĂMAS din backlog-ul de feedback** (neabordat aici):
+- **E3** — `*OutcomeIT` (`LeagueOutcomeIT`/`CupOutcomeIT`/`LoC`/`StarsCup`) rulează engine-ul **scalar** prin `TournamentEngine.playLeague`, NU producția two-axis → rapoartele de outcome nu validează jocul real. De migrat pe two-axis dacă vrei să judeci „câștigă favoritul / AI folosește tactici bune".
+- **C** — statistici per sezon ȘI per competiție (acum amestecate); golgheteri pe toate competițiile.
+- **Frontend (repo separat)**: auto-refresh home, dedup vizual Competitions (poate rezolvat de D1 în backend), Animation Preview adus la engine-ul live nou, UI My Manager pentru noile stats (B1/C).
+- **Perf**: lock-ul (A) previne cursa, dar tranziția rămâne lentă (N+1/saves în bucle în `EndOfSeasonProcessor` neatins — batching nesigur fără analiză).
