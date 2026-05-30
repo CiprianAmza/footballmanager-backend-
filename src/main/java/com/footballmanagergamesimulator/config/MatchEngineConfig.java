@@ -3,7 +3,9 @@ package com.footballmanagergamesimulator.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -51,6 +53,7 @@ public class MatchEngineConfig {
     private PlayerValue playerValue = new PlayerValue();
     private RoleWeights roleWeights = new RoleWeights();
     private InstructionWeights instructionWeights = new InstructionWeights();
+    private TeamTalk teamTalk = new TeamTalk();
 
     public Power getPower() { return power; }
     public void setPower(Power power) { this.power = power; }
@@ -84,6 +87,8 @@ public class MatchEngineConfig {
     public void setRoleWeights(RoleWeights roleWeights) { this.roleWeights = roleWeights; }
     public InstructionWeights getInstructionWeights() { return instructionWeights; }
     public void setInstructionWeights(InstructionWeights instructionWeights) { this.instructionWeights = instructionWeights; }
+    public TeamTalk getTeamTalk() { return teamTalk; }
+    public void setTeamTalk(TeamTalk teamTalk) { this.teamTalk = teamTalk; }
 
     // ==================== POWER / POISSON ====================
     public static class Power {
@@ -1082,17 +1087,24 @@ public class MatchEngineConfig {
         }
     }
 
-    // ==================== ROLE SUITABILITY BLEND ====================
+    // ==================== ROLE SUITABILITY BLEND + ATTRIBUTE TABLES ====================
     /**
-     * Tunable knobs for {@code PlayerRoleService}. The per-role attribute tables stay as
-     * code data; these are the formula-level levers. Defaults reproduce the previous
-     * hardcoded behaviour: effectiveRating = overall × {@code overallBlend} + suitability ×
-     * {@code roleBlend}; suitability = clamp(weightedAvg × {@code suitabilityScale}, 1, 100).
+     * Tunable knobs for {@code PlayerRoleService}. Formula levers: effectiveRating =
+     * overall × {@code overallBlend} + suitability × {@code roleBlend}; suitability =
+     * clamp(weightedAvg × {@code suitabilityScale}, 1, 100).
+     *
+     * <p>The per-role attribute tables (the key attributes + weights of each role) ship as
+     * defaults inside {@code PlayerRoleService.RoleDef}; {@link #attributes} lets designers
+     * override or extend them per role from config — keyed by role name, then attribute name
+     * (the 36 {@code PlayerSkillsService.GETTER_MAP} display names). An entry here wins over
+     * the shipped default weight for that (role, attribute); a new attribute is added to the
+     * role's table.
      */
     public static class RoleWeights {
         private double overallBlend = 0.4;
         private double roleBlend = 0.6;
         private double suitabilityScale = 5.0;
+        private Map<String, Map<String, Double>> attributes = new HashMap<>();
 
         public double getOverallBlend() { return overallBlend; }
         public void setOverallBlend(double v) { this.overallBlend = v; }
@@ -1100,20 +1112,35 @@ public class MatchEngineConfig {
         public void setRoleBlend(double v) { this.roleBlend = v; }
         public double getSuitabilityScale() { return suitabilityScale; }
         public void setSuitabilityScale(double v) { this.suitabilityScale = v; }
+        public Map<String, Map<String, Double>> getAttributes() { return attributes; }
+        public void setAttributes(Map<String, Map<String, Double>> v) { this.attributes = v; }
+
+        /** Config override map for a role's attribute weights, or {@code null} if none. */
+        public Map<String, Double> attributesFor(String roleName) {
+            return attributes.get(roleName);
+        }
     }
 
     // ==================== INSTRUCTION MULTIPLIER ====================
     /**
-     * Tunable knobs for {@code PlayerInstructionService.computeInstructionMultiplier}. The
-     * per-instruction bonus table stays as code; {@code bonusScale} globally scales the
-     * accumulated bonus (1.0 = unchanged), and the clamp bounds / conflict penalty are
-     * externalized. Defaults reproduce the previous hardcoded behaviour.
+     * Tunable knobs for {@code PlayerInstructionService.computeInstructionMultiplier}.
+     * {@code bonusScale} globally scales the accumulated per-instruction bonus (1.0 = unchanged),
+     * and the clamp bounds / conflict penalty are externalized.
+     *
+     * <p>The per-instruction bonus table ships as defaults in {@link #DEFAULT_BONUSES}; each
+     * instruction has a {@code base} bonus plus per-position exceptions. {@link #bonuses} lets
+     * designers override an instruction's whole bonus entry from config (keyed by instruction
+     * name); a present override replaces the shipped default for that instruction.
      */
     public static class InstructionWeights {
         private double bonusScale = 1.0;
         private double conflictPenalty = 0.02;
         private double clampMin = 0.92;
         private double clampMax = 1.08;
+        private Map<String, InstructionBonus> bonuses = new HashMap<>();
+        /** Mutually-exclusive instruction pairs; each present pair subtracts {@link #conflictPenalty}.
+         *  Defaults to the seven shipped pairs; set in config to replace the whole list (add/remove pairs). */
+        private List<ConflictPair> conflicts = defaultConflicts();
 
         public double getBonusScale() { return bonusScale; }
         public void setBonusScale(double v) { this.bonusScale = v; }
@@ -1123,5 +1150,142 @@ public class MatchEngineConfig {
         public void setClampMin(double v) { this.clampMin = v; }
         public double getClampMax() { return clampMax; }
         public void setClampMax(double v) { this.clampMax = v; }
+        public Map<String, InstructionBonus> getBonuses() { return bonuses; }
+        public void setBonuses(Map<String, InstructionBonus> v) { this.bonuses = v; }
+        public List<ConflictPair> getConflicts() { return conflicts; }
+        public void setConflicts(List<ConflictPair> v) { this.conflicts = v; }
+
+        /** An ordered pair of mutually-exclusive instruction names. */
+        public static class ConflictPair {
+            private String a;
+            private String b;
+
+            public ConflictPair() {}
+            public ConflictPair(String a, String b) { this.a = a; this.b = b; }
+
+            public String getA() { return a; }
+            public void setA(String v) { this.a = v; }
+            public String getB() { return b; }
+            public void setB(String v) { this.b = v; }
+        }
+
+        private static List<ConflictPair> defaultConflicts() {
+            List<ConflictPair> c = new ArrayList<>();
+            c.add(new ConflictPair("Close Down More", "Close Down Less"));
+            c.add(new ConflictPair("Shoot More Often", "Shoot Less Often"));
+            c.add(new ConflictPair("Dribble More", "Dribble Less"));
+            c.add(new ConflictPair("Sit Narrower", "Stay Wider"));
+            c.add(new ConflictPair("Cross From Byline", "Cross From Deep"));
+            c.add(new ConflictPair("Tackle Harder", "Ease Off Tackles"));
+            c.add(new ConflictPair("Get Further Forward", "Hold Position"));
+            return c;
+        }
+
+        /**
+         * Resolved bonus for an (instruction, position): config override → shipped default → 0.0.
+         * Within an entry the position-specific value wins over the entry's {@code base}.
+         */
+        public double bonus(String instruction, String position) {
+            InstructionBonus b = bonuses.get(instruction);
+            if (b == null) b = DEFAULT_BONUSES.get(instruction);
+            if (b == null) return 0.0;
+            return b.valueFor(position);
+        }
+
+        /** A single instruction's bonus: a {@code base} plus per-position exceptions. */
+        public static class InstructionBonus {
+            private double base = 0.0;
+            private Map<String, Double> byPosition = new HashMap<>();
+
+            public double getBase() { return base; }
+            public void setBase(double v) { this.base = v; }
+            public Map<String, Double> getByPosition() { return byPosition; }
+            public void setByPosition(Map<String, Double> v) { this.byPosition = v; }
+
+            public double valueFor(String position) {
+                Double v = byPosition.get(position);
+                return v == null ? base : v;
+            }
+        }
+
+        /** Build an InstructionBonus from a base and alternating (position, value) exceptions. */
+        private static InstructionBonus bonus(double base, Object... kv) {
+            InstructionBonus b = new InstructionBonus();
+            b.base = base;
+            for (int i = 0; i < kv.length; i += 2) {
+                b.byPosition.put((String) kv[i], ((Number) kv[i + 1]).doubleValue());
+            }
+            return b;
+        }
+
+        /** Shipped per-instruction bonus defaults (reproduce the previous hardcoded switch). */
+        private static final Map<String, InstructionBonus> DEFAULT_BONUSES = new HashMap<>();
+
+        static {
+            // Defensive
+            DEFAULT_BONUSES.put("Mark Tighter", bonus(-0.005, "DC", 0.01, "DL", 0.01, "DR", 0.01));
+            DEFAULT_BONUSES.put("Close Down More", bonus(0.005, "ST", 0.01, "DC", -0.005));
+            DEFAULT_BONUSES.put("Close Down Less", bonus(-0.005, "DC", 0.005));
+            DEFAULT_BONUSES.put("Tackle Harder", bonus(0.005));
+            DEFAULT_BONUSES.put("Stay On Feet", bonus(0.003));
+            DEFAULT_BONUSES.put("Ease Off Tackles", bonus(-0.003));
+            // Attacking
+            DEFAULT_BONUSES.put("Get Further Forward", bonus(0.0, "DL", 0.01, "DR", 0.01, "ML", 0.01, "MR", 0.01, "MC", 0.005));
+            DEFAULT_BONUSES.put("Hold Position", bonus(0.0, "DC", 0.005));
+            DEFAULT_BONUSES.put("Shoot More Often", bonus(0.005, "ST", 0.01));
+            DEFAULT_BONUSES.put("Shoot Less Often", bonus(0.003));
+            DEFAULT_BONUSES.put("Dribble More", bonus(0.003, "ML", 0.01, "MR", 0.01));
+            DEFAULT_BONUSES.put("Dribble Less", bonus(0.003));
+            // Movement
+            DEFAULT_BONUSES.put("Roam From Position", bonus(0.0, "MC", 0.005, "ST", 0.005));
+            DEFAULT_BONUSES.put("Stay Wider", bonus(0.0, "ML", 0.008, "MR", 0.008));
+            DEFAULT_BONUSES.put("Sit Narrower", bonus(0.0, "ML", 0.005, "MR", 0.005));
+            DEFAULT_BONUSES.put("Move Into Channels", bonus(0.005));
+            DEFAULT_BONUSES.put("Drop Deeper", bonus(0.0, "ST", 0.005));
+            // Passing
+            DEFAULT_BONUSES.put("Pass It Shorter", bonus(0.003));
+            DEFAULT_BONUSES.put("Try More Direct Passes", bonus(0.003));
+            DEFAULT_BONUSES.put("Cross From Byline", bonus(0.0, "ML", 0.008, "MR", 0.008, "DL", 0.008, "DR", 0.008));
+            DEFAULT_BONUSES.put("Cross From Deep", bonus(0.0, "ML", 0.005, "MR", 0.005, "DL", 0.005, "DR", 0.005));
+            DEFAULT_BONUSES.put("Play Through Balls", bonus(0.005));
+        }
+    }
+
+    // ==================== TEAM TALK ====================
+    /**
+     * Team-level "team talk" multiplier applied (alongside home advantage) to the summed team
+     * value in {@code MatchSimulationService.effectiveTeamPower}. A better man-manager rallies
+     * the squad to extract a little more; a poor one does not. Quality is read from the manager's
+     * reputation (the manager's man-management proxy) and mapped to a small multiplier:
+     * {@code 1 + maxSwing × clamp((reputation - neutralReputation) / reputationSpan, -1, 1)}.
+     *
+     * <p>Deterministic (no RNG) so match seeds are unaffected. Set {@code enabled=false} to pin
+     * the multiplier at a neutral 1.0.
+     */
+    public static class TeamTalk {
+        private boolean enabled = true;
+        /** Maximum deviation from neutral 1.0 at the reputation extremes (e.g. 0.04 = ±4%). */
+        private double maxSwing = 0.04;
+        /** Manager reputation at which the team talk is neutral (multiplier 1.0). */
+        private double neutralReputation = 1500.0;
+        /** Reputation distance from neutral that maps to the full {@link #maxSwing}. */
+        private double reputationSpan = 1500.0;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public double getMaxSwing() { return maxSwing; }
+        public void setMaxSwing(double v) { this.maxSwing = v; }
+        public double getNeutralReputation() { return neutralReputation; }
+        public void setNeutralReputation(double v) { this.neutralReputation = v; }
+        public double getReputationSpan() { return reputationSpan; }
+        public void setReputationSpan(double v) { this.reputationSpan = v; }
+
+        /** The team-talk multiplier for a manager of the given reputation. */
+        public double multiplier(double managerReputation) {
+            if (!enabled) return 1.0;
+            double f = (managerReputation - neutralReputation) / reputationSpan;
+            f = Math.max(-1.0, Math.min(1.0, f));
+            return 1.0 + maxSwing * f;
+        }
     }
 }

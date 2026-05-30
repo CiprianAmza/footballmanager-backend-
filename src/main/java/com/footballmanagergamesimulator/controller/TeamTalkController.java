@@ -85,7 +85,7 @@ public class TeamTalkController {
 
         long teamId = userContext.getTeamId(request);
         int season = currentSeason();
-        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, "PRE_MATCH", mappedType, null, season);
+        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, "PRE_MATCH", mappedType, null, season, currentRound());
 
         if (Boolean.TRUE.equals(result.get("success"))) {
             teamTalkUsedThisRound = true;
@@ -104,7 +104,7 @@ public class TeamTalkController {
         long teamId = userContext.getTeamId(request);
         int season = currentSeason();
 
-        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, phase, type, matchContext, season);
+        Map<String, Object> result = teamTalkService.giveTeamTalk(teamId, phase, type, matchContext, season, currentRound());
 
         if ("PRE_MATCH".equals(phase) && Boolean.TRUE.equals(result.get("success"))) {
             teamTalkUsedThisRound = true;

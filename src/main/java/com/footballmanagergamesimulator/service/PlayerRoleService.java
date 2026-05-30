@@ -19,7 +19,7 @@ import java.util.*;
 public class PlayerRoleService {
 
     @Autowired
-    private MatchEngineConfig engineConfig;
+    MatchEngineConfig engineConfig;
 
     /**
      * Get available roles for a given position.
@@ -49,7 +49,7 @@ public class PlayerRoleService {
         }
 
         double weighted = 0;
-        for (Map.Entry<String, Double> entry : role.keyAttributes.entrySet()) {
+        for (Map.Entry<String, Double> entry : effectiveKeyAttributes(role).entrySet()) {
             String attr = entry.getKey();
             double weight = entry.getValue();
             var getter = PlayerSkillsService.GETTER_MAP.get(attr);
@@ -60,6 +60,22 @@ public class PlayerRoleService {
 
         // Scale from 1-20 weighted average to 0-100 (scale factor is config-tunable).
         return Math.max(1, Math.min(100, weighted * engineConfig.getRoleWeights().getSuitabilityScale()));
+    }
+
+    /**
+     * A role's key attributes after applying the config overrides
+     * ({@code match.engine.role-weights.attributes.<RoleName>}): the shipped {@link RoleDef}
+     * defaults merged with any per-attribute overrides (override wins; new attributes added).
+     * Returns the defaults unchanged when no override exists for the role.
+     */
+    private Map<String, Double> effectiveKeyAttributes(RoleDef role) {
+        Map<String, Double> override = engineConfig.getRoleWeights().attributesFor(role.name);
+        if (override == null || override.isEmpty()) {
+            return role.keyAttributes;
+        }
+        Map<String, Double> merged = new HashMap<>(role.keyAttributes);
+        merged.putAll(override);
+        return merged;
     }
 
     /**

@@ -103,7 +103,7 @@ public class TeamTalkService {
     /**
      * Give a team talk to all players.
      */
-    public Map<String, Object> giveTeamTalk(long teamId, String phase, String type, String matchContext, int season) {
+    public Map<String, Object> giveTeamTalk(long teamId, String phase, String type, String matchContext, int season, long round) {
         Map<String, Object> response = new LinkedHashMap<>();
 
         // Check if this phase has already been used this match
@@ -121,7 +121,6 @@ public class TeamTalkService {
             return response;
         }
 
-        Random rng = new Random();
         double totalChange = 0;
         int playersAffected = 0;
         List<Map<String, Object>> playerReactions = new ArrayList<>();
@@ -129,6 +128,10 @@ public class TeamTalkService {
         for (Human player : players) {
             if (player.isRetired()) continue;
 
+            // Deterministic per (player, talk, match): the same team talk in the same match always
+            // yields the same reaction — reproducible and not re-rollable by re-simulating. Seeding
+            // per player makes the result independent of the squad's iteration order.
+            Random rng = new Random(seed(player.getId(), type, phase, matchContext, season, round));
             double change = calculateMoraleChange(type, phase, matchContext, player, rng);
             String reaction = getPlayerReaction(change);
 
@@ -176,7 +179,8 @@ public class TeamTalkService {
             return response;
         }
 
-        Random rng = new Random();
+        // Deterministic per (player, talk, season): reproducible, not re-rollable.
+        Random rng = new Random(seed(playerId, type, season));
         double change = calculateIndividualTalkChange(type, player, rng);
         String reaction = getPlayerReaction(change);
 
@@ -241,6 +245,16 @@ public class TeamTalkService {
      */
     public void resetAllForNewMatch() {
         talkPhasesUsed.clear();
+    }
+
+    /** Stable seed from the talk context so the same inputs reproduce the same RNG stream.
+     *  Relies only on JDK-specified hashCodes (String/Long/Integer), so it is reproducible across runs. */
+    private static long seed(Object... parts) {
+        long h = 1125899906842597L; // large prime
+        for (Object p : parts) {
+            h = 31 * h + (p == null ? 0 : p.hashCode());
+        }
+        return h;
     }
 
     private double calculateMoraleChange(String type, String phase, String matchContext, Human player, Random rng) {

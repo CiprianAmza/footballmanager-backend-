@@ -900,11 +900,18 @@ public class MatchRoundSimulator {
         return tactic;
     }
 
-    /** Team-level team-talk multiplier (centered on 1.0). AI managers give no team talk, so
-     *  this is neutral; the hook exists so a future human team-talk feature can modulate team
-     *  power without touching the per-player match value. */
+    /** Team-level team-talk multiplier (centered on 1.0): a better man-manager rallies the squad
+     *  to extract a little more team power. Quality is read from the manager's reputation and
+     *  mapped via {@code MatchEngineConfig.TeamTalk}. Deterministic; neutral 1.0 when the team has
+     *  no manager or team talk is disabled. */
     private double teamTalkFactor(long teamId) {
-        return 1.0;
+        double reputation = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                .stream()
+                .filter(m -> !m.isRetired())
+                .findFirst()
+                .map(m -> (double) m.getManagerReputation())
+                .orElse(engineConfig.getTeamTalk().getNeutralReputation());
+        return engineConfig.getTeamTalk().multiplier(reputation);
     }
 
     /**

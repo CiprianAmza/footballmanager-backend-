@@ -21,7 +21,7 @@ import java.util.*;
 public class PlayerInstructionService {
 
     @Autowired
-    private MatchEngineConfig engineConfig;
+    MatchEngineConfig engineConfig;
 
     // All available instructions with their categories, applicable positions, and descriptions
     private static final List<InstructionDef> ALL_INSTRUCTIONS = List.of(
@@ -133,86 +133,22 @@ public class PlayerInstructionService {
         MatchEngineConfig.InstructionWeights cfg = engineConfig.getInstructionWeights();
         double bonus = 0;
 
+        // Per-instruction bonuses are config-driven (base + per-position exceptions); see
+        // MatchEngineConfig.InstructionWeights.DEFAULT_BONUSES for the shipped table.
         for (String instruction : instructions) {
-            switch (instruction) {
-                // Defensive instructions
-                case "Mark Tighter" -> {
-                    if (Set.of("DC", "DL", "DR").contains(position)) bonus += 0.01;
-                    else bonus -= 0.005; // risky for midfielders
-                }
-                case "Close Down More" -> {
-                    if ("ST".equals(position)) bonus += 0.01; // pressing forward
-                    else if (Set.of("DC").contains(position)) bonus -= 0.005; // risky for CBs
-                    else bonus += 0.005;
-                }
-                case "Close Down Less" -> {
-                    if (Set.of("DC").contains(position)) bonus += 0.005;
-                    else bonus -= 0.005;
-                }
-                case "Tackle Harder" -> bonus += 0.005; // riskier but wins ball more
-                case "Stay On Feet" -> bonus += 0.003;
-                case "Ease Off Tackles" -> bonus -= 0.003;
-
-                // Attacking instructions
-                case "Get Further Forward" -> {
-                    if (Set.of("DL", "DR", "ML", "MR").contains(position)) bonus += 0.01;
-                    else if ("MC".equals(position)) bonus += 0.005;
-                }
-                case "Hold Position" -> {
-                    if (Set.of("DC").contains(position)) bonus += 0.005;
-                }
-                case "Shoot More Often" -> {
-                    if ("ST".equals(position)) bonus += 0.01;
-                    else bonus += 0.005;
-                }
-                case "Shoot Less Often" -> bonus += 0.003; // better teamplay
-                case "Dribble More" -> {
-                    if (Set.of("ML", "MR").contains(position)) bonus += 0.01;
-                    else bonus += 0.003;
-                }
-                case "Dribble Less" -> bonus += 0.003;
-
-                // Movement
-                case "Roam From Position" -> {
-                    if (Set.of("MC", "ST").contains(position)) bonus += 0.005;
-                }
-                case "Stay Wider" -> {
-                    if (Set.of("ML", "MR").contains(position)) bonus += 0.008;
-                }
-                case "Sit Narrower" -> {
-                    if (Set.of("ML", "MR").contains(position)) bonus += 0.005;
-                }
-                case "Move Into Channels" -> bonus += 0.005;
-                case "Drop Deeper" -> {
-                    if ("ST".equals(position)) bonus += 0.005;
-                }
-
-                // Passing
-                case "Pass It Shorter" -> bonus += 0.003;
-                case "Try More Direct Passes" -> bonus += 0.003;
-                case "Cross From Byline" -> {
-                    if (Set.of("ML", "MR", "DL", "DR").contains(position)) bonus += 0.008;
-                }
-                case "Cross From Deep" -> {
-                    if (Set.of("ML", "MR", "DL", "DR").contains(position)) bonus += 0.005;
-                }
-                case "Play Through Balls" -> bonus += 0.005;
-            }
+            bonus += cfg.bonus(instruction, position);
         }
 
         // A global scale lets designers dial overall instruction impact up or down.
         bonus *= cfg.getBonusScale();
 
-        // Check for conflicting instructions (penalty)
+        // Conflicting instruction pairs each subtract the (config) conflict penalty. The pair
+        // list itself is config-driven; see MatchEngineConfig.InstructionWeights.conflicts.
         double conflict = cfg.getConflictPenalty();
         Set<String> instrSet = new HashSet<>(instructions);
-        if (instrSet.contains("Close Down More") && instrSet.contains("Close Down Less")) bonus -= conflict;
-        if (instrSet.contains("Shoot More Often") && instrSet.contains("Shoot Less Often")) bonus -= conflict;
-        if (instrSet.contains("Dribble More") && instrSet.contains("Dribble Less")) bonus -= conflict;
-        if (instrSet.contains("Sit Narrower") && instrSet.contains("Stay Wider")) bonus -= conflict;
-        if (instrSet.contains("Cross From Byline") && instrSet.contains("Cross From Deep")) bonus -= conflict;
-        if (instrSet.contains("Tackle Harder") && instrSet.contains("Ease Off Tackles")) bonus -= conflict;
-        if (instrSet.contains("Get Further Forward") && instrSet.contains("Hold Position")) bonus -= conflict;
+        for (MatchEngineConfig.InstructionWeights.ConflictPair pair : cfg.getConflicts()) {
+            if (instrSet.contains(pair.getA()) && instrSet.contains(pair.getB())) bonus -= conflict;
+        }
 
         return Math.max(cfg.getClampMin(), Math.min(cfg.getClampMax(), 1.0 + bonus));
     }
