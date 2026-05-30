@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Loan;
 import com.footballmanagergamesimulator.model.ManagerInbox;
+import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
@@ -126,12 +127,9 @@ public class NewSeasonSetupProcessor {
         }
         System.out.println("=== processNewSeasonSetup: transitioning from season " + season + " ===");
 
-        List<Long> teamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
-
         // Note: refreshTeamBudgets is called in processEndOfSeason before AI transfers
-
-        List<Long> allTeamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
-        applyTrainingEffect(allTeamIds);
+        List<Long> teamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
+        applyTrainingEffect(teamIds);
 
         Set<Long> competitions = competitionRepository.findAll()
                 .stream()
@@ -155,7 +153,9 @@ public class NewSeasonSetupProcessor {
 
         humanService.addOneYearToAge();
         humanService.retirePlayers();
-        personalizedTacticRepository.deleteAll();
+        // Wipe AI tactics for the new season but preserve human-managed teams'
+        // saved formation/mentality/tempo — a blanket deleteAll() would lose them.
+        clearAiPersonalizedTactics();
 
         for (Long teamId : teamIds) {
             TeamFacilities teamFacilities = teamFacilitiesRepository.findByTeamId(teamId);
@@ -277,6 +277,22 @@ public class NewSeasonSetupProcessor {
         matchSimulationOrchestrator.invalidateAllRatingCaches();
 
         System.out.println("=== NEW SEASON " + round.getSeason() + " STARTED ===");
+    }
+
+    // ============================================================
+    //  Personalized-tactic reset (preserve human teams)
+    // ============================================================
+
+    private void clearAiPersonalizedTactics() {
+        Set<Long> humanTeamIds = new HashSet<>(userContext.getAllHumanTeamIds());
+        if (humanTeamIds.isEmpty()) {
+            personalizedTacticRepository.deleteAll();
+            return;
+        }
+        List<PersonalizedTactic> toDelete = personalizedTacticRepository.findAll().stream()
+                .filter(pt -> !humanTeamIds.contains(pt.getTeamId()))
+                .collect(Collectors.toList());
+        personalizedTacticRepository.deleteAll(toDelete);
     }
 
     // ============================================================
