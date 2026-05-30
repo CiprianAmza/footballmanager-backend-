@@ -602,18 +602,12 @@ public class EuropeanCompetitionService {
                 .map(CompetitionTeamInfo::getTeamId)
                 .collect(Collectors.toSet());
 
-        // Cap the drop at the Stars Cup group capacity so a larger LoC field can't
-        // overflow it. (Until the Stars Cup is itself configurable, extra losers are
-        // simply eliminated rather than padding SC past its slots.)
-        com.footballmanagergamesimulator.config.CompetitionFormat scFmt = formatOf(starsCupCompetitionId);
-        int scSlots = scFmt.groupCount() * scFmt.groupSize();
-        long scDropRound = fmt.losersDropRound();
-        long alreadyDropped = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
-                .filter(cti -> cti.getCompetitionId() == starsCupCompetitionId && cti.getRound() == scDropRound)
-                .map(CompetitionTeamInfo::getTeamId).distinct().count();
-
+        // Every eliminated team drops to the Stars Cup group stage. No hard slot cap
+        // here — drawEuropeanGroups already seeds the SC field and trims the lowest
+        // coefficients fairly if there are more entrants than group slots, so capping
+        // by iteration order here would silently (and arbitrarily) eliminate eligible
+        // droppers instead of letting the seeded draw decide.
         for (long teamId : participants) {
-            if (scSlots > 0 && alreadyDropped >= scSlots) break; // SC group stage is full
             if (!winners.contains(teamId)) {
                 boolean alreadyInStarsCup = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()
                         .anyMatch(cti -> cti.getTeamId() == teamId && cti.getCompetitionId() == starsCupCompetitionId);
@@ -624,7 +618,6 @@ public class EuropeanCompetitionService {
                     cti.setSeasonNumber(currentSeason);
                     cti.setRound(fmt.losersDropRound());
                     competitionTeamInfoRepository.save(cti);
-                    alreadyDropped++;
                     String teamName = teamRepository.findById(teamId).map(t -> t.getName()).orElse("?");
                     System.out.println("=== LoC round " + locRound + " loser to Stars Cup: " + teamName + " ===");
                 }
