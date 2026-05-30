@@ -158,7 +158,7 @@ Nevalidat: echipă umană cu `viewFullMatch` în QF/SF LoC pe zile separate (leg
 **Cauza secundară — RĂMASĂ = piață ilichidă**: 22 `NO_BUY_TARGETS` (Academy nu cumpără — întoarce `null`) + 77 `NO_MARKET_MATCH` (buget insuficient SAU niciun vânzător tânăr). Levier: mai multă lichiditate (Academy/youth să listeze tineri, sau bugete mai mari). Decizie de design. *(Re-rulează `TransferEconomyFuzzIT` cu noua curbă ca să vezi cât a scăzut pierderea de ~16–20%.)*
 
 ### D. Diverse / polish
-- **Balans tactic — necapat (vezi §10)**: `adjustTeamPowerByTacticalProperties` (`service/LineupRatingService`) **adună** procentele tactice fără plafon → o combinație poate da ~+80%, suficient ca o echipă slabă să devină campioană pur din tactică (anulează valoarea lotului). De temperat (cap total ±10–15% și/sau termeni mai mici). Expus de `HumanTacticOutcomeFuzzIT#searchBestTacticAndReport`. **Decizie de design — nedecis.**
+- **Balans tactic — ✅ REZOLVAT prin model nou (fundație, vezi §12), de cablat în producție**: în loc să temperăm modelul aditiv vechi, am construit modelul pe două axe (atac/apărare, trade-off + matchup + coaching). În harness, echipa slabă plafonează la mijloc (loc ~11) în loc de loc 2. RĂMAS: cablarea modelului nou în producția AI-vs-AI + meciul uman (acum producția folosește încă `adjustTeamPowerByTacticalProperties` aditiv din `service/LineupRatingService`).
 - **Tuning engine 92→97**: favoritul nu câștigă consistent titlul (varianță mare) — vezi harness-ul + `MatchEngineRepStrengthFuzzIT` (gap pre-existent ~92%, feed sintetic direct în `calculateScores`, neatins de munca de valoare). Acum cu moral/fitness per-jucător + ponderi reale + team talk, merită un sweep nou pe `power.ratioExponent`/`expectedGoalsTotal` cu `-Ptune`, fără a strica predicția campionatului.
 - **Pace în batch — ✅ cablat** (sesiunea 2026-05-30): pace e unul din cele 36 de atribute ponderate, deci intră acum în valoarea de batch. Testul a devenit `EngineDynamicsIT.batchPowerReflectsPace`.
 - **Fitness uman-instant**: drenajul batch e doar pe path-ul AI; meciul uman jucat instant (viewFullMatch off) nu drenează (live drenează). Simetrie ușoară dacă vrei.
@@ -275,6 +275,33 @@ Valorile cu spații trebuie încadrate în ghilimele: `-Dmentality="Very Attacki
 
 ## 11. Comituri (2026-05-30, toate pe `master`, nepush-uite)
 
-`fae4ea6` motor valoare · `f860ed9` default-uri ponderi/familiaritate · `055c1fc` tabele rol/instrucțiuni + team talk · `188165f` harness tactică · `fb9b890` curbă vârstă (prime 24–33 + cliff 34, vezi §6.C) · `e9f42f1` docs + `application*.yml` + `.gitignore` (ignoră `.claude/` + `*.pkg`).
+`fae4ea6` motor valoare · `f860ed9` default-uri ponderi/familiaritate · `055c1fc` tabele rol/instrucțiuni + team talk · `188165f` harness tactică · `fb9b890` curbă vârstă (prime 24–33 + cliff 34, vezi §6.C) · `e9f42f1` docs + `application*.yml` + `.gitignore` (ignoră `.claude/` + `*.pkg`) · `82a0c84`+`66ccdb1` model tactic pe două axe + coaching (vezi §12).
 
 Convenție: `application.yml` a fost totuși comis în `e9f42f1` (fără secrete); dacă vrei să respecți regula „knob-uri prin default-uri Java", scoate-l cu `git rm --cached src/main/resources/application.yml`. `mvn verify` default verde (145 unit + 75 IT).
+
+---
+
+## 12. Model tactic pe două axe (atac/apărare) + coaching — fundație, NEcablat în producție
+
+Comis `82a0c84`+`66ccdb1`. **Componente NOI, în paralel cu engine-ul vechi** — producția (AI-vs-AI, meciul uman) folosește încă `calculateScores` scalar + `adjustTeamPowerByTacticalProperties` aditiv. Modelul nou e folosit deocamdată **doar de harness**. Următorul pas mare: cablarea în producție.
+
+### De ce (problema rezolvată)
+Modelul vechi (`adjustTeamPowerByTacticalProperties`) dădea bonusuri procentuale **aditive, necapate** (~+80%), deci o echipă slabă putea ajunge vicecampioană pur din tactică (vezi §10). Modelul nou face tactica un **trade-off** mărginit, cu **matchup**, astfel încât valoarea lotului rămâne decisivă.
+
+### Cum funcționează (`service/TacticalScoreService`)
+- Valoarea lotului se împarte în **atac** și **apărare** după poziția fiecărui titular (`MatchEngineConfig.TacticalModel.attackShare`: ST 0.95, MC 0.5, DC 0.12, GK 0.0…).
+- Setările de tactică se reduc la 3 axe numerice: `attackBias` (mentalitate), `risk` (tempo → deschide jocul), `control` (Keep Ball / time-wasting → apărare↑, joc mai lent). **Trade-off**: bias ofensiv → atac↑ **și apărare↓** (nu bonus gratis).
+- **Coaching**: fiecare manager are `offensiveAbility` + `defensiveAbility` (0–100, `Human`, semănate la generare în `HumanService` cu zgomot independent → antrenori dezechilibrați). `coachedProfile` amplifică atacul cu abilitatea ofensivă, apărarea cu cea defensivă (±`coachStrength`=0.12). → antrenor ofensiv = echipă mai bună în atac **și** tactici ofensive îi devin optime (**stil emergent**).
+- Scor **bilateral**: `xG_tău = openness × atac_tău/(atac_tău+apărare_adversar)`, Poisson. Atacul tău contează față de apărarea lor → **matchup**, nu există tactică universal-optimă.
+
+### Selecția AI după skill (`service/ManagerTacticService`)
+Rankuiește cele 900 de tactici prin proxy ieftin determinist (`expectedGoalDifference` vs un adversar reprezentativ, fără simulare); managerul ia tactica de la rangul `round((100−skill)/100 × N)` (skill = media off/def). Top coach → tactică ~optimă pentru profilul lui; coach slab → tactică mediocră.
+
+### Harness (`HumanTacticOutcomeFuzzIT`, rescris)
+Acum **fiecare adversar își alege tactica după abilitățile managerului lui** (nu mai e 442 pasiv), profilurile sunt coached, scor prin modelul nou. Rezultat (Desert Lion id=104, val 1316, a 3-a cea mai mică): cea mai bună tactică → **loc ~11/20** (vs **loc 2** în modelul vechi). Tactica = lever modest (~4 poziții), nu override de valoare. ✅ balans rezolvat.
+
+### Proprietăți importante / capcane
+- **Între două echipe egale + echilibrate, tactica e neutră pe diferența medie de goluri** (trade-off pur). Tactica contează prin: lot **dezechilibrat** (leagă-te de punctul forte), **coaching** (asimetrie per antrenor), adversar inegal, și **varianță** (jocul închis ajută outsiderul — captat de simularea Poisson, NU de proxy-ul mediu de ranking).
+- **Caveat date**: managerii din DB-ul bootstrap-at predate câmpurile off/def → au default 50/50. Un joc nou îi seamănă real. Pentru a vedea stilurile în harness, trebuie bootstrap proaspăt.
+- Config: `MatchEngineConfig.TacticalModel` (strengths trade-off/openness/coach, `attackShare`); mapările categorice→numerice (mentalitate→bias etc.) sunt în `TacticalScoreService` (externalizabile ulterior).
+- Teste: `TacticalScoreServiceTest` (split, trade-off „leagă-te de forță", matchup pe lot, coaching).
