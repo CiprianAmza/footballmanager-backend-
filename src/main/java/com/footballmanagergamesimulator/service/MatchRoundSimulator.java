@@ -1169,7 +1169,8 @@ public class MatchRoundSimulator {
             scorer.setTeamName(teamName);
             scorer.setOpponentTeamName(opponentName);
             scorer.setCompetitionName(competitionName);
-            // Rating will be set by assignMatchRatings() below
+            // Base rating drives the weighted goal distribution below; assignMatchRatings() overwrites the displayed match rating afterwards.
+            scorer.setRating(pv.getRating());
             scorer.setSubstitute(false);
             possibleScorers.add(scorer);
         }
@@ -1189,7 +1190,8 @@ public class MatchRoundSimulator {
             scorer.setTeamName(teamName);
             scorer.setOpponentTeamName(opponentName);
             scorer.setCompetitionName(competitionName);
-            // Rating will be set by assignMatchRatings() below
+            // Base rating drives the weighted goal distribution below; assignMatchRatings() overwrites the displayed match rating afterwards.
+            scorer.setRating(pv.getRating());
             scorer.setSubstitute(true);
             substitutions.add(scorer);
         }
