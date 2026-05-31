@@ -1432,6 +1432,16 @@ public class MatchEngineConfig {
         /** Width rock-paper-scissors strength: wide attack beats a narrow defense and vice versa
          *  ({@code effAtt ×= 1 + widthStrength · myWidth · (−oppWidth)}). */
         private double widthStrength = 0.45;
+        /** Squad-aptitude gating (§19.7): a squad's pressing / discipline / stamina aptitude (0..1,
+         *  derived from starters' PlayerSkills) is turned into a centered multiplier on the relevant
+         *  matchup effect: {@code mult = clamp(1 + gateStrength · (aptRaw − baseline), multMin, multMax)}.
+         *  An average squad (aptRaw ≈ baseline) is neutral (mult 1.0); a good squad amplifies the
+         *  tactic's effect, a poor one weakens it. Synthetic/panel opponents pass aptRaw = baseline
+         *  ⇒ mult 1.0 ⇒ no gating. */
+        private double aptitudeGateStrength = 0.5;
+        private double aptitudeBaseline = 0.6;
+        private double aptitudeMultMin = 0.6;
+        private double aptitudeMultMax = 1.4;
         /** AI width identity: a team whose XI value share in wide positions (ML/MR/DL/DR) is ≥ this
          *  plays Wide; ≤ {@code aiWidthNarrowThreshold} plays Narrow; otherwise Balanced. Gives the AI
          *  a squad-shape width so the human's width counter has something to bite. */
@@ -1506,6 +1516,14 @@ public class MatchEngineConfig {
         public void setPressBypassVulnerability(double v) { this.pressBypassVulnerability = v; }
         public double getWidthStrength() { return widthStrength; }
         public void setWidthStrength(double v) { this.widthStrength = v; }
+        public double getAptitudeGateStrength() { return aptitudeGateStrength; }
+        public void setAptitudeGateStrength(double v) { this.aptitudeGateStrength = v; }
+        public double getAptitudeBaseline() { return aptitudeBaseline; }
+        public void setAptitudeBaseline(double v) { this.aptitudeBaseline = v; }
+        public double getAptitudeMultMin() { return aptitudeMultMin; }
+        public void setAptitudeMultMin(double v) { this.aptitudeMultMin = v; }
+        public double getAptitudeMultMax() { return aptitudeMultMax; }
+        public void setAptitudeMultMax(double v) { this.aptitudeMultMax = v; }
         public double getAiWidthWideThreshold() { return aiWidthWideThreshold; }
         public void setAiWidthWideThreshold(double v) { this.aiWidthWideThreshold = v; }
         public double getAiWidthNarrowThreshold() { return aiWidthNarrowThreshold; }

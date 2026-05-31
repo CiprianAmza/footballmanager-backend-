@@ -297,7 +297,8 @@ class Team442SeasonPointsFuzzIT {
             double value = sk != null
                     ? playerValueService.evaluatePlayer(sk, natural, used, pv.getMorale(), pv.getFitness())
                     : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
-            starters.add(new TacticalScoreService.StarterValue(used, value));
+            double[] apt = TacticalScoreService.playerAptitudes(sk, pv.getFitness());
+            starters.add(new TacticalScoreService.StarterValue(used, value, apt[0], apt[1], apt[2]));
         }
         return tacticalScoreService.profile(starters);
     }

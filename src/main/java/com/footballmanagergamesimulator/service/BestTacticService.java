@@ -196,7 +196,8 @@ public class BestTacticService {
             double v = sk != null
                     ? playerValueService.evaluatePlayer(sk, natural, used, pv.getMorale(), pv.getFitness())
                     : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
-            values.add(new TacticalScoreService.StarterValue(used, v));
+            double[] apt = TacticalScoreService.playerAptitudes(sk, pv.getFitness());
+            values.add(new TacticalScoreService.StarterValue(used, v, apt[0], apt[1], apt[2]));
         }
         return values;
     }

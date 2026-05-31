@@ -37,14 +37,19 @@ class TacticSimulationServiceIT {
     @Autowired private CompetitionTeamInfoRepository ctiRepo;
 
     @Test
-    void simulateTacticPoints_defaultLeagueOpponents_ranksAll900Deterministically() {
+    void simulateTacticPoints_defaultLeagueOpponents_ranksDistinctDeterministically() {
         List<Long> league = aLeague();
         long teamId = league.get(0);
 
         TacticPointsResult r1 = tacticSimulationService.simulateTacticPoints(teamId, "442", 2, null);
         TacticPointsResult r2 = tacticSimulationService.simulateTacticPoints(teamId, "442", 2, null);
 
-        assertThat(r1.rows()).hasSize(900);
+        // The service collapses the 900 candidate tactics to the DISTINCT average-points values (2dp),
+        // so the row count is squad-dependent (≤ 900); assert the distinct contract, not a fixed size.
+        assertThat(r1.rows()).isNotEmpty();
+        assertThat(r1.rows().size()).isLessThanOrEqualTo(900);
+        assertThat(r1.rows().stream().map(row -> String.format("%.2f", row.avgPoints())).distinct().count())
+                .as("rows are distinct by displayed avgPoints").isEqualTo(r1.rows().size());
         assertThat(r1.formation()).isEqualTo("442");
         assertThat(r1.seasons()).isEqualTo(2);
         assertThat(r1.opponentCount()).isEqualTo(league.size() - 1);
@@ -74,7 +79,10 @@ class TacticSimulationServiceIT {
 
         TacticPointsResult r = tacticSimulationService.simulateTacticPoints(teamId, "433", 1, opponents);
 
-        assertThat(r.rows()).hasSize(900);
+        assertThat(r.rows()).isNotEmpty();
+        assertThat(r.rows().size()).isLessThanOrEqualTo(900);
+        assertThat(r.rows().stream().map(row -> String.format("%.2f", row.avgPoints())).distinct().count())
+                .as("rows are distinct by displayed avgPoints").isEqualTo(r.rows().size());
         assertThat(r.formation()).isEqualTo("433");
         assertThat(r.opponentCount()).isEqualTo(opponents.size());
         int maxPossible = opponents.size() * 2 * 3;

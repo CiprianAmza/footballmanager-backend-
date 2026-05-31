@@ -338,4 +338,88 @@ class TacticalScoreServiceTest {
         assertThat(fast.risk()).as("fast counter raises risk").isGreaterThan(winFouls.risk());
         assertThat(fast.control()).as("fast counter lowers control vs win-fouls").isLessThan(winFouls.control());
     }
+
+    // ==================== §19.7: squad-aptitude gating ====================
+
+    /** A 2-arg TeamProfile (panel / synthetic opponent) is exactly neutral ⇒ matchup unchanged. */
+    @Test
+    void aptitude_twoArgProfileIsNeutral() {
+        TeamProfile p = new TeamProfile(1000, 1000);
+        assertThat(p.pressingMult()).isEqualTo(1.0);
+        assertThat(p.disciplineMult()).isEqualTo(1.0);
+        assertThat(p.staminaMult()).isEqualTo(1.0);
+    }
+
+    /** Discipline gates park-the-bus: with the same control tactic, a disciplined XI tightens up more. */
+    @Test
+    void aptitude_disciplineGatesParkTheBusDefense() {
+        TeamProfile lowDisc = new TeamProfile(1000, 1000, 1.0, 0.7, 1.0);
+        TeamProfile highDisc = new TeamProfile(1000, 1000, 1.0, 1.3, 1.0);
+        TeamProfile opp = new TeamProfile(1000, 1000);
+        TacticVector park = service.vector(parkTheBus());
+        TacticVector oppNeutral = service.vector(new PersonalizedTactic());
+
+        double defLow = service.matchup(lowDisc, park, opp, oppNeutral).effDef1();
+        double defHigh = service.matchup(highDisc, park, opp, oppNeutral).effDef1();
+        assertThat(defHigh).as("a disciplined XI parks the bus more effectively").isGreaterThan(defLow);
+    }
+
+    /** Pressing aptitude gates disruption: good pressers cut the opponent's attack more. */
+    @Test
+    void aptitude_pressingGatesDisruption() {
+        TeamProfile lowPress = new TeamProfile(1000, 1000, 0.7, 1.0, 1.0);
+        TeamProfile highPress = new TeamProfile(1000, 1000, 1.3, 1.0, 1.0);
+        TeamProfile opp = new TeamProfile(1000, 1000);
+        TacticVector press = service.vector(axes("Standard", "High", "Balanced", "Normal"));
+        TacticVector oppNeutral = service.vector(new PersonalizedTactic());
+
+        double oppAttVsGoodPress = service.matchup(highPress, press, opp, oppNeutral).effAtt2();
+        double oppAttVsPoorPress = service.matchup(lowPress, press, opp, oppNeutral).effAtt2();
+        assertThat(oppAttVsGoodPress).as("good pressers disrupt the opponent more").isLessThan(oppAttVsPoorPress);
+    }
+
+    /** Stamina aptitude gates the gegenpress fatigue cost: a low-fitness side erodes its own attack. */
+    @Test
+    void aptitude_lowStaminaErodesGegenpressAttack() {
+        TeamProfile lowStam = new TeamProfile(1000, 1000, 1.0, 1.0, 0.7);
+        TeamProfile highStam = new TeamProfile(1000, 1000, 1.0, 1.0, 1.3);
+        TeamProfile opp = new TeamProfile(1000, 1000);
+        // Gegenpress: high press ⇒ a fatigue cost on own attack, gated by stamina aptitude.
+        TacticVector gegen = service.vector(axes("Standard", "High", "Balanced", "Normal"));
+        TacticVector oppNeutral = service.vector(new PersonalizedTactic());
+
+        double attLowStam = service.matchup(lowStam, gegen, opp, oppNeutral).effAtt1();
+        double attHighStam = service.matchup(highStam, gegen, opp, oppNeutral).effAtt1();
+        assertThat(attLowStam).as("a low-fitness gegenpress side pays more fatigue").isLessThan(attHighStam);
+    }
+
+    /** {@link TacticalScoreService#playerAptitudes} maps stronger attributes to higher raw scores. */
+    @Test
+    void aptitude_playerAptitudesScaleWithAttributes() {
+        double[] weak = TacticalScoreService.playerAptitudes(skills(6), 50);
+        double[] strong = TacticalScoreService.playerAptitudes(skills(18), 100);
+        for (int i = 0; i < 3; i++) {
+            assertThat(strong[i]).as("aptitude axis " + i).isGreaterThan(weak[i]);
+            assertThat(strong[i]).isBetween(0.0, 1.0);
+            assertThat(weak[i]).isBetween(0.0, 1.0);
+        }
+        assertThat(TacticalScoreService.playerAptitudes(null, 100))
+                .as("null skills ⇒ NaN ⇒ baseline in profile()").containsExactly(Double.NaN, Double.NaN, Double.NaN);
+    }
+
+    private PersonalizedTactic parkTheBus() {
+        PersonalizedTactic t = new PersonalizedTactic();
+        t.setMentality("Defensive"); t.setTempo("Lower"); t.setTimeWasting("Frequently");
+        t.setInPossession("Keep Ball"); t.setPassingType("Short");
+        t.setDefensiveLine("Deep"); t.setPressing("Low"); t.setWidth("Narrow");
+        return t;
+    }
+
+    private static com.footballmanagergamesimulator.model.PlayerSkills skills(int v) {
+        com.footballmanagergamesimulator.model.PlayerSkills s = new com.footballmanagergamesimulator.model.PlayerSkills();
+        s.setWorkRate(v); s.setStamina(v); s.setAggression(v); s.setAnticipation(v); s.setPace(v);
+        s.setConcentration(v); s.setPositioning(v); s.setComposure(v); s.setBravery(v);
+        s.setTeamwork(v); s.setDecisions(v); s.setNaturalFitness(v);
+        return s;
+    }
 }

@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.model.PlayerSkills;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -30,11 +31,35 @@ public class TacticalScoreService {
     /** Test seam: swap the RNG so the same seed reproduces the same scorelines. */
     public void setRandomForTesting(Random random) { this.random = random; }
 
-    /** A starter's used (base) position and match value, for splitting a squad into attack/defense. */
-    public record StarterValue(String usedPosition, double value) {}
+    /**
+     * A starter's used (base) position and match value, plus the three squad-aptitude raw scores
+     * (0..1) derived from his {@link PlayerSkills} — {@code pressing}, {@code discipline},
+     * {@code stamina} (see {@link #playerAptitudes}). The legacy two-arg form (tests / synthetic
+     * opponents with no skills) leaves the aptitudes {@code NaN} ⇒ {@link #profile} treats them as
+     * the config baseline ⇒ neutral gating.
+     */
+    public record StarterValue(String usedPosition, double value,
+                               double pressingRaw, double disciplineRaw, double staminaRaw) {
+        /** Legacy two-arg form: no skill data ⇒ aptitudes NaN ⇒ baseline (neutral) in {@link #profile}. */
+        public StarterValue(String usedPosition, double value) {
+            this(usedPosition, value, Double.NaN, Double.NaN, Double.NaN);
+        }
+    }
 
-    /** A squad's attack and defense ratings (before tactic redistribution). */
-    public record TeamProfile(double attack, double defense) {}
+    /**
+     * A squad's attack and defense ratings (before tactic redistribution) plus the three
+     * squad-aptitude <b>multipliers</b> (§19.7): {@code pressingMult} gates pressing disruption,
+     * {@code disciplineMult} gates park-the-bus defensive control, {@code staminaMult} gates the
+     * pressing fatigue cost (gegenpress). Each is centered at 1.0 (neutral); the two-arg form (panel
+     * / synthetic opponents) is exactly neutral ⇒ identical to the pre-aptitude behavior.
+     */
+    public record TeamProfile(double attack, double defense,
+                              double pressingMult, double disciplineMult, double staminaMult) {
+        /** Neutral form (panel / synthetic opponents): all aptitude multipliers 1.0 ⇒ no gating. */
+        public TeamProfile(double attack, double defense) {
+            this(attack, defense, 1.0, 1.0, 1.0);
+        }
+    }
 
     /**
      * A tactic reduced to numeric axes. The first three are the original ones (attack bias, openness
@@ -68,7 +93,8 @@ public class TacticalScoreService {
         double k = engineConfig.getTacticalModel().getCoachStrength();
         return new TeamProfile(
                 raw.attack() * coachFactor(offensiveAbility, k),
-                raw.defense() * coachFactor(defensiveAbility, k));
+                raw.defense() * coachFactor(defensiveAbility, k),
+                raw.pressingMult(), raw.disciplineMult(), raw.staminaMult());
     }
 
     private static double coachFactor(double ability, double strength) {
@@ -76,16 +102,64 @@ public class TacticalScoreService {
         return 1 + strength * (a - 50) / 50.0;
     }
 
-    /** Split a squad into attack/defense by position (config-driven {@code attackShare}). */
+    /**
+     * Split a squad into attack/defense by position (config-driven {@code attackShare}) and derive the
+     * three squad-aptitude multipliers from the starters' raw aptitudes (§19.7), value-weighted so the
+     * key players count more. A starter with no skill data ({@code NaN} raw) contributes the config
+     * baseline ⇒ neutral. The aggregated raw aptitude is mapped to a centered multiplier via
+     * {@link #aptitudeMult}.
+     */
     public TeamProfile profile(List<StarterValue> starters) {
         MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
+        double baseline = cfg.getAptitudeBaseline();
         double attack = 0, defense = 0;
+        double wSum = 0, pSum = 0, dSum = 0, sSum = 0;
         for (StarterValue s : starters) {
             double share = cfg.attackShareFor(s.usedPosition());
             attack += s.value() * share;
             defense += s.value() * (1.0 - share);
+            double w = Math.max(0, s.value());
+            wSum += w;
+            pSum += w * (Double.isNaN(s.pressingRaw()) ? baseline : s.pressingRaw());
+            dSum += w * (Double.isNaN(s.disciplineRaw()) ? baseline : s.disciplineRaw());
+            sSum += w * (Double.isNaN(s.staminaRaw()) ? baseline : s.staminaRaw());
         }
-        return new TeamProfile(attack, defense);
+        double pRaw = wSum > 0 ? pSum / wSum : baseline;
+        double dRaw = wSum > 0 ? dSum / wSum : baseline;
+        double sRaw = wSum > 0 ? sSum / wSum : baseline;
+        return new TeamProfile(attack, defense,
+                aptitudeMult(cfg, pRaw), aptitudeMult(cfg, dRaw), aptitudeMult(cfg, sRaw));
+    }
+
+    /** Centered aptitude multiplier: {@code clamp(1 + gate·(raw − baseline), multMin, multMax)}. */
+    private static double aptitudeMult(MatchEngineConfig.TacticalModel cfg, double raw) {
+        double m = 1 + cfg.getAptitudeGateStrength() * (raw - cfg.getAptitudeBaseline());
+        return clamp(m, cfg.getAptitudeMultMin(), cfg.getAptitudeMultMax());
+    }
+
+    /**
+     * Per-player squad-aptitude raw scores (0..1) from his {@link PlayerSkills} (1..20 attributes) and
+     * current {@code fitness} (0..100), used to build {@link StarterValue}. The mapping (§19.7, agreed,
+     * tunable): pressing ← Work Rate, Stamina, Aggression, Anticipation, Pace; discipline ←
+     * Concentration, Positioning, Composure, Bravery, Teamwork, Decisions; stamina ← Stamina + Natural
+     * Fitness (attribute) blended with current fitness. {@code null} skills ⇒ all {@code NaN} (baseline).
+     */
+    public static double[] playerAptitudes(PlayerSkills sk, double fitness) {
+        if (sk == null) return new double[]{Double.NaN, Double.NaN, Double.NaN};
+        double pressing = avg20(sk.getWorkRate(), sk.getStamina(), sk.getAggression(),
+                sk.getAnticipation(), sk.getPace());
+        double discipline = avg20(sk.getConcentration(), sk.getPositioning(), sk.getComposure(),
+                sk.getBravery(), sk.getTeamwork(), sk.getDecisions());
+        double staminaAttr = avg20(sk.getStamina(), sk.getNaturalFitness());
+        double stamina = 0.6 * staminaAttr + 0.4 * (Math.max(0, Math.min(100, fitness)) / 100.0);
+        return new double[]{pressing, discipline, stamina};
+    }
+
+    /** Average of 1..20 attributes normalized to 0..1. */
+    private static double avg20(int... attrs) {
+        double sum = 0;
+        for (int a : attrs) sum += a;
+        return (sum / attrs.length) / 20.0;
     }
 
     /** Reduce a {@link PersonalizedTactic} to its numeric axes. Neutral (all-default) ⇒ all zero. */
@@ -173,10 +247,12 @@ public class TacticalScoreService {
         double dac = cfg.getDirectnessAttackCost(), pbv = cfg.getPressBypassVulnerability();
 
         // Base attack/defense after mentality (bias trade-off) and control (defense up, own attack down).
+        // Squad DISCIPLINE gates the defensive control gain: park-the-bus only pays off with a disciplined
+        // XI (high Concentration / Positioning / Composure …); a poor one barely tightens up (§19.7).
         double effAtt1 = p1.attack() * (1 + bs * t1.attackBias()) * (1 - ca * t1.control());
-        double effDef1 = p1.defense() * (1 - bs * t1.attackBias()) * (1 + cs * t1.control());
+        double effDef1 = p1.defense() * (1 - bs * t1.attackBias()) * (1 + cs * p1.disciplineMult() * t1.control());
         double effAtt2 = p2.attack() * (1 + bs * t2.attackBias()) * (1 - ca * t2.control());
-        double effDef2 = p2.defense() * (1 - bs * t2.attackBias()) * (1 + cs * t2.control());
+        double effDef2 = p2.defense() * (1 - bs * t2.attackBias()) * (1 + cs * p2.disciplineMult() * t2.control());
 
         // Passing directness is a TRADE-OFF, not a free win: long/direct balls exploit a high line
         // (via lineVuln below) but sacrifice build-up precision, so they cost a little of your own attack.
@@ -195,8 +271,11 @@ public class TacticalScoreService {
 
         // Pressing: disrupt the opponent's attack (pd·theirPress on your attack), pay a small own-attack
         // fatigue proxy on the instant engine (full stamina coupling lives in the live engine).
-        effAtt1 *= (1 - pd * t2.press()) * (1 - psc * t1.press());
-        effAtt2 *= (1 - pd * t1.press()) * (1 - psc * t2.press());
+        // Squad PRESSING aptitude (Work Rate / Stamina / Aggression / Anticipation / Pace) gates how much
+        // a press disrupts; squad STAMINA aptitude (+ current fitness) gates the fatigue cost — a low-fit
+        // gegenpress side pays more (≈ 2−staminaMult), eroding its own attack (§19.7).
+        effAtt1 *= (1 - pd * p2.pressingMult() * t2.press()) * (1 - psc * (2 - p1.staminaMult()) * t1.press());
+        effAtt2 *= (1 - pd * p1.pressingMult() * t1.press()) * (1 - psc * (2 - p2.staminaMult()) * t2.press());
 
         // Pressing is a TRADE-OFF: a high press leaves space behind, so a DIRECT opponent bypasses it —
         // your press RAISES their attack scaled by their directness. High press wins vs a possession
@@ -267,9 +346,11 @@ public class TacticalScoreService {
         return 3 * p[0] + p[1];
     }
 
-    /** Scale a profile's attack and defense by {@code s} (for building an opponent panel). */
+    /** Scale a profile's attack and defense by {@code s} (for building an opponent panel); the
+     *  aptitude multipliers carry over unchanged (a scaled opponent has the same execution quality). */
     public TeamProfile scaled(TeamProfile p, double s) {
-        return new TeamProfile(p.attack() * s, p.defense() * s);
+        return new TeamProfile(p.attack() * s, p.defense() * s,
+                p.pressingMult(), p.disciplineMult(), p.staminaMult());
     }
 
     /** {xgHome, xgAway} for a matchup with NO home advantage (the fair-ranking expected goals). */
