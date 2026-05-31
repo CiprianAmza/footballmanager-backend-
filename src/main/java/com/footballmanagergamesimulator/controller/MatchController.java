@@ -461,6 +461,7 @@ public class MatchController {
             // Idempotent — return cached snapshot + minimal result block.
             return org.springframework.http.ResponseEntity.ok(java.util.Map.of(
                     "alreadyCommitted", true,
+                    "committed", true,
                     "homeScore", session.getHomeScore(),
                     "awayScore", session.getAwayScore()));
         }
@@ -508,6 +509,7 @@ public class MatchController {
         }
 
         // Final live-match data so the FE has the canonical post-commit state.
+        result.put("committed", true);
         result.put("liveMatch", session.snapshot());
         return org.springframework.http.ResponseEntity.ok(result);
     }

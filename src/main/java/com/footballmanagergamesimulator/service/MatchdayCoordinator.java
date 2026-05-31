@@ -44,6 +44,7 @@ public class MatchdayCoordinator {
     @Autowired private RoundRepository roundRepository;
 
     @Autowired private LiveMatchSimulationService liveMatchSimulationService;
+    @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private MatchStatsService matchStatsService;
     @Autowired private TeamPostMatchService teamPostMatchService;
     @Autowired private LineupRatingService lineupRatingService;
@@ -431,16 +432,25 @@ public class MatchdayCoordinator {
         long _competitionId = session.getCompetitionId();
         long _roundId = session.getRound();
         int season = session.getSeason();
-        int teamScore1 = session.getHomeScore();
-        int teamScore2 = session.getAwayScore();
-        double teamPower1 = session.getDeferredTeamPower1();
-        double teamPower2 = session.getDeferredTeamPower2();
+        var commitOutcome = liveMatchSimulationService.resolveCommitOutcome(session);
+        int teamScore1 = commitOutcome.homeGoals();
+        int teamScore2 = commitOutcome.awayGoals();
+        double teamPower1 = commitOutcome.homePower();
+        double teamPower2 = commitOutcome.awayPower();
         String tactic1 = session.getDeferredTactic1();
         String tactic2 = session.getDeferredTactic2();
         boolean knockout = session.isDeferredKnockout();
         int legNumber = session.getDeferredLegNumber();
         long tieId = session.getDeferredTieId();
         int matchIndex = session.getDeferredMatchIndex();
+        boolean resultAdjustedAtCommit = commitOutcome.recalculated();
+
+        session.applyCommitScore(teamScore1, teamScore2);
+        if (commitOutcome.homeProfile() != null && commitOutcome.awayProfile() != null) {
+            session.setDeferredTwoAxis(
+                    commitOutcome.homeProfile(), session.getDeferredVector1(),
+                    commitOutcome.awayProfile(), session.getDeferredVector2());
+        }
 
         // Knockout progression — the AI/batch path runs this inline in
         // MatchRoundSimulator; for interactive matches it is deferred to here.
@@ -534,12 +544,31 @@ public class MatchdayCoordinator {
             }
         }
 
-        // Scorer tracking + match stats from the live data
+        if (resultAdjustedAtCommit) {
+            List<MatchEvent> commitEvents = session.nonGoalDbEvents();
+            commitEvents.addAll(matchSimulationService.buildGoalAndAssistEvents(
+                    _competitionId, season, (int) _roundId,
+                    teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2));
+            commitEvents.sort(java.util.Comparator.comparingInt(MatchEvent::getMinute)
+                    .thenComparing(MatchEvent::getEventType));
+            session.persistDeferredArtifacts(commitEvents);
+        } else {
+            session.persistDeferredArtifacts();
+        }
+
+        // Scorer tracking + match stats from the canonical final state
         lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
         lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
-        matchStatsService.persistLiveMatchStats(
-                _competitionId, season, (int) _roundId, teamId1, teamId2,
-                session.asLiveMatchData(), teamPower1, teamPower2);
+        if (resultAdjustedAtCommit) {
+            matchStatsService.generateAndSaveMatchStats(
+                    _competitionId, season, (int) _roundId, teamId1, teamId2,
+                    teamScore1, teamScore2, teamPower1, teamPower2,
+                    session.getDeferredPersonalizedTactic1(), session.getDeferredPersonalizedTactic2());
+        } else {
+            matchStatsService.persistLiveMatchStats(
+                    _competitionId, season, (int) _roundId, teamId1, teamId2,
+                    session.asLiveMatchData(), teamPower1, teamPower2);
+        }
 
         // Same post-match work the legacy path runs inline
         matchRoundSimulator.processInjuriesForTeam(teamId1);
@@ -575,6 +604,8 @@ public class MatchdayCoordinator {
         result.put("competitionId", _competitionId);
         result.put("matchday", _roundId);
         result.put("season", season);
+        result.put("manualSubstitutionsApplied", session.hasManualSubstitutions());
+        result.put("resultAdjustedAtCommit", resultAdjustedAtCommit);
         // The post-match PC + suspensions + news are wired up by the caller
         // (MatchController) so this method stays purely "finalize the engine
         // state" without coupling to GameAdvanceService internals.

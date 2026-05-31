@@ -8,12 +8,14 @@ import com.footballmanagergamesimulator.frontend.LiveMatchData.PlayerStaminaInfo
 import com.footballmanagergamesimulator.frontend.LiveMatchData.StaminaSnapshot;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
+import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -40,6 +42,12 @@ public class LiveMatchSimulationService {
     PlayerSkillsRepository playerSkillsRepository;
     @Autowired
     MatchEngineConfig engineConfig;
+    @Autowired
+    TacticalScoreService tacticalScoreService;
+    @Autowired
+    PlayerValueService playerValueService;
+    @Autowired
+    MatchSimulationService matchSimulationService;
 
     // Per-minute stamina drain for a "default" player (stamina=10, naturalFitness=10)
     // at a position with multiplier 1.0 lands around 0.35 stamina/min after
@@ -49,6 +57,12 @@ public class LiveMatchSimulationService {
     static final int STAMINA_SNAPSHOT_INTERVAL = 5;
 
     private final Map<String, LiveMatchData> liveMatchCache = new ConcurrentHashMap<>();
+
+    record CommitOutcome(int homeGoals, int awayGoals,
+                         double homePower, double awayPower,
+                         TacticalScoreService.TeamProfile homeProfile,
+                         TacticalScoreService.TeamProfile awayProfile,
+                         boolean recalculated) {}
 
     // Commentary templates
     static final String[] POSSESSION_COMMENTARY = {
@@ -856,6 +870,102 @@ public class LiveMatchSimulationService {
         return null;
     }
 
+    CommitOutcome resolveCommitOutcome(LiveMatchSession session) {
+        if (!session.hasManualSubstitutions()) {
+            return new CommitOutcome(
+                    session.getHomeScore(), session.getAwayScore(),
+                    session.getDeferredTeamPower1(), session.getDeferredTeamPower2(),
+                    session.getDeferredProfile1(), session.getDeferredProfile2(),
+                    false);
+        }
+
+        TacticalScoreService.TeamProfile homeProfile = currentOnPitchProfile(session, true);
+        TacticalScoreService.TeamProfile awayProfile = currentOnPitchProfile(session, false);
+        double homePower = homeProfile != null
+                ? homeProfile.attack() + homeProfile.defense()
+                : session.getDeferredTeamPower1();
+        double awayPower = awayProfile != null
+                ? awayProfile.attack() + awayProfile.defense()
+                : session.getDeferredTeamPower2();
+
+        if (engineConfig.getTacticalModel().isEnabled()
+                && homeProfile != null
+                && awayProfile != null
+                && session.getDeferredVector1() != null
+                && session.getDeferredVector2() != null) {
+            Random scoreRng = new Random(commitScoreSeed(session));
+            List<Integer> score = tacticalScoreService.score(
+                    homeProfile, session.getDeferredVector1(),
+                    awayProfile, session.getDeferredVector2(),
+                    scoreRng);
+            return new CommitOutcome(score.get(0), score.get(1),
+                    homePower, awayPower, homeProfile, awayProfile, true);
+        }
+
+        Random scoreRng = new Random(commitScoreSeed(session));
+        double homeEffective = homePower * engineConfig.getPower().getHomeAdvantage();
+        List<Integer> score = matchSimulationService.calculateScores(homeEffective, awayPower, scoreRng);
+        return new CommitOutcome(score.get(0), score.get(1),
+                homePower, awayPower, homeProfile, awayProfile, true);
+    }
+
+    private TacticalScoreService.TeamProfile currentOnPitchProfile(LiveMatchSession session, boolean home) {
+        List<Human> squad = home ? session.team1All : session.team2All;
+        if (squad == null || squad.isEmpty()) return null;
+
+        List<Human> onPitch = squad.stream()
+                .filter(player -> {
+                    PlayerMatchState state = session.matchStates.get(player.getId());
+                    return state != null && state.isOnPitch;
+                })
+                .toList();
+        if (onPitch.isEmpty()) return null;
+
+        Map<Long, PlayerSkills> skillsById = loadSkillsCache(onPitch, List.of());
+        List<TacticalScoreService.StarterValue> starters = new ArrayList<>();
+        for (Human player : onPitch) {
+            PlayerMatchState state = session.matchStates.get(player.getId());
+            if (state == null) continue;
+            String usedPosition = player.getPosition();
+            PlayerSkills skills = skillsById.get(player.getId());
+            double fitness = Math.max(0.0, Math.min(100.0, state.currentStamina));
+            double value = skills != null
+                    ? playerValueService.evaluatePlayer(skills, player.getPosition(), usedPosition, player.getMorale(), fitness)
+                    : playerValueService.evaluatePlayer(player.getRating(), player.getPosition(), usedPosition, player.getMorale(), fitness);
+            starters.add(new TacticalScoreService.StarterValue(usedPosition, value));
+        }
+        if (starters.isEmpty()) return null;
+
+        TacticalScoreService.TeamProfile raw = tacticalScoreService.profile(starters);
+        double[] coach = coachAbilities(home ? session.getTeamId1() : session.getTeamId2());
+        TacticalScoreService.TeamProfile coached = tacticalScoreService.coachedProfile(raw, coach[0], coach[1]);
+        return tacticalScoreService.scaled(coached, teamTalkFactor(home ? session.getTeamId1() : session.getTeamId2()));
+    }
+
+    private double[] coachAbilities(long teamId) {
+        return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
+                .filter(m -> !m.isRetired())
+                .findFirst()
+                .map(m -> new double[]{m.getOffensiveAbility(), m.getDefensiveAbility()})
+                .orElse(new double[]{50.0, 50.0});
+    }
+
+    private double teamTalkFactor(long teamId) {
+        double reputation = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
+                .filter(m -> !m.isRetired())
+                .findFirst()
+                .map(m -> (double) m.getManagerReputation())
+                .orElse(engineConfig.getTeamTalk().getNeutralReputation());
+        return engineConfig.getTeamTalk().multiplier(reputation);
+    }
+
+    long commitScoreSeed(LiveMatchSession session) {
+        return session.getCompetitionId() * 1_000_003L
+                + session.getRound() * 31L
+                + session.getTeamId1() * 17L
+                + session.getTeamId2();
+    }
+
     /**
      * Build a session for interactive (deferred-commit) mode. The session is
      * created with all setup done (squads, stamina init, big-chance schedule,
@@ -907,7 +1017,7 @@ public class LiveMatchSimulationService {
         LiveMatchSession session = new LiveMatchSession(this,
                 teamId1, teamId2, power1, power2,
                 competitionId, season, round, generateGoalAnimations, matchup, new Random(),
-                targetHomeGoals, targetAwayGoals);
+                targetHomeGoals, targetAwayGoals, true);
         String key = buildKey(competitionId, season, round, teamId1, teamId2);
         liveMatchSessions.put(key, session);
         // Also seed liveMatchCache with the initial snapshot so legacy

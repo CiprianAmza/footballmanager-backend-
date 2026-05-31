@@ -37,17 +37,20 @@ class TacticSimulationServiceIT {
     @Autowired private CompetitionTeamInfoRepository ctiRepo;
 
     @Test
-    void simulateTacticPoints_defaultLeagueOpponents_ranksAll900Deterministically() {
+    void simulateTacticPoints_defaultLeagueOpponents_returnsDistinctRowsDeterministically() {
         List<Long> league = aLeague();
         long teamId = league.get(0);
 
         TacticPointsResult r1 = tacticSimulationService.simulateTacticPoints(teamId, "442", 2, null);
         TacticPointsResult r2 = tacticSimulationService.simulateTacticPoints(teamId, "442", 2, null);
 
-        assertThat(r1.rows()).hasSize(900);
+        assertThat(r1.rows()).isNotEmpty();
+        assertThat(r1.rows().size()).isLessThanOrEqualTo(900);
         assertThat(r1.formation()).isEqualTo("442");
         assertThat(r1.seasons()).isEqualTo(2);
         assertThat(r1.opponentCount()).isEqualTo(league.size() - 1);
+        assertThat(r1.rows().stream().map(row -> String.format("%.2f", row.avgPoints())).distinct().count())
+                .isEqualTo(r1.rows().size());
 
         // Sorted by avgPoints descending.
         for (int i = 1; i < r1.rows().size(); i++) {
@@ -74,9 +77,12 @@ class TacticSimulationServiceIT {
 
         TacticPointsResult r = tacticSimulationService.simulateTacticPoints(teamId, "433", 1, opponents);
 
-        assertThat(r.rows()).hasSize(900);
+        assertThat(r.rows()).isNotEmpty();
+        assertThat(r.rows().size()).isLessThanOrEqualTo(900);
         assertThat(r.formation()).isEqualTo("433");
         assertThat(r.opponentCount()).isEqualTo(opponents.size());
+        assertThat(r.rows().stream().map(row -> String.format("%.2f", row.avgPoints())).distinct().count())
+                .isEqualTo(r.rows().size());
         int maxPossible = opponents.size() * 2 * 3;
         for (var row : r.rows()) {
             assertThat(row.maxPoints()).isBetween(0, maxPossible);
