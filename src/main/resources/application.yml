@@ -1,4 +1,20 @@
 # =============================================================
+# Persistence — Hibernate JDBC batching
+# =============================================================
+# Batches UPDATE/DELETE statements during the heavy season
+# transition. INSERT batching won't engage for IDENTITY-keyed
+# entities (Team/Human/CompetitionTeamInfo/Scorer), but the
+# config is harmless and helps UPDATE batching.
+spring:
+  jpa:
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 30
+        order_inserts: true
+        order_updates: true
+
+# =============================================================
 # Match Engine Configuration
 # =============================================================
 # Single source of truth for every numeric constant that
