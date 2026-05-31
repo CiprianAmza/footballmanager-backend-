@@ -11,11 +11,16 @@ import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.SeasonTransitionService;
+import com.footballmanagergamesimulator.testutil.MarkdownTable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -108,6 +113,7 @@ class ChampionshipPredictionFuzzIT {
         long leagueCompId = typeOneIds.stream().sorted().findFirst().orElseThrow();
 
         int predictedTitles = 0;
+        List<SeasonOutcome> outcomes = new ArrayList<>(SEASONS_TO_RUN);
         long testStartMs = System.currentTimeMillis();
         // Direct stdout per phase (NOT buffered StringBuilder) so we can watch
         // progress live — surefire output IS buffered per test method, but
@@ -178,6 +184,9 @@ class ChampionshipPredictionFuzzIT {
             boolean hit = topK.contains(predictedTopId);
             if (hit) predictedTitles++;
 
+            int favouritePos = standings.indexOf(predictedTopId) + 1; // 1-based; 0 → not found
+            outcomes.add(new SeasonOutcome(currentSeason, predictedTopName, favouritePos, championName, hit));
+
             long t4 = System.currentTimeMillis();
             System.out.printf("  [%.2fs] champion=%s (id=%d) | predicted=%s top%d? %s | running total: %d/%d%n",
                 (t4 - t3) / 1000.0, championName, championId, predictedTopName, TOP_K,
@@ -207,6 +216,8 @@ class ChampionshipPredictionFuzzIT {
         System.out.printf("%n=== FINAL: %d / %d predicted-team titles (target ≥ %d) | total %.1fs ===%n%n",
             predictedTitles, SEASONS_TO_RUN, MIN_PREDICTED_TITLES, totalMs / 1000.0);
         System.out.flush();
+
+        writeReport(leagueCompId, outcomes, predictedTitles, totalMs);
 
         assertThat(predictedTitles)
             .as("Top-predicted team must finish in the top %d in ≥ %d of %d seasons (actual %d). "
@@ -248,5 +259,59 @@ class ChampionshipPredictionFuzzIT {
         return teamRepository.findById(teamId)
             .map(t -> t.getName())
             .orElse("Team#" + teamId);
+    }
+
+    /** One season's prediction-vs-reality outcome, captured for the markdown report. */
+    private record SeasonOutcome(int season, String favourite, int favouritePos,
+                                 String champion, boolean hit) {}
+
+    /** Writes target/championship-prediction-outcome.md: per-season table + summary. */
+    private void writeReport(long leagueCompId, List<SeasonOutcome> outcomes,
+                             int predictedTitles, long totalMs) {
+        MarkdownTable table = new MarkdownTable(
+            List.of("Season", "Predicted favourite", "Favourite final pos", "Champion", "Hit (top-" + TOP_K + ")?"),
+            List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT,
+                    MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT,
+                    MarkdownTable.Align.LEFT));
+        int titleWins = 0;
+        double posSum = 0;
+        int posCount = 0;
+        for (SeasonOutcome o : outcomes) {
+            String pos = o.favouritePos() > 0 ? String.valueOf(o.favouritePos()) : "n/a";
+            table.addRow(String.valueOf(o.season()), o.favourite(), pos, o.champion(),
+                o.hit() ? "✓ yes" : "✗ no");
+            if (o.favouritePos() == 1) titleWins++;
+            if (o.favouritePos() > 0) { posSum += o.favouritePos(); posCount++; }
+        }
+        double meanPos = posCount > 0 ? posSum / posCount : Double.NaN;
+        int n = outcomes.size();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Championship prediction outcome (production two-axis engine)\n\n");
+        sb.append("League competitionId: ").append(leagueCompId)
+            .append(" | seasons: ").append(n)
+            .append(" | TOP_K: ").append(TOP_K)
+            .append(" | runtime: ").append(String.format("%.1fs", totalMs / 1000.0)).append("\n\n");
+        sb.append("## Per-season\n\n");
+        sb.append(table.render()).append('\n');
+        sb.append("## Summary\n\n");
+        sb.append("- Favourite mean finishing position: ")
+            .append(posCount > 0 ? String.format("%.2f", meanPos) : "n/a")
+            .append(" (lower = better)\n");
+        sb.append("- Top-").append(TOP_K).append(" hit rate: ")
+            .append(predictedTitles).append('/').append(n)
+            .append(n > 0 ? String.format(" (%.0f%%)", 100.0 * predictedTitles / n) : "").append('\n');
+        sb.append("- Title rate (favourite finished 1st): ")
+            .append(titleWins).append('/').append(n)
+            .append(n > 0 ? String.format(" (%.0f%%)", 100.0 * titleWins / n) : "").append('\n');
+
+        Path reportPath = Path.of("target", "championship-prediction-outcome.md");
+        try {
+            Files.writeString(reportPath, sb.toString());
+        } catch (java.io.IOException e) {
+            throw new UncheckedIOException("Failed to write " + reportPath, e);
+        }
+        System.out.printf("Report written → %s%n", reportPath.toAbsolutePath());
+        System.out.flush();
     }
 }
