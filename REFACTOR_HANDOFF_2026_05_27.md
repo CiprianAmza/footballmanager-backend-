@@ -351,3 +351,37 @@ Patru streamuri rezolvate în paralel (agenți pe worktree, merge-uite) + fix de
 - **C** — statistici per sezon ȘI per competiție (acum amestecate); golgheteri pe toate competițiile.
 - **Frontend (repo separat)**: auto-refresh home, dedup vizual Competitions (poate rezolvat de D1 în backend), Animation Preview adus la engine-ul live nou, UI My Manager pentru noile stats (B1/C).
 - **Perf**: lock-ul (A) previne cursa, dar tranziția rămâne lentă (N+1/saves în bucle în `EndOfSeasonProcessor` neatins — batching nesigur fără analiză).
+
+---
+
+## 15. Stats per competiție, raport outcome, perf tranziție, best-tactic + frontend (2026-05-31)
+
+Tot pe `master` (comituri „New Match Engine"). `mvn verify` verde (161 unit + 82 IT). Backlog-ul §14 a fost golit.
+
+### Backend
+| Stream | Livrat | Fișiere cheie |
+|---|---|---|
+| **C** stats/competiție | `StatsAggregationService` (team + player breakdown din `Scorer`: per sezon ȘI per competiție, LoC+SC incluse). DTO `CompetitionStatLine`. Endpoint-uri `GET /stats/team/{id}/competitionBreakdown`, `GET /stats/player/{id}/competitionBreakdown` (`{total,byCompetition,byTypeAndSeason}`). Câmp `competitionBreakdown` în snapshot manager. Aditiv. | `StatsAggregationService`, `StatsController`, `ManagerController`, `CompetitionStatLine` |
+| **E3** raport outcome | `ChampionshipPredictionFuzzIT` emite `target/championship-prediction-outcome.md` pe engine-ul **real two-axis** (favorit prezis vs poziție finală, hit-rate, titluri). `*OutcomeIT` scalare rămân legacy. | `ChampionshipPredictionFuzzIT` |
+| **BE-1** off/def + youth wage | Backfill off/def pentru manageri la 50/50 (în `GameInitializationService.initializeRound`, idempotent, refolosește seeding-ul din `HumanService`) — repară save-uri vechi ȘI jocuri noi (path-ul bulk nu semăna off/def). Wage youth aliniat la `WageService.baseWage`. | `GameInitializationService`, `YouthAcademyService` |
+| **BE-2** teste transfer | `TransferStrategyIT` (drift sell-direction + diagnostic no-trade) + `TransferEconomyFuzzIT` (economie campanie). Insight: 0 echipe blocate de gate-uri — „no transfer" = RNG buyer contestat/loan. | `TransferStrategyIT`, `TransferEconomyFuzzIT` |
+| **BE-3** mapări tactică | Cele 6 mapări categorice→numerice (mentalitate→bias etc.) externalizate în `MatchEngineConfig.TacticalModel` (default-uri shipped, comportament identic). | `MatchEngineConfig`, `TacticalScoreService` |
+| **best-tactic** | `BestTacticService.findBestTactic(teamId)` + `GET /admin/bestTactic/{teamId}` (header `X-Admin-Token`): caută 15 formații × 900 setări pe **valorile curente din DB** (live morale/fitness/rating prin `PlayerValueService`), întoarce recomandare + top-15 + xGD. Read-only. | `BestTacticService`, `AdminController` |
+| **livePreview** | `GET /match/animation/livePreview?teamId1=&teamId2=` → `LiveMatchData` real (timeline cu evenimente) pentru Animation Preview. | `MatchController` |
+| **PERF** tranziție | (1) Batch N+1 writes (regen/relații/overachievers/standings → `saveAll`; finanțele neatinse). (2) **IDENTITY→SEQUENCE** pe `Scorer`/`PlayerSkills`/`TeamPlayerHistoricalRelation`/`CompetitionTeamInfo` (`allocationSize=1`) → activează insert-batching pe 6+26 iulie. `Human` rămas IDENTITY (rupea un test). `@DirtiesContext` pe `TransferStrategyIT` (flakiness pre-existentă din context partajat). | `EndOfSeasonProcessor`, `NewSeasonSetupProcessor`, `HumanService`, 4× `model/*` |
+
+**Note perf**: cele două date lente sunt 6 iulie (ziua 340 = `SEASON_END` → `EndOfSeasonProcessor`) și 26 iulie (ziua 360 = `SEASON_TRANSITION` → `NewSeasonSetupProcessor`); ambele rulează într-o singură tranzacție gigantică. Cel mai mare cost pe 26 iulie = inițializarea Scorer (un rând/jucător/competiție → zeci de mii), acum batch-uită prin SEQUENCE. `allocationSize=1` (50 dădea coliziuni PK în contextul de test partajat) — se poate urca pentru producție. Save-urile cuplate cu finanțe pe 6 iulie au rămas per-entitate (restructurare riscantă).
+
+### Frontend (repo separat `~/Downloads/footballmanager-frontend-test/`, fără git din directorul curent)
+Cablat + reparat (comis de user): My Manager (salariu/earnings + breakdown per competiție), player all-competitions + drill-down per sezon, stats echipă pe pagina de club, Competitions dedup (+ șters componenta duplicat moartă), home auto-refresh (`TeamService.refresh$/teamId$`, întărit cu `filter/distinctUntilChanged`), Animation Preview pe noul engine (playback `timeline[]`), panou admin Best Tactic, league news + board requests pe home, loans history/recall, contract unhappy + promise-playing-time, fix buget CSS `ng build`, fix team-talk (opțiunile reapar / hint), fix Animation Preview (coerciție teamId la număr + empty-state).
+
+### Validări rulate (2026-05-31)
+- **`ChampionshipPredictionFuzzIT`** (3 sezoane): favoritul (Shadows) termină **1 și campion 3/3** (mean pos 1.00). ⚠️ **Posibil prea determinist** — `ratioExponent=2.0` face valoarea lotului decisivă fără surprize; n=3 mic. De re-rulat pe 15-20 sezoane + eventual coborât exponentul dacă vrei varianță.
+- **Transfer**: strategiile respectă direcția de vânzare; toate pierd −3.6%…−6.4% valoare primul 11 / 2 sezoane (îmbătrânire); 0 echipe blocate de gate-uri.
+
+### RĂMAS (mic)
+- **Decizie determinism**: coboară `ratioExponent` + re-validează pe 15-20 sezoane, sau lasă favoritul dominant.
+- **Perf polish opțional**: `Human`→SEQUENCE (revertit), `allocationSize` mai mare pt. producție, batch finanțe pe 6 iulie (riscant), tuning 92→97.
+- **Backend behavior**: `/loans/recall` întoarce mereu 400 „Cannot recall during season" — de decis dacă permiți recall.
+- **FE**: testare live continuă; restul golurilor din audit sunt acoperite.
+- **Smoke browser** two-leg interactiv LoC (QF/SF zile separate) — nevalidat.

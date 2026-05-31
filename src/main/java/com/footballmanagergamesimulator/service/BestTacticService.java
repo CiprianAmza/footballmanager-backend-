@@ -25,10 +25,9 @@ import java.util.Map;
  * attributes). It rebuilds the coached attack/defense {@link TeamProfile} per formation exactly the
  * way {@link MatchRoundSimulator} does for live matches (best XI by current value, position
  * familiarity, manager coaching), then ranks the 900 setting combinations from
- * {@link ManagerTacticService#candidateTactics()} by the cheap
- * {@link TacticalScoreService#expectedGoalDifference} proxy against a representative opponent (a
- * mirror of the team's own coached profile — the same neutral matchup the AI manager optimizes
- * against). Does not mutate any state.
+ * {@link ManagerTacticService#candidateTactics()} by average expected POINTS across an opponent
+ * panel ({@link TacticalScoreService#panelExpectedPoints} — weaker/equal/stronger), the same metric
+ * the AI manager optimizes against. Does not mutate any state.
  */
 @Service
 public class BestTacticService {
@@ -43,13 +42,15 @@ public class BestTacticService {
     @Autowired private ManagerTacticService managerTacticService;
 
     public record TacticRow(String formation, String mentality, String tempo, String passingType,
-                            String inPossession, String timeWasting, double expectedGoalDifference) {}
+                            String inPossession, String timeWasting, double expectedGoalDifference,
+                            double expectedPoints) {}
 
     public record BestTacticResult(long teamId, String teamName, String recommendedFormation,
                                    String recommendedMentality, String recommendedTempo,
                                    String recommendedPassingType, String recommendedInPossession,
                                    String recommendedTimeWasting, double expectedGoalDifference,
-                                   double baseSquadValue, List<TacticRow> top) {}
+                                   double expectedPoints, double winProbability, double drawProbability,
+                                   double lossProbability, double baseSquadValue, List<TacticRow> top) {}
 
     /** Search every formation × the 900 tactic settings for {@code teamId}, all on its live squad. */
     public BestTacticResult findBestTactic(long teamId) {
@@ -58,30 +59,77 @@ public class BestTacticService {
         TacticVector neutralOpp = tacticalScoreService.vector(new PersonalizedTactic());
 
         List<TacticRow> all = new ArrayList<>();
+        Map<String, TeamProfile> profileByFormation = new HashMap<>();
         double bestBaseValue = -1;
         String bestFormation = "442";
         for (String formation : tacticService.getAllExistingTactics()) {
             TeamProfile profile = tacticalScoreService.coachedProfile(
                     tacticalScoreService.profile(starterValues(teamId, formation)), coach[0], coach[1]);
+            profileByFormation.put(formation, profile);
             double baseValue = profile.attack() + profile.defense();
             if (baseValue > bestBaseValue) { bestBaseValue = baseValue; bestFormation = formation; }
-            // Representative opponent = a mirror of this coached profile (an even, neutral matchup).
+            // Rank by average expected POINTS across an opponent panel (weaker/equal/stronger),
+            // not self-mirror xGD — so tempo/passing differentiate and coaching skill matters.
             for (PersonalizedTactic t : candidates) {
-                double egd = tacticalScoreService.expectedGoalDifference(
-                        profile, tacticalScoreService.vector(t), profile, neutralOpp);
+                TacticVector mv = tacticalScoreService.vector(t);
+                double egd = tacticalScoreService.expectedGoalDifference(profile, mv, profile, neutralOpp);
+                double ep = tacticalScoreService.panelExpectedPoints(profile, mv);
                 all.add(new TacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
-                        t.getInPossession(), t.getTimeWasting(), egd));
+                        t.getInPossession(), t.getTimeWasting(), egd, ep));
             }
         }
-        all.sort(Comparator.comparingDouble(TacticRow::expectedGoalDifference).reversed());
+        all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
 
         TacticRow best = all.get(0);
         List<TacticRow> top = all.subList(0, Math.min(15, all.size()));
+
+        // Win/draw/loss for the recommended tactic vs the EQUAL (1.0×) opponent playing neutral.
+        TeamProfile bestProfile = profileByFormation.get(best.formation());
+        TacticVector bestVector = tacticalScoreService.vector(reconstruct(best));
+        double[] xgEqual = tacticalScoreService.expectedGoalsForRanking(bestProfile, bestVector,
+                tacticalScoreService.scaled(bestProfile, 1.0), neutralOpp);
+        double[] wdl = tacticalScoreService.outcomeProbabilities(xgEqual[0], xgEqual[1]);
+
         String name = teamRepository.findNameById(teamId);
         return new BestTacticResult(teamId, name == null ? "Team#" + teamId : name,
                 best.formation(), best.mentality(), best.tempo(), best.passingType(),
                 best.inPossession(), best.timeWasting(), best.expectedGoalDifference(),
+                best.expectedPoints(), wdl[0], wdl[1], wdl[2],
                 bestBaseValue, new ArrayList<>(top));
+    }
+
+    /** Every formation × settings combination (all 13,500) for a team, sorted by panel expected
+     *  points descending — the full ranked list (findBestTactic returns only the top 15). Same
+     *  live-DB profiles + metric as the advisor, so the report matches production. */
+    public List<TacticRow> rankAllTactics(long teamId) {
+        double[] coach = coachAbilities(teamId);
+        List<PersonalizedTactic> candidates = managerTacticService.candidateTactics();
+        TacticVector neutralOpp = tacticalScoreService.vector(new PersonalizedTactic());
+        List<TacticRow> all = new ArrayList<>();
+        for (String formation : tacticService.getAllExistingTactics()) {
+            TeamProfile profile = tacticalScoreService.coachedProfile(
+                    tacticalScoreService.profile(starterValues(teamId, formation)), coach[0], coach[1]);
+            for (PersonalizedTactic t : candidates) {
+                TacticVector mv = tacticalScoreService.vector(t);
+                double egd = tacticalScoreService.expectedGoalDifference(profile, mv, profile, neutralOpp);
+                double ep = tacticalScoreService.panelExpectedPoints(profile, mv);
+                all.add(new TacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
+                        t.getInPossession(), t.getTimeWasting(), egd, ep));
+            }
+        }
+        all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
+        return all;
+    }
+
+    /** Rebuild a {@link PersonalizedTactic} from a ranked row so its vector can be re-derived. */
+    private static PersonalizedTactic reconstruct(TacticRow r) {
+        PersonalizedTactic t = new PersonalizedTactic();
+        t.setMentality(r.mentality());
+        t.setTempo(r.tempo());
+        t.setPassingType(r.passingType());
+        t.setInPossession(r.inPossession());
+        t.setTimeWasting(r.timeWasting());
+        return t;
     }
 
     /** Live best-eleven match values for a formation (used position kept for position familiarity),

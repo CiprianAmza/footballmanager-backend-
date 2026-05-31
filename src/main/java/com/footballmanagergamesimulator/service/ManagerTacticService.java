@@ -12,8 +12,8 @@ import java.util.List;
 
 /**
  * Chooses a tactic for an AI manager based on his tactical ability. The full tactic-setting space
- * is ranked (best first) by the cheap {@link TacticalScoreService#expectedGoalDifference} proxy
- * against a representative opponent; a manager of ability {@code a} (0-100) then picks the tactic
+ * is ranked (best first) by average expected POINTS across an opponent panel
+ * ({@link TacticalScoreService#panelExpectedPoints}); a manager of ability {@code a} (0-100) then picks the tactic
  * at rank {@code round((100-a)/100 × (N-1))} — top coaches play near-optimal tactics, weak coaches
  * play poor ones. Because the model is matchup-based, "best on average" still loses some specific
  * matchups, so leagues hold a meaningful spread of tactical quality rather than one dominant setup.
@@ -42,12 +42,17 @@ public class ManagerTacticService {
         return out;
     }
 
-    /** Candidate tactics ranked best-first for {@code mine} against a representative {@code opponent}. */
+    /**
+     * Candidate tactics ranked best-first for {@code mine} by average expected POINTS across an
+     * opponent panel (weaker / equal / stronger, all neutral), via
+     * {@link TacticalScoreService#panelExpectedPoints}. The {@code opponent} argument is retained for
+     * signature compatibility with callers but no longer used: the panel is derived from {@code mine}
+     * so the openness axes (tempo, passing) no longer cancel against a self-mirror.
+     */
     public List<PersonalizedTactic> rankTactics(TeamProfile mine, TeamProfile opponent) {
-        TacticVector neutralOpp = tacticalScoreService.vector(new PersonalizedTactic());
         List<PersonalizedTactic> tactics = candidateTactics();
         tactics.sort(Comparator.comparingDouble((PersonalizedTactic t) ->
-                tacticalScoreService.expectedGoalDifference(mine, tacticalScoreService.vector(t), opponent, neutralOpp)).reversed());
+                tacticalScoreService.panelExpectedPoints(mine, tacticalScoreService.vector(t))).reversed());
         return tactics;
     }
 
