@@ -646,3 +646,36 @@ fără jucătorii potriviți). **Design agreat:**
   GameInitializationService, MatchRoundSimulator}`, `controller/TacticSimController`,
   `test/.../ManagerTacticServiceTest`, `.gitignore` (+`prebuilt-data.sql`).
 - **FE** (repo separat): `tactics-advisor/*`, `tactics1/*`, `tactics4/*`, `services/tactics.service.ts`.
+
+## 20. Integrare 6 feature-uri paralele (review + merge în master) — sesiune 2026-06-01 (COMIS)
+
+§19.7 a fost **comis** ca bază (`69bbf1d` — squad-aptitude gating, cu re-baseline-ul testului stale
+`TacticSimulationServiceIT`). Apoi 6 branch-uri dezvoltate în paralel (worktree-uri separate) au fost
+**review-uite + merge-uite** în master, cu `mvn verify` verde după FIECARE merge. **Final: BUILD SUCCESS,
+199 unit + 92 IT, 0 eșecuri.**
+
+Commit trail (merge-uri `--no-ff`):
+- `1ff7c47` #2 **nation-faces** — `NationService` (8 națiuni, derivă team→competition→nationId) + `FaceGenerator`
+  (descriptor determinist seedat din playerId, ponderat pe națiune) + 5 coloane pe `Human` + câmpuri în `PlayerView`.
+- `9a00780` #4 **fut-card** — `PlayerCardService`/`PlayerCardView`/`PlayerCardConfig` + endpoint `GET /humans/{id}/card`
+  (overall + 6 buckets PAC/SHO/PAS/DRI/DEF/PHY). **Atenție la merge:** branch-ul ștersese (greșit) filtrul distinct
+  din `TacticSimulationService` ca să treacă un test stale → **restaurat la merge**; `HumanControllerTest` reparat
+  pentru constructorul combinat nation+card (`d5f8cf8`).
+- `b27f48d` #1 **boardroom Faza 3-6** — `CoachPermissions` + `CoachPermissionService` (matrice permisiuni, enforcement
+  server-side în transfer/tactică/antrenament/contracte + AI respectă), XI-locking, piața antrenorilor
+  (`/boardroom/coach/hire|fire`), presă aroganță/umilință (`Human.ownerArrogance/coachHumiliation`).
+- `1c19a3b` #3 **match-ratings** — `MatchPlayerRating` (entity + repo) persistat pe ambele căi (batch + interactiv),
+  `LineupRatingService.computePlayerRatings/persistPlayerRatings`, endpoint
+  `GET /match/playerRatings/{comp}/{season}/{round}/{team1}/{team2}`.
+- `27b7e82` #5 **transfer-fuzz** (doar teste) — `TransferStrategyCampaignIT`, `TransferMarketDiagnostics`, fuzz extins.
+  Concluzii: strategiile sunt respectate; piața e blocată mai mult de buget (`NO_MARKET_MATCH:INSUFFICIENT_BUDGET=84`)
+  decât de vânzători (`NO_BUY_TARGETS=22`). **Gap descoperit:** `BuyFreeSellHigh` nu are ramură reală de cumpărare
+  free-agents (testele validează comportamentul actual, nu numele).
+- `c164bf9` #6 **substituții** (ultimul, cel mai conflictual) — defer-commit real: munca post-meci se face la `/commit`;
+  substituțiile manuale recalculează scorul canonic la commit (`resultAdjustedAtCommit`). **Conflicte rezolvate:**
+  `MatchdayCoordinator` (păstrat `persistPlayerRatings` al #3 în fluxul nou de commit), `TacticSimulationServiceIT`
+  (varianta #5), `MatchdayInvariantsIT` (varianta #6 care întărește testul flaky de accidentări).
+
+**Post-merge:** `prebuilt-data.sql` (git-ignored) ȘTERS fiindcă `Human` a primit coloane (#2 + #1) — se
+regenerează la prima rulare. **De notat:** un singur fail flaky observat pe parcurs în
+`MatchdayInvariantsIT.roundInjuredIds` (RNG accidentări + ordine `findAll`) — confirmat prin re-rulare; #6 îl întărește.
