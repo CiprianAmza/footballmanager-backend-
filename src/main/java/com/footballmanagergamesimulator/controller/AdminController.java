@@ -56,6 +56,8 @@ public class AdminController {
     private com.footballmanagergamesimulator.service.JobOfferService jobOfferService;
     @Autowired
     private com.footballmanagergamesimulator.user.UserRepository userRepository;
+    @Autowired
+    private com.footballmanagergamesimulator.service.BestTacticService bestTacticService;
 
     private final Random random = new Random();
 
@@ -501,6 +503,21 @@ public class AdminController {
             out.add(row);
         }
         return ResponseEntity.ok(out);
+    }
+
+    /**
+     * GET /admin/bestTactic/{teamId}
+     * Read-only advisory: searches every formation × the 900 tactic-setting combinations for the
+     * team using its CURRENT live squad (morale/fitness/injuries/ratings/attributes from the DB) and
+     * returns the recommended formation + settings plus a ranked top list. Does not mutate state.
+     */
+    @GetMapping("/bestTactic/{teamId}")
+    public ResponseEntity<?> bestTactic(@PathVariable long teamId, HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        if (teamRepository.findById(teamId).isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Team not found: " + teamId));
+        }
+        return ResponseEntity.ok(bestTacticService.findBestTactic(teamId));
     }
 
     // ===== Hooks used by GameAdvanceService =====
