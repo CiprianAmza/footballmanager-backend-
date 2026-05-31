@@ -1134,8 +1134,11 @@ public class MatchRoundSimulator {
         substitutionsCache.remove(teamId);
         managerTacticCache.remove(teamId);
         profileCache.remove(teamId);
-        tacticVectorCache.remove(teamId);
-        wideShareCache.remove(teamId);
+        // Deliberately KEEP tacticVectorCache + wideShareCache: the AI manager's tactic choice is
+        // expensive (ranking 900 settings against an opponent panel) and stable across a season — it
+        // does not need re-deriving after every training session (~88×/season). These are cleared only
+        // at season transition via invalidateAllRatingCaches(). Match strength still refreshes because
+        // the rating/profile caches above are dropped.
     }
 
     /** Drop ALL cached AI ratings — used at season transition (ageing + mass

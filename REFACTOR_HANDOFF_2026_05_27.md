@@ -548,3 +548,101 @@ tactics1/4 → presă **aroganță/umilință**).
 - **Wiring FE** (app.module + app-routing) pentru noile componente îl face autorul-orchestrator (eu) la
   final de val — agenții nu ating modulele.
 - **Commit-urile** + re-sincronizarea acestui handoff după commit — convenția userului.
+
+---
+
+## 19. Overhaul tactic + consistență prod/advisor + snapshot + perf — sesiune 2026-06-01 (NECOMIS)
+
+Tot ce urmează e **pe disc, NEcomis** (am făcut build-uri repetate, nu commit-uri — userul comite).
+Gate: `mvn clean package -DskipTests` VERDE; `ManagerTacticServiceTest` verde; **suita completă `mvn verify`
+NErerulată după ultimele tweak-uri de tuning** (de rulat înainte de commit). **Determinismul de meci s-a
+MUTAT** masiv (engine-ul tactic re-tunat + selecția AI schimbată) — `ChampionshipPredictionFuzzIT` și
+harness-urile vor avea numere noi (intenționat). FE-ul (repo separat) e build verde (`ng build`).
+
+### 19.1 Consistență prod == advisor == test (toate cele 14 axe tactice)
+**Problema rezolvată:** advisor-ul/testele enumerau doar 5 axe vechi (900); cele 9 noi (Strat-2 +
+Faza-2) erau citite în scor dar neexplorate → prod ≠ advisor.
+- **`MatchEngineConfig.TacticalModel`**: catalog static unic `*_OPTIONS` (14 liste ordonate = sursa de
+  adevăr a valorilor valide; override-urile remapează doar efectul numeric). Accesibil static.
+- **`ManagerTacticService`**: `candidateTactics()` enumeră din catalog; `chooseTactic` re-scris — scor
+  per setare → **colaps la tier-uri distincte de puncte** → ratingul managerului e un **percentil**
+  (0=cel mai slab, 100=cel mai bun, 50=median); `applyNewAxes`/`augmentLineAndPress`/`augmentInstructions`
+  **comit toate cele 9 axe noi fără default** (AI nu mai joacă „tot neutru"); `widthIdentity` fără
+  Balanced (doar Wide/Narrow după forma lotului). `rankTactics` ȘTERS (mort).
+- **`committedAdvisorTactics(profile, ability, wideShare)`**: enumerarea advisor-ului FĂRĂ default-uri =
+  referință greedy + deviații per-axă + **combo-uri multi-axă seeded** (`MULTI_AXIS_SAMPLES=12`,
+  `MULTI_AXIS_FLIP_PROB=0.55`) → top-10 distincte au **≤3 axe constante** (țintă „fără combo de 4").
+
+### 19.2 Advisor analytical = matchup REAL vs adversarii din DB (nu panel sintetic)
+- **`TacticSimulationService.analyticalTacticPoints(teamId, formation, topN, opponentIds)`**: rankează
+  tacticile committed prin **`expectedPoints` (forma închisă)** vs adversarii REALI ai ligii (profil +
+  tactica fiecăruia din `chooseTactic`), însumat tur-retur. `buildRealMatchup` = setup comun cu
+  `simulateTacticPoints` (refactor). `/tactics/analytical` rewired la asta; `BestTacticService.rankTacticsForFormation`
+  ȘTERS. **Simulated** = aceiași adversari prin Poisson; **Analytical** = așteptarea exactă.
+- **Filtru distinct la BACKEND** (ambele taburi): doar valori distincte de puncte; tiebreak max minPoints
+  (simulated) / max xGD (analytical).
+
+### 19.3 Re-tunarea engine-ului pe două axe (config + trade-off-uri) — `MatchEngineConfig.TacticalModel`
+Scop: nicio axă universal-best; ~11/14 axe contează; diversitate. Valori curente:
+- `biasStrength=0.22`, `controlStrength=0.24`, `controlAttackCost=0.15`, `opennessStrength=0.30`,
+  `controlOpennessStrength=0.18`, `ratioExponent=1.5`, `lineHeightSupport=0.06`,
+  **`lineHeightVulnerability=0.26`** (high line riscant vs direct → nu mai e universal),
+  `pressDisruption=0.16`, `pressStaminaCost=0.04`, `pressLineCompound=0.15`, **`widthStrength=0.45`**.
+- **Trade-off-uri NOI în `matchup()`** (`TacticalScoreService`): `directnessAttackCost=0.22` (Long =
+  cost precizie → nu universal); `pressBypassVulnerability=0.12` (High press eșuează vs adversar direct).
+- **Hărți DEFAULT_* boost-ate** (axele slabe să conteze): dribbling ±1.0, fragmentation -0.5/+0.7,
+  transition risk -0.5/+0.7 & control +0.6/-0.3, widePlay width -0.9/+1.0, foul/foulHard ±0.15/0.35.
+- **`panelExpectedPoints` are panel NE-neutru** (slab=defensiv, egal=neutru, puternic=ofensiv —
+  `PANEL_OPP_WEAK/STRONG` în `TacticalScoreService`) ca matchup-axele să nu se anuleze vs neutru. Folosit
+  de AI `chooseTactic` + greedy reference (advisor-ul analytical folosește adversarii REALI, nu panelul).
+- **SINERGII adăugate apoi REVERTITE** (user a preferat diversitatea): `passWidthSynergy` (Short+Narrow /
+  Long+Wide) + `gegenpressBonus` (press+tempo) — au crescut peg-ul (3→6 axe constante) fiindcă un stil
+  coerent devine dominant. **Lecție:** sinergiile (sens) ↔ diversitate sunt în trade-off direct.
+
+### 19.4 Pre-built data snapshot (cold start rapid pentru testare)
+- **`PrebuiltDataService`** (nou): `SCRIPT TO` (dump tot DB-ul) / `DROP ALL OBJECTS`+`RUNSCRIPT` (restore),
+  prin `DataSource`. Flag-uri (default Java, fără yml): `bootstrap.use-pre-built-data` (true → prima
+  rulare generează+salvează, următoarele restaurează — ~2× pornire), `bootstrap.rebuild-pre-built-data`
+  (forțează regen+re-dump), `bootstrap.snapshot-path` (default `prebuilt-data.sql`, **gitignored**).
+  Cablat în `GameInitializationService.initializeRound` (restore early / save la final). Validat runtime:
+  generate→save→restore curat (3.6s vs 6.6s). **Rulare:** IntelliJ Program args `--bootstrap.use-pre-built-data=true`.
+
+### 19.5 Perf fix — tactica AI cache-uită pe sezon
+**`MatchRoundSimulator.invalidateRatingCache`** NU mai golește `tacticVectorCache`/`wideShareCache`
+(doar rating/profile/bestEleven/substitutions). Antrenamentul AI rulează ~88×/sezon și golea tot →
+tactica scumpă se recalcula în rafale („managerii stau să aleagă tactica"). Acum tactica se reface doar
+la tranziția de sezon (`invalidateAllRatingCaches`). **Rămas:** prima etapă a sezonului tot calculează
+o dată (cache rece) — de optimizat dacă tot e lent (precalcul la setup / `chooseTactic` mai ieftin).
+
+### 19.6 Frontend (repo separat `~/Downloads/footballmanager-frontend-test/`, NECOMIS, `ng build` verde)
+- **tactics-advisor**: coloane individuale per axă (Def Line/Pressing/Width/Dribbling/Fouls/Foul Hard./
+  Tempo Frag./Wide Play/Transition); wrapper cu **scroll orizontal** + header sticky; pasează `formation`
+  la `/tactics/analytical`. `TacticAxes` în `tactics.service.ts`.
+- **tactics1 + tactics4**: popup-ul Roluri/Instrucțiuni „+" mutat din celula transformată într-un
+  **modal fix** (backdrop + ×) ca să nu mai „fugă"; `selectRole` în tactics1 nu mai închide la selecție.
+
+### 19.7 ⭐ NEXT — Atribute de jucător care „gate-uiesc" tacticile (DE ÎNCEPUT, neînceput)
+Userul vrea ca execuția unei tactici să depindă de atributele lotului (park-the-bus / pressing nu au sens
+fără jucătorii potriviți). **Design agreat:**
+- Calculează **aptitudini de lot 0..1** din `PlayerSkills` (cele 36 atribute) ale titularilor:
+  - **Pressing** ← Work Rate, Stamina, Aggression, Anticipation, Pace → modulează `pressDisruption`.
+  - **Disciplină/psihologic** ← Concentration, Positioning, Composure, Bravery, Teamwork, Decisions →
+    modulează eficiența park-the-bus (apărare/control + linie joasă).
+  - **Stamina/fitness** ← Stamina, Natural Fitness + fitness curent → gegenpress (press+tempo),
+    penalizat dacă e mic.
+- **Plumbing:** extinde `TacticalScoreService.TeamProfile` (record `(attack, defense)`) cu câmpuri de
+  aptitudine; calculează-le acolo unde se construiește profilul din titulari (`BestTacticService.starterValues`,
+  `TacticSimulationService`, `MatchRoundSimulator` — au acces la `PlayerSkills`); folosește-le în `matchup()`
+  ca multiplicatori pe efectele axelor relevante. Adversarii sintetici de panel = aptitudine neutră 1.0.
+- Confirmă maparea atribut→aptitudine la început (e ajustabilă). E o schimbare de bază (profil + scoring).
+
+### 19.8 De curățat / de făcut înainte de commit
+- **ȘTERGE `src/test/.../service/TacticAxisSensitivityProbeTest.java`** — probă throwaway de analiză
+  (fără aserțiuni, doar printează; conține metode nefolosite `runScenario`/`sweepConfig`).
+- **Rulează `mvn verify`** complet (NErulat după ultimele tweak-uri) — așteaptă numere noi de determinism;
+  re-baseline `ChampionshipPredictionFuzzIT`/harness dacă pică pe valori.
+- **Fișiere backend atinse** (necomise): `config/MatchEngineConfig`, `service/{TacticalScoreService,
+  ManagerTacticService, BestTacticService, TacticSimulationService, PrebuiltDataService,
+  GameInitializationService, MatchRoundSimulator}`, `controller/TacticSimController`,
+  `test/.../ManagerTacticServiceTest`, `.gitignore` (+`prebuilt-data.sql`).
+- **FE** (repo separat): `tactics-advisor/*`, `tactics1/*`, `tactics4/*`, `services/tactics.service.ts`.

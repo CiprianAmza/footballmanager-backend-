@@ -1386,17 +1386,17 @@ public class MatchEngineConfig {
          *  but production scoring no longer routes through them. Set false to fall back to the scalar engine. */
         private boolean enabled = true;
         /** How far mentality shifts value between attack and defense (trade-off magnitude). */
-        private double biasStrength = 0.30;
+        private double biasStrength = 0.22;
         /** How much "control" settings (keep ball / time-wasting) raise effective defense. */
-        private double controlStrength = 0.20;
+        private double controlStrength = 0.24;
         /** Attack cost of "control" settings: sitting deep / wasting time cedes territory, so the
          *  same control that raises defense also lowers the side's own attack. Turns control from a
          *  free win into a trade-off (breaks the degenerate max-control optimum). 0 = no cost. */
         private double controlAttackCost = 0.15;
         /** How much tempo/risk opens the game (raises total goals). */
-        private double opennessStrength = 0.40;
+        private double opennessStrength = 0.30;
         /** How much control settings slow the game (lower total goals). */
-        private double controlOpennessStrength = 0.25;
+        private double controlOpennessStrength = 0.18;
         /** Base total-goals scale when both sides are balanced. */
         private double baseOpenness = 3.0;
         /** Amplifies the attack-vs-defense gap: each side's xG ratio uses {@code att^exp/(att^exp+def^exp)}.
@@ -1411,19 +1411,27 @@ public class MatchEngineConfig {
         private double coachStrength = 0.12;
         /** Strat-2 counters (opponent-dependent, so no universally-best tactic): */
         /** Own-attack support of pushing the defensive line up (territory); deep line ⇒ small attack loss. */
-        private double lineHeightSupport = 0.08;
+        private double lineHeightSupport = 0.06;
         /** How much a high line is punished by a direct opponent (space behind): raises the goals they
          *  score against you, scaled by your line height × opponent directness. */
-        private double lineHeightVulnerability = 0.25;
+        private double lineHeightVulnerability = 0.26;
         /** How much high pressing disrupts the opponent's attack (lowers their effective attack). */
-        private double pressDisruption = 0.18;
+        private double pressDisruption = 0.16;
         /** Instant-engine proxy for pressing's stamina cost: high press slightly lowers your own attack. */
-        private double pressStaminaCost = 0.06;
+        private double pressStaminaCost = 0.04;
         /** How much pressing compounds the high-line-vs-direct vulnerability (space behind a pressing high line). */
         private double pressLineCompound = 0.15;
+        /** Trade-off cost of direct passing: long/direct balls exploit a high line but lose build-up
+         *  precision, costing this fraction of your own attack (scaled by directness). Makes "Long"
+         *  best only vs high-line opponents, not universally. */
+        private double directnessAttackCost = 0.22;
+        /** Trade-off cost of pressing: a high press leaves space behind, so a DIRECT opponent bypasses
+         *  it — your press raises their attack by this × yourPress × theirDirectness. Makes "High press"
+         *  backfire vs direct sides, so it is not universally best. */
+        private double pressBypassVulnerability = 0.12;
         /** Width rock-paper-scissors strength: wide attack beats a narrow defense and vice versa
          *  ({@code effAtt ×= 1 + widthStrength · myWidth · (−oppWidth)}). */
-        private double widthStrength = 0.12;
+        private double widthStrength = 0.45;
         /** AI width identity: a team whose XI value share in wide positions (ML/MR/DL/DR) is ≥ this
          *  plays Wide; ≤ {@code aiWidthNarrowThreshold} plays Narrow; otherwise Balanced. Gives the AI
          *  a squad-shape width so the human's width counter has something to bite. */
@@ -1492,6 +1500,10 @@ public class MatchEngineConfig {
         public void setPressStaminaCost(double v) { this.pressStaminaCost = v; }
         public double getPressLineCompound() { return pressLineCompound; }
         public void setPressLineCompound(double v) { this.pressLineCompound = v; }
+        public double getDirectnessAttackCost() { return directnessAttackCost; }
+        public void setDirectnessAttackCost(double v) { this.directnessAttackCost = v; }
+        public double getPressBypassVulnerability() { return pressBypassVulnerability; }
+        public void setPressBypassVulnerability(double v) { this.pressBypassVulnerability = v; }
         public double getWidthStrength() { return widthStrength; }
         public void setWidthStrength(double v) { this.widthStrength = v; }
         public double getAiWidthWideThreshold() { return aiWidthWideThreshold; }
@@ -1657,21 +1669,21 @@ public class MatchEngineConfig {
                 "Short", 0.0, "Normal", 0.4, "Long", 1.0, "Direct", 1.0);
         // Faza 2 team-level instructions (neutral key ⇒ 0 so a default tactic is a no-op).
         private static final Map<String, Double> DEFAULT_DRIBBLING_RISK = Map.of(
-                "Less", -0.3, "Standard", 0.0, "More", 0.3);
+                "Less", -1.0, "Standard", 0.0, "More", 1.0);
         private static final Map<String, Double> DEFAULT_FOUL_CONTROL = Map.of(
-                "Rarely", -0.05, "Normal", 0.0, "Often", 0.15);
+                "Rarely", -0.15, "Normal", 0.0, "Often", 0.35);
         private static final Map<String, Double> DEFAULT_FOUL_HARDNESS_CONTROL = Map.of(
-                "Soft", -0.05, "Medium", 0.0, "Hard", 0.15);
+                "Soft", -0.15, "Medium", 0.0, "Hard", 0.35);
         private static final Map<String, Double> DEFAULT_FRAGMENTATION_CONTROL = Map.of(
-                "Flowing", -0.25, "Normal", 0.0, "Fragment", 0.4);
+                "Flowing", -0.5, "Normal", 0.0, "Fragment", 0.7);
         private static final Map<String, Double> DEFAULT_WIDE_PLAY_WIDTH = Map.of(
-                "Cut Inside", -0.5, "Shoot", 0.0, "Cross", 0.6);
+                "Cut Inside", -0.9, "Shoot", 0.0, "Cross", 1.0);
         private static final Map<String, Double> DEFAULT_WIDE_PLAY_RISK = Map.of(
                 "Cut Inside", 0.15, "Shoot", 0.0, "Cross", 0.0);
         private static final Map<String, Double> DEFAULT_TRANSITION_RISK = Map.of(
-                "Win Fouls", -0.2, "Balanced", 0.0, "Fast Counter", 0.4);
+                "Win Fouls", -0.5, "Balanced", 0.0, "Fast Counter", 0.7);
         private static final Map<String, Double> DEFAULT_TRANSITION_CONTROL = Map.of(
-                "Win Fouls", 0.3, "Balanced", 0.0, "Fast Counter", -0.1);
+                "Win Fouls", 0.6, "Balanced", 0.0, "Fast Counter", -0.3);
     }
 
     /**

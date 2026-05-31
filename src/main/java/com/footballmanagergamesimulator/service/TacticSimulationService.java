@@ -65,21 +65,24 @@ public class TacticSimulationService {
 
     public record CompetitionResult(List<StandingRow> standings) {}
 
-    /** Rank the 900 tactic settings for {@code teamId} by average simulated season points. */
-    public TacticPointsResult simulateTacticPoints(long teamId, String formation, int seasons,
-                                                   List<Long> opponentIds) {
-        String form = (formation == null || formation.isBlank()) ? DEFAULT_FORMATION : formation;
-        int n = Math.max(1, Math.min(MAX_SEASONS, seasons <= 0 ? 10 : seasons));
-        int season = gameState.currentSeason();
+    /** The team + its REAL league opponents (DB profiles) each playing its own chosen tactic — the
+     *  shared setup behind both the simulated and the analytical advisor. */
+    private record RealMatchup(String formation, TeamProfile teamProfile, TeamProfile[] oppProfiles,
+                               TacticVector[] oppTactics, double teamAbility, double teamWideShare, int oppCount) {}
 
+    /** Resolve the real opponents from the DB, build each one's coached profile + the tactic its
+     *  manager would choose, and the team's own coached profile/ability/width identity. */
+    private RealMatchup buildRealMatchup(long teamId, String formation, List<Long> opponentIds) {
+        String form = (formation == null || formation.isBlank()) ? DEFAULT_FORMATION : formation;
+        int season = gameState.currentSeason();
         List<Long> ids = resolveOpponents(teamId, season, opponentIds);
-        // Build the team's coached profile (fixed formation) + each opponent's coached profile.
         TeamProfile teamProfile = coachedTeamProfile(teamId, form);
         int oppCount = ids.size();
         TeamProfile[] oppProfiles = new TeamProfile[oppCount];
         for (int i = 0; i < oppCount; i++) oppProfiles[i] = coachedTeamProfile(ids.get(i), DEFAULT_FORMATION);
 
-        // Representative opponent = average coached profile across the team + opponents.
+        // Representative opponent = average coached profile across the team + opponents (for the
+        // opponents' own tactic choice).
         double avgAtt = teamProfile.attack(), avgDef = teamProfile.defense();
         for (TeamProfile p : oppProfiles) { avgAtt += p.attack(); avgDef += p.defense(); }
         int total = oppCount + 1;
@@ -92,11 +95,22 @@ public class TacticSimulationService {
             oppTactics[i] = tacticalScoreService.vector(
                     managerTacticService.chooseTactic(oppProfiles[i], avgProfile, c.pickAbility()));
         }
+        return new RealMatchup(form, teamProfile, oppProfiles, oppTactics,
+                coachFor(teamId).pickAbility(), teamWideShare(teamId, form), oppCount);
+    }
 
-        // Each swept base setting is completed with its OWN best Strat-2 + Faza-2 axes (greedy
-        // per-axis), so every axis is chosen individually and folds into the simulated score.
-        double teamAbility = coachFor(teamId).pickAbility();
-        double teamWs = teamWideShare(teamId, form);
+    /** Rank the 900 tactic settings for {@code teamId} by average simulated season points. */
+    public TacticPointsResult simulateTacticPoints(long teamId, String formation, int seasons,
+                                                   List<Long> opponentIds) {
+        int n = Math.max(1, Math.min(MAX_SEASONS, seasons <= 0 ? 10 : seasons));
+        RealMatchup m = buildRealMatchup(teamId, formation, opponentIds);
+        String form = m.formation();
+        TeamProfile teamProfile = m.teamProfile();
+        TeamProfile[] oppProfiles = m.oppProfiles();
+        TacticVector[] oppTactics = m.oppTactics();
+        int oppCount = m.oppCount();
+        double teamAbility = m.teamAbility();
+        double teamWs = m.teamWideShare();
 
         List<TacticPointsRow> rows = new ArrayList<>(900);
         for (PersonalizedTactic t : managerTacticService.candidateTactics()) {
@@ -139,6 +153,62 @@ public class TacticSimulationService {
         String name = teamRepo.findNameById(teamId);
         return new TacticPointsResult(teamId, name == null ? "Team#" + teamId : name,
                 form, n, oppCount, distinct);
+    }
+
+    public record AnalyticalRow(String mentality, String tempo, String passingType, String inPossession,
+                                String timeWasting, String defensiveLine, String pressing, String width,
+                                String dribbling, String foulFrequency, String foulHardness,
+                                String tempoFragmentation, String widePlay, String transition,
+                                double expectedPoints, double expectedGoalDifference) {}
+
+    public record AnalyticalResult(long teamId, String teamName, String formation, int opponentCount,
+                                   List<AnalyticalRow> rows) {}
+
+    /**
+     * Analytical advisor ranking against the team's REAL league opponents (DB profiles, each playing
+     * its own chosen tactic) — NOT a synthetic scaled-self panel. For every fully-committed candidate
+     * tactic ({@link ManagerTacticService#committedAdvisorTactics}, no default values) the closed-form
+     * {@link TacticalScoreService#expectedPoints} is summed over the double round-robin, so the ranking
+     * reflects exactly how each tactic matches up (advantage/disadvantage) against the actual opponents.
+     * Same opponents + tactics as the simulated tab; this is the exact expectation (no Poisson sampling).
+     * Distinct expected-points values only (tie → higher goal difference); capped at {@code topN}.
+     */
+    public AnalyticalResult analyticalTacticPoints(long teamId, String formation, int topN,
+                                                   List<Long> opponentIds) {
+        RealMatchup m = buildRealMatchup(teamId, formation, opponentIds);
+        double games = Math.max(1, 2 * m.oppCount());
+
+        List<AnalyticalRow> rows = new ArrayList<>();
+        for (PersonalizedTactic t : managerTacticService.committedAdvisorTactics(
+                m.teamProfile(), m.teamAbility(), m.teamWideShare())) {
+            TacticVector teamVec = tacticalScoreService.vector(t);
+            double pts = 0, xgd = 0;
+            for (int o = 0; o < m.oppCount(); o++) {
+                // Home + away (expectedPoints carries no home advantage, so both legs are equal ⇒ ×2).
+                pts += 2 * tacticalScoreService.expectedPoints(m.teamProfile(), teamVec, m.oppProfiles()[o], m.oppTactics()[o]);
+                xgd += 2 * tacticalScoreService.expectedGoalDifference(m.teamProfile(), teamVec, m.oppProfiles()[o], m.oppTactics()[o]);
+            }
+            rows.add(new AnalyticalRow(t.getMentality(), t.getTempo(), t.getPassingType(), t.getInPossession(),
+                    t.getTimeWasting(), t.getDefensiveLine(), t.getPressing(), t.getWidth(), t.getDribbling(),
+                    t.getFoulFrequency(), t.getFoulHardness(), t.getTempoFragmentation(), t.getWidePlay(),
+                    t.getTransition(), pts, xgd / games));
+        }
+        rows.sort(Comparator.comparingDouble(AnalyticalRow::expectedPoints).reversed());
+
+        // Distinct expected-points values (2dp); on a tie, prefer the higher goal difference.
+        Map<String, AnalyticalRow> byPts = new LinkedHashMap<>();
+        for (AnalyticalRow r : rows) {
+            String key = String.format("%.2f", r.expectedPoints());
+            AnalyticalRow cur = byPts.get(key);
+            if (cur == null || r.expectedGoalDifference() > cur.expectedGoalDifference()) byPts.put(key, r);
+        }
+        List<AnalyticalRow> distinct = new ArrayList<>(byPts.values());
+        distinct.sort(Comparator.comparingDouble(AnalyticalRow::expectedPoints).reversed());
+        if (topN > 0 && distinct.size() > topN) distinct = new ArrayList<>(distinct.subList(0, topN));
+
+        String name = teamRepo.findNameById(teamId);
+        return new AnalyticalResult(teamId, name == null ? "Team#" + teamId : name,
+                m.formation(), m.oppCount(), distinct);
     }
 
     /** Double round-robin among {@code teamIds}: each team uses its manager's formation + chosen

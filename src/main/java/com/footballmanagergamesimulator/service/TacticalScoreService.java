@@ -170,12 +170,18 @@ public class TacticalScoreService {
         double lhs = cfg.getLineHeightSupport(), lhv = cfg.getLineHeightVulnerability();
         double pd = cfg.getPressDisruption(), psc = cfg.getPressStaminaCost(), plc = cfg.getPressLineCompound();
         double ws = cfg.getWidthStrength();
+        double dac = cfg.getDirectnessAttackCost(), pbv = cfg.getPressBypassVulnerability();
 
         // Base attack/defense after mentality (bias trade-off) and control (defense up, own attack down).
         double effAtt1 = p1.attack() * (1 + bs * t1.attackBias()) * (1 - ca * t1.control());
         double effDef1 = p1.defense() * (1 - bs * t1.attackBias()) * (1 + cs * t1.control());
         double effAtt2 = p2.attack() * (1 + bs * t2.attackBias()) * (1 - ca * t2.control());
         double effDef2 = p2.defense() * (1 - bs * t2.attackBias()) * (1 + cs * t2.control());
+
+        // Passing directness is a TRADE-OFF, not a free win: long/direct balls exploit a high line
+        // (via lineVuln below) but sacrifice build-up precision, so they cost a little of your own attack.
+        effAtt1 *= (1 - dac * t1.directness());
+        effAtt2 *= (1 - dac * t2.directness());
 
         // Defensive line: a high line supports own attack a touch (lhs·line) but is punished by a
         // DIRECT opponent (space behind) — amplified by your own pressing (space ahead of a high line).
@@ -191,6 +197,12 @@ public class TacticalScoreService {
         // fatigue proxy on the instant engine (full stamina coupling lives in the live engine).
         effAtt1 *= (1 - pd * t2.press()) * (1 - psc * t1.press());
         effAtt2 *= (1 - pd * t1.press()) * (1 - psc * t2.press());
+
+        // Pressing is a TRADE-OFF: a high press leaves space behind, so a DIRECT opponent bypasses it —
+        // your press RAISES their attack scaled by their directness. High press wins vs a possession
+        // side but backfires against a direct one ⇒ no universally-best pressing level.
+        effAtt2 *= (1 + pbv * t1.press() * t2.directness());
+        effAtt1 *= (1 + pbv * t2.press() * t1.directness());
 
         // Width rock-paper-scissors: wide attack beats a narrow defense and vice versa (no universal best).
         effAtt1 *= (1 + ws * t1.width() * (-t2.width()));
@@ -268,18 +280,56 @@ public class TacticalScoreService {
     /**
      * Average {@link #expectedPoints} for {@code myT} across an opponent <b>panel</b> — {@code mine}
      * scaled to a weaker / equal / stronger opponent (config {@code opponentPanel}, default
-     * {@code {0.7, 1.0, 1.3}}) — each playing a neutral tactic. Replaces self-mirror xGD as the
-     * tactic-ranking metric: against a non-mirror panel the openness axes (tempo, passing) no longer
-     * cancel, so the full tactic landscape differentiates and coaching skill becomes meaningful.
+     * {@code {0.7, 1.0, 1.3}}) — each playing a <b>distinct, non-neutral</b> tactic: the weak side parks
+     * the bus (defensive / narrow / deep / low tempo), the equal side plays neutral, the strong side
+     * attacks (high line / high press / wide / direct). Ranking against this SPREAD (not one blank
+     * opponent) is what lets the matchup axes (width, defensive line, pressing, directness, …) take
+     * DIFFERENT optimal values per squad — against a neutral opponent every team's best answer is the
+     * same max-defensive setup, so those axes all peg to one extreme.
      */
     public double panelExpectedPoints(TeamProfile mine, TacticVector myT) {
-        TacticVector neutral = vector(new PersonalizedTactic());
+        TacticVector[] oppT = panelOpponentVectors();
         double[] panel = engineConfig.getTacticalModel().getOpponentPanel();
         double sum = 0;
-        for (double s : panel) {
-            sum += expectedPoints(mine, myT, scaled(mine, s), neutral);
+        for (int i = 0; i < panel.length; i++) {
+            sum += expectedPoints(mine, myT, scaled(mine, panel[i]), oppT[i % oppT.length]);
         }
         return sum / panel.length;
+    }
+
+    /** The weak/equal/strong panel opponents' tactic vectors (built once from the live config). */
+    private TacticVector[] panelOpponentVectors() {
+        TacticVector[] v = panelOpponentVectors;
+        if (v == null) {
+            v = new TacticVector[]{
+                    vector(PANEL_OPP_WEAK),            // weak side parks the bus
+                    vector(new PersonalizedTactic()),  // equal side plays neutral
+                    vector(PANEL_OPP_STRONG)           // strong side attacks
+            };
+            panelOpponentVectors = v;
+        }
+        return v;
+    }
+
+    private TacticVector[] panelOpponentVectors;
+
+    private static final PersonalizedTactic PANEL_OPP_WEAK = panelOpponent(
+            "Defensive", "Lower", "Short", "Keep Ball", "Frequently", "Deep", "Low", "Narrow");
+    private static final PersonalizedTactic PANEL_OPP_STRONG = panelOpponent(
+            "Attacking", "Higher", "Long", "Free Ball Early", "Never", "High", "High", "Wide");
+
+    private static PersonalizedTactic panelOpponent(String mentality, String tempo, String passing,
+            String inPossession, String timeWasting, String defLine, String pressing, String width) {
+        PersonalizedTactic t = new PersonalizedTactic();
+        t.setMentality(mentality);
+        t.setTempo(tempo);
+        t.setPassingType(passing);
+        t.setInPossession(inPossession);
+        t.setTimeWasting(timeWasting);
+        t.setDefensiveLine(defLine);
+        t.setPressing(pressing);
+        t.setWidth(width);
+        return t;
     }
 
     // ==================== internals ====================

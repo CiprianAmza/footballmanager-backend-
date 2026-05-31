@@ -56,6 +56,16 @@ public class GameInitializationService {
      */
     @Value("${bootstrap.seed:0}") private long bootstrapSeed;
 
+    /**
+     * Fast-test snapshot toggles. With {@code use-pre-built-data=true}, the first cold start generates
+     * normally and then dumps the whole DB to a snapshot file; every later cold start restores that
+     * file instead of regenerating (much faster — important once a matchday runs per day). Set
+     * {@code rebuild-pre-built-data=true} (or delete the file) to force a fresh generation + re-dump
+     * after changing any generation logic.
+     */
+    @Value("${bootstrap.use-pre-built-data:false}") private boolean usePrebuiltData;
+    @Value("${bootstrap.rebuild-pre-built-data:false}") private boolean rebuildPrebuiltData;
+
     @Autowired private RoundRepository roundRepository;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
@@ -72,6 +82,7 @@ public class GameInitializationService {
     @Autowired private TacticService tacticService;
     @Autowired @Lazy private StaffService staffService;
     @Autowired @Lazy private NewSeasonSetupProcessor newSeasonSetupProcessor;
+    @Autowired private PrebuiltDataService prebuiltDataService;
 
     /**
      * Resume-aware initialization. If a Round row already exists, returns it
@@ -85,6 +96,15 @@ public class GameInitializationService {
             System.out.println("=== Resuming from season " + round.getSeason()
                     + ", round " + round.getRound() + " ===");
             return round;
+        }
+
+        // Fast path: restore the whole DB from a previously dumped snapshot instead of regenerating.
+        if (usePrebuiltData && !rebuildPrebuiltData && prebuiltDataService.snapshotExists()) {
+            System.out.println("=== Loading pre-built data from " + prebuiltDataService.snapshotFile() + " ===");
+            prebuiltDataService.restore();
+            return roundRepository.findById(1L).orElseThrow(() ->
+                    new IllegalStateException("Pre-built snapshot contained no Round — delete "
+                            + prebuiltDataService.snapshotFile() + " and regenerate"));
         }
 
         Round round = new Round();
@@ -119,6 +139,12 @@ public class GameInitializationService {
         newSeasonSetupProcessor.regenerateAllCupBrackets((int) round.getSeason());
 
         backfillManagerCoachingAbilities();
+
+        // Dump the freshly-generated DB so the next cold start can restore it instead of regenerating.
+        if (usePrebuiltData) {
+            prebuiltDataService.save();
+            System.out.println("=== Saved pre-built data to " + prebuiltDataService.snapshotFile() + " ===");
+        }
 
         return round;
     }

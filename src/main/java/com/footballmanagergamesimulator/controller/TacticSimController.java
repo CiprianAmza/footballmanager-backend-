@@ -6,8 +6,6 @@ import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
-import com.footballmanagergamesimulator.service.BestTacticService;
-import com.footballmanagergamesimulator.service.BestTacticService.TacticRow;
 import com.footballmanagergamesimulator.service.GameStateService;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.service.TacticSimulationService;
@@ -38,7 +36,6 @@ import java.util.TreeSet;
 public class TacticSimController {
 
     @Autowired private TacticSimulationService tacticSimulationService;
-    @Autowired private BestTacticService bestTacticService;
     @Autowired private TacticService tacticService;
     @Autowired private GameStateService gameState;
     @Autowired private RoundRepository roundRepository;
@@ -69,19 +66,21 @@ public class TacticSimController {
     @GetMapping("/tactics/analytical/{teamId}")
     public AnalyticalResult analytical(@PathVariable long teamId,
                                        @RequestParam(required = false, defaultValue = "442") String formation,
-                                       @RequestParam(required = false, defaultValue = "300") int topN) {
-        // Single formation, "default = factor 1" enumeration of all 9 new axes (17,100 tactics), top-N.
-        List<TacticRow> ranked = bestTacticService.rankTacticsForFormation(teamId, formation, topN);
-        List<AnalyticalRow> rows = new ArrayList<>(ranked.size());
-        for (TacticRow r : ranked) {
-            rows.add(new AnalyticalRow(r.formation(), r.mentality(), r.tempo(), r.passingType(),
+                                       @RequestParam(required = false, defaultValue = "300") int topN,
+                                       @RequestParam(required = false) String opponentIds) {
+        // Committed tactics (no defaults) ranked by closed-form expected points vs the team's REAL
+        // league opponents (their actual tactics) — true matchup advantage/disadvantage, not a panel.
+        TacticSimulationService.AnalyticalResult res =
+                tacticSimulationService.analyticalTacticPoints(teamId, formation, topN, parseCsv(opponentIds));
+        List<AnalyticalRow> rows = new ArrayList<>(res.rows().size());
+        for (TacticSimulationService.AnalyticalRow r : res.rows()) {
+            rows.add(new AnalyticalRow(res.formation(), r.mentality(), r.tempo(), r.passingType(),
                     r.inPossession(), r.timeWasting(), r.expectedPoints(), r.expectedGoalDifference(),
                     r.defensiveLine(), r.pressing(), r.width(),
                     r.dribbling(), r.foulFrequency(), r.foulHardness(),
                     r.tempoFragmentation(), r.widePlay(), r.transition()));
         }
-        String name = teamRepo.findNameById(teamId);
-        return new AnalyticalResult(teamId, name == null ? "Team#" + teamId : name, rows);
+        return new AnalyticalResult(res.teamId(), res.teamName(), rows);
     }
 
     @GetMapping("/tactics/simulate")

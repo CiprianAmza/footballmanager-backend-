@@ -12,3 +12,6 @@ target/
 
 # stray local installers / large binaries
 *.pkg
+
+# generated fast-start DB snapshot (bootstrap.use-pre-built-data)
+prebuilt-data.sql

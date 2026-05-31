@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 /**
  * Chooses a tactic for an AI manager based on his tactical ability. The full tactic-setting space
@@ -87,7 +88,11 @@ public class ManagerTacticService {
      */
     private void augmentLineAndPress(PersonalizedTactic base, TeamProfile mine, double ability) {
         record Combo(String line, String press, double score) {}
-        List<String> lines = TacticalModel.DEFENSIVE_LINE_OPTIONS, presses = TacticalModel.PRESSING_OPTIONS;
+        // AI commits to a tactical identity: drop the neutral value so a team never plays the bland
+        // "Standard line / Low press" default (Deep|High × Standard|High). The advisor's full
+        // enumeration still offers every value for the human to explore.
+        List<String> lines = committed(TacticalModel.DEFENSIVE_LINE_OPTIONS, "Standard");
+        List<String> presses = committed(TacticalModel.PRESSING_OPTIONS, "Low");
         List<Combo> combos = new ArrayList<>(lines.size() * presses.size());
         for (String line : lines) {
             for (String press : presses) {
@@ -114,8 +119,10 @@ public class ManagerTacticService {
     private void augmentInstructions(PersonalizedTactic base, TeamProfile mine, double ability) {
         for (InstructionAxis axis : INSTRUCTION_AXES) {
             record Scored(String value, double score) {}
-            List<Scored> scored = new ArrayList<>(axis.options().size());
-            for (String value : axis.options()) {
+            // AI commits: drop the neutral value so each instruction is a real, non-default choice.
+            List<String> options = committed(axis.options(), axis.neutral());
+            List<Scored> scored = new ArrayList<>(options.size());
+            for (String value : options) {
                 axis.setter().accept(base, value);
                 scored.add(new Scored(value,
                         tacticalScoreService.panelExpectedPoints(mine, tacticalScoreService.vector(base))));
@@ -126,16 +133,24 @@ public class ManagerTacticService {
         }
     }
 
-    /** One Faza-2 instruction axis: its valid values (from the config catalog) + how to set it. */
-    private record InstructionAxis(List<String> options, BiConsumer<PersonalizedTactic, String> setter) {}
+    /** All values of an axis except its neutral default — so the AI always commits to a real choice. */
+    private static List<String> committed(List<String> options, String neutral) {
+        List<String> out = new ArrayList<>(options.size());
+        for (String o : options) if (!o.equals(neutral)) out.add(o);
+        return out;
+    }
+
+    /** One Faza-2 instruction axis: its valid values, its neutral default, + how to set it. */
+    private record InstructionAxis(List<String> options, String neutral,
+                                   BiConsumer<PersonalizedTactic, String> setter) {}
 
     private static final List<InstructionAxis> INSTRUCTION_AXES = List.of(
-            new InstructionAxis(TacticalModel.DRIBBLING_OPTIONS, PersonalizedTactic::setDribbling),
-            new InstructionAxis(TacticalModel.FOUL_FREQUENCY_OPTIONS, PersonalizedTactic::setFoulFrequency),
-            new InstructionAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, PersonalizedTactic::setFoulHardness),
-            new InstructionAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, PersonalizedTactic::setTempoFragmentation),
-            new InstructionAxis(TacticalModel.WIDE_PLAY_OPTIONS, PersonalizedTactic::setWidePlay),
-            new InstructionAxis(TacticalModel.TRANSITION_OPTIONS, PersonalizedTactic::setTransition));
+            new InstructionAxis(TacticalModel.DRIBBLING_OPTIONS, "Standard", PersonalizedTactic::setDribbling),
+            new InstructionAxis(TacticalModel.FOUL_FREQUENCY_OPTIONS, "Normal", PersonalizedTactic::setFoulFrequency),
+            new InstructionAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, "Medium", PersonalizedTactic::setFoulHardness),
+            new InstructionAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, "Normal", PersonalizedTactic::setTempoFragmentation),
+            new InstructionAxis(TacticalModel.WIDE_PLAY_OPTIONS, "Shoot", PersonalizedTactic::setWidePlay),
+            new InstructionAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::setTransition));
 
     /**
      * Stamp every non-grid axis onto a base tactic for advisor / simulation suggestions: defensive line
@@ -151,15 +166,15 @@ public class ManagerTacticService {
 
     /**
      * The AI's width <b>identity</b> from its squad shape (not opponent-optimized — width is invisible
-     * against a width-neutral panel, so it is a stylistic choice): a team with a high value share in
-     * wide positions plays Wide, a centrally-loaded one Narrow, else Balanced. Gives the human's width
-     * counter something to bite and makes AI-vs-AI width matchups fire.
+     * against a width-neutral panel, so it is a stylistic choice). The AI <b>commits</b>: a squad with a
+     * wide-position value share above the midpoint of the two thresholds plays Wide, otherwise Narrow —
+     * never the bland Balanced default. Gives the human's width counter something to bite and makes
+     * AI-vs-AI width matchups fire.
      */
     public String widthIdentity(double wideShare) {
         MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
-        if (wideShare >= cfg.getAiWidthWideThreshold()) return "Wide";
-        if (wideShare <= cfg.getAiWidthNarrowThreshold()) return "Narrow";
-        return "Balanced";
+        double midpoint = (cfg.getAiWidthWideThreshold() + cfg.getAiWidthNarrowThreshold()) / 2.0;
+        return wideShare >= midpoint ? "Wide" : "Narrow";
     }
 
     private static PersonalizedTactic build(String mentality, String timeWasting,
@@ -175,47 +190,78 @@ public class ManagerTacticService {
 
     /**
      * One new (Strat-2 / Faza-2) axis: its valid values, its neutral default (the token that
-     * contributes 0 in {@link TacticalScoreService#vector} — "factor 1" / no-op), and how to set it.
+     * contributes 0 in {@link TacticalScoreService#vector} — "factor 1" / no-op), and how to read/set it.
      */
     private record NewAxis(List<String> options, String neutral,
+                           Function<PersonalizedTactic, String> getter,
                            BiConsumer<PersonalizedTactic, String> setter) {}
 
     /** All 9 new axes with their neutral defaults (must match {@code TacticalScoreService.vector}'s
      *  {@code orDefault} tokens, i.e. the value that maps to 0 in the config axis maps). */
     private static final List<NewAxis> NEW_AXES = List.of(
-            new NewAxis(TacticalModel.DEFENSIVE_LINE_OPTIONS, "Standard", PersonalizedTactic::setDefensiveLine),
-            new NewAxis(TacticalModel.PRESSING_OPTIONS, "Low", PersonalizedTactic::setPressing),
-            new NewAxis(TacticalModel.WIDTH_OPTIONS, "Balanced", PersonalizedTactic::setWidth),
-            new NewAxis(TacticalModel.DRIBBLING_OPTIONS, "Standard", PersonalizedTactic::setDribbling),
-            new NewAxis(TacticalModel.FOUL_FREQUENCY_OPTIONS, "Normal", PersonalizedTactic::setFoulFrequency),
-            new NewAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, "Medium", PersonalizedTactic::setFoulHardness),
-            new NewAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, "Normal", PersonalizedTactic::setTempoFragmentation),
-            new NewAxis(TacticalModel.WIDE_PLAY_OPTIONS, "Shoot", PersonalizedTactic::setWidePlay),
-            new NewAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::setTransition));
+            new NewAxis(TacticalModel.DEFENSIVE_LINE_OPTIONS, "Standard", PersonalizedTactic::getDefensiveLine, PersonalizedTactic::setDefensiveLine),
+            new NewAxis(TacticalModel.PRESSING_OPTIONS, "Low", PersonalizedTactic::getPressing, PersonalizedTactic::setPressing),
+            new NewAxis(TacticalModel.WIDTH_OPTIONS, "Balanced", PersonalizedTactic::getWidth, PersonalizedTactic::setWidth),
+            new NewAxis(TacticalModel.DRIBBLING_OPTIONS, "Standard", PersonalizedTactic::getDribbling, PersonalizedTactic::setDribbling),
+            new NewAxis(TacticalModel.FOUL_FREQUENCY_OPTIONS, "Normal", PersonalizedTactic::getFoulFrequency, PersonalizedTactic::setFoulFrequency),
+            new NewAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, "Medium", PersonalizedTactic::getFoulHardness, PersonalizedTactic::setFoulHardness),
+            new NewAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, "Normal", PersonalizedTactic::getTempoFragmentation, PersonalizedTactic::setTempoFragmentation),
+            new NewAxis(TacticalModel.WIDE_PLAY_OPTIONS, "Shoot", PersonalizedTactic::getWidePlay, PersonalizedTactic::setWidePlay),
+            new NewAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::getTransition, PersonalizedTactic::setTransition));
 
     /**
-     * "Default = factor 1" enumeration of the new axes over the 900 base settings (for ONE formation):
-     * the neutral default of every new axis is the baseline (always present, no-op), and each
-     * non-default value is added one axis at a time (other new axes held at default). So per base
-     * setting we emit 1 all-neutral tactic + one variant per non-default value of each axis —
-     * 900 × (1 + Σ(options-1)) = 900 × (1 + 18) = <b>17,100</b> complete tactics. Additive, not the
-     * 17.7M multiplicative cross-product: each axis is explored individually against the neutral
-     * baseline, so its own contribution is visible without the combinatorial blow-up.
+     * Advisor enumeration for ONE formation with <b>NO default values</b> on the 9 new axes — the AI's
+     * committed style, explored. For each of the 900 base settings the new axes are first committed to
+     * their greedy reference (via {@link #applyNewAxes}: best non-default line/press/instructions, width
+     * by squad shape); then one variant per axis swaps in that axis's OTHER non-default value (others at
+     * the reference). 1 reference + 9 single-axis alternatives = 10 fully-committed tactics per base ⇒
+     * <b>9,000</b>. Because every row is committed, the distinct-points filter can never hide a real
+     * tactic behind a neutral one. Needs the team's profile/ability/wideShare for the greedy reference.
      */
-    public List<PersonalizedTactic> candidateTacticsWithNewAxes() {
-        List<PersonalizedTactic> out = new ArrayList<>(17_100);
+    public List<PersonalizedTactic> committedAdvisorTactics(TeamProfile mine, double ability, double wideShare) {
+        java.util.Random rng = new java.util.Random(20260531L); // seeded ⇒ deterministic
+        List<PersonalizedTactic> out = new ArrayList<>(900 * (1 + 9 + MULTI_AXIS_SAMPLES));
         for (PersonalizedTactic base : candidateTactics()) {
-            for (NewAxis a : NEW_AXES) a.setter().accept(base, a.neutral());
-            out.add(copy(base));                                  // all new axes neutral
+            applyNewAxes(base, mine, ability, wideShare);             // commit all 9 new axes (no defaults)
+            PersonalizedTactic reference = copy(base);
+            out.add(reference);                                      // the committed reference
+
+            // Single-axis alternatives: each axis swapped to its OTHER non-default value (others = ref).
             for (NewAxis a : NEW_AXES) {
+                String ref = a.getter().apply(base);
                 for (String value : a.options()) {
-                    if (value.equals(a.neutral())) continue;
-                    a.setter().accept(base, value);               // one axis off neutral
-                    out.add(copy(base));                          // others stay neutral
-                    a.setter().accept(base, a.neutral());         // reset for the next deviation
+                    if (value.equals(a.neutral()) || value.equals(ref)) continue;
+                    a.setter().accept(base, value);
+                    out.add(copy(base));
+                    a.setter().accept(base, ref);
                 }
             }
+
+            // Multi-axis committed combos: several axes flipped to a random non-default value at once,
+            // so the TOP tactics differ in many axes — no shared "core" of 3-4 constant axes among them.
+            for (int k = 0; k < MULTI_AXIS_SAMPLES; k++) {
+                PersonalizedTactic v = copy(reference);
+                for (NewAxis a : NEW_AXES) {
+                    if (rng.nextDouble() < MULTI_AXIS_FLIP_PROB) {
+                        List<String> committed = nonNeutralValues(a);
+                        a.setter().accept(v, committed.get(rng.nextInt(committed.size())));
+                    }
+                }
+                out.add(v);
+            }
         }
+        return out;
+    }
+
+    /** How many random multi-axis committed combos to emit per base setting, and the per-axis flip
+     *  probability — together they control how diverse the top tactics are. */
+    private static final int MULTI_AXIS_SAMPLES = 12;
+    private static final double MULTI_AXIS_FLIP_PROB = 0.55;
+
+    /** An axis's values minus its neutral default (the committed choices). */
+    private static List<String> nonNeutralValues(NewAxis a) {
+        List<String> out = new ArrayList<>(a.options().size());
+        for (String o : a.options()) if (!o.equals(a.neutral())) out.add(o);
         return out;
     }
 

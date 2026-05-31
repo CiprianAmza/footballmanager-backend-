@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -147,45 +146,6 @@ public class BestTacticService {
         }
         all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
         return all;
-    }
-
-    /**
-     * Rank tactics for a SINGLE formation using the "default = factor 1" enumeration of all 9 new
-     * axes ({@link ManagerTacticService#candidateTacticsWithNewAxes} — 900 base × 19 = 17,100 complete
-     * tactics, each axis explored individually against its neutral baseline and folded into the
-     * panel-expected-points score). Sorted best-first; returns the top {@code topN} (all if topN ≤ 0).
-     * One formation keeps the count tractable (no ×15) and lets the user pick it from the UI.
-     */
-    public List<TacticRow> rankTacticsForFormation(long teamId, String formation, int topN) {
-        double[] coach = coachAbilities(teamId);
-        TeamProfile profile = tacticalScoreService.coachedProfile(
-                tacticalScoreService.profile(starterValues(teamId, formation)), coach[0], coach[1]);
-        TacticVector neutralOpp = tacticalScoreService.vector(new PersonalizedTactic());
-
-        List<TacticRow> all = new ArrayList<>(17_100);
-        for (PersonalizedTactic t : managerTacticService.candidateTacticsWithNewAxes()) {
-            TacticVector mv = tacticalScoreService.vector(t);
-            double egd = tacticalScoreService.expectedGoalDifference(profile, mv, profile, neutralOpp);
-            double ep = tacticalScoreService.panelExpectedPoints(profile, mv);
-            all.add(new TacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
-                    t.getInPossession(), t.getTimeWasting(), egd, ep,
-                    t.getDefensiveLine(), t.getPressing(), t.getWidth(),
-                    t.getDribbling(), t.getFoulFrequency(), t.getFoulHardness(),
-                    t.getTempoFragmentation(), t.getWidePlay(), t.getTransition()));
-        }
-        all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
-
-        // Keep only the distinct expected-points values (as displayed, 2 decimals); on a tie, prefer
-        // the row with the highest goal difference. Collapses the many tactics that score identically.
-        Map<String, TacticRow> byPts = new LinkedHashMap<>();
-        for (TacticRow r : all) {
-            String key = String.format("%.2f", r.expectedPoints());
-            TacticRow cur = byPts.get(key);
-            if (cur == null || r.expectedGoalDifference() > cur.expectedGoalDifference()) byPts.put(key, r);
-        }
-        List<TacticRow> distinct = new ArrayList<>(byPts.values());
-        distinct.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
-        return topN > 0 ? new ArrayList<>(distinct.subList(0, Math.min(topN, distinct.size()))) : distinct;
     }
 
     private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");

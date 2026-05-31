@@ -60,10 +60,12 @@ class ManagerTacticServiceTest {
     }
 
     @Test
-    void widthIdentity_followsSquadShape() {
-        // Thresholds: ≥0.38 Wide, ≤0.28 Narrow, else Balanced (config defaults).
+    void widthIdentity_committedNoBalanced() {
+        // AI commits: ≥ midpoint of the two thresholds (0.38+0.28)/2 = 0.33 → Wide, else Narrow.
+        // Never Balanced (the bland default is excluded for AI teams).
         assertThat(service.widthIdentity(0.50)).isEqualTo("Wide");
+        assertThat(service.widthIdentity(0.34)).isEqualTo("Wide");
+        assertThat(service.widthIdentity(0.32)).isEqualTo("Narrow");
         assertThat(service.widthIdentity(0.10)).isEqualTo("Narrow");
-        assertThat(service.widthIdentity(0.33)).isEqualTo("Balanced");
     }
 }
