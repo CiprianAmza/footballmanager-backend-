@@ -35,6 +35,8 @@ public class SquadGenerationService {
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private CompetitionService competitionService;
     @Autowired private CompositeNameGenerator compositeNameGenerator;
+    @Autowired private NationService nationService;
+    @Autowired private FaceGenerator faceGenerator;
 
     /** Standard 22-man squad template (2 GK, 2 DL, 2 DR, 4 DC, 2 ML, 2 MR,
      *  4 MC, 4 ST). Indices map deterministically to positions so the squad
@@ -63,10 +65,16 @@ public class SquadGenerationService {
         int teamRep = team.getReputation();
         int targetRating = 25 + (int) Math.round((teamRep / 10000.0) * 250.0);
 
+        // Every player in the squad shares the team's nation (team -> competition -> nationId).
+        long nationId = nationService.nationIdForTeam(team.getId());
+
         for (int i = 0; i < SQUAD_SIZE; i++) {
             Human player = buildOnePlayer(team, currentSeason, initialMorale, targetRating,
                     positionForIndex(i), random);
             player = humanRepository.save(player);
+
+            // Face is seeded from the persisted id, so it must be assigned after save.
+            faceGenerator.assignFace(player, nationId);
 
             persistHistoricalRelation(player, team.getId(), currentSeason);
             PlayerSkills skills = persistSkills(player, random);

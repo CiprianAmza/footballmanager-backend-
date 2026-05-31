@@ -43,4 +43,16 @@ public class PlayerView {
   private String preferredFoot;
   private int heightCm;
   private int weightKg;
+
+  // Nation (derived: team -> competition -> nationId)
+  private long nationId;
+  private String nationName;
+  private String nationFlagCode;
+
+  // Face descriptor (FE renders layered pieces from these indices)
+  private int baseFaceId;
+  private int skinTone;
+  private int hairStyle;
+  private int hairColor;
+  private int eyeColor;
 }

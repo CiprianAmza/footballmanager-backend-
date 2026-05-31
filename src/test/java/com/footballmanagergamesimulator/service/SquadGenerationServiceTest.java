@@ -38,6 +38,8 @@ class SquadGenerationServiceTest {
     private PlayerSkillsRepository playerSkillsRepository;
     private CompetitionService competitionService;
     private CompositeNameGenerator nameGen;
+    private NationService nationService;
+    private FaceGenerator faceGenerator;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -47,12 +49,16 @@ class SquadGenerationServiceTest {
         playerSkillsRepository = mock(PlayerSkillsRepository.class);
         competitionService = mock(CompetitionService.class);
         nameGen = mock(CompositeNameGenerator.class);
+        nationService = mock(NationService.class);
+        faceGenerator = new FaceGenerator(); // real generator: no deps, deterministic
 
         inject("humanRepository", humanRepository);
         inject("teamPlayerHistoricalRelationRepository", historicalRepo);
         inject("playerSkillsRepository", playerSkillsRepository);
         inject("competitionService", competitionService);
         inject("compositeNameGenerator", nameGen);
+        inject("nationService", nationService);
+        inject("faceGenerator", faceGenerator);
 
         // Default name: unique per call so the squad has distinct names.
         AtomicLong nameCounter = new AtomicLong();
