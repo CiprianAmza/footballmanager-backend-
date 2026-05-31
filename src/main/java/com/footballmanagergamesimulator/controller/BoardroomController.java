@@ -2,15 +2,21 @@ package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.Asset;
 import com.footballmanagergamesimulator.model.ClubShareholding;
+import com.footballmanagergamesimulator.model.CoachPermissions;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.ClubShareholdingRepository;
+import com.footballmanagergamesimulator.repository.CoachPermissionsRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.AssetService;
+import com.footballmanagergamesimulator.service.CoachPermissionService;
 import com.footballmanagergamesimulator.service.FinanceService;
+import com.footballmanagergamesimulator.service.HumanService;
 import com.footballmanagergamesimulator.service.OwnershipService;
 import com.footballmanagergamesimulator.service.ShareMarketService;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -40,6 +46,10 @@ public class BoardroomController {
     @Autowired private ShareMarketService shareMarketService;
     @Autowired private OwnershipService ownershipService;
     @Autowired private FinanceService financeService;
+    @Autowired private CoachPermissionService coachPermissionService;
+    @Autowired private CoachPermissionsRepository coachPermissionsRepository;
+    @Autowired private HumanService humanService;
+    @Autowired private ManagerInboxRepository managerInboxRepository;
 
     // ==================== HUMANS / WEALTH ====================
 
@@ -223,6 +233,172 @@ public class BoardroomController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
         }
+    }
+
+    // ==================== COACH MARKET (owner hires/fires the coach) — Faza 3 ====================
+
+    /** Owner hires a coach for an owned club, paying the coach's release clause from club finances. */
+    @PostMapping("/coach/hire")
+    public ResponseEntity<?> hireCoach(@RequestBody Map<String, Object> body) {
+        try {
+            long ownerHumanId = asLong(body.get("ownerHumanId"));
+            long teamId = asLong(body.get("teamId"));
+            long coachHumanId = asLong(body.get("coachHumanId"));
+            if (!ownershipService.isOwner(ownerHumanId, teamId)) {
+                return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not the owner of this club"));
+            }
+            Human coach = humanRepository.findById(coachHumanId).orElse(null);
+            if (coach == null || coach.getTypeId() != TypeNames.MANAGER_TYPE) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Coach not found"));
+            }
+            Team team = teamRepository.findById(teamId).orElseThrow();
+            Round round = roundRepository.findById(1L).orElse(new Round());
+            int season = (int) round.getSeason();
+            int day = (int) round.getRound();
+
+            Long coachOldTeam = coach.getTeamId();
+            boolean employedElsewhere = coachOldTeam != null && coachOldTeam > 0 && coachOldTeam != teamId;
+            if (employedElsewhere) {
+                long clause = Math.max(0, coach.getReleaseClause());
+                if (clause > 0) {
+                    if (team.getTotalFinances() < clause) {
+                        return ResponseEntity.badRequest().body(Map.of("success", false,
+                                "message", "Club has insufficient finances for the release clause (" + clause + ")"));
+                    }
+                    financeService.recordExpense(teamId, season, day, "COACH_RELEASE_CLAUSE",
+                            "Release clause paid for " + coach.getName(), clause);
+                }
+            }
+
+            // Displace the current manager(s) of the target team.
+            for (Human m : humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)) {
+                if (m.getId() == coachHumanId) continue;
+                m.setTeamId(0L);
+                humanRepository.save(m);
+            }
+            coach.setTeamId(teamId);
+            coach.setRetired(false);
+            humanRepository.save(coach);
+            if (employedElsewhere) {
+                humanService.ensureTeamHasManager(coachOldTeam);
+            }
+            ownerInbox(teamId, season, day, "New Coach Appointed",
+                    coach.getName() + " has been appointed as coach by the owner.");
+            return ResponseEntity.ok(Map.of("success", true, "coachId", coachHumanId, "teamId", teamId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", String.valueOf(e.getMessage())));
+        }
+    }
+
+    /** Owner fires the current coach of an owned club; an AI replacement is spawned. */
+    @PostMapping("/coach/fire")
+    public ResponseEntity<?> fireCoach(@RequestBody Map<String, Object> body) {
+        try {
+            long ownerHumanId = asLong(body.get("ownerHumanId"));
+            long teamId = asLong(body.get("teamId"));
+            if (!ownershipService.isOwner(ownerHumanId, teamId)) {
+                return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not the owner of this club"));
+            }
+            for (Human m : humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)) {
+                m.setTeamId(0L);
+                humanRepository.save(m);
+            }
+            humanService.ensureTeamHasManager(teamId);
+            Round round = roundRepository.findById(1L).orElse(new Round());
+            ownerInbox(teamId, (int) round.getSeason(), (int) round.getRound(), "Coach Dismissed",
+                    "The owner has dismissed the coach. A new coach has taken charge.");
+            return ResponseEntity.ok(Map.of("success", true, "teamId", teamId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", String.valueOf(e.getMessage())));
+        }
+    }
+
+    // ==================== COACH PERMISSIONS + XI LOCKING (owner) — Faza 4/5 ====================
+
+    @GetMapping("/permissions/{teamId}")
+    public ResponseEntity<?> getPermissions(@PathVariable long teamId) {
+        return ResponseEntity.ok(coachPermissionService.getOrDefault(teamId));
+    }
+
+    @PostMapping("/permissions/{teamId}")
+    public ResponseEntity<?> setPermissions(@PathVariable long teamId, @RequestBody Map<String, Object> body) {
+        try {
+            long ownerHumanId = asLong(body.get("ownerHumanId"));
+            if (!ownershipService.isOwner(ownerHumanId, teamId)) {
+                return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not the owner of this club"));
+            }
+            CoachPermissions p = coachPermissionService.getOrDefault(teamId);
+            p.setTeamId(teamId);
+            if (body.containsKey("canBuyPlayers")) p.setCanBuyPlayers(asBool(body.get("canBuyPlayers")));
+            if (body.containsKey("canSellPlayers")) p.setCanSellPlayers(asBool(body.get("canSellPlayers")));
+            if (body.containsKey("canNegotiateContracts")) p.setCanNegotiateContracts(asBool(body.get("canNegotiateContracts")));
+            if (body.containsKey("canPickXI")) p.setCanPickXI(asBool(body.get("canPickXI")));
+            if (body.containsKey("canChangeFormationTactics")) p.setCanChangeFormationTactics(asBool(body.get("canChangeFormationTactics")));
+            if (body.containsKey("canSetTraining")) p.setCanSetTraining(asBool(body.get("canSetTraining")));
+            if (body.containsKey("canSetSetPieces")) p.setCanSetSetPieces(asBool(body.get("canSetSetPieces")));
+            if (body.containsKey("transferBudgetCap")) p.setTransferBudgetCap(asLong(body.get("transferBudgetCap")));
+            return ResponseEntity.ok(coachPermissionService.save(p));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", String.valueOf(e.getMessage())));
+        }
+    }
+
+    @PostMapping("/lockXI/{teamId}")
+    public ResponseEntity<?> lockXI(@PathVariable long teamId, @RequestBody Map<String, Object> body) {
+        try {
+            long ownerHumanId = asLong(body.get("ownerHumanId"));
+            if (!ownershipService.isOwner(ownerHumanId, teamId)) {
+                return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not the owner of this club"));
+            }
+            List<CoachPermissionService.LockedSlot> locks = new ArrayList<>();
+            Object slotsObj = body.get("slots");
+            if (slotsObj instanceof List<?> slots) {
+                for (Object s : slots) {
+                    if (s instanceof Map<?, ?> m) {
+                        int idx = (int) asLong(m.get("positionIndex"));
+                        long pid = asLong(m.get("playerId"));
+                        locks.add(new CoachPermissionService.LockedSlot(idx, pid));
+                    }
+                }
+            }
+            CoachPermissions p = coachPermissionService.getOrDefault(teamId);
+            p.setTeamId(teamId);
+            p.setLockedSlots(coachPermissionService.writeLockedSlots(locks));
+            coachPermissionService.save(p);
+            return ResponseEntity.ok(Map.of("success", true, "lockedCount", locks.size()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", String.valueOf(e.getMessage())));
+        }
+    }
+
+    @DeleteMapping("/lockXI/{teamId}")
+    public ResponseEntity<?> clearLockXI(@PathVariable long teamId, @RequestParam long ownerHumanId) {
+        if (!ownershipService.isOwner(ownerHumanId, teamId)) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not the owner of this club"));
+        }
+        CoachPermissions p = coachPermissionService.getOrDefault(teamId);
+        p.setTeamId(teamId);
+        p.setLockedSlots(null);
+        coachPermissionService.save(p);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    private void ownerInbox(long teamId, int season, int day, String title, String content) {
+        ManagerInbox inbox = new ManagerInbox();
+        inbox.setTeamId(teamId);
+        inbox.setSeasonNumber(season);
+        inbox.setRoundNumber(day);
+        inbox.setTitle(title);
+        inbox.setContent(content);
+        inbox.setCategory("OWNER_DECISION");
+        inbox.setRead(false);
+        inbox.setCreatedAt(System.currentTimeMillis());
+        managerInboxRepository.save(inbox);
+    }
+
+    private static boolean asBool(Object o) {
+        if (o instanceof Boolean b) return b;
+        return Boolean.parseBoolean(String.valueOf(o));
     }
 
     private static long asLong(Object o) {

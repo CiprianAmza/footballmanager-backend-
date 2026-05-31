@@ -40,6 +40,7 @@ public class TransferMarketService {
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private RoundRepository roundRepository;
     @Autowired private UserContext userContext;
+    @Autowired private CoachPermissionService coachPermissionService;
 
     /** Global flag. Flipped by {@link com.footballmanagergamesimulator.service.SeasonTransitionService}
      *  (open at end-of-season) and {@link com.footballmanagergamesimulator.service.GameAdvanceService}
@@ -77,6 +78,8 @@ public class TransferMarketService {
      *  inbox notification for the human manager. */
     public void generateAiOffersForHumanPlayers(Team aiTeam, BuyPlanTransferView buyPlanTransferView) {
         if (buyPlanTransferView == null) return;
+        // An owner who has barred buying binds the AI coach too — no AI offers for this club.
+        if (!coachPermissionService.canBuyPlayers(aiTeam.getId())) return;
 
         Round round = roundRepository.findById(1L).orElseThrow();
         int season = (int) round.getSeason();

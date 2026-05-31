@@ -126,6 +126,22 @@ public class MatchEngineConfig {
         private long houseDefaultPrice = 2_000_000L;
         private long carDefaultPrice = 250_000L;
 
+        // ---- Press dynamics: owner arrogance / coach humiliation (Faza 6) ----
+        /** Arrogance added to the owner per OFF toggle when a boardroom press question is asked. */
+        private double arrogancePerRestriction = 2.0;
+        /** Humiliation added to the coach per OFF toggle when a boardroom press question is asked. */
+        private double humiliationPerRestriction = 2.0;
+        /** Extra humiliation added to the coach per owner-locked XI slot. */
+        private double humiliationPerLockedSlot = 1.5;
+        /** Arrogance delta when the owner answers assertively (vs humbly) to the press. */
+        private double pressArroganceDelta = 4.0;
+        /** Humiliation delta when the coach answers resentfully (vs accepting) to the press. */
+        private double pressHumiliationDelta = 4.0;
+        /** At/above this coach humiliation, the coach complains and squad morale dips. */
+        private double coachLeaveHumiliationThreshold = 60.0;
+        /** Squad morale hit applied once when coach humiliation crosses the threshold. */
+        private int squadMoraleHitAtHighHumiliation = 3;
+
         public double getOwnershipThresholdPercent() { return ownershipThresholdPercent; }
         public void setOwnershipThresholdPercent(double v) { this.ownershipThresholdPercent = v; }
         public double getSharePricePerPercentOfFinances() { return sharePricePerPercentOfFinances; }
@@ -138,6 +154,21 @@ public class MatchEngineConfig {
         public void setHouseDefaultPrice(long v) { this.houseDefaultPrice = v; }
         public long getCarDefaultPrice() { return carDefaultPrice; }
         public void setCarDefaultPrice(long v) { this.carDefaultPrice = v; }
+
+        public double getArrogancePerRestriction() { return arrogancePerRestriction; }
+        public void setArrogancePerRestriction(double v) { this.arrogancePerRestriction = v; }
+        public double getHumiliationPerRestriction() { return humiliationPerRestriction; }
+        public void setHumiliationPerRestriction(double v) { this.humiliationPerRestriction = v; }
+        public double getHumiliationPerLockedSlot() { return humiliationPerLockedSlot; }
+        public void setHumiliationPerLockedSlot(double v) { this.humiliationPerLockedSlot = v; }
+        public double getPressArroganceDelta() { return pressArroganceDelta; }
+        public void setPressArroganceDelta(double v) { this.pressArroganceDelta = v; }
+        public double getPressHumiliationDelta() { return pressHumiliationDelta; }
+        public void setPressHumiliationDelta(double v) { this.pressHumiliationDelta = v; }
+        public double getCoachLeaveHumiliationThreshold() { return coachLeaveHumiliationThreshold; }
+        public void setCoachLeaveHumiliationThreshold(double v) { this.coachLeaveHumiliationThreshold = v; }
+        public int getSquadMoraleHitAtHighHumiliation() { return squadMoraleHitAtHighHumiliation; }
+        public void setSquadMoraleHitAtHighHumiliation(int v) { this.squadMoraleHitAtHighHumiliation = v; }
     }
 
     // ==================== POWER / POISSON ====================

@@ -1,10 +1,15 @@
 package com.footballmanagergamesimulator.controller;
 
+import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.TrainingSchedule;
+import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TrainingScheduleRepository;
+import com.footballmanagergamesimulator.service.CoachPermissionService;
 import com.footballmanagergamesimulator.service.TrainingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +26,25 @@ public class TrainingController {
     @Autowired
     TrainingService trainingService;
 
+    @Autowired
+    HumanRepository humanRepository;
+
+    @Autowired
+    CoachPermissionService coachPermissionService;
+
+    private void requireTrainingPermission(long teamId) {
+        if (!coachPermissionService.canSetTraining(teamId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Restricționat de patron: nu poți schimba antrenamentul.");
+        }
+    }
+
+    private void requireTrainingPermissionForPlayer(long playerId) {
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player != null && player.getTeamId() != null) {
+            requireTrainingPermission(player.getTeamId());
+        }
+    }
+
     @GetMapping("/schedule/{teamId}")
     public List<TrainingSchedule> getSchedule(@PathVariable(name = "teamId") long teamId) {
         return trainingScheduleRepository.findAllByTeamId(teamId);
@@ -29,6 +53,7 @@ public class TrainingController {
     @PostMapping("/schedule/{teamId}")
     public List<TrainingSchedule> saveSchedule(@PathVariable(name = "teamId") long teamId,
                                                @RequestBody List<TrainingSchedule> schedules) {
+        requireTrainingPermission(teamId);
         // Remove existing schedule for this team
         List<TrainingSchedule> existing = trainingScheduleRepository.findAllByTeamId(teamId);
         trainingScheduleRepository.deleteAll(existing);
@@ -106,6 +131,7 @@ public class TrainingController {
     @PostMapping("/individual/{playerId}")
     public Map<String, Object> setIndividualTraining(@PathVariable long playerId,
                                                       @RequestBody Map<String, String> body) {
+        requireTrainingPermissionForPlayer(playerId);
         String focus = body.get("focus");
         String attribute = body.get("attribute");
         String role = body.get("role");
@@ -115,6 +141,7 @@ public class TrainingController {
 
     @DeleteMapping("/individual/{playerId}")
     public Map<String, Object> clearIndividualTraining(@PathVariable long playerId) {
+        requireTrainingPermissionForPlayer(playerId);
         trainingService.setIndividualTraining(playerId, null, null, null);
         return trainingService.getIndividualTraining(playerId);
     }

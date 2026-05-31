@@ -48,6 +48,9 @@ public class TransferOfferController {
     @Autowired
     ContractController contractController;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
+
     private final Random random = new Random();
 
     @GetMapping("/incoming/{teamId}")
@@ -99,6 +102,14 @@ public class TransferOfferController {
 
         Human player = playerOpt.get();
         long humanTeamId = userContext.getTeamId(request);
+
+        if (!coachPermissionService.canBuyPlayers(humanTeamId)) {
+            return ResponseEntity.status(403).body("Restricționat de patron: nu poți cumpăra jucători.");
+        }
+        long buyCap = coachPermissionService.transferBudgetCap(humanTeamId);
+        if (buyCap >= 0 && offerAmount > buyCap) {
+            return ResponseEntity.status(403).body("Restricționat de patron: oferta depășește plafonul de transfer (" + buyCap + ").");
+        }
 
         if (player.getTeamId() == null || player.getTeamId() == humanTeamId) {
             return ResponseEntity.badRequest().body("Cannot buy a player from your own team");
@@ -197,6 +208,12 @@ public class TransferOfferController {
         Round round = roundRepository.findById(1L).orElse(new Round());
         int season = (int) round.getSeason();
         long humanTeamId = userContext.getTeamId(request);
+
+        // Accepting an incoming offer (or a counter that the AI then accepts) sells one of our
+        // players → guard with canSellPlayers. Owner can lock the squad down.
+        if (("accept".equals(action) || "counter".equals(action)) && !coachPermissionService.canSellPlayers(humanTeamId)) {
+            return ResponseEntity.status(403).body("Restricționat de patron: nu poți vinde jucători.");
+        }
 
         if ("accept".equals(action)) {
             offer.setStatus("accepted");
