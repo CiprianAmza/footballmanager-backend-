@@ -112,8 +112,8 @@ public class YouthAcademyService {
         Round round = roundRepository.findById(1L).orElse(new Round());
         int currentSeason = (int) round.getSeason();
 
-        // Calculate wage based on ability (youth players get modest wages)
-        long youthWage = (long) (Math.pow(yp.getCurrentAbility() / 10.0, 2.0) * 200);
+        // Wage from the shared curve so a promoted youth matches everyone else's rating-based wage
+        long youthWage = WageService.baseWage(yp.getCurrentAbility());
         youthWage = Math.max(youthWage, 500); // minimum wage for youth
 
         // Calculate release clause (5x annual wage equivalent)

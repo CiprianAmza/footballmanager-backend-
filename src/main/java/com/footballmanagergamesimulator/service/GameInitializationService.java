@@ -118,7 +118,33 @@ public class GameInitializationService {
         // Replace per-league cup CompetitionTeamInfo records with bracket-aware fixtures
         newSeasonSetupProcessor.regenerateAllCupBrackets((int) round.getSeason());
 
+        backfillManagerCoachingAbilities();
+
         return round;
+    }
+
+    /**
+     * One-time backfill for the two-axis coaching model: managers created before
+     * off/def abilities existed (old saves) — and the season-1 initial managers —
+     * are stuck at the 50/50 default, so coaching asymmetry never emerges. Re-seed
+     * those (and only those) with the same independent-noise logic used for
+     * replacement managers in {@link HumanService#ensureTeamHasManager(long)}.
+     * Idempotent: managers already holding non-default values are left untouched.
+     */
+    private void backfillManagerCoachingAbilities() {
+        Random random = bootstrapSeed != 0 ? new Random(bootstrapSeed) : new Random();
+        for (Human mgr : humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE)) {
+            if (mgr.getOffensiveAbility() != 50.0 || mgr.getDefensiveAbility() != 50.0) continue;
+            int reputation = 0;
+            if (mgr.getTeamId() != null && mgr.getTeamId() > 0) {
+                Team team = teamRepository.findById(mgr.getTeamId()).orElse(null);
+                if (team != null) reputation = team.getReputation();
+            }
+            double repShare = Math.max(0.0, Math.min(1.0, reputation / 10000.0));
+            mgr.setOffensiveAbility(Math.max(1, Math.min(100, 40 + repShare * 40 + (random.nextDouble() * 40 - 20))));
+            mgr.setDefensiveAbility(Math.max(1, Math.min(100, 40 + repShare * 40 + (random.nextDouble() * 40 - 20))));
+            humanRepository.save(mgr);
+        }
     }
 
     private void generateInitialSquadsAndStaff(Round round) {
