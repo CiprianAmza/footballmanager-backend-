@@ -43,31 +43,36 @@ public class ManagerTacticService {
     }
 
     /**
-     * Candidate tactics ranked best-first for {@code mine} by average expected POINTS across an
-     * opponent panel (weaker / equal / stronger, all neutral), via
-     * {@link TacticalScoreService#panelExpectedPoints}. The {@code opponent} argument is retained for
-     * signature compatibility with callers but no longer used: the panel is derived from {@code mine}
-     * so the openness axes (tempo, passing) no longer cancel against a self-mirror.
-     */
-    public List<PersonalizedTactic> rankTactics(TeamProfile mine, TeamProfile opponent) {
-        List<PersonalizedTactic> tactics = candidateTactics();
-        tactics.sort(Comparator.comparingDouble((PersonalizedTactic t) ->
-                tacticalScoreService.panelExpectedPoints(mine, tacticalScoreService.vector(t))).reversed());
-        return tactics;
-    }
-
-    /**
-     * Pick a tactic for a manager of the given ability (0-100) facing a representative opponent.
-     * Ability 100 ⇒ the top-ranked tactic; ability 0 ⇒ the worst. The chosen base tactic is then
-     * completed with the defensive line, pressing and the Faza-2 team instructions via the same
-     * skill-ranked greedy search the advisor uses, so production AI explores all axes. Width is left
-     * to the caller (a squad-shape identity via {@link #widthIdentity}).
+     * Pick a tactic for a manager of the given ability (0-100) for team {@code mine}. Each base
+     * setting is scored by average expected POINTS across an opponent panel ({@link
+     * TacticalScoreService#panelExpectedPoints}); the settings are then collapsed to the DISTINCT
+     * point tiers (one tactic per distinct value, as displayed) sorted worst→best. The manager's
+     * rating is a percentile into those tiers: <b>0 → the first (worst) tier, 100 → the last (best),
+     * 50 → the median</b>. So managers of different skill genuinely play different-quality tactics,
+     * instead of all landing on near-identical settings that merely tie on points. The chosen base is
+     * then completed with line/pressing + the Faza-2 instructions via the greedy search (width is left
+     * to the caller, a squad-shape identity via {@link #widthIdentity}). The {@code opponent} argument
+     * is unused (the panel is derived from {@code mine}) but kept for caller compatibility.
      */
     public PersonalizedTactic chooseTactic(TeamProfile mine, TeamProfile opponent, double tacticalAbility) {
-        List<PersonalizedTactic> ranked = rankTactics(mine, opponent);
+        record Scored(PersonalizedTactic tactic, double pts) {}
+        List<Scored> scored = new ArrayList<>(900);
+        for (PersonalizedTactic t : candidateTactics())
+            scored.add(new Scored(t,
+                    tacticalScoreService.panelExpectedPoints(mine, tacticalScoreService.vector(t))));
+        scored.sort(Comparator.comparingDouble(Scored::pts)); // ascending: worst → best
+
+        // Collapse to one tactic per distinct (2-decimal) point value — the skill tiers.
+        List<PersonalizedTactic> tiers = new ArrayList<>();
+        String lastKey = null;
+        for (Scored s : scored) {
+            String key = String.format(java.util.Locale.ROOT, "%.2f", s.pts());
+            if (!key.equals(lastKey)) { tiers.add(s.tactic()); lastKey = key; }
+        }
+
         double a = Math.max(0, Math.min(100, tacticalAbility));
-        int index = (int) Math.round((100 - a) / 100.0 * (ranked.size() - 1));
-        PersonalizedTactic base = ranked.get(index);
+        int index = (int) Math.round(a / 100.0 * (tiers.size() - 1)); // 0→worst(first), 100→best(last)
+        PersonalizedTactic base = tiers.get(index);
         augmentLineAndPress(base, mine, a);
         augmentInstructions(base, mine, a);
         return base;
@@ -165,6 +170,72 @@ public class ManagerTacticService {
         t.setInPossession(inPossession);
         t.setPassingType(passing);
         t.setTempo(tempo);
+        return t;
+    }
+
+    /**
+     * One new (Strat-2 / Faza-2) axis: its valid values, its neutral default (the token that
+     * contributes 0 in {@link TacticalScoreService#vector} — "factor 1" / no-op), and how to set it.
+     */
+    private record NewAxis(List<String> options, String neutral,
+                           BiConsumer<PersonalizedTactic, String> setter) {}
+
+    /** All 9 new axes with their neutral defaults (must match {@code TacticalScoreService.vector}'s
+     *  {@code orDefault} tokens, i.e. the value that maps to 0 in the config axis maps). */
+    private static final List<NewAxis> NEW_AXES = List.of(
+            new NewAxis(TacticalModel.DEFENSIVE_LINE_OPTIONS, "Standard", PersonalizedTactic::setDefensiveLine),
+            new NewAxis(TacticalModel.PRESSING_OPTIONS, "Low", PersonalizedTactic::setPressing),
+            new NewAxis(TacticalModel.WIDTH_OPTIONS, "Balanced", PersonalizedTactic::setWidth),
+            new NewAxis(TacticalModel.DRIBBLING_OPTIONS, "Standard", PersonalizedTactic::setDribbling),
+            new NewAxis(TacticalModel.FOUL_FREQUENCY_OPTIONS, "Normal", PersonalizedTactic::setFoulFrequency),
+            new NewAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, "Medium", PersonalizedTactic::setFoulHardness),
+            new NewAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, "Normal", PersonalizedTactic::setTempoFragmentation),
+            new NewAxis(TacticalModel.WIDE_PLAY_OPTIONS, "Shoot", PersonalizedTactic::setWidePlay),
+            new NewAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::setTransition));
+
+    /**
+     * "Default = factor 1" enumeration of the new axes over the 900 base settings (for ONE formation):
+     * the neutral default of every new axis is the baseline (always present, no-op), and each
+     * non-default value is added one axis at a time (other new axes held at default). So per base
+     * setting we emit 1 all-neutral tactic + one variant per non-default value of each axis —
+     * 900 × (1 + Σ(options-1)) = 900 × (1 + 18) = <b>17,100</b> complete tactics. Additive, not the
+     * 17.7M multiplicative cross-product: each axis is explored individually against the neutral
+     * baseline, so its own contribution is visible without the combinatorial blow-up.
+     */
+    public List<PersonalizedTactic> candidateTacticsWithNewAxes() {
+        List<PersonalizedTactic> out = new ArrayList<>(17_100);
+        for (PersonalizedTactic base : candidateTactics()) {
+            for (NewAxis a : NEW_AXES) a.setter().accept(base, a.neutral());
+            out.add(copy(base));                                  // all new axes neutral
+            for (NewAxis a : NEW_AXES) {
+                for (String value : a.options()) {
+                    if (value.equals(a.neutral())) continue;
+                    a.setter().accept(base, value);               // one axis off neutral
+                    out.add(copy(base));                          // others stay neutral
+                    a.setter().accept(base, a.neutral());         // reset for the next deviation
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Copy the 14 scoring axes of a tactic (everything {@link TacticalScoreService#vector} reads). */
+    private static PersonalizedTactic copy(PersonalizedTactic s) {
+        PersonalizedTactic t = new PersonalizedTactic();
+        t.setMentality(s.getMentality());
+        t.setTimeWasting(s.getTimeWasting());
+        t.setInPossession(s.getInPossession());
+        t.setPassingType(s.getPassingType());
+        t.setTempo(s.getTempo());
+        t.setDefensiveLine(s.getDefensiveLine());
+        t.setPressing(s.getPressing());
+        t.setWidth(s.getWidth());
+        t.setDribbling(s.getDribbling());
+        t.setFoulFrequency(s.getFoulFrequency());
+        t.setFoulHardness(s.getFoulHardness());
+        t.setTempoFragmentation(s.getTempoFragmentation());
+        t.setWidePlay(s.getWidePlay());
+        t.setTransition(s.getTransition());
         return t;
     }
 }

@@ -67,8 +67,11 @@ public class TacticSimController {
     }
 
     @GetMapping("/tactics/analytical/{teamId}")
-    public AnalyticalResult analytical(@PathVariable long teamId) {
-        List<TacticRow> ranked = bestTacticService.rankAllTactics(teamId);
+    public AnalyticalResult analytical(@PathVariable long teamId,
+                                       @RequestParam(required = false, defaultValue = "442") String formation,
+                                       @RequestParam(required = false, defaultValue = "300") int topN) {
+        // Single formation, "default = factor 1" enumeration of all 9 new axes (17,100 tactics), top-N.
+        List<TacticRow> ranked = bestTacticService.rankTacticsForFormation(teamId, formation, topN);
         List<AnalyticalRow> rows = new ArrayList<>(ranked.size());
         for (TacticRow r : ranked) {
             rows.add(new AnalyticalRow(r.formation(), r.mentality(), r.tempo(), r.passingType(),

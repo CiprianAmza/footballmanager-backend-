@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -92,23 +93,14 @@ public class TacticSimulationService {
                     managerTacticService.chooseTactic(oppProfiles[i], avgProfile, c.pickAbility()));
         }
 
-        // The simulated team plays the formation's recommended Strat-2 axes (line/press coordinate +
-        // width identity), constant across the swept base settings — so the sim reflects production.
+        // Each swept base setting is completed with its OWN best Strat-2 + Faza-2 axes (greedy
+        // per-axis), so every axis is chosen individually and folds into the simulated score.
         double teamAbility = coachFor(teamId).pickAbility();
-        PersonalizedTactic axesProto = new PersonalizedTactic();
-        managerTacticService.applyNewAxes(axesProto, teamProfile, teamAbility, teamWideShare(teamId, form));
+        double teamWs = teamWideShare(teamId, form);
 
         List<TacticPointsRow> rows = new ArrayList<>(900);
         for (PersonalizedTactic t : managerTacticService.candidateTactics()) {
-            t.setDefensiveLine(axesProto.getDefensiveLine());
-            t.setPressing(axesProto.getPressing());
-            t.setWidth(axesProto.getWidth());
-            t.setDribbling(axesProto.getDribbling());
-            t.setFoulFrequency(axesProto.getFoulFrequency());
-            t.setFoulHardness(axesProto.getFoulHardness());
-            t.setTempoFragmentation(axesProto.getTempoFragmentation());
-            t.setWidePlay(axesProto.getWidePlay());
-            t.setTransition(axesProto.getTransition());
+            managerTacticService.applyNewAxes(t, teamProfile, teamAbility, teamWs);
             TacticVector teamVec = tacticalScoreService.vector(t);
             int[] minMax = {Integer.MAX_VALUE, Integer.MIN_VALUE};
             long sum = 0;
@@ -132,9 +124,21 @@ public class TacticSimulationService {
         }
         rows.sort(Comparator.comparingDouble(TacticPointsRow::avgPoints).reversed());
 
+        // Keep only the distinct average-points values (as displayed, 2 decimals); on a tie, prefer
+        // the row with the highest MINIMUM points (best worst-case). Many tactics score identically,
+        // so this collapses the list to the genuinely different outcomes.
+        Map<String, TacticPointsRow> byAvg = new LinkedHashMap<>();
+        for (TacticPointsRow r : rows) {
+            String key = String.format("%.2f", r.avgPoints());
+            TacticPointsRow cur = byAvg.get(key);
+            if (cur == null || r.minPoints() > cur.minPoints()) byAvg.put(key, r);
+        }
+        List<TacticPointsRow> distinct = new ArrayList<>(byAvg.values());
+        distinct.sort(Comparator.comparingDouble(TacticPointsRow::avgPoints).reversed());
+
         String name = teamRepo.findNameById(teamId);
         return new TacticPointsResult(teamId, name == null ? "Team#" + teamId : name,
-                form, n, oppCount, rows);
+                form, n, oppCount, distinct);
     }
 
     /** Double round-robin among {@code teamIds}: each team uses its manager's formation + chosen
