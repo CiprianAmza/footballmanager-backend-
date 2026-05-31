@@ -583,6 +583,33 @@ public class MatchController {
     }
 
     /**
+     * Simulate a full live match between two arbitrary teams on demand and
+     * return the SAME {@link LiveMatchData} shape the in-game live-match view
+     * consumes (timeline of minute events, running scoreline, both team names,
+     * per-event commentary and goal animations). Used by the Animation Preview
+     * page so it reflects the current live engine instead of single-clip frames.
+     *
+     * <p>Uses sentinel competition/season/round identifiers so the cached
+     * session never collides with a real fixture.
+     *
+     * @param teamId1 home team
+     * @param teamId2 away team
+     */
+    @GetMapping("/animation/livePreview")
+    public LiveMatchData previewLiveMatch(
+            @RequestParam long teamId1,
+            @RequestParam long teamId2) {
+
+        double power1 = calculateTeamPower(teamId1);
+        double power2 = calculateTeamPower(teamId2);
+
+        // Sentinel coordinates keep the preview session out of real fixtures'
+        // key space (competitionId -1, season 0, round 0).
+        return liveMatchSimulationService.simulateLiveMatch(
+                teamId1, teamId2, power1, power2, -1L, 0, 0);
+    }
+
+    /**
      * Get full match statistics for a specific match.
      * Returns all Opta-style stats: possession, shots, passes, tackles, xG, etc.
      */
