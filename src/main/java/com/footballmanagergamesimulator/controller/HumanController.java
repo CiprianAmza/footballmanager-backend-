@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.NationService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -24,13 +25,15 @@ public class HumanController {
     HumanRepository humanRepository;
     TeamRepository teamRepository;
     PlayerSkillsRepository playerSkillsRepository;
+    NationService nationService;
 
     @Autowired
-    public HumanController(HumanRepository humanRepository, TeamRepository teamRepository, PlayerSkillsRepository playerSkillsRepository) {
+    public HumanController(HumanRepository humanRepository, TeamRepository teamRepository, PlayerSkillsRepository playerSkillsRepository, NationService nationService) {
 
         this.humanRepository = humanRepository;
         this.teamRepository = teamRepository;
         this.playerSkillsRepository = playerSkillsRepository;
+        this.nationService = nationService;
     }
 
     @GetMapping("/allPlayers")
@@ -154,6 +157,19 @@ public class HumanController {
         playerView.setPreferredFoot(player.getPreferredFoot());
         playerView.setHeightCm(player.getHeightCm());
         playerView.setWeightKg(player.getWeightKg());
+
+        // Nation (derived via team -> competition -> nationId)
+        NationService.NationInfo nation = nationService.infoForTeam(player.getTeamId());
+        playerView.setNationId(nation.id());
+        playerView.setNationName(nation.name());
+        playerView.setNationFlagCode(nation.flagCode());
+
+        // Face descriptor
+        playerView.setBaseFaceId(player.getBaseFaceId());
+        playerView.setSkinTone(player.getSkinTone());
+        playerView.setHairStyle(player.getHairStyle());
+        playerView.setHairColor(player.getHairColor());
+        playerView.setEyeColor(player.getEyeColor());
 
         return playerView;
     }

@@ -84,6 +84,18 @@ public class Human {
     @Column(columnDefinition = "int default 75")
     private int weightKg = 75;
 
+    // Face descriptor — compact indices for FE layered-face rendering (see FaceGenerator).
+    @Column(columnDefinition = "int default 0")
+    private int baseFaceId;
+    @Column(columnDefinition = "int default 0")
+    private int skinTone;
+    @Column(columnDefinition = "int default 0")
+    private int hairStyle;
+    @Column(columnDefinition = "int default 0")
+    private int hairColor;
+    @Column(columnDefinition = "int default 0")
+    private int eyeColor;
+
     // Playing time tracking (for player happiness system)
     @Column(columnDefinition = "int default 0")
     private int consecutiveBenched; // number of consecutive matches not played
