@@ -16,13 +16,15 @@ import org.springframework.test.context.TestPropertySource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies the production {@link TacticSimulationService}: deterministic season-points ranking
- * (default-league and custom-opponents), and a coherent round-robin standings table. Uses the
- * bootstrapped DB and a fixed seed inside the service, so results are reproducible.
+ * (default-league and custom-opponents), and a coherent round-robin standings table. The
+ * production service now collapses identical outcomes to distinct average-points rows, so the
+ * assertions check deduplicated ordering rather than the old raw 900-row cardinality.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
@@ -37,22 +39,18 @@ class TacticSimulationServiceIT {
     @Autowired private CompetitionTeamInfoRepository ctiRepo;
 
     @Test
-    void simulateTacticPoints_defaultLeagueOpponents_ranksDistinctDeterministically() {
+    void simulateTacticPoints_defaultLeagueOpponents_returnsDistinctRankedRowsDeterministically() {
         List<Long> league = aLeague();
         long teamId = league.get(0);
 
         TacticPointsResult r1 = tacticSimulationService.simulateTacticPoints(teamId, "442", 2, null);
         TacticPointsResult r2 = tacticSimulationService.simulateTacticPoints(teamId, "442", 2, null);
 
-        // The service collapses the 900 candidate tactics to the DISTINCT average-points values (2dp),
-        // so the row count is squad-dependent (≤ 900); assert the distinct contract, not a fixed size.
-        assertThat(r1.rows()).isNotEmpty();
-        assertThat(r1.rows().size()).isLessThanOrEqualTo(900);
-        assertThat(r1.rows().stream().map(row -> String.format("%.2f", row.avgPoints())).distinct().count())
-                .as("rows are distinct by displayed avgPoints").isEqualTo(r1.rows().size());
+        assertThat(r1.rows()).isNotEmpty().hasSizeLessThanOrEqualTo(900);
         assertThat(r1.formation()).isEqualTo("442");
         assertThat(r1.seasons()).isEqualTo(2);
         assertThat(r1.opponentCount()).isEqualTo(league.size() - 1);
+        assertThat(avgPointKeys(r1)).doesNotHaveDuplicates();
 
         // Sorted by avgPoints descending.
         for (int i = 1; i < r1.rows().size(); i++) {
@@ -67,8 +65,7 @@ class TacticSimulationServiceIT {
             assertThat(row.maxPoints()).isBetween(0, maxPossible);
         }
         // Deterministic: same seed => identical top row.
-        assertThat(r2.rows().get(0).avgPoints()).isEqualTo(r1.rows().get(0).avgPoints());
-        assertThat(r2.rows().get(0).mentality()).isEqualTo(r1.rows().get(0).mentality());
+        assertThat(r2.rows()).containsExactlyElementsOf(r1.rows());
     }
 
     @Test
@@ -79,12 +76,10 @@ class TacticSimulationServiceIT {
 
         TacticPointsResult r = tacticSimulationService.simulateTacticPoints(teamId, "433", 1, opponents);
 
-        assertThat(r.rows()).isNotEmpty();
-        assertThat(r.rows().size()).isLessThanOrEqualTo(900);
-        assertThat(r.rows().stream().map(row -> String.format("%.2f", row.avgPoints())).distinct().count())
-                .as("rows are distinct by displayed avgPoints").isEqualTo(r.rows().size());
+        assertThat(r.rows()).isNotEmpty().hasSizeLessThanOrEqualTo(900);
         assertThat(r.formation()).isEqualTo("433");
         assertThat(r.opponentCount()).isEqualTo(opponents.size());
+        assertThat(avgPointKeys(r)).doesNotHaveDuplicates();
         int maxPossible = opponents.size() * 2 * 3;
         for (var row : r.rows()) {
             assertThat(row.maxPoints()).isBetween(0, maxPossible);
@@ -134,5 +129,11 @@ class TacticSimulationServiceIT {
             if (ids.size() >= 3) return new ArrayList<>(ids);
         }
         throw new IllegalStateException("no league with >=3 teams in the bootstrap");
+    }
+
+    private List<String> avgPointKeys(TacticPointsResult result) {
+        return result.rows().stream()
+                .map(row -> String.format("%.2f", row.avgPoints()))
+                .collect(Collectors.toList());
     }
 }
