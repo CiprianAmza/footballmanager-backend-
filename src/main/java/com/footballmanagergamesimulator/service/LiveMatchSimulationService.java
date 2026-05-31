@@ -884,9 +884,30 @@ public class LiveMatchSimulationService {
             long competitionId, int season, int round,
             boolean generateGoalAnimations,
             TacticalScoreService.Matchup matchup) {
+        return createInteractiveSession(teamId1, teamId2, power1, power2,
+                competitionId, season, round, generateGoalAnimations, matchup, -1, -1);
+    }
+
+    /**
+     * Engine-unification variant: the live narration is pinned to a predetermined
+     * scoreline ({@code targetHomeGoals}/{@code targetAwayGoals}) — the exact
+     * result the instant two-axis engine produces for this matchup. The session
+     * pre-schedules that many goal minutes per team and forces/caps goals to
+     * those minutes, so the live final score equals the instant one while every
+     * other live element (possession, shots, cards, subs, commentary) stays live.
+     * Pass {@code -1, -1} for legacy stochastic mode (no pinning).
+     */
+    public LiveMatchSession createInteractiveSession(
+            long teamId1, long teamId2,
+            double power1, double power2,
+            long competitionId, int season, int round,
+            boolean generateGoalAnimations,
+            TacticalScoreService.Matchup matchup,
+            int targetHomeGoals, int targetAwayGoals) {
         LiveMatchSession session = new LiveMatchSession(this,
                 teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations, matchup, new Random());
+                competitionId, season, round, generateGoalAnimations, matchup, new Random(),
+                targetHomeGoals, targetAwayGoals);
         String key = buildKey(competitionId, season, round, teamId1, teamId2);
         liveMatchSessions.put(key, session);
         // Also seed liveMatchCache with the initial snapshot so legacy
