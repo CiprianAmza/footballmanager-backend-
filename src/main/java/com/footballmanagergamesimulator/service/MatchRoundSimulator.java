@@ -318,17 +318,31 @@ public class MatchRoundSimulator {
                     TacticalScoreService.Matchup liveMatchup = null;
                     TacticalScoreService.TeamProfile liveP1 = null, liveP2 = null;
                     TacticalScoreService.TacticVector liveT1 = null, liveT2 = null;
+                    // Engine unification: when the two-axis model is on, predetermine the
+                    // scoreline with the SAME instant engine the AI/instant path uses, on
+                    // the SAME profiles + tactic vectors. The live narration is then pinned
+                    // to this result (forced/capped goal minutes) so "it's the same game":
+                    // watching live yields exactly the score the instant path would have.
+                    int targetHomeGoals = -1, targetAwayGoals = -1;
                     if (engineConfig.getTacticalModel().isEnabled()) {
                         liveP1 = scaleProfile(teamTacticalProfile(teamId1), teamTalkFactor(teamId1));
                         liveP2 = scaleProfile(teamTacticalProfile(teamId2), teamTalkFactor(teamId2));
                         liveT1 = teamTacticVector(teamId1, liveP1, personalizedTactic1.orElse(null));
                         liveT2 = teamTacticVector(teamId2, liveP2, personalizedTactic2.orElse(null));
                         liveMatchup = tacticalScoreService.matchup(liveP1, liveT1, liveP2, liveT2);
+                        // Seed off the match identity so the pinned score is reproducible
+                        // for a given (competition, round, fixture) without coupling to the
+                        // session's own RNG (which drives the narration timeline).
+                        Random scoreRng = new Random(
+                                _competitionId * 1_000_003L + _roundId * 31L + teamId1 * 17L + teamId2);
+                        List<Integer> pinned = tacticalScoreService.score(liveP1, liveT1, liveP2, liveT2, scoreRng);
+                        targetHomeGoals = pinned.get(0);
+                        targetAwayGoals = pinned.get(1);
                     }
                     LiveMatchSession liveSession = liveMatchSimulationService.createInteractiveSession(
                             teamId1, teamId2, teamPower1, teamPower2,
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            generateGoalAnims, liveMatchup);
+                            generateGoalAnims, liveMatchup, targetHomeGoals, targetAwayGoals);
                     if (liveMatchup != null) {
                         liveSession.setDeferredTwoAxis(liveP1, liveT1, liveP2, liveT2);
                     }

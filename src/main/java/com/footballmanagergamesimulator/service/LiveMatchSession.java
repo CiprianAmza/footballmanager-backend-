@@ -86,6 +86,16 @@ public class LiveMatchSession {
     final Set<Integer> team1BigChanceMinutes, team2BigChanceMinutes;
     final int firstHalfStoppage, secondHalfStoppage, halfTimeMinute, totalMinutes;
 
+    // --- Pinned scoreline (engine unification) ---
+    // When >= 0 the live narration must end on exactly these goal totals (the
+    // instant two-axis engine's scoreline for this match). The attack branch
+    // forces a goal only at the pre-scheduled minutes below and caps the goal
+    // outcome to 0 everywhere else, so the live final score == the instant one.
+    // -1 = legacy stochastic mode (no target; goals emerge from the rolls).
+    final int targetHomeGoals, targetAwayGoals;
+    final Set<Integer> homeGoalMinutes, awayGoalMinutes;
+    private final boolean pinned;
+
     // --- Engine state ---
     // Non-final so determinism IT can swap in a seeded Random via
     // setRandomForTesting() after construction.
@@ -205,6 +215,17 @@ public class LiveMatchSession {
                 generateGoalAnimations, null, random);
     }
 
+    LiveMatchSession(LiveMatchSimulationService svc,
+                     long teamId1, long teamId2,
+                     double power1, double power2,
+                     long competitionId, int season, int round,
+                     boolean generateGoalAnimations,
+                     TacticalScoreService.Matchup matchup,
+                     Random random) {
+        this(svc, teamId1, teamId2, power1, power2, competitionId, season, round,
+                generateGoalAnimations, matchup, random, -1, -1);
+    }
+
     /**
      * Seeded constructor — used by determinism IT / fuzz tests to make a live
      * match reproducible given a fixed seed. Same (seed, config, inputs) →
@@ -222,7 +243,8 @@ public class LiveMatchSession {
                      long competitionId, int season, int round,
                      boolean generateGoalAnimations,
                      TacticalScoreService.Matchup matchup,
-                     Random random) {
+                     Random random,
+                     int targetHomeGoals, int targetAwayGoals) {
         this.svc = svc;
         this.teamId1 = teamId1;
         this.teamId2 = teamId2;
@@ -295,6 +317,32 @@ public class LiveMatchSession {
         this.halfTimeMinute = 45 + firstHalfStoppage;
         this.totalMinutes = 90 + firstHalfStoppage + secondHalfStoppage;
 
+        // Engine unification: when the instant scoreline is supplied, pre-schedule
+        // exactly that many distinct goal minutes per team (same pattern as the
+        // big-chance scheduling above). The attack branch forces a goal at these
+        // minutes and never elsewhere, so the live final score == the instant one.
+        this.targetHomeGoals = targetHomeGoals;
+        this.targetAwayGoals = targetAwayGoals;
+        this.pinned = targetHomeGoals >= 0 && targetAwayGoals >= 0;
+        if (pinned) {
+            // Pick all goal minutes from one shared pool so home and away never
+            // collide on the same tick (each tick scores at most one team).
+            Set<Integer> shared = svc.pickRandomMinutes(
+                    targetHomeGoals + targetAwayGoals, 2, totalMinutes - 1, random);
+            java.util.List<Integer> pool = new java.util.ArrayList<>(shared);
+            Set<Integer> home = new java.util.LinkedHashSet<>();
+            Set<Integer> away = new java.util.LinkedHashSet<>();
+            for (int i = 0; i < pool.size(); i++) {
+                if (i < targetHomeGoals) home.add(pool.get(i));
+                else away.add(pool.get(i));
+            }
+            this.homeGoalMinutes = home;
+            this.awayGoalMinutes = away;
+        } else {
+            this.homeGoalMinutes = java.util.Collections.emptySet();
+            this.awayGoalMinutes = java.util.Collections.emptySet();
+        }
+
         // Kickoff event — emitted once at session creation so the timeline
         // is non-empty even before the first advance.
         timeline.add(svc.createMinuteEvent(1, 0, 0, "kickoff",
@@ -351,8 +399,18 @@ public class LiveMatchSession {
     }
 
     private void tickOneMinute(int min) {
-        boolean isHomeBigChance = team1BigChanceMinutes.contains(min);
-        boolean isAwayBigChance = team2BigChanceMinutes.contains(min);
+        // A scheduled (pinned) goal minute forces that team to attack AND score —
+        // it takes priority over a big chance so the pinned scoreline always lands.
+        boolean isHomeGoalMinute = homeGoalMinutes.contains(min);
+        boolean isAwayGoalMinute = awayGoalMinutes.contains(min);
+        boolean isHomeBigChance = isHomeGoalMinute || team1BigChanceMinutes.contains(min);
+        boolean isAwayBigChance = isAwayGoalMinute || team2BigChanceMinutes.contains(min);
+        // A scheduled goal minute pins the ball to that team (overriding any
+        // coincident big chance for the other side). Goal minutes are disjoint
+        // across teams, so at most one of these fires.
+        if (isHomeGoalMinute) isAwayBigChance = false;
+        if (isAwayGoalMinute) isHomeBigChance = false;
+        boolean forcedGoal = isHomeGoalMinute || isAwayGoalMinute;
         boolean forcedAttack = isHomeBigChance || isAwayBigChance;
 
         // Man-advantage adjustment: a short-handed team (red card) sees less
@@ -394,7 +452,7 @@ public class LiveMatchSession {
         double offsideEnd    = foulEnd + 0.04;
 
         if (roll < attackEnd) {
-            tickAttackBranch(min, attackers, attackingTeamId, attackingTeamName, team1HasBall, forcedAttack);
+            tickAttackBranch(min, attackers, attackingTeamId, attackingTeamName, team1HasBall, forcedAttack, forcedGoal);
         } else if (roll < possessionEnd) {
             tickPossessionBranch(min, attackingTeamId, attackingTeamName);
         } else if (roll < foulEnd) {
@@ -434,13 +492,29 @@ public class LiveMatchSession {
      *  dbEvents + (optionally) goal animations. */
     private void tickAttackBranch(int min, List<Human> attackers,
                                    long attackingTeamId, String attackingTeamName,
-                                   boolean team1HasBall, boolean forcedAttack) {
-        if (attackers.isEmpty()) return;
+                                   boolean team1HasBall, boolean forcedAttack, boolean forcedGoal) {
+        if (attackers.isEmpty()) {
+            // A pinned goal can't be dropped — if the attacking squad somehow
+            // has no eligible outfield player, fall back to the full squad so
+            // the scheduled goal still lands and the final score stays exact.
+            if (forcedGoal) attackers = team1HasBall ? team1All : team2All;
+            if (attackers.isEmpty()) return;
+        }
         Human attacker = svc.pickWeightedAttacker(attackers, matchStates, random);
         if (team1HasBall) homeShots++; else awayShots++;
 
         double attackRoll = random.nextDouble();
-        double goalCutoff    = forcedAttack ? 0.30 : 0.17;
+        // Pinned mode: this tick MUST score (forcedGoal) or MUST NOT score
+        // (every other tick) so the live final equals the instant scoreline.
+        // We keep the same roll draw (RNG parity) but reshape the cutoffs:
+        //   forcedGoal  → goal cutoff = 1.0 (always GOAL)
+        //   pinned, not forced → goal cutoff = 0.0 (never GOAL; SAVE/MISS/etc.)
+        double goalCutoff;
+        if (forcedGoal) goalCutoff = 1.0;
+        else if (pinned) goalCutoff = 0.0;
+        else goalCutoff = forcedAttack ? 0.30 : 0.17;
+        // When goals are suppressed (pinned, not forced), redistribute the freed
+        // probability mass across save/miss/blocked/corner so flavor stays varied.
         double saveCutoff    = forcedAttack ? 0.60 : 0.42;
         double missCutoff    = forcedAttack ? 0.85 : 0.70;
         double blockedCutoff = forcedAttack ? 0.95 : 0.87;
@@ -542,7 +616,9 @@ public class LiveMatchSession {
                     "Corner kick for " + attackingTeamName + ".",
                     0, null, attackingTeamId, attackingTeamName));
 
-            if (random.nextDouble() < 0.08 && !attackers.isEmpty()) {
+            // Corner-header goal — suppressed in pinned mode (goals only land at
+            // scheduled minutes, which route through the GOAL branch above).
+            if (!pinned && random.nextDouble() < 0.08 && !attackers.isEmpty()) {
                 Human header = svc.pickWeightedAttacker(attackers, matchStates, random);
                 if (team1HasBall) { homeScore++; homeShotsOnTarget++; homeShots++; }
                 else { awayScore++; awayShotsOnTarget++; awayShots++; }
