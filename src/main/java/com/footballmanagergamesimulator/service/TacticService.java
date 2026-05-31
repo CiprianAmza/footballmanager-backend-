@@ -19,17 +19,27 @@ public class TacticService {
         FORMATIONS.put("451",  Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "ML", 1, "MC", 3, "MR", 1, "ST", 1));
         FORMATIONS.put("352",  Map.of("GK", 1, "DL", 1, "DC", 1, "DR", 1, "ML", 1, "MC", 3, "MR", 1, "ST", 2));
 
-        // --- New formations ---
-        FORMATIONS.put("4231", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "ML", 1, "MC", 3, "MR", 1, "ST", 1));
-        FORMATIONS.put("4141", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "ML", 1, "MC", 3, "MR", 1, "ST", 1));
-        FORMATIONS.put("4411", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "ML", 1, "MC", 2, "MR", 1, "ST", 2));
-        FORMATIONS.put("4321", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "ML", 1, "MC", 2, "MR", 1, "ST", 2));
-        FORMATIONS.put("4222", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "ML", 0, "MC", 4, "MR", 0, "ST", 2));
-        FORMATIONS.put("3421", Map.of("GK", 1, "DL", 1, "DC", 1, "DR", 1, "ML", 1, "MC", 4, "MR", 1, "ST", 1));
-        FORMATIONS.put("532",  Map.of("GK", 1, "DL", 1, "DC", 3, "DR", 1, "ML", 0, "MC", 3, "MR", 0, "ST", 2));
-        FORMATIONS.put("5212", Map.of("GK", 1, "DL", 1, "DC", 3, "DR", 1, "ML", 0, "MC", 3, "MR", 0, "ST", 2));
+        // --- New formations (Strat 3: fine positions DM/AMC/AML/AMR/WBL/WBR so shapes differ) ---
+        // 4-2-3-1: double pivot + attacking band, distinct from 4-1-4-1 and 4-5-1.
+        FORMATIONS.put("4231", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "DM", 2, "AMC", 1, "AML", 1, "AMR", 1, "ST", 1));
+        // 4-1-4-1: single holding midfielder behind a flat four.
+        FORMATIONS.put("4141", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "DM", 1, "ML", 1, "MC", 2, "MR", 1, "ST", 1));
+        // 4-4-1-1: a withdrawn forward (AMC) behind the striker.
+        FORMATIONS.put("4411", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "ML", 1, "MC", 2, "MR", 1, "AMC", 1, "ST", 1));
+        // 4-3-2-1 "christmas tree": three central mids + two attacking mids + lone striker.
+        FORMATIONS.put("4321", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "MC", 3, "AMC", 2, "ST", 1));
+        // 4-2-2-2: double pivot + two wide attacking mids + two strikers.
+        FORMATIONS.put("4222", Map.of("GK", 1, "DL", 1, "DC", 2, "DR", 1, "DM", 2, "AML", 1, "AMR", 1, "ST", 2));
+        // 3-4-2-1: back three + wing-backs + two attacking mids.
+        FORMATIONS.put("3421", Map.of("GK", 1, "DC", 3, "WBL", 1, "WBR", 1, "MC", 2, "AMC", 2, "ST", 1));
+        // 5-3-2: flat back five, three central mids.
+        FORMATIONS.put("532",  Map.of("GK", 1, "DL", 1, "DC", 3, "DR", 1, "MC", 3, "ST", 2));
+        // 5-2-1-2: back five, pivot pair, a single AMC behind two strikers, distinct from 5-3-2.
+        FORMATIONS.put("5212", Map.of("GK", 1, "DL", 1, "DC", 3, "DR", 1, "DM", 1, "MC", 1, "AMC", 1, "ST", 2));
+        // 5-4-1.
         FORMATIONS.put("541",  Map.of("GK", 1, "DL", 1, "DC", 3, "DR", 1, "ML", 1, "MC", 2, "MR", 1, "ST", 1));
-        FORMATIONS.put("3511", Map.of("GK", 1, "DL", 1, "DC", 1, "DR", 1, "ML", 1, "MC", 3, "MR", 1, "ST", 2));
+        // 3-5-1-1: back three + wing-backs + three central mids + an AMC behind the striker.
+        FORMATIONS.put("3511", Map.of("GK", 1, "DC", 3, "WBL", 1, "WBR", 1, "MC", 3, "AMC", 1, "ST", 1));
 
         // Substitution formats (1 per position that's used in the formation)
         Map<String, Integer> defaultSubs = Map.of("DL", 1, "DC", 1, "DR", 1, "ML", 1, "MC", 1, "MR", 1, "ST", 1);
@@ -57,7 +67,10 @@ public class TacticService {
     }
 
     public Integer getValueForTacticDisplay(String position) {
-        List<String> positions = List.of("GK", "DL", "DC", "DR", "ML", "MC", "MR", "ST");
+        // Back-to-front ordering incl. the fine positions (DM/AM*/WB*) so slot sorting stays
+        // deterministic for them too (an unknown position would return -1 and break the sort).
+        List<String> positions = List.of("GK", "DL", "WBL", "DC", "DR", "WBR", "DM",
+                "ML", "MC", "MR", "AML", "AMC", "AMR", "ST");
         return positions.indexOf(position);
     }
 
@@ -103,9 +116,11 @@ public class TacticService {
     public static String getBasePosition(String position) {
         if (position == null) return null;
         return switch (position) {
-            case "AMC" -> "MC";
+            case "AMC", "DM" -> "MC";
             case "AML" -> "ML";
             case "AMR" -> "MR";
+            case "WBL" -> "DL";
+            case "WBR" -> "DR";
             default -> position;
         };
     }
@@ -119,6 +134,24 @@ public class TacticService {
         FORMATION_GRID_INDICES.put("4-2-3-1 Wide",  new int[]{2, 5, 7, 9, 16, 18, 20, 21, 23, 24, 27});
         FORMATION_GRID_INDICES.put("5-2-1-2 WB",   new int[]{1, 3, 7, 11, 13, 15, 19, 21, 22, 23, 27});
         FORMATION_GRID_INDICES.put("4-2-4",        new int[]{1, 3, 5, 9, 11, 13, 20, 21, 23, 24, 27});
+
+        // --- All 15 production formation KEYS (pitch layout on the 5×6 grid; labels via
+        //     getPositionFromIndex). Lets the frontend offer every formation the engine/AI use. ---
+        FORMATION_GRID_INDICES.put("442",  new int[]{1, 3, 10, 11, 13, 14, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("433",  new int[]{1, 2, 3, 10, 12, 14, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("343",  new int[]{1, 2, 3, 10, 11, 13, 14, 20, 22, 24, 27});
+        FORMATION_GRID_INDICES.put("451",  new int[]{2, 10, 11, 12, 13, 14, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("352",  new int[]{1, 3, 10, 11, 12, 13, 14, 20, 22, 24, 27});
+        FORMATION_GRID_INDICES.put("4231", new int[]{2, 5, 7, 9, 16, 18, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("4141", new int[]{2, 10, 11, 13, 14, 17, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("4411", new int[]{2, 7, 10, 11, 13, 14, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("4321", new int[]{2, 6, 8, 11, 12, 13, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("4222", new int[]{1, 3, 5, 9, 16, 18, 20, 21, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("3421", new int[]{2, 6, 8, 11, 13, 15, 19, 21, 22, 23, 27});
+        FORMATION_GRID_INDICES.put("532",  new int[]{1, 3, 11, 12, 13, 20, 21, 22, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("5212", new int[]{1, 3, 7, 12, 17, 20, 21, 22, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("541",  new int[]{2, 10, 11, 13, 14, 20, 21, 22, 23, 24, 27});
+        FORMATION_GRID_INDICES.put("3511", new int[]{2, 7, 11, 12, 13, 15, 19, 21, 22, 23, 27});
     }
 
     public int[] getFormationGridIndices(String formationName) {
@@ -143,10 +176,9 @@ public class TacticService {
         if (index <= 13) return "MC";
 
         // --- Rândul 4 (15-19): Mijlocași Defensivi / Wing Backs ---
-        // AICI ERA PROBLEMA: Lipseau 16, 17, 18
-        if (index == 15) return "DL"; // WB stanga
-        if (index == 19) return "DR"; // WB dreapta
-        if (index <= 18) return "MC";
+        if (index == 15) return "WBL"; // wing-back stânga
+        if (index == 19) return "WBR"; // wing-back dreapta
+        if (index <= 18) return "DM";  // holding midfielders (16-18)
 
         // --- Rândul 5 (20-24): Fundași ---
         if (index == 20) return "DL";

@@ -146,6 +146,7 @@ public class PlayerSkillsService {
     public static double computeOverallRating(PlayerSkills skills) {
         String pos = skills.getPosition();
         if (pos == null) pos = "MC";
+        pos = TacticService.getBasePosition(pos); // fine positions rate as their base archetype
 
         double weighted;
 

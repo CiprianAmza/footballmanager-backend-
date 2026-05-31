@@ -955,10 +955,24 @@ public class MatchEngineConfig {
                 return override.get(attribute);
             }
             Map<String, Double> profile = DEFAULT_WEIGHTS.get(position);
+            if (profile == null) profile = DEFAULT_WEIGHTS.get(basePosition(position)); // fine pos → base profile
             if (profile != null) {
                 return profile.getOrDefault(attribute, 0.0);
             }
             return 1.0;
+        }
+
+        /** Maps a fine position (DM/AMC/AML/AMR/WBL/WBR) to its base profile owner; others unchanged. */
+        private static String basePosition(String position) {
+            if (position == null) return null;
+            return switch (position) {
+                case "AMC", "DM" -> "MC";
+                case "AML" -> "ML";
+                case "AMR" -> "MR";
+                case "WBL" -> "DL";
+                case "WBR" -> "DR";
+                default -> position;
+            };
         }
 
         /**
@@ -1075,19 +1089,34 @@ public class MatchEngineConfig {
             DEFAULT_FAMILIARITY.put("GK", prof(
                     "DL", 0.1, "DR", 0.1, "DC", 0.1, "MC", 0.1, "ML", 0.1, "MR", 0.1, "ST", 0.1));
             DEFAULT_FAMILIARITY.put("DC", prof(
-                    "GK", 0.1, "DL", 0.7, "DR", 0.7, "MC", 0.6, "ML", 0.4, "MR", 0.4, "ST", 0.2));
+                    "GK", 0.1, "DL", 0.7, "DR", 0.7, "MC", 0.6, "ML", 0.4, "MR", 0.4, "ST", 0.2, "DM", 0.7));
             DEFAULT_FAMILIARITY.put("DL", prof(
-                    "GK", 0.1, "DR", 0.85, "DC", 0.7, "ML", 0.75, "MR", 0.6, "MC", 0.55, "ST", 0.3));
+                    "GK", 0.1, "DR", 0.85, "DC", 0.7, "ML", 0.75, "MR", 0.6, "MC", 0.55, "ST", 0.3, "WBL", 0.92, "WBR", 0.7));
             DEFAULT_FAMILIARITY.put("DR", prof(
-                    "GK", 0.1, "DL", 0.85, "DC", 0.7, "MR", 0.75, "ML", 0.6, "MC", 0.55, "ST", 0.3));
+                    "GK", 0.1, "DL", 0.85, "DC", 0.7, "MR", 0.75, "ML", 0.6, "MC", 0.55, "ST", 0.3, "WBR", 0.92, "WBL", 0.7));
             DEFAULT_FAMILIARITY.put("MC", prof(
-                    "GK", 0.1, "ML", 0.7, "MR", 0.7, "DC", 0.6, "DL", 0.55, "DR", 0.55, "ST", 0.65));
+                    "GK", 0.1, "ML", 0.7, "MR", 0.7, "DC", 0.6, "DL", 0.55, "DR", 0.55, "ST", 0.65, "DM", 0.9, "AMC", 0.85));
             DEFAULT_FAMILIARITY.put("ML", prof(
-                    "GK", 0.1, "MR", 0.8, "MC", 0.7, "DL", 0.75, "DR", 0.6, "ST", 0.7, "DC", 0.4));
+                    "GK", 0.1, "MR", 0.8, "MC", 0.7, "DL", 0.75, "DR", 0.6, "ST", 0.7, "DC", 0.4, "AML", 0.92, "AMC", 0.6, "WBL", 0.7));
             DEFAULT_FAMILIARITY.put("MR", prof(
-                    "GK", 0.1, "ML", 0.8, "MC", 0.7, "DR", 0.75, "DL", 0.6, "ST", 0.7, "DC", 0.4));
+                    "GK", 0.1, "ML", 0.8, "MC", 0.7, "DR", 0.75, "DL", 0.6, "ST", 0.7, "DC", 0.4, "AMR", 0.92, "AMC", 0.6, "WBR", 0.7));
             DEFAULT_FAMILIARITY.put("ST", prof(
-                    "GK", 0.1, "ML", 0.7, "MR", 0.7, "MC", 0.6, "DC", 0.2, "DL", 0.3, "DR", 0.3));
+                    "GK", 0.1, "ML", 0.7, "MR", 0.7, "MC", 0.6, "DC", 0.2, "DL", 0.3, "DR", 0.3, "AMC", 0.8, "AML", 0.7, "AMR", 0.7));
+            // AMC and DM are NATURAL positions (squad gen + youth produce them); keep them usable
+            // across their line so a specialist isn't crippled when slotted into a base role.
+            DEFAULT_FAMILIARITY.put("AMC", prof(
+                    "GK", 0.1, "MC", 0.85, "AML", 0.75, "AMR", 0.75, "ST", 0.8, "ML", 0.6, "MR", 0.6, "DM", 0.55));
+            DEFAULT_FAMILIARITY.put("DM", prof(
+                    "GK", 0.1, "MC", 0.9, "DC", 0.7, "AMC", 0.55, "DL", 0.5, "DR", 0.5, "ML", 0.5, "MR", 0.5));
+            // Wide specialist naturals (squad gen + youth produce them).
+            DEFAULT_FAMILIARITY.put("AML", prof(
+                    "GK", 0.1, "ML", 0.85, "AMR", 0.75, "AMC", 0.7, "ST", 0.6, "MR", 0.55, "MC", 0.5, "WBL", 0.5));
+            DEFAULT_FAMILIARITY.put("AMR", prof(
+                    "GK", 0.1, "MR", 0.85, "AML", 0.75, "AMC", 0.7, "ST", 0.6, "ML", 0.55, "MC", 0.5, "WBR", 0.5));
+            DEFAULT_FAMILIARITY.put("WBL", prof(
+                    "GK", 0.1, "DL", 0.9, "ML", 0.7, "WBR", 0.6, "DC", 0.5, "AML", 0.5, "MC", 0.45));
+            DEFAULT_FAMILIARITY.put("WBR", prof(
+                    "GK", 0.1, "DR", 0.9, "MR", 0.7, "WBL", 0.6, "DC", 0.5, "AMR", 0.5, "MC", 0.45));
         }
     }
 
@@ -1313,6 +1342,10 @@ public class MatchEngineConfig {
         private double biasStrength = 0.30;
         /** How much "control" settings (keep ball / time-wasting) raise effective defense. */
         private double controlStrength = 0.20;
+        /** Attack cost of "control" settings: sitting deep / wasting time cedes territory, so the
+         *  same control that raises defense also lowers the side's own attack. Turns control from a
+         *  free win into a trade-off (breaks the degenerate max-control optimum). 0 = no cost. */
+        private double controlAttackCost = 0.15;
         /** How much tempo/risk opens the game (raises total goals). */
         private double opennessStrength = 0.40;
         /** How much control settings slow the game (lower total goals). */
@@ -1320,13 +1353,35 @@ public class MatchEngineConfig {
         /** Base total-goals scale when both sides are balanced. */
         private double baseOpenness = 3.0;
         /** Amplifies the attack-vs-defense gap: each side's xG ratio uses {@code att^exp/(att^exp+def^exp)}.
-         *  >1 makes stronger squads dominate more (squad value decisive); 1.0 = raw ratio. */
-        private double ratioExponent = 2.0;
+         *  >1 makes stronger squads dominate more (squad value decisive); 1.0 = raw ratio. Lowered
+         *  2.0→1.5 (2026-05-31) so the strongest squad no longer wins deterministically — leaves room
+         *  for tactics + variance (realistic upsets) while squad value stays the dominant factor. */
+        private double ratioExponent = 1.5;
         /** Home-side attack bonus (multiplicative on xG). */
         private double homeAttackBonus = 0.08;
         /** Max ± boost a coach's offensive/defensive ability gives to the squad's attack/defense
          *  (e.g. 0.12 → a 100-ability coach is +12%, a 0-ability coach −12%, 50 is neutral). */
         private double coachStrength = 0.12;
+        /** Strat-2 counters (opponent-dependent, so no universally-best tactic): */
+        /** Own-attack support of pushing the defensive line up (territory); deep line ⇒ small attack loss. */
+        private double lineHeightSupport = 0.08;
+        /** How much a high line is punished by a direct opponent (space behind): raises the goals they
+         *  score against you, scaled by your line height × opponent directness. */
+        private double lineHeightVulnerability = 0.25;
+        /** How much high pressing disrupts the opponent's attack (lowers their effective attack). */
+        private double pressDisruption = 0.18;
+        /** Instant-engine proxy for pressing's stamina cost: high press slightly lowers your own attack. */
+        private double pressStaminaCost = 0.06;
+        /** How much pressing compounds the high-line-vs-direct vulnerability (space behind a pressing high line). */
+        private double pressLineCompound = 0.15;
+        /** Width rock-paper-scissors strength: wide attack beats a narrow defense and vice versa
+         *  ({@code effAtt ×= 1 + widthStrength · myWidth · (−oppWidth)}). */
+        private double widthStrength = 0.12;
+        /** AI width identity: a team whose XI value share in wide positions (ML/MR/DL/DR) is ≥ this
+         *  plays Wide; ≤ {@code aiWidthNarrowThreshold} plays Narrow; otherwise Balanced. Gives the AI
+         *  a squad-shape width so the human's width counter has something to bite. */
+        private double aiWidthWideThreshold = 0.38;
+        private double aiWidthNarrowThreshold = 0.28;
         /** Hard cap per team. */
         private int maxGoalsPerTeam = 7;
         /** Opponent panel for the expected-points tactic ranking: the team's own profile scaled to a
@@ -1346,6 +1401,10 @@ public class MatchEngineConfig {
         private Map<String, Double> passingRisk = new HashMap<>();
         private Map<String, Double> possessionControl = new HashMap<>();
         private Map<String, Double> timeWastingControl = new HashMap<>();
+        private Map<String, Double> lineHeightAxis = new HashMap<>();
+        private Map<String, Double> pressAxis = new HashMap<>();
+        private Map<String, Double> widthAxis = new HashMap<>();
+        private Map<String, Double> passingDirectness = new HashMap<>();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean v) { this.enabled = v; }
@@ -1353,6 +1412,8 @@ public class MatchEngineConfig {
         public void setBiasStrength(double v) { this.biasStrength = v; }
         public double getControlStrength() { return controlStrength; }
         public void setControlStrength(double v) { this.controlStrength = v; }
+        public double getControlAttackCost() { return controlAttackCost; }
+        public void setControlAttackCost(double v) { this.controlAttackCost = v; }
         public double getOpennessStrength() { return opennessStrength; }
         public void setOpennessStrength(double v) { this.opennessStrength = v; }
         public double getControlOpennessStrength() { return controlOpennessStrength; }
@@ -1365,6 +1426,22 @@ public class MatchEngineConfig {
         public void setHomeAttackBonus(double v) { this.homeAttackBonus = v; }
         public double getCoachStrength() { return coachStrength; }
         public void setCoachStrength(double v) { this.coachStrength = v; }
+        public double getLineHeightSupport() { return lineHeightSupport; }
+        public void setLineHeightSupport(double v) { this.lineHeightSupport = v; }
+        public double getLineHeightVulnerability() { return lineHeightVulnerability; }
+        public void setLineHeightVulnerability(double v) { this.lineHeightVulnerability = v; }
+        public double getPressDisruption() { return pressDisruption; }
+        public void setPressDisruption(double v) { this.pressDisruption = v; }
+        public double getPressStaminaCost() { return pressStaminaCost; }
+        public void setPressStaminaCost(double v) { this.pressStaminaCost = v; }
+        public double getPressLineCompound() { return pressLineCompound; }
+        public void setPressLineCompound(double v) { this.pressLineCompound = v; }
+        public double getWidthStrength() { return widthStrength; }
+        public void setWidthStrength(double v) { this.widthStrength = v; }
+        public double getAiWidthWideThreshold() { return aiWidthWideThreshold; }
+        public void setAiWidthWideThreshold(double v) { this.aiWidthWideThreshold = v; }
+        public double getAiWidthNarrowThreshold() { return aiWidthNarrowThreshold; }
+        public void setAiWidthNarrowThreshold(double v) { this.aiWidthNarrowThreshold = v; }
         public int getMaxGoalsPerTeam() { return maxGoalsPerTeam; }
         public void setMaxGoalsPerTeam(int v) { this.maxGoalsPerTeam = v; }
         public double[] getOpponentPanel() { return opponentPanel; }
@@ -1385,6 +1462,14 @@ public class MatchEngineConfig {
         public void setPossessionControl(Map<String, Double> v) { this.possessionControl = v; }
         public Map<String, Double> getTimeWastingControl() { return timeWastingControl; }
         public void setTimeWastingControl(Map<String, Double> v) { this.timeWastingControl = v; }
+        public Map<String, Double> getLineHeightAxis() { return lineHeightAxis; }
+        public void setLineHeightAxis(Map<String, Double> v) { this.lineHeightAxis = v; }
+        public Map<String, Double> getPressAxis() { return pressAxis; }
+        public void setPressAxis(Map<String, Double> v) { this.pressAxis = v; }
+        public Map<String, Double> getWidthAxis() { return widthAxis; }
+        public void setWidthAxis(Map<String, Double> v) { this.widthAxis = v; }
+        public Map<String, Double> getPassingDirectness() { return passingDirectness; }
+        public void setPassingDirectness(Map<String, Double> v) { this.passingDirectness = v; }
 
         // Resolver accessors: override → shipped default → 0.0 (unknown key), matching prior getOrDefault semantics.
         public double mentalityBias(String k) { return resolve(mentalityBias, DEFAULT_MENTALITY_BIAS, k); }
@@ -1393,6 +1478,10 @@ public class MatchEngineConfig {
         public double passingRisk(String k) { return resolve(passingRisk, DEFAULT_PASSING_RISK, k); }
         public double possessionControl(String k) { return resolve(possessionControl, DEFAULT_POSSESSION_CONTROL, k); }
         public double timeWastingControl(String k) { return resolve(timeWastingControl, DEFAULT_TIME_WASTING_CONTROL, k); }
+        public double lineHeightAxis(String k) { return resolve(lineHeightAxis, DEFAULT_LINE_HEIGHT_AXIS, k); }
+        public double pressAxis(String k) { return resolve(pressAxis, DEFAULT_PRESS_AXIS, k); }
+        public double widthAxis(String k) { return resolve(widthAxis, DEFAULT_WIDTH_AXIS, k); }
+        public double passingDirectness(String k) { return resolve(passingDirectness, DEFAULT_PASSING_DIRECTNESS, k); }
 
         private static double resolve(Map<String, Double> override, Map<String, Double> shipped, String key) {
             Double o = override.get(key);
@@ -1413,9 +1502,15 @@ public class MatchEngineConfig {
         private static final Map<String, Double> DEFAULT_ATTACK_SHARE = new HashMap<>();
         static {
             DEFAULT_ATTACK_SHARE.put("ST", 0.95);
+            DEFAULT_ATTACK_SHARE.put("AMC", 0.72);
+            DEFAULT_ATTACK_SHARE.put("AML", 0.85);
+            DEFAULT_ATTACK_SHARE.put("AMR", 0.85);
             DEFAULT_ATTACK_SHARE.put("ML", 0.80);
             DEFAULT_ATTACK_SHARE.put("MR", 0.80);
             DEFAULT_ATTACK_SHARE.put("MC", 0.50);
+            DEFAULT_ATTACK_SHARE.put("DM", 0.30);
+            DEFAULT_ATTACK_SHARE.put("WBL", 0.55);
+            DEFAULT_ATTACK_SHARE.put("WBR", 0.55);
             DEFAULT_ATTACK_SHARE.put("DL", 0.45);
             DEFAULT_ATTACK_SHARE.put("DR", 0.45);
             DEFAULT_ATTACK_SHARE.put("DC", 0.12);
@@ -1435,5 +1530,14 @@ public class MatchEngineConfig {
                 "Standard", 0.0, "Keep Ball", 0.6, "Free Ball Early", -0.1);
         private static final Map<String, Double> DEFAULT_TIME_WASTING_CONTROL = Map.of(
                 "Never", -0.1, "Sometimes", 0.0, "Frequently", 0.4, "Always", 0.6);
+        // Strat-2 axes (neutral key ⇒ 0 so a default tactic is a no-op).
+        private static final Map<String, Double> DEFAULT_LINE_HEIGHT_AXIS = Map.of(
+                "Deep", -1.0, "Standard", 0.0, "High", 1.0);
+        private static final Map<String, Double> DEFAULT_PRESS_AXIS = Map.of(
+                "Low", 0.0, "Standard", 0.5, "High", 1.0);
+        private static final Map<String, Double> DEFAULT_WIDTH_AXIS = Map.of(
+                "Narrow", -1.0, "Balanced", 0.0, "Wide", 1.0);
+        private static final Map<String, Double> DEFAULT_PASSING_DIRECTNESS = Map.of(
+                "Short", 0.0, "Normal", 0.4, "Long", 1.0, "Direct", 1.0);
     }
 }

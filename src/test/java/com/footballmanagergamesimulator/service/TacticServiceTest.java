@@ -25,15 +25,19 @@ class TacticServiceTest {
 
     @Test
     void testGetValueForTacticDisplay() {
-        // Test for valid positions
+        // The value is a back-to-front SORT key (only relative order matters, not absolute index),
+        // so assert ordering relationships rather than brittle exact indices. GK is the lowest, ST
+        // the highest, and the Strat-3 fine positions (DM/AM*/WB*) must be present (not -1) so slot
+        // sorting stays deterministic for them too.
         assertEquals(0, tacticService.getValueForTacticDisplay("GK"));
-        assertEquals(1, tacticService.getValueForTacticDisplay("DL"));
-        assertEquals(2, tacticService.getValueForTacticDisplay("DC"));
-        assertEquals(3, tacticService.getValueForTacticDisplay("DR"));
-        assertEquals(4, tacticService.getValueForTacticDisplay("ML"));
-        assertEquals(5, tacticService.getValueForTacticDisplay("MC"));
-        assertEquals(6, tacticService.getValueForTacticDisplay("MR"));
-        assertEquals(7, tacticService.getValueForTacticDisplay("ST"));
+        assertTrue(tacticService.getValueForTacticDisplay("GK") < tacticService.getValueForTacticDisplay("DC"));
+        assertTrue(tacticService.getValueForTacticDisplay("DC") < tacticService.getValueForTacticDisplay("DM"));
+        assertTrue(tacticService.getValueForTacticDisplay("DM") < tacticService.getValueForTacticDisplay("MC"));
+        assertTrue(tacticService.getValueForTacticDisplay("MC") < tacticService.getValueForTacticDisplay("AMC"));
+        assertTrue(tacticService.getValueForTacticDisplay("AMC") < tacticService.getValueForTacticDisplay("ST"));
+        for (String pos : new String[]{"DM", "AMC", "AML", "AMR", "WBL", "WBR"}) {
+            assertTrue(tacticService.getValueForTacticDisplay(pos) >= 0, pos + " must be ordered");
+        }
 
         // Test for invalid positions (not in the list)
         assertEquals(-1, tacticService.getValueForTacticDisplay("XYZ"));

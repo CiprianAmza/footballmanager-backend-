@@ -385,3 +385,39 @@ Cablat + reparat (comis de user): My Manager (salariu/earnings + breakdown per c
 - **Backend behavior**: `/loans/recall` întoarce mereu 400 „Cannot recall during season" — de decis dacă permiți recall.
 - **FE**: testare live continuă; restul golurilor din audit sunt acoperite.
 - **Smoke browser** two-leg interactiv LoC (QF/SF zile separate) — nevalidat.
+
+---
+
+## 16. Metrica de tactică (expected points), unificare engine live, unelte de simulare + restructurare admin (2026-05-31)
+
+Tot pe `master` (comituri „New Match Engine"); ultimul batch (TacticSim) **staged, necomis** (userul comite). `mvn verify` verde (≈156 unit + 85 IT).
+
+### 16.1 Metrica de tactică: expected points vs panel (NU mean xGD vs oglindă)
+**Problemă dovedită numeric** (`src/test/.../service/TacticLandscapeProbeTest`): ranking-ul vechi (`expectedGoalDifference` vs o **oglindă** a echipei) colapsează — tempo+passing contribuie **exact 0** la xGD (openness folosește `(risk1+risk2)/2`, se anulează simetric), rămâne doar „control" → top degenerat „Much Higher/Keep Ball/Always", skill irelevant.
+**Fix** (`service/TacticalScoreService` + `ManagerTacticService` + `BestTacticService`): ranking nou pe **`panelExpectedPoints`** = puncte așteptate (3·P(win)+P(draw)) prin **grid Poisson exact** (`outcomeProbabilities(xgH,xgA)`), mediat peste un **panel de adversari** (lotul scalat ×0.7/1.0/1.3, knob `TacticalModel.opponentPanel`). Folosit de AI (`chooseTactic`) ȘI de advisor. Acum tempo contează (0→0.0385); DTO îmbogățit cu `expectedPoints`/`winProbability`/`drawProbability`/`lossProbability`. ⚠️ **Limitare rămasă**: optimul analitic e tot un colț (modelul lasă să maximizezi simultan openness ȘI control — fără trade-off intern) — vezi §16.5 „rămas".
+
+### 16.2 Unelte de inspecție tactică (teste + endpoint-uri)
+- `BestTacticService.rankAllTactics(teamId)` — lista completă 13.500 (15 formații × 900) sortată analitic; `GET /admin/bestTactic/{teamId}` (admin) întoarce recomandarea + top-15.
+- `integration/fuzz/TeamTacticRankingFuzzIT` — scrie `target/all-tactics-{id}.md` (toate analitic, lot bootstrap sezon 1).
+- `integration/fuzz/Team442SeasonPointsFuzzIT` — **SIMULEAZĂ** meciurile reale ale echipei (442 fix, 900 setări, N sezoane vs adversarii reali ai ligii) → `target/season-points-442-{id}.md`. **Asta reflectă jocul**, nu formula. Spread real (50→29 pct), top NEdegenerat.
+- ⚠️ Analitic (admin) ≠ simulare (real) — de-aia s-a adăugat varianta simulată în endpoint-uri/FE.
+
+### 16.3 Unificarea engine-ului LIVE cu cel instant (Option A — narațiune)
+**Problemă**: meciul **live urmărit** (`LiveMatchSession`) genera goluri minut-cu-minut cu mecanici proprii (bonus mentalitate, caps pe șanse) → **scor diferit** de engine-ul instant (`TacticalScoreService.score`) → tacticile defensive ieșeau mai bine live decât prezicea modelul.
+**Fix** (`MatchRoundSimulator` + `LiveMatchSimulationService` + `LiveMatchSession`): la creare, scorul e **predeterminat O DATĂ** cu engine-ul instant pe aceleași profile+vectori (seed pe identitatea meciului). Sesiunea live **narează** exact scorul: programează minute de gol disjuncte (home/away), forțează gol la ele (`goalCutoff=1.0`) și **capează la 0** în rest (`pinned && !forced → goalCutoff=0.0`); restul (posesie/șuturi/cartonașe/schimbări/comentariu) rămâne live. → **un singur outcome** fie că urmărești fie că nu. Test: `service/LiveMatchPinnedScorelineTest` (live==instant pe seed). Modul stocastic legacy (`-1,-1`) păstrat pt. `simulateLiveMatch`/animation preview.
+
+### 16.4 Unelte de simulare user-facing + restructurare admin
+**Backend** (`service/TacticSimulationService` + `controller/TacticSimController`, **non-admin**, staged):
+- `GET /tactics/formations`, `GET /tactics/analytical/{teamId}` (rankAllTactics), `GET /tactics/simulate?teamId=&formation=&seasons=&opponentIds=` (puncte simulate reale), `POST /competition/simulate` `{teamIds,seasons}` (clasament round-robin custom), `GET /competition/leaguesAndTeams` (pickere). Reutilizează logica din `Team442SeasonPointsFuzzIT`. IT: `integration/TacticSimulationServiceIT`.
+**Frontend** (repo separat, necomis):
+- **Admin** spart în **hub** + pagini dedicate `/admin/scores`, `/admin/offers`, `/admin/players` (best-tactic mutat afară).
+- Pagină **`/tactics`** user-facing: dropdown formație + nr. sezoane + picker adversari (default liga ta, adaugi din orice ligă), 2 tab-uri **Analitic** (instant) + **Simulat** (meciuri reale).
+- Pagină **`/simulate`**: picker echipe (default liga ta) + sezoane → clasament.
+
+### 16.5 RĂMAS / planificat pentru viitor
+- **Determinism** (prioritar, mic): favoritul câștigă 100% (`ChampionshipPredictionFuzzIT`) — dominat de `ratioExponent=2.0`, nu de tactică. Acum că engine-ul e unificat, coboară `ratioExponent` (~1.5) + re-validează pe 15-20 sezoane pentru surprize realiste.
+- **Adâncimea modelului tactic** (cauza colțului degenerat): modelul lasă să maximizezi simultan openness ȘI control fără trade-off intern; formațiile cu aceleași sloturi ies identice (4231=4141=451, etc.). Fix real: **poziții/roluri mai fine** (DM/AM/wing-back, benzi verticale) + **proprietăți noi cu contra real** (linie defensivă sus↔vulnerabil la pace, presing↔spațiu în spate, lățime). Abia atunci formațiile + tacticile contează cu adevărat.
+- **Perf polish**: `Human`→SEQUENCE (revertit, rupea un test), `allocationSize` mai mare în producție, batch finanțe pe 6 iulie (riscant), tuning 92→97 (`MatchEngineRepStrengthFuzzIT`).
+- **Backend behavior**: `/loans/recall` întoarce mereu 400 „Cannot recall during season" — de decis.
+- **FE**: testare live a paginilor noi (admin hub, `/tactics`, `/simulate`) + a meciului live unificat; smoke two-leg interactiv LoC nevalidat.
+- **Convenție**: userul face commit-urile (handoff-ul + staged-ul rămân de comis de el).

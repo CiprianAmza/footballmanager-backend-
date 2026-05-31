@@ -75,12 +75,19 @@ class SquadGenerationServiceTest {
 
         assertEquals(22, squad.size(), "squad size should be 22");
         assertEquals(2, countByPosition(squad, "GK"));
-        assertEquals(2, countByPosition(squad, "DL"));
-        assertEquals(2, countByPosition(squad, "DR"));
+        // Strat 3 v2: specialist NATURALS across the pitch (wing-backs + wide attackers + DM + AMC).
+        assertEquals(1, countByPosition(squad, "DL"));
+        assertEquals(1, countByPosition(squad, "WBL"));
+        assertEquals(1, countByPosition(squad, "DR"));
+        assertEquals(1, countByPosition(squad, "WBR"));
         assertEquals(4, countByPosition(squad, "DC"));
-        assertEquals(2, countByPosition(squad, "ML"));
-        assertEquals(2, countByPosition(squad, "MR"));
-        assertEquals(4, countByPosition(squad, "MC"));
+        assertEquals(1, countByPosition(squad, "ML"));
+        assertEquals(1, countByPosition(squad, "AML"));
+        assertEquals(1, countByPosition(squad, "MR"));
+        assertEquals(1, countByPosition(squad, "AMR"));
+        assertEquals(2, countByPosition(squad, "MC"));
+        assertEquals(1, countByPosition(squad, "DM"));
+        assertEquals(1, countByPosition(squad, "AMC"));
         assertEquals(4, countByPosition(squad, "ST"));
     }
 

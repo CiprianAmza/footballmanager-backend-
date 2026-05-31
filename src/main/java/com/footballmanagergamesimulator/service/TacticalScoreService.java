@@ -36,8 +36,19 @@ public class TacticalScoreService {
     /** A squad's attack and defense ratings (before tactic redistribution). */
     public record TeamProfile(double attack, double defense) {}
 
-    /** A tactic reduced to three numeric axes: attack bias, openness risk, defensive control. */
-    public record TacticVector(double attackBias, double risk, double control) {}
+    /**
+     * A tactic reduced to numeric axes. The first three are the original ones (attack bias, openness
+     * risk, defensive control); the Strat-2 axes add opponent-dependent counters:
+     * {@code directness} (passing directness 0..1, the thing a high line is punished by),
+     * {@code line} (defensive line height −1..1), {@code press} (pressing 0..1), {@code width}
+     * (narrow −1 .. wide +1). All Strat-2 axes are 0 at neutral ⇒ a default tactic is a no-op. */
+    public record TacticVector(double attackBias, double risk, double control,
+                               double directness, double line, double press, double width) {
+        /** Legacy three-axis constructor: Strat-2 axes neutral (zero). */
+        public TacticVector(double attackBias, double risk, double control) {
+            this(attackBias, risk, control, 0, 0, 0, 0);
+        }
+    }
 
     /**
      * The intermediate decomposition of a matchup: each side's <b>effective</b> attack and defense
@@ -84,16 +95,27 @@ public class TacticalScoreService {
         String passing = orDefault(t.getPassingType(), "Normal");
         String possession = orDefault(t.getInPossession(), "Standard");
         String timeWasting = orDefault(t.getTimeWasting(), "Sometimes");
+        String line = orDefault(t.getDefensiveLine(), "Standard");
+        String press = orDefault(t.getPressing(), "Low");
+        String width = orDefault(t.getWidth(), "Balanced");
 
         MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
         double bias = cfg.mentalityBias(mentality) + cfg.possessionBias(possession);
         double risk = cfg.tempoRisk(tempo) + cfg.passingRisk(passing);
         double control = cfg.possessionControl(possession) + cfg.timeWastingControl(timeWasting);
+        double directness = cfg.passingDirectness(passing);
+        double lineAxis = cfg.lineHeightAxis(line);
+        double pressAxis = cfg.pressAxis(press);
+        double widthAxis = cfg.widthAxis(width);
 
         return new TacticVector(
                 clamp(bias, -1.2, 1.5),
                 clamp(risk, -1.5, 1.5),
-                clamp(control, 0.0, 1.5));
+                clamp(control, 0.0, 1.5),
+                clamp(directness, 0.0, 1.0),
+                clamp(lineAxis, -1.0, 1.0),
+                clamp(pressAxis, 0.0, 1.0),
+                clamp(widthAxis, -1.0, 1.0));
     }
 
     /** Sample a scoreline for a matchup using the field RNG (production path). team1 is home. */
@@ -131,12 +153,41 @@ public class TacticalScoreService {
      */
     public Matchup matchup(TeamProfile p1, TacticVector t1, TeamProfile p2, TacticVector t2) {
         MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
-        double effAtt1 = Math.max(1e-6, p1.attack() * (1 + cfg.getBiasStrength() * t1.attackBias()));
-        double effDef1 = Math.max(1e-6, p1.defense() * (1 - cfg.getBiasStrength() * t1.attackBias())
-                * (1 + cfg.getControlStrength() * t1.control()));
-        double effAtt2 = Math.max(1e-6, p2.attack() * (1 + cfg.getBiasStrength() * t2.attackBias()));
-        double effDef2 = Math.max(1e-6, p2.defense() * (1 - cfg.getBiasStrength() * t2.attackBias())
-                * (1 + cfg.getControlStrength() * t2.control()));
+        double bs = cfg.getBiasStrength(), cs = cfg.getControlStrength(), ca = cfg.getControlAttackCost();
+        double lhs = cfg.getLineHeightSupport(), lhv = cfg.getLineHeightVulnerability();
+        double pd = cfg.getPressDisruption(), psc = cfg.getPressStaminaCost(), plc = cfg.getPressLineCompound();
+        double ws = cfg.getWidthStrength();
+
+        // Base attack/defense after mentality (bias trade-off) and control (defense up, own attack down).
+        double effAtt1 = p1.attack() * (1 + bs * t1.attackBias()) * (1 - ca * t1.control());
+        double effDef1 = p1.defense() * (1 - bs * t1.attackBias()) * (1 + cs * t1.control());
+        double effAtt2 = p2.attack() * (1 + bs * t2.attackBias()) * (1 - ca * t2.control());
+        double effDef2 = p2.defense() * (1 - bs * t2.attackBias()) * (1 + cs * t2.control());
+
+        // Defensive line: a high line supports own attack a touch (lhs·line) but is punished by a
+        // DIRECT opponent (space behind) — amplified by your own pressing (space ahead of a high line).
+        double hi1 = Math.max(0, t1.line()), hi2 = Math.max(0, t2.line());
+        double lineVuln1 = 1 + (lhv + plc * t1.press()) * hi1 * t2.directness();
+        double lineVuln2 = 1 + (lhv + plc * t2.press()) * hi2 * t1.directness();
+        effDef1 /= lineVuln1;
+        effDef2 /= lineVuln2;
+        effAtt1 *= (1 + lhs * t1.line());
+        effAtt2 *= (1 + lhs * t2.line());
+
+        // Pressing: disrupt the opponent's attack (pd·theirPress on your attack), pay a small own-attack
+        // fatigue proxy on the instant engine (full stamina coupling lives in the live engine).
+        effAtt1 *= (1 - pd * t2.press()) * (1 - psc * t1.press());
+        effAtt2 *= (1 - pd * t1.press()) * (1 - psc * t2.press());
+
+        // Width rock-paper-scissors: wide attack beats a narrow defense and vice versa (no universal best).
+        effAtt1 *= (1 + ws * t1.width() * (-t2.width()));
+        effAtt2 *= (1 + ws * t2.width() * (-t1.width()));
+
+        effAtt1 = Math.max(1e-6, effAtt1);
+        effDef1 = Math.max(1e-6, effDef1);
+        effAtt2 = Math.max(1e-6, effAtt2);
+        effDef2 = Math.max(1e-6, effDef2);
+
         double openness = cfg.getBaseOpenness()
                 * (1 + cfg.getOpennessStrength() * (t1.risk() + t2.risk()) / 2.0)
                 * (1 - cfg.getControlOpennessStrength() * (t1.control() + t2.control()) / 2.0);

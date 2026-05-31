@@ -41,8 +41,8 @@ public class YouthAcademyService {
     @Autowired
     GameLock gameLock;
 
-    private static final String[] POSITIONS = {"GK", "DC", "DL", "DR", "MC", "ML", "MR", "AMC", "ST"};
-    private static final int[] POSITION_WEIGHTS = {5, 15, 10, 10, 15, 10, 10, 10, 15};
+    private static final String[] POSITIONS = {"GK", "DC", "DL", "WBL", "DR", "WBR", "MC", "DM", "ML", "AML", "MR", "AMR", "AMC", "ST"};
+    private static final int[] POSITION_WEIGHTS = {5, 14, 8, 5, 8, 5, 11, 7, 8, 6, 8, 6, 9, 14};
 
     public void generateYouthReport(long teamId, int season) {
 

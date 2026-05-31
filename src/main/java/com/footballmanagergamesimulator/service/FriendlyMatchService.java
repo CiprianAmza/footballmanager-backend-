@@ -32,6 +32,9 @@ public class FriendlyMatchService {
     @Autowired
     @Lazy
     private TrainingService trainingService;
+    @Autowired
+    @Lazy
+    private MatchRoundSimulator matchRoundSimulator;
 
     private static final int PRE_SEASON_START = 1;
     private static final int PRE_SEASON_END = 30;
@@ -287,14 +290,13 @@ public class FriendlyMatchService {
         long homeId = match.getHomeTeamId();
         long awayId = match.getAwayTeamId();
 
-        // Calculate team power (simplified - like AI vs AI)
-        double homePower = getTeamPower(homeId);
-        double awayPower = getTeamPower(awayId);
-
-        // Calculate scores using Poisson distribution
-        List<Integer> scores = matchSimulationService.calculateScores(homePower, awayPower);
-        int homeGoals = scores.get(0);
-        int awayGoals = scores.get(1);
+        // Score through the SAME engine as competitive matches (two-axis when enabled): squad value,
+        // tactics and the Strat-2 axes all apply — no divergent scalar copy here.
+        MatchRoundSimulator.MatchOutcome outcome = matchRoundSimulator.scoreStandaloneMatch(homeId, awayId);
+        int homeGoals = outcome.homeGoals();
+        int awayGoals = outcome.awayGoals();
+        double homePower = outcome.homePower();
+        double awayPower = outcome.awayPower();
 
         // Generate basic stats
         Random rng = new Random();
@@ -346,24 +348,6 @@ public class FriendlyMatchService {
         result.put("homePossession", homePoss);
         result.put("awayPossession", 100 - homePoss);
         return result;
-    }
-
-    /**
-     * Calculate team power for friendly (simplified version).
-     * Uses top 11 players by rating.
-     */
-    private double getTeamPower(long teamId) {
-        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L);
-        return players.stream()
-                .filter(p -> !p.isRetired() && !"Injured".equals(p.getCurrentStatus()))
-                .sorted((a, b) -> Double.compare(b.getRating(), a.getRating()))
-                .limit(11)
-                .mapToDouble(p -> {
-                    double moraleMul = 1.0 + (p.getMorale() - 70) * 0.004;
-                    double fitMul = Math.max(0.7, p.getFitness() / 100.0);
-                    return p.getRating() * moraleMul * fitMul;
-                })
-                .sum();
     }
 
     /**

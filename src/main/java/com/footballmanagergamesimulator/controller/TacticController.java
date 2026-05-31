@@ -77,6 +77,9 @@ public class TacticController {
         view.setInPossession(savedTactic.getInPossession());
         view.setPassingType(savedTactic.getPassingType());
         view.setTempo(savedTactic.getTempo());
+        view.setDefensiveLine(savedTactic.getDefensiveLine());
+        view.setPressing(savedTactic.getPressing());
+        view.setWidth(savedTactic.getWidth());
         view.setPenaltyTakerId(savedTactic.getPenaltyTakerId());
         view.setFreeKickTakerId(savedTactic.getFreeKickTakerId());
         view.setCornerTakerLeftId(savedTactic.getCornerTakerLeftId());
@@ -130,6 +133,9 @@ public class TacticController {
         personalizedTactic.setInPossession(personalizedTacticView.getInPossession());
         personalizedTactic.setPassingType(personalizedTacticView.getPassingType());
         personalizedTactic.setTempo(personalizedTacticView.getTempo());
+        personalizedTactic.setDefensiveLine(personalizedTacticView.getDefensiveLine());
+        personalizedTactic.setPressing(personalizedTacticView.getPressing());
+        personalizedTactic.setWidth(personalizedTacticView.getWidth());
         personalizedTactic.setPenaltyTakerId(personalizedTacticView.getPenaltyTakerId());
         personalizedTactic.setFreeKickTakerId(personalizedTacticView.getFreeKickTakerId());
         personalizedTactic.setCornerTakerLeftId(personalizedTacticView.getCornerTakerLeftId());
@@ -189,6 +195,23 @@ public class TacticController {
                 .stream()
                 .sorted((x, y) -> Double.compare(y.getTotalRating(), x.getTotalRating()))
                 .toList();
+    }
+
+    /** One pitch cell of a formation: the 0..29 grid index and the position label rendered there. */
+    public record FormationCell(int index, String position) {}
+
+    /** The pitch layout (allowed cells + their position labels) for ANY formation key — the single
+     *  source of truth so the frontend can offer every formation the engine/AI use (all 15), instead
+     *  of a hardcoded subset. Frontend: list formations from /tactic/getAllPossibleTactics, then call
+     *  this on selection to highlight + label the cells. */
+    @GetMapping("/formationLayout/{tactic}")
+    public List<FormationCell> formationLayout(@PathVariable(name = "tactic") String tactic) {
+        int[] indices = tacticService.getFormationGridIndices(tactic);
+        List<FormationCell> cells = new ArrayList<>(indices.length);
+        for (int idx : indices) {
+            cells.add(new FormationCell(idx, tacticService.getPositionFromIndex(idx)));
+        }
+        return cells;
     }
 
     @GetMapping("/getBestEleven/{teamId}/{tactic}")

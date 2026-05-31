@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.transfermarket;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.util.TypeNames;
 
 import java.util.*;
@@ -28,14 +29,17 @@ public class AcademyTransferStrategy extends AbstractTransferStrategy {
         .sorted(Comparator.comparing(Human::getRating).reversed())
         .toList();
 
-      for (Human player : players)
-        currentPositionAllocated.put(player.getPosition(), currentPositionAllocated.getOrDefault(player.getPosition(), 0) + 1);
+      for (Human player : players) {
+        String basePos = TacticService.getBasePosition(player.getPosition());
+        currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) + 1);
+      }
 
       List<Human> validThatCouldBeSold = new ArrayList<>();
       for (Human player : players) {
-        if (minimumPositionNeeded.getOrDefault(player.getPosition(), 0) < currentPositionAllocated.getOrDefault(player.getPosition(), 0)) {
+        String basePos = TacticService.getBasePosition(player.getPosition());
+        if (minimumPositionNeeded.getOrDefault(basePos, 0) < currentPositionAllocated.getOrDefault(basePos, 0)) {
           validThatCouldBeSold.add(player);
-          currentPositionAllocated.put(player.getPosition(), currentPositionAllocated.get(player.getPosition()) - 1);
+          currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) - 1);
         }
       }
 
@@ -49,7 +53,7 @@ public class AcademyTransferStrategy extends AbstractTransferStrategy {
     public List<PlayerTransferView> fromHumanToPlayerTransferView(Team team, List<Human> players) {
 
       return players.stream()
-        .map(player -> new PlayerTransferView(player.getId(), team.getId(), team.getReputation(), player.getRating(), player.getPosition(), player.getAge()))
+        .map(player -> new PlayerTransferView(player.getId(), team.getId(), team.getReputation(), player.getRating(), TacticService.getBasePosition(player.getPosition()), player.getAge()))
         .collect(Collectors.toList());
     }
 

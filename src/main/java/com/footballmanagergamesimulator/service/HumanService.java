@@ -485,6 +485,7 @@ public class HumanService {
      */
     public static void generatePhysicalProfile(Human human, Random random) {
         String pos = human.getPosition() != null ? human.getPosition() : "MC";
+        pos = TacticService.getBasePosition(pos); // fine positions use their base physical profile
 
         // Height ranges by position (cm)
         int baseHeight = switch (pos) {
@@ -549,7 +550,11 @@ public class HumanService {
         }
         toAssign.sort((a, b) -> Double.compare(b.getRating(), a.getRating()));
         for (Human p : toAssign) {
-            int[] choices = SHIRT_PREFS.getOrDefault(p.getPosition(), new int[0]);
+            // Keep position-specific shirt prefs where defined (incl. DM/AMC); fine positions without
+            // their own entry (AML/AMR/WBL/WBR) fall back to their base position's numbers.
+            String shirtPos = SHIRT_PREFS.containsKey(p.getPosition())
+                    ? p.getPosition() : TacticService.getBasePosition(p.getPosition());
+            int[] choices = SHIRT_PREFS.getOrDefault(shirtPos, new int[0]);
             int assigned = 0;
             for (int n : choices) {
                 if (!used.contains(n)) { assigned = n; break; }

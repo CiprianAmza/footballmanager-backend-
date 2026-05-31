@@ -180,4 +180,86 @@ class TacticalScoreServiceTest {
         assertThat(balanced.effAtt1()).isPositive();
         assertThat(balanced.openness()).isPositive();
     }
+
+    // ==================== Strat-2: control cost + new counters ====================
+
+    /** Build a tactic that exercises the new axes; everything else neutral. */
+    private PersonalizedTactic axes(String line, String press, String width, String passing) {
+        PersonalizedTactic t = new PersonalizedTactic();
+        t.setMentality("Balanced"); t.setTempo("Standard");
+        t.setTimeWasting("Sometimes"); t.setInPossession("Standard");
+        t.setPassingType(passing);
+        t.setDefensiveLine(line); t.setPressing(press); t.setWidth(width);
+        return t;
+    }
+
+    @Test
+    void newAxes_neutralByDefault_soDefaultTacticIsNoOp() {
+        TacticVector neutral = service.vector(new PersonalizedTactic());
+        assertThat(neutral.line()).isEqualTo(0.0);
+        assertThat(neutral.press()).isEqualTo(0.0);
+        assertThat(neutral.width()).isEqualTo(0.0);
+        // A balanced/normal tactic must reproduce the exact same matchup with the new code path.
+        TeamProfile a = service.profile(List.of(new StarterValue("ST", 1000), new StarterValue("DC", 1000)));
+        TeamProfile b = service.profile(List.of(new StarterValue("MC", 1000), new StarterValue("DC", 1000)));
+        var base = service.matchup(a, neutral, b, neutral);
+        var same = service.matchup(a, service.vector(axes("Standard", "Low", "Balanced", "Normal")),
+                b, service.vector(axes("Standard", "Low", "Balanced", "Normal")));
+        assertThat(same.effAtt1()).isCloseTo(base.effAtt1(), within(1e-9));
+        assertThat(same.effDef1()).isCloseTo(base.effDef1(), within(1e-9));
+    }
+
+    @Test
+    void control_raisesDefenseButCostsOwnAttack() {
+        // Strat 1: control is no longer a free win — it lifts defense AND lowers own attack.
+        TeamProfile a = service.profile(List.of(new StarterValue("ST", 1000), new StarterValue("MC", 1000), new StarterValue("DC", 1000)));
+        TeamProfile b = service.profile(List.of(new StarterValue("MC", 1000)));
+        TacticVector neutral = service.vector(new PersonalizedTactic());
+        PersonalizedTactic keepBall = new PersonalizedTactic();
+        keepBall.setMentality("Balanced"); keepBall.setTempo("Standard");
+        keepBall.setInPossession("Keep Ball"); keepBall.setTimeWasting("Always"); keepBall.setPassingType("Normal");
+
+        var base = service.matchup(a, neutral, b, neutral);
+        var controlled = service.matchup(a, service.vector(keepBall), b, neutral);
+        assertThat(controlled.effDef1()).as("control raises defense").isGreaterThan(base.effDef1());
+        assertThat(controlled.effAtt1()).as("control costs own attack").isLessThan(base.effAtt1());
+    }
+
+    @Test
+    void highLine_isPunishedByADirectOpponentButNotAShortPassingOne() {
+        TeamProfile a = service.profile(List.of(new StarterValue("DC", 1500)));
+        TeamProfile b = service.profile(List.of(new StarterValue("ST", 1500)));
+        TacticVector highLine = service.vector(axes("High", "Low", "Balanced", "Normal"));
+        TacticVector oppDirect = service.vector(axes("Standard", "Low", "Balanced", "Long"));
+        TacticVector oppShort = service.vector(axes("Standard", "Low", "Balanced", "Short"));
+
+        double defVsDirect = service.matchup(a, highLine, b, oppDirect).effDef1();
+        double defVsShort = service.matchup(a, highLine, b, oppShort).effDef1();
+        assertThat(defVsDirect).as("a high line concedes space to a direct opponent").isLessThan(defVsShort);
+    }
+
+    @Test
+    void pressing_disruptsTheOpponentsAttack() {
+        TeamProfile a = service.profile(List.of(new StarterValue("MC", 1500)));
+        TeamProfile b = service.profile(List.of(new StarterValue("ST", 1500)));
+        TacticVector neutral = service.vector(new PersonalizedTactic());
+        TacticVector highPress = service.vector(axes("Standard", "High", "Balanced", "Normal"));
+
+        double oppAttVsPress = service.matchup(a, highPress, b, neutral).effAtt2();
+        double oppAttVsNeutral = service.matchup(a, neutral, b, neutral).effAtt2();
+        assertThat(oppAttVsPress).as("high pressing lowers the opponent's effective attack").isLessThan(oppAttVsNeutral);
+    }
+
+    @Test
+    void width_isRockPaperScissors() {
+        TeamProfile a = service.profile(List.of(new StarterValue("ST", 1500)));
+        TeamProfile b = service.profile(List.of(new StarterValue("DC", 1500)));
+        TacticVector wide = service.vector(axes("Standard", "Low", "Wide", "Normal"));
+        TacticVector oppNarrow = service.vector(axes("Standard", "Low", "Narrow", "Normal"));
+        TacticVector oppWide = service.vector(axes("Standard", "Low", "Wide", "Normal"));
+
+        double attVsNarrow = service.matchup(a, wide, b, oppNarrow).effAtt1();
+        double attVsWide = service.matchup(a, wide, b, oppWide).effAtt1();
+        assertThat(attVsNarrow).as("wide attack beats a narrow defense; cancels vs a wide one").isGreaterThan(attVsWide);
+    }
 }

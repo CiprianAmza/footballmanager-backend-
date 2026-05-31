@@ -125,6 +125,8 @@ public class MatchRoundSimulator {
     // attack/defense profile and the tactic its manager picked for the season.
     private final Map<Long, TacticalScoreService.TeamProfile> profileCache = new HashMap<>();
     private final Map<Long, TacticalScoreService.TacticVector> tacticVectorCache = new HashMap<>();
+    // XI value share in wide positions, for the AI's squad-shape width identity (see teamTacticVector).
+    private final Map<Long, Double> wideShareCache = new HashMap<>();
 
     // ===== Per-round caches (populated at start of simulateRound, cleared at end). =====
     // simulateRound runs sequentially (one competition's round at a time from the
@@ -949,10 +951,24 @@ public class MatchRoundSimulator {
 
         String tactic = getManagerTacticCached(teamId);
         double[] coach = coachAbilities(teamId);
+        List<TacticalScoreService.StarterValue> starters = starterValues(teamId, tactic);
         TacticalScoreService.TeamProfile coached = tacticalScoreService.coachedProfile(
-                tacticalScoreService.profile(starterValues(teamId, tactic)), coach[0], coach[1]);
+                tacticalScoreService.profile(starters), coach[0], coach[1]);
         profileCache.put(teamId, coached);
+        wideShareCache.put(teamId, wideShare(starters));
         return coached;
+    }
+
+    private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");
+
+    /** Share of the XI's match value sitting in wide positions (for the AI width identity). */
+    private static double wideShare(List<TacticalScoreService.StarterValue> starters) {
+        double total = 0, wide = 0;
+        for (TacticalScoreService.StarterValue s : starters) {
+            total += s.value();
+            if (WIDE_POSITIONS.contains(s.usedPosition())) wide += s.value();
+        }
+        return total <= 0 ? 0 : wide / total;
     }
 
     /** Evaluate the best-eleven match values for a team under a given formation (used position kept
@@ -989,6 +1005,9 @@ public class MatchRoundSimulator {
         double pickAbility = (coach[0] + coach[1]) / 2.0;
         // AI optimizes against a mirror of its own coached profile (an even, representative matchup).
         PersonalizedTactic chosen = managerTacticService.chooseTactic(profile, profile, pickAbility);
+        // Width is a squad-shape identity (invisible against a width-neutral panel), set from the XI shape.
+        Double ws = wideShareCache.get(teamId);
+        if (ws != null) chosen.setWidth(managerTacticService.widthIdentity(ws));
         TacticalScoreService.TacticVector v = tacticalScoreService.vector(chosen);
         tacticVectorCache.put(teamId, v);
         return v;
@@ -1014,6 +1033,21 @@ public class MatchRoundSimulator {
 
     private static TacticalScoreService.TeamProfile scaleProfile(TacticalScoreService.TeamProfile p, double k) {
         return new TacticalScoreService.TeamProfile(p.attack() * k, p.defense() * k);
+    }
+
+    /** Public scoreline for a standalone match (e.g. a friendly) using the SAME engine as competitive
+     *  matches: the two-axis model when enabled (so squad value + tactics + the new axes apply), else
+     *  the scalar fallback. Avoids a divergent scalar copy in {@code FriendlyMatchService}. */
+    public record MatchOutcome(int homeGoals, int awayGoals, double homePower, double awayPower) {}
+
+    public MatchOutcome scoreStandaloneMatch(long homeTeamId, long awayTeamId) {
+        if (engineConfig.getTacticalModel().isEnabled()) {
+            TwoAxisResult r = twoAxisScores(homeTeamId, null, awayTeamId, null);
+            return new MatchOutcome(r.score1(), r.score2(), r.power1(), r.power2());
+        }
+        double hp = getSimpleTeamRating(homeTeamId), ap = getSimpleTeamRating(awayTeamId);
+        List<Integer> s = matchSimulationService.calculateScores(hp, ap);
+        return new MatchOutcome(s.get(0), s.get(1), hp, ap);
     }
 
     /** Resolve a knockout tie's tiebreak (extra time + penalties). Under the two-axis model the
@@ -1055,6 +1089,7 @@ public class MatchRoundSimulator {
         managerTacticCache.remove(teamId);
         profileCache.remove(teamId);
         tacticVectorCache.remove(teamId);
+        wideShareCache.remove(teamId);
     }
 
     /** Drop ALL cached AI ratings — used at season transition (ageing + mass
@@ -1066,6 +1101,7 @@ public class MatchRoundSimulator {
         managerTacticCache.clear();
         profileCache.clear();
         tacticVectorCache.clear();
+        wideShareCache.clear();
     }
 
     /** Test-only: expose the (cached) AI base rating so tests can prove the cache

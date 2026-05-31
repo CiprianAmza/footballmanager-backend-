@@ -137,16 +137,26 @@ public class SquadGenerationService {
         return skills;
     }
 
-    /** Index 0..21 → position. Mirrors the original controller's template
-     *  exactly: 2 GK, 2 DL, 2 DR, 4 DC, 2 ML, 2 MR, 4 MC, 4 ST. */
+    /** Index 0..21 → position: 2 GK, 1 DL, 1 WBL, 1 DR, 1 WBR, 4 DC, 1 ML, 1 AML, 1 MR, 1 AMR,
+     *  2 MC, 1 DM, 1 AMC, 4 ST.
+     *  Strat 3 v2: specialist NATURALS across the pitch — holding DM, attacking AMC, wing-backs
+     *  (WBL/WBR) and wide attackers (AML/AMR) — so squads suit the fine-position formations without
+     *  an out-of-position familiarity penalty. Fine positions are treated as their base archetype by
+     *  non-tactical systems (rating/skills/physical/shirt via {@code TacticService.getBasePosition}). */
     private static String positionForIndex(int i) {
         if (i < 2)  return "GK";
-        if (i < 4)  return "DL";
-        if (i < 6)  return "DR";
+        if (i < 3)  return "DL";
+        if (i < 4)  return "WBL";
+        if (i < 5)  return "DR";
+        if (i < 6)  return "WBR";
         if (i < 10) return "DC";
-        if (i < 12) return "ML";
-        if (i < 14) return "MR";
-        if (i < 18) return "MC";
+        if (i < 11) return "ML";
+        if (i < 12) return "AML";
+        if (i < 13) return "MR";
+        if (i < 14) return "AMR";
+        if (i < 16) return "MC";
+        if (i < 17) return "DM";
+        if (i < 18) return "AMC";
         return "ST";
     }
 }

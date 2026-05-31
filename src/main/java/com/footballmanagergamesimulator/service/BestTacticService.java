@@ -43,31 +43,36 @@ public class BestTacticService {
 
     public record TacticRow(String formation, String mentality, String tempo, String passingType,
                             String inPossession, String timeWasting, double expectedGoalDifference,
-                            double expectedPoints) {}
+                            double expectedPoints, String defensiveLine, String pressing, String width) {}
 
     public record BestTacticResult(long teamId, String teamName, String recommendedFormation,
                                    String recommendedMentality, String recommendedTempo,
                                    String recommendedPassingType, String recommendedInPossession,
-                                   String recommendedTimeWasting, double expectedGoalDifference,
+                                   String recommendedTimeWasting, String recommendedDefensiveLine,
+                                   String recommendedPressing, String recommendedWidth,
+                                   double expectedGoalDifference,
                                    double expectedPoints, double winProbability, double drawProbability,
                                    double lossProbability, double baseSquadValue, List<TacticRow> top) {}
 
     /** Search every formation × the 900 tactic settings for {@code teamId}, all on its live squad. */
     public BestTacticResult findBestTactic(long teamId) {
         double[] coach = coachAbilities(teamId);
+        double ability = (coach[0] + coach[1]) / 2.0;
         List<PersonalizedTactic> candidates = managerTacticService.candidateTactics();
         TacticVector neutralOpp = tacticalScoreService.vector(new PersonalizedTactic());
 
         List<TacticRow> all = new ArrayList<>();
         Map<String, TeamProfile> profileByFormation = new HashMap<>();
+        Map<String, Double> wideShareByFormation = new HashMap<>();
         double bestBaseValue = -1;
-        String bestFormation = "442";
         for (String formation : tacticService.getAllExistingTactics()) {
+            List<TacticalScoreService.StarterValue> starters = starterValues(teamId, formation);
             TeamProfile profile = tacticalScoreService.coachedProfile(
-                    tacticalScoreService.profile(starterValues(teamId, formation)), coach[0], coach[1]);
+                    tacticalScoreService.profile(starters), coach[0], coach[1]);
             profileByFormation.put(formation, profile);
+            wideShareByFormation.put(formation, wideShare(starters));
             double baseValue = profile.attack() + profile.defense();
-            if (baseValue > bestBaseValue) { bestBaseValue = baseValue; bestFormation = formation; }
+            if (baseValue > bestBaseValue) { bestBaseValue = baseValue; }
             // Rank by average expected POINTS across an opponent panel (weaker/equal/stronger),
             // not self-mirror xGD — so tempo/passing differentiate and coaching skill matters.
             for (PersonalizedTactic t : candidates) {
@@ -75,13 +80,18 @@ public class BestTacticService {
                 double egd = tacticalScoreService.expectedGoalDifference(profile, mv, profile, neutralOpp);
                 double ep = tacticalScoreService.panelExpectedPoints(profile, mv);
                 all.add(new TacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
-                        t.getInPossession(), t.getTimeWasting(), egd, ep));
+                        t.getInPossession(), t.getTimeWasting(), egd, ep, null, null, null));
             }
         }
         all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
 
-        TacticRow best = all.get(0);
-        List<TacticRow> top = all.subList(0, Math.min(15, all.size()));
+        // Enrich the recommendation + top-15 with the Strat-2 axes (line/press coordinate + width
+        // identity) — the perf-safe way to "suggest" them without a 27× larger grid.
+        List<TacticRow> top = new ArrayList<>();
+        for (TacticRow r : all.subList(0, Math.min(15, all.size()))) {
+            top.add(withNewAxes(r, profileByFormation, wideShareByFormation, ability));
+        }
+        TacticRow best = top.get(0);
 
         // Win/draw/loss for the recommended tactic vs the EQUAL (1.0×) opponent playing neutral.
         TeamProfile bestProfile = profileByFormation.get(best.formation());
@@ -93,32 +103,64 @@ public class BestTacticService {
         String name = teamRepository.findNameById(teamId);
         return new BestTacticResult(teamId, name == null ? "Team#" + teamId : name,
                 best.formation(), best.mentality(), best.tempo(), best.passingType(),
-                best.inPossession(), best.timeWasting(), best.expectedGoalDifference(),
+                best.inPossession(), best.timeWasting(), best.defensiveLine(), best.pressing(),
+                best.width(), best.expectedGoalDifference(),
                 best.expectedPoints(), wdl[0], wdl[1], wdl[2],
-                bestBaseValue, new ArrayList<>(top));
+                bestBaseValue, top);
     }
 
     /** Every formation × settings combination (all 13,500) for a team, sorted by panel expected
      *  points descending — the full ranked list (findBestTactic returns only the top 15). Same
-     *  live-DB profiles + metric as the advisor, so the report matches production. */
+     *  live-DB profiles + metric as the advisor, so the report matches production. Each row also
+     *  carries the formation's recommended Strat-2 axes (computed once per formation — line/press
+     *  coordinate + width identity — rather than a 27× larger swept grid). */
     public List<TacticRow> rankAllTactics(long teamId) {
         double[] coach = coachAbilities(teamId);
+        double ability = (coach[0] + coach[1]) / 2.0;
         List<PersonalizedTactic> candidates = managerTacticService.candidateTactics();
         TacticVector neutralOpp = tacticalScoreService.vector(new PersonalizedTactic());
         List<TacticRow> all = new ArrayList<>();
         for (String formation : tacticService.getAllExistingTactics()) {
+            List<TacticalScoreService.StarterValue> starters = starterValues(teamId, formation);
             TeamProfile profile = tacticalScoreService.coachedProfile(
-                    tacticalScoreService.profile(starterValues(teamId, formation)), coach[0], coach[1]);
+                    tacticalScoreService.profile(starters), coach[0], coach[1]);
+            // One representative line/press/width per formation (stamped on all its rows).
+            PersonalizedTactic axes = new PersonalizedTactic();
+            managerTacticService.applyNewAxes(axes, profile, ability, wideShare(starters));
             for (PersonalizedTactic t : candidates) {
                 TacticVector mv = tacticalScoreService.vector(t);
                 double egd = tacticalScoreService.expectedGoalDifference(profile, mv, profile, neutralOpp);
                 double ep = tacticalScoreService.panelExpectedPoints(profile, mv);
                 all.add(new TacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
-                        t.getInPossession(), t.getTimeWasting(), egd, ep));
+                        t.getInPossession(), t.getTimeWasting(), egd, ep,
+                        axes.getDefensiveLine(), axes.getPressing(), axes.getWidth()));
             }
         }
         all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
         return all;
+    }
+
+    /** Re-derive a row's tactic with the Strat-2 axes filled (line/press coordinate + width identity)
+     *  and its panel expected points recomputed to reflect them. */
+    private TacticRow withNewAxes(TacticRow r, Map<String, TeamProfile> profById,
+                                  Map<String, Double> wideById, double ability) {
+        TeamProfile prof = profById.get(r.formation());
+        PersonalizedTactic t = reconstruct(r);
+        managerTacticService.applyNewAxes(t, prof, ability, wideById.getOrDefault(r.formation(), 0.0));
+        double ep = tacticalScoreService.panelExpectedPoints(prof, tacticalScoreService.vector(t));
+        return new TacticRow(r.formation(), r.mentality(), r.tempo(), r.passingType(), r.inPossession(),
+                r.timeWasting(), r.expectedGoalDifference(), ep, t.getDefensiveLine(), t.getPressing(), t.getWidth());
+    }
+
+    private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");
+
+    private static double wideShare(List<TacticalScoreService.StarterValue> starters) {
+        double total = 0, wide = 0;
+        for (TacticalScoreService.StarterValue s : starters) {
+            total += s.value();
+            if (WIDE_POSITIONS.contains(s.usedPosition())) wide += s.value();
+        }
+        return total <= 0 ? 0 : wide / total;
     }
 
     /** Rebuild a {@link PersonalizedTactic} from a ranked row so its vector can be re-derived. */
@@ -129,6 +171,9 @@ public class BestTacticService {
         t.setPassingType(r.passingType());
         t.setInPossession(r.inPossession());
         t.setTimeWasting(r.timeWasting());
+        t.setDefensiveLine(r.defensiveLine());
+        t.setPressing(r.pressing());
+        t.setWidth(r.width());
         return t;
     }
 

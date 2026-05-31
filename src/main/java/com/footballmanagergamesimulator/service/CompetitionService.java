@@ -32,6 +32,9 @@ public class CompetitionService {
     public void generateSkills(PlayerSkills playerSkills, double rating, Random random) {
         String position = playerSkills.getPosition();
         if (position == null) position = "MC";
+        // Fine positions (DM/AMC/AML/AMR/WBL/WBR) generate as their base archetype (e.g. AML→ML winger,
+        // WBL→DL full-back) so a specialist gets the right attribute profile, not a flat default.
+        position = TacticService.getBasePosition(position);
 
         // Convert rating (1-300) to base attribute level (1-20).
         // rating 300 -> base ~20, rating 150 -> base ~10, rating 60 -> base ~4.

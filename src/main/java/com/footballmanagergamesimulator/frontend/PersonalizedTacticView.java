@@ -19,6 +19,11 @@ public class PersonalizedTacticView {
     private String passingType;
     private String tempo;
 
+    // Strat-2 tactical axes (null ⇒ neutral)
+    private String defensiveLine;
+    private String pressing;
+    private String width;
+
     // Set piece takers
     private Long penaltyTakerId;
     private Long freeKickTakerId;

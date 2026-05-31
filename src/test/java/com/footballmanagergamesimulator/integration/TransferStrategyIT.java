@@ -376,7 +376,7 @@ class TransferStrategyIT {
     @DisplayName("No strategy sells more than the surplus at any position (keeps the minimum)")
     void minimumPositionNeededIsNeverBreached() {
         Map<String, Integer> have = new HashMap<>();
-        for (Human h : squad) have.merge(h.getPosition(), 1, Integer::sum);
+        for (Human h : squad) have.merge(TacticService.getBasePosition(h.getPosition()), 1, Integer::sum);
 
         for (long stratId : new long[]{1L, 2L, 3L, 4L, 5L}) {
             Map<String, Integer> sold = new HashMap<>();
@@ -421,13 +421,14 @@ class TransferStrategyIT {
                 .isLessThanOrEqualTo(4);
 
         Map<String, Integer> have = new HashMap<>();
-        for (Human h : squad) have.merge(h.getPosition(), 1, Integer::sum);
+        for (Human h : squad) have.merge(TacticService.getBasePosition(h.getPosition()), 1, Integer::sum);
         for (TransferPlayer p : plan.getPositions()) {
-            assertThat(have.getOrDefault(p.getPosition(), 0))
+            String basePos = TacticService.getBasePosition(p.getPosition());
+            assertThat(have.getOrDefault(basePos, 0))
                     .as("strategy %d must only buy for under-filled position %s (have %d, cap %d)",
-                            stratId, p.getPosition(), have.getOrDefault(p.getPosition(), 0),
-                            maxPos.getOrDefault(p.getPosition(), 0))
-                    .isLessThan(maxPos.getOrDefault(p.getPosition(), Integer.MAX_VALUE));
+                            stratId, basePos, have.getOrDefault(basePos, 0),
+                            maxPos.getOrDefault(basePos, 0))
+                    .isLessThan(maxPos.getOrDefault(basePos, Integer.MAX_VALUE));
         }
     }
 
