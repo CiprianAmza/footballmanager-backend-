@@ -6,13 +6,17 @@ import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.frontend.PlayerView;
+import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.MatchPlayerRating;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
+import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.MatchPlayerRatingRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
@@ -59,6 +63,7 @@ public class LineupRatingService {
     @Autowired private TeamRepository teamRepository;
     @Autowired private ScorerRepository scorerRepository;
     @Autowired private ScorerLeaderboardRepository scorerLeaderboardRepository;
+    @Autowired private MatchPlayerRatingRepository matchPlayerRatingRepository;
 
     @Autowired private TacticService tacticService;
     @Autowired private PlayerRoleService playerRoleService;
@@ -81,12 +86,26 @@ public class LineupRatingService {
      * available, falling back to the auto-picked best XI when not.
      */
     public double getBestElevenRatingByTactic(long teamId, String tactic) {
+        // Squad value = sum of the per-player ratings (morale/fitness/familiarity/role/instruction
+        // already baked in). Team talk + home advantage are applied centrally at the scoring call
+        // (MatchSimulationService.effectiveTeamPower).
+        return computePlayerRatings(teamId, tactic).stream()
+                .mapToDouble(PlayerRatingLine::rating)
+                .sum();
+    }
+
+    /**
+     * Per-starter rating breakdown behind {@link #getBestElevenRatingByTactic}. Same formula,
+     * exposed per player so the rating can be persisted/displayed per match. Sources the starting
+     * XI from the team's personalized tactic JSON when available, falling back to the auto-picked
+     * best XI when not.
+     */
+    public List<PlayerRatingLine> computePlayerRatings(long teamId, String tactic) {
 
         Optional<PersonalizedTactic> personalizedTacticOpt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
 
         if (personalizedTacticOpt.isPresent()) {
             PersonalizedTactic personalized = personalizedTacticOpt.get();
-            double rating = 0;
             Set<Long> injuredIds = matchSimulationOrchestrator.roundInjuredIds(teamId);
 
             try {
@@ -95,6 +114,7 @@ public class LineupRatingService {
                         new TypeReference<List<FormationData>>() {}
                 );
 
+                List<PlayerRatingLine> lines = new ArrayList<>();
                 for (FormationData data : formationDataList) {
 
                     if (data.getPositionIndex() >= 30) continue;
@@ -127,17 +147,15 @@ public class LineupRatingService {
                     // morale + fitness are per-player; the instruction multiplier is layered on.
                     double instructionMultiplier = playerInstructionService.computeInstructionMultiplier(
                             data.getInstructions(), usedPos, "general");
-                    rating += base
+                    double playerRating = base
                             * playerValueService.familiarityFactor(naturalPos, usedPos)
                             * playerValueService.moraleFactor(player.getMorale())
                             * playerValueService.fitnessFactor(player.getFitness())
                             * instructionMultiplier;
+                    lines.add(new PlayerRatingLine(player.getId(), usedPos, playerRating));
                 }
 
-                // Team talk + home advantage are applied centrally at the scoring call
-                // (MatchSimulationService.effectiveTeamPower); this returns the squad value
-                // with per-player morale/fitness/familiarity already included.
-                return rating;
+                return lines;
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -153,20 +171,66 @@ public class LineupRatingService {
             skillsById.put(s.getPlayerId(), s);
         }
 
-        double fallbackRating = 0;
+        List<PlayerRatingLine> lines = new ArrayList<>();
         for (TacticController.StarterSlot slot : starters) {
             PlayerView pv = slot.player();
             String naturalPos = TacticService.getBasePosition(pv.getPosition());
             String usedPos = slot.usedPosition();
             PlayerSkills skills = skillsById.get(pv.getId());
-            fallbackRating += skills != null
+            double playerRating = skills != null
                     ? playerValueService.evaluatePlayer(skills, naturalPos, usedPos, pv.getMorale(), pv.getFitness())
                     : playerValueService.evaluatePlayer(pv.getRating(), naturalPos, usedPos, pv.getMorale(), pv.getFitness());
+            lines.add(new PlayerRatingLine(pv.getId(), usedPos, playerRating));
         }
 
-        // Team talk applied centrally via effectiveTeamPower (see above).
-        return fallbackRating;
+        return lines;
     }
+
+    /**
+     * Captures the per-starter {@link #computePlayerRatings} values for a single team in a single
+     * match and persists them as {@link MatchPlayerRating} rows (player snapshot: name, position,
+     * rating, age, nationId). Idempotent: replaces any existing rows for the same match+team.
+     */
+    public void persistPlayerRatings(long competitionId, int season, int round, long teamId, String tactic) {
+
+        List<PlayerRatingLine> lines = computePlayerRatings(teamId, tactic);
+        long nationId = resolveTeamNationId(teamId);
+
+        List<MatchPlayerRating> existing = matchPlayerRatingRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId(competitionId, season, round, teamId);
+        if (!existing.isEmpty()) {
+            matchPlayerRatingRepository.deleteAll(existing);
+        }
+
+        List<MatchPlayerRating> rows = new ArrayList<>();
+        for (PlayerRatingLine line : lines) {
+            Human player = humanRepository.findById(line.playerId()).orElse(null);
+            MatchPlayerRating row = new MatchPlayerRating();
+            row.setCompetitionId(competitionId);
+            row.setSeasonNumber(season);
+            row.setRoundNumber(round);
+            row.setTeamId(teamId);
+            row.setPlayerId(line.playerId());
+            row.setPlayerName(player != null ? player.getName() : "");
+            row.setPosition(line.position());
+            row.setRating(line.rating());
+            row.setAge(player != null ? player.getAge() : 0);
+            row.setNationId(nationId);
+            rows.add(row);
+        }
+        matchPlayerRatingRepository.saveAll(rows);
+    }
+
+    /** Team's nation = its league competition's nationId (team -> competition -> nationId). */
+    private long resolveTeamNationId(long teamId) {
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team == null) return -1;
+        Competition comp = competitionRepository.findById(team.getCompetitionId()).orElse(null);
+        return comp != null ? comp.getNationId() : -1;
+    }
+
+    /** Per-starter rating line: player id, the slot position used, and the match rating. */
+    public record PlayerRatingLine(long playerId, String position, double rating) {}
 
     /**
      * Mentality × power-difference × tempo/passing/possession combinatorics

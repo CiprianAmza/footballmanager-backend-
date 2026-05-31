@@ -537,6 +537,9 @@ public class MatchdayCoordinator {
         // Scorer tracking + match stats from the live data
         lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
         lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
+        // Per-player lineup ratings for the match statistics view
+        lineupRatingService.persistPlayerRatings(_competitionId, season, (int) _roundId, teamId1, tactic1);
+        lineupRatingService.persistPlayerRatings(_competitionId, season, (int) _roundId, teamId2, tactic2);
         matchStatsService.persistLiveMatchStats(
                 _competitionId, season, (int) _roundId, teamId1, teamId2,
                 session.asLiveMatchData(), teamPower1, teamPower2);
