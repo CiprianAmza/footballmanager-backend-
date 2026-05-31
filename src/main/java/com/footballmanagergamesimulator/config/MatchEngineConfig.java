@@ -1329,6 +1329,10 @@ public class MatchEngineConfig {
         private double coachStrength = 0.12;
         /** Hard cap per team. */
         private int maxGoalsPerTeam = 7;
+        /** Opponent panel for the expected-points tactic ranking: the team's own profile scaled to a
+         *  weaker / equal / stronger opponent. Averaging expected points across this non-mirror panel
+         *  (instead of self-mirror xGD) is what makes the tactic landscape differentiate. */
+        private double[] opponentPanel = {0.7, 1.0, 1.3};
         /** Openness multiplier for a knockout extra-time mini-match (30' vs a full 90'): scales the
          *  matchup goal scale down. Default ≈ {@code knockout.extraTimeExpectedGoals / power.expectedGoalsTotal}
          *  (1.0/3.0). Used by {@code TacticalScoreService.scoreExtraTime}. */
@@ -1363,6 +1367,8 @@ public class MatchEngineConfig {
         public void setCoachStrength(double v) { this.coachStrength = v; }
         public int getMaxGoalsPerTeam() { return maxGoalsPerTeam; }
         public void setMaxGoalsPerTeam(int v) { this.maxGoalsPerTeam = v; }
+        public double[] getOpponentPanel() { return opponentPanel; }
+        public void setOpponentPanel(double[] v) { this.opponentPanel = v; }
         public double getExtraTimeOpennessScale() { return extraTimeOpennessScale; }
         public void setExtraTimeOpennessScale(double v) { this.extraTimeOpennessScale = v; }
         public Map<String, Double> getAttackShare() { return attackShare; }

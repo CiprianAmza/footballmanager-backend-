@@ -156,7 +156,83 @@ public class TacticalScoreService {
         return xg[0] - xg[1];
     }
 
+    /**
+     * Exact win/draw/loss probabilities for a matchup with the given expected goals, via a Poisson
+     * <b>grid</b> over {@code 0..maxGoals} for each side (no Monte Carlo). Each side's truncated
+     * Poisson PMF folds its tail mass into the {@code maxGoals} cell (matching the capped sampler in
+     * {@link #poisson}), so each PMF sums to 1; the 2D grid is then summed into
+     * {@code [P(home win), P(draw), P(home loss)]}.
+     */
+    public double[] outcomeProbabilities(double xgHome, double xgAway) {
+        int max = engineConfig.getTacticalModel().getMaxGoalsPerTeam();
+        double[] ph = truncatedPoissonPmf(xgHome, max);
+        double[] pa = truncatedPoissonPmf(xgAway, max);
+        double win = 0, draw = 0, loss = 0;
+        for (int h = 0; h <= max; h++) {
+            for (int a = 0; a <= max; a++) {
+                double cell = ph[h] * pa[a];
+                if (h > a) win += cell;
+                else if (h == a) draw += cell;
+                else loss += cell;
+            }
+        }
+        return new double[]{win, draw, loss};
+    }
+
+    /**
+     * Expected league points (3·win + 1·draw) for {@code myT} against {@code oppT}, evaluated with
+     * <b>no</b> home advantage so tactic ranking is fair. A variance-aware metric (unlike
+     * {@link #expectedGoalDifference}'s mean), so it captures the value of closed/defensive tactics
+     * for underdogs that mean-xGD misses.
+     */
+    public double expectedPoints(TeamProfile mine, TacticVector myT, TeamProfile opp, TacticVector oppT) {
+        double[] xg = expectedGoals(mine, myT, opp, oppT, engineConfig.getTacticalModel(), false);
+        double[] p = outcomeProbabilities(xg[0], xg[1]);
+        return 3 * p[0] + p[1];
+    }
+
+    /** Scale a profile's attack and defense by {@code s} (for building an opponent panel). */
+    public TeamProfile scaled(TeamProfile p, double s) {
+        return new TeamProfile(p.attack() * s, p.defense() * s);
+    }
+
+    /** {xgHome, xgAway} for a matchup with NO home advantage (the fair-ranking expected goals). */
+    public double[] expectedGoalsForRanking(TeamProfile mine, TacticVector myT, TeamProfile opp, TacticVector oppT) {
+        return expectedGoals(mine, myT, opp, oppT, engineConfig.getTacticalModel(), false);
+    }
+
+    /**
+     * Average {@link #expectedPoints} for {@code myT} across an opponent <b>panel</b> — {@code mine}
+     * scaled to a weaker / equal / stronger opponent (config {@code opponentPanel}, default
+     * {@code {0.7, 1.0, 1.3}}) — each playing a neutral tactic. Replaces self-mirror xGD as the
+     * tactic-ranking metric: against a non-mirror panel the openness axes (tempo, passing) no longer
+     * cancel, so the full tactic landscape differentiates and coaching skill becomes meaningful.
+     */
+    public double panelExpectedPoints(TeamProfile mine, TacticVector myT) {
+        TacticVector neutral = vector(new PersonalizedTactic());
+        double[] panel = engineConfig.getTacticalModel().getOpponentPanel();
+        double sum = 0;
+        for (double s : panel) {
+            sum += expectedPoints(mine, myT, scaled(mine, s), neutral);
+        }
+        return sum / panel.length;
+    }
+
     // ==================== internals ====================
+
+    /** Truncated Poisson PMF over {@code 0..maxGoals}; tail mass folded into the last cell (sums to 1). */
+    private static double[] truncatedPoissonPmf(double lambda, int maxGoals) {
+        double[] pmf = new double[maxGoals + 1];
+        double term = Math.exp(-lambda); // P(0)
+        double cumulative = 0;
+        for (int k = 0; k < maxGoals; k++) {
+            pmf[k] = term;
+            cumulative += term;
+            term *= lambda / (k + 1); // P(k+1) = P(k) · λ/(k+1)
+        }
+        pmf[maxGoals] = Math.max(0.0, 1.0 - cumulative); // fold the tail into the capped cell
+        return pmf;
+    }
 
     /** Returns {xgHome, xgAway}. {@code homeAdvantage} applies the home attack bonus to side 1. */
     private double[] expectedGoals(TeamProfile p1, TacticVector t1, TeamProfile p2, TacticVector t2,
