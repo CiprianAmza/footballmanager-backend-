@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Loan;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
@@ -24,6 +25,7 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.LoanRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
+import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
@@ -92,6 +94,7 @@ public class NewSeasonSetupProcessor {
     @Autowired private TrainingScheduleRepository trainingScheduleRepository;
     @Autowired private TeamFacilitiesRepository teamFacilitiesRepository;
     @Autowired private TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
+    @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired private UserContext userContext;
     @Autowired private HumanService humanService;
@@ -163,11 +166,23 @@ public class NewSeasonSetupProcessor {
         // saved formation/mentality/tempo — a blanket deleteAll() would lose them.
         clearAiPersonalizedTactics();
 
+        // Collect regens across ALL teams, then flush via saveAll once per repository.
+        // currentSeason is hoisted out of the per-team loop (was a findById(1L) per call).
+        long regenSeason = round.getSeason();
+        List<Human> newRegens = new ArrayList<>();
         for (Long teamId : teamIds) {
             TeamFacilities teamFacilities = teamFacilitiesRepository.findByTeamId(teamId);
             if (teamFacilities != null)
-                humanService.addRegens(teamFacilities, teamId);
+                humanService.collectRegens(teamFacilities, teamId, regenSeason, newRegens);
         }
+        newRegens = (List<Human>) humanRepository.saveAll(newRegens); // assign IDs
+
+        List<PlayerSkills> newRegenSkills = new ArrayList<>();
+        List<TeamPlayerHistoricalRelation> newRegenRelations = new ArrayList<>();
+        humanService.buildRegenSkillsAndRelations(newRegens, regenSeason, newRegenSkills, newRegenRelations);
+        humanRepository.saveAll(newRegens); // re-save with recomputed ratings
+        playerSkillsRepository.saveAll(newRegenSkills);
+        teamPlayerHistoricalRelationRepository.saveAll(newRegenRelations);
 
         for (long teamId : teamIds) {
             List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
@@ -448,6 +463,13 @@ public class NewSeasonSetupProcessor {
         Random random = new Random();
         List<ScorerLeaderboardEntry> allEntries = scorerLeaderboardRepository.findAll();
 
+        // Preload every player once into a map so the per-entry reward is a map
+        // lookup instead of a findById (N+1); collect mutated rows for one saveAll each.
+        Map<Long, Human> playersById = humanRepository.findAll().stream()
+                .collect(Collectors.toMap(Human::getId, h -> h, (a, b) -> a));
+        List<Human> playersToSave = new ArrayList<>();
+        List<ScorerLeaderboardEntry> entriesToSave = new ArrayList<>();
+
         for (ScorerLeaderboardEntry entry : allEntries) {
             if (entry.getCurrentSeasonGames() < 20) continue; // play at least half of the games
 
@@ -468,23 +490,24 @@ public class NewSeasonSetupProcessor {
                 ratingIncrease /= 2; // overachieving in second league is less impressive
             }
 
-            Optional<Human> human = humanRepository.findById(entry.getPlayerId());
-            if (human.isPresent()) {
-                Human player = human.get();
+            Human player = playersById.get(entry.getPlayerId());
+            if (player != null) {
                 System.out.println("Player " + player.getName() + " from team " + entry.getTeamName()
                         + " had rating increased from " + player.getRating() + " to "
                         + (player.getRating() + ratingIncrease) + " because of ratio of " + ratio);
                 player.setRating(player.getRating() + ratingIncrease);
-                humanRepository.save(player);
+                playersToSave.add(player);
 
                 entry.setCurrentRating(player.getRating());
                 if (entry.getCurrentRating() > entry.getBestEverRating()) {
                     entry.setBestEverRating(entry.getCurrentRating());
                     entry.setSeasonOfBestEverRating((int) season);
                 }
-                scorerLeaderboardRepository.save(entry);
+                entriesToSave.add(entry);
             }
         }
+        humanRepository.saveAll(playersToSave);
+        scorerLeaderboardRepository.saveAll(entriesToSave);
     }
 
     // ============================================================
@@ -496,6 +519,7 @@ public class NewSeasonSetupProcessor {
         for (TeamCompetitionDetail tcd : teamCompetitionDetailRepository.findAll()) {
             teamIds.add(tcd.getTeamId());
         }
+        List<TeamPlayerHistoricalRelation> relations = new ArrayList<>();
         for (Long teamId : teamIds) {
             List<Human> allTeamPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
             for (Human player : allTeamPlayers) {
@@ -504,9 +528,10 @@ public class NewSeasonSetupProcessor {
                 rel.setTeamId(teamId);
                 rel.setSeasonNumber(seasonNumber + 1);
                 rel.setRating(player.getRating());
-                teamPlayerHistoricalRelationRepository.save(rel);
+                relations.add(rel);
             }
         }
+        teamPlayerHistoricalRelationRepository.saveAll(relations);
     }
 
     /**
