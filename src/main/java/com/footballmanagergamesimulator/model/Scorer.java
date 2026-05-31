@@ -9,7 +9,8 @@ import lombok.Data;
 public class Scorer {
 
     @Id
-    @GeneratedValue(strategy= GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "scorer_seq")
+    @SequenceGenerator(name = "scorer_seq", sequenceName = "scorer_seq", allocationSize = 1)
     private long id;
 
     private long playerId;
