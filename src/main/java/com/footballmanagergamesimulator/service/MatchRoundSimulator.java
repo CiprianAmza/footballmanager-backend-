@@ -392,6 +392,9 @@ public class MatchRoundSimulator {
                     // Full scorer tracking with weighted distribution
                     lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
                     lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
+                    // Per-player lineup ratings for the match statistics view
+                    lineupRatingService.persistPlayerRatings(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, tactic1);
+                    lineupRatingService.persistPlayerRatings(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId2, tactic2);
 
                     // Detailed match events (goals, assists, cards, substitutions)
                     matchSimulationService.generateMatchEvents(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,

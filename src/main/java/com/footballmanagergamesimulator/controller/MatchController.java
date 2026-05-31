@@ -49,6 +49,8 @@ public class MatchController {
     @Autowired
     ScorerRepository scorerRepository;
     @Autowired
+    MatchPlayerRatingRepository matchPlayerRatingRepository;
+    @Autowired
     HumanRepository humanRepository;
     @Autowired
     GoalAnimationService goalAnimationService;
@@ -359,6 +361,60 @@ public class MatchController {
         }
 
         return summary;
+    }
+
+    /**
+     * Per-player lineup ratings for a single match, as computed by LineupRatingService at
+     * simulate/commit time (morale/fitness/familiarity/role/instruction baked in). NOTE: this is
+     * NOT the 0-10 Scorer performance rating shown in /summary — it is the attribute-weighted
+     * lineup rating (typically in the hundreds). Each entry carries the player's age + nation.
+     */
+    @GetMapping("/playerRatings/{competitionId}/{season}/{round}/{teamId1}/{teamId2}")
+    public MatchLineupRatingView getMatchPlayerRatings(
+            @PathVariable(name = "competitionId") long competitionId,
+            @PathVariable(name = "season") int season,
+            @PathVariable(name = "round") int round,
+            @PathVariable(name = "teamId1") long teamId1,
+            @PathVariable(name = "teamId2") long teamId2) {
+
+        MatchLineupRatingView view = new MatchLineupRatingView();
+        view.setHomeTeamId(teamId1);
+        view.setAwayTeamId(teamId2);
+        view.setHomeTeamName(teamRepository.findNameById(teamId1));
+        view.setAwayTeamName(teamRepository.findNameById(teamId2));
+
+        Map<Long, String> nationNameCache = new HashMap<>();
+        view.setHomeLineup(toLineup(competitionId, season, round, teamId1, nationNameCache));
+        view.setAwayLineup(toLineup(competitionId, season, round, teamId2, nationNameCache));
+        return view;
+    }
+
+    private List<MatchLineupRatingView.PlayerLine> toLineup(
+            long competitionId, int season, int round, long teamId, Map<Long, String> nationNameCache) {
+
+        List<MatchPlayerRating> rows = matchPlayerRatingRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId(competitionId, season, round, teamId);
+
+        return rows.stream().map(r -> {
+            MatchLineupRatingView.PlayerLine line = new MatchLineupRatingView.PlayerLine();
+            line.setPlayerId(r.getPlayerId());
+            line.setPlayerName(r.getPlayerName());
+            line.setPosition(r.getPosition());
+            line.setRating(r.getRating());
+            line.setAge(r.getAge());
+            line.setNationId(r.getNationId());
+            line.setNationName(nationNameCache.computeIfAbsent(r.getNationId(), this::resolveNationName));
+            return line;
+        }).collect(Collectors.toList());
+    }
+
+    /** Nation name = first word of that nation's League competition name; "International" fallback. */
+    private String resolveNationName(long nationId) {
+        return competitionRepository.findAll().stream()
+                .filter(c -> c.getTypeId() == 1 && c.getNationId() == nationId)
+                .findFirst()
+                .map(c -> c.getName().split(" ")[0])
+                .orElse("International");
     }
 
     /**
