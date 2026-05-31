@@ -53,6 +53,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @TestPropertySource(properties = "bootstrap.seed=20260528")
+// Force a fresh context (and thus a freshly bootstrapped H2 DB) before this
+// class. Several other ITs share bootstrap.seed=20260528 and therefore the same
+// cached Spring context + DB; those that simulate matches/transfers mutate the
+// "fullest squad" this class reads, breaking its pristine-squad assumption when
+// they run first. BEFORE_CLASS guarantees the pristine bootstrap the assertions
+// below depend on, regardless of IT execution order.
+@org.springframework.test.annotation.DirtiesContext(
+        classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.BEFORE_CLASS)
 @DisplayName("Transfer strategies: sell/buy criterion + minimum-position invariant")
 class TransferStrategyIT {
 
