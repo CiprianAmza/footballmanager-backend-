@@ -156,7 +156,48 @@ public class TacticalScoreService {
         return xg[0] - xg[1];
     }
 
+    /** Win/draw/loss probabilities for side 1 (home) of a matchup. */
+    public record Outcome(double win, double draw, double loss) {}
+
+    /**
+     * Win/draw/loss probabilities for side 1 from the same xG matchup as {@link #score} (home
+     * advantage applied), modelling each side's goals as independent Poisson. Deterministic — no RNG.
+     */
+    public Outcome outcomeProbabilities(TeamProfile mine, TacticVector myTactic,
+                                        TeamProfile opponent, TacticVector opponentTactic) {
+        MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
+        double[] xg = expectedGoals(mine, myTactic, opponent, opponentTactic, cfg, true);
+        int max = cfg.getMaxGoalsPerTeam();
+        double[] pm = poissonPmf(xg[0], max), po = poissonPmf(xg[1], max);
+        double win = 0, draw = 0, loss = 0;
+        for (int i = 0; i <= max; i++)
+            for (int j = 0; j <= max; j++) {
+                double p = pm[i] * po[j];
+                if (i > j) win += p; else if (i == j) draw += p; else loss += p;
+            }
+        return new Outcome(win, draw, loss);
+    }
+
+    /** Expected league points for side 1 (3·win + 1·draw) from {@link #outcomeProbabilities}. */
+    public double expectedPoints(TeamProfile mine, TacticVector myTactic,
+                                 TeamProfile opponent, TacticVector opponentTactic) {
+        Outcome o = outcomeProbabilities(mine, myTactic, opponent, opponentTactic);
+        return 3 * o.win() + o.draw();
+    }
+
     // ==================== internals ====================
+
+    /** Poisson pmf truncated at {@code max} (the tail mass folds into the {@code max} bucket). */
+    private static double[] poissonPmf(double lambda, int max) {
+        double[] pmf = new double[max + 1];
+        double cumulative = 0, term = Math.exp(-lambda);
+        for (int k = 0; k <= max; k++) {
+            if (k == max) { pmf[k] = Math.max(0, 1 - cumulative); break; }
+            pmf[k] = term; cumulative += term; term *= lambda / (k + 1);
+        }
+        return pmf;
+    }
+
 
     /** Returns {xgHome, xgAway}. {@code homeAdvantage} applies the home attack bonus to side 1. */
     private double[] expectedGoals(TeamProfile p1, TacticVector t1, TeamProfile p2, TacticVector t2,

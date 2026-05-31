@@ -45,6 +45,15 @@ public class BestTacticService {
     public record TacticRow(String formation, String mentality, String tempo, String passingType,
                             String inPossession, String timeWasting, double expectedGoalDifference) {}
 
+    /** A fully-scored tactic row for the rank-all report: expected points + W/D/L vs an equal opponent + xGD. */
+    public record FullTacticRow(String formation, String mentality, String tempo, String passingType,
+                                String inPossession, String timeWasting, double expectedPoints,
+                                double winProb, double drawProb, double lossProb,
+                                double expectedGoalDifference) {}
+
+    public record RankAllResult(long teamId, String teamName, double baseSquadValue,
+                                FullTacticRow recommended, List<FullTacticRow> rows) {}
+
     public record BestTacticResult(long teamId, String teamName, String recommendedFormation,
                                    String recommendedMentality, String recommendedTempo,
                                    String recommendedPassingType, String recommendedInPossession,
@@ -82,6 +91,42 @@ public class BestTacticService {
                 best.formation(), best.mentality(), best.tempo(), best.passingType(),
                 best.inPossession(), best.timeWasting(), best.expectedGoalDifference(),
                 bestBaseValue, new ArrayList<>(top));
+    }
+
+    /**
+     * Score EVERY formation × the 900 tactic settings ({@code 15 × 900 = 13,500}) for {@code teamId}
+     * on its live squad, sorted descending by {@link TacticalScoreService#expectedPoints} against an
+     * equal opponent (a mirror of the team's own coached profile on a neutral tactic). Same coached
+     * profile + best-XI value logic the AI/advisor uses; nothing is mutated.
+     */
+    public RankAllResult rankAllTactics(long teamId) {
+        double[] coach = coachAbilities(teamId);
+        List<PersonalizedTactic> candidates = managerTacticService.candidateTactics();
+        TacticVector neutralOpp = tacticalScoreService.vector(new PersonalizedTactic());
+
+        List<FullTacticRow> rows = new ArrayList<>(candidates.size() * 15);
+        double bestBaseValue = -1;
+        for (String formation : tacticService.getAllExistingTactics()) {
+            TeamProfile profile = tacticalScoreService.coachedProfile(
+                    tacticalScoreService.profile(starterValues(teamId, formation)), coach[0], coach[1]);
+            double baseValue = profile.attack() + profile.defense();
+            if (baseValue > bestBaseValue) bestBaseValue = baseValue;
+            // Representative opponent = a mirror of this coached profile (an even, neutral matchup).
+            for (PersonalizedTactic t : candidates) {
+                TacticVector vec = tacticalScoreService.vector(t);
+                double ep = tacticalScoreService.expectedPoints(profile, vec, profile, neutralOpp);
+                TacticalScoreService.Outcome o = tacticalScoreService.outcomeProbabilities(profile, vec, profile, neutralOpp);
+                double egd = tacticalScoreService.expectedGoalDifference(profile, vec, profile, neutralOpp);
+                rows.add(new FullTacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
+                        t.getInPossession(), t.getTimeWasting(), ep, o.win(), o.draw(), o.loss(), egd));
+            }
+        }
+        rows.sort(Comparator.comparingDouble(FullTacticRow::expectedPoints).reversed()
+                .thenComparing(Comparator.comparingDouble(FullTacticRow::expectedGoalDifference).reversed()));
+
+        String name = teamRepository.findNameById(teamId);
+        return new RankAllResult(teamId, name == null ? "Team#" + teamId : name,
+                bestBaseValue, rows.get(0), rows);
     }
 
     /** Live best-eleven match values for a formation (used position kept for position familiarity),
