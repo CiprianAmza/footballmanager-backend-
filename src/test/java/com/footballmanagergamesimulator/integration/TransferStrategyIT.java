@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.service.TransferMarketService;
 import com.footballmanagergamesimulator.testutil.MarkdownTable;
+import com.footballmanagergamesimulator.testutil.TransferMarketDiagnostics;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
@@ -24,7 +25,6 @@ import org.springframework.test.context.TestPropertySource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -257,8 +257,6 @@ class TransferStrategyIT {
     @Test
     @DisplayName("Diagnose & report why teams make NO transfers → target/transfer-no-trade-causes.md")
     void diagnoseNoTransferCauses() throws IOException {
-        HashMap<String, Integer> minPos = tacticService.getMinimumPositionNeeded();
-        HashMap<String, Integer> maxPos = tacticService.getMaximumPositionAllowed();
         List<Team> allTeams = teamRepository.findAll().stream()
                 .sorted(Comparator.comparingLong(Team::getId)).toList();
 
@@ -266,65 +264,30 @@ class TransferStrategyIT {
         int s = 0;
         for (Team t : allTeams) t.setStrategy((long) ((s++ % 5) + 1));
 
-        // 2. Build the AI sell market exactly like EndOfSeasonProcessor does.
+        // 2. Snapshot the real strategy intents under a fixed seed, then classify
+        //    no-transfer teams using an ACTUAL match on either side of the market
+        //    (eligible buyer+budget or eligible seller+budget). Merely being listed
+        //    for sale is no longer treated as a live transfer opportunity.
         strategy.setRandomForTesting(new Random(SEED));
-        Map<String, List<PlayerTransferView>> market = new HashMap<>();
-        Map<Long, List<PlayerTransferView>> sellByTeam = new HashMap<>();
-        for (Team t : allTeams) {
-            List<PlayerTransferView> sold = strategy.playersToSell(t, humanRepository, minPos);
-            sellByTeam.put(t.getId(), sold);
-            for (PlayerTransferView v : sold)
-                market.computeIfAbsent(v.getPosition(), k -> new ArrayList<>()).add(v);
-        }
+        Map<Long, TransferMarketDiagnostics.TeamIntent> intents = TransferMarketDiagnostics.snapshotTeamIntents(
+                allTeams, strategy, humanRepository, tacticService);
+        List<TransferMarketDiagnostics.TeamNoTransferDiagnostic> diagnostics =
+                TransferMarketDiagnostics.classifyNoTransferTeams(intents, transferMarketService);
 
-        // 3. For each team, classify the cause if it cannot complete a transfer
-        //    as either buyer or seller. Mirrors the real pipeline's gate order.
         Map<String, Integer> causeTally = new LinkedHashMap<>();
         Map<String, Integer> perStrategyTraders = new LinkedHashMap<>();
-        for (Team t : allTeams) {
-            strategy.setRandomForTesting(new Random(SEED));
-            List<PlayerTransferView> sold = sellByTeam.get(t.getId());
-            BuyPlanTransferView plan = strategy.playersToBuy(t, humanRepository, maxPos);
-
-            boolean canSell = !sold.isEmpty();                 // someone else may buy these
-            boolean wantsBuy = plan != null && !plan.getPositions().isEmpty();
-
-            // Does any market player satisfy this team's buy plan (eligibility + budget)?
-            boolean buyMatch = false;
-            boolean eligibleButBroke = false;
-            if (wantsBuy) {
-                for (TransferPlayer want : plan.getPositions()) {
-                    List<PlayerTransferView> avail = market.get(want.getPosition());
-                    if (avail == null) continue;
-                    for (PlayerTransferView cand : avail) {
-                        if (cand.getTeamId() == t.getId()) continue;
-                        if (!transferMarketService.canBeTransfered(cand, plan, want)) continue;
-                        long fee = com.footballmanagergamesimulator.service.TransferValueCalculator
-                                .calculate(cand.getAge(), cand.getPosition(), cand.getRating());
-                        if (fee > t.getTransferBudget()) { eligibleButBroke = true; continue; }
-                        buyMatch = true;
-                        break;
-                    }
-                    if (buyMatch) break;
-                }
+        Map<Long, TransferMarketDiagnostics.TeamNoTransferDiagnostic> diagnosticByTeam = new HashMap<>();
+        for (TransferMarketDiagnostics.TeamNoTransferDiagnostic diagnostic : diagnostics) {
+            diagnosticByTeam.put(diagnostic.intent().teamId(), diagnostic);
+            causeTally.merge(diagnostic.cause().code(), 1, Integer::sum);
+        }
+        for (Team teamIt : allTeams) {
+            if (!diagnosticByTeam.containsKey(teamIt.getId())) {
+                perStrategyTraders.merge(
+                        STRATEGY_NAME.getOrDefault(teamIt.getStrategy(), "Unmapped"),
+                        1,
+                        Integer::sum);
             }
-
-            String cause;
-            String strat = STRATEGY_NAME.getOrDefault(t.getStrategy(), "Unmapped");
-            if (buyMatch || canSell) {
-                // The team has a live opportunity on at least one side of the market.
-                cause = null;
-                perStrategyTraders.merge(strat, 1, Integer::sum);
-            } else if (!wantsBuy && !canSell) {
-                cause = "NOTHING_TO_TRADE (no surplus to sell, no slot to fill — incl. Academy never buys)";
-            } else if (!wantsBuy) {
-                cause = "NO_BUY_TARGETS (positions full / Academy never buys) and nobody buys its sellers";
-            } else if (eligibleButBroke) {
-                cause = "NO_MARKET_MATCH: INSUFFICIENT_BUDGET (eligible seller exists but fee > budget)";
-            } else {
-                cause = "NO_MARKET_MATCH: NO_ELIGIBLE_SELLER (no young/affordable counterpart at wanted position)";
-            }
-            if (cause != null) causeTally.merge(cause, 1, Integer::sum);
         }
 
         MarkdownTable byCause = new MarkdownTable(
@@ -338,6 +301,20 @@ class TransferStrategyIT {
         STRATEGY_NAME.values().forEach(n ->
                 byStrat.addRow(n, String.valueOf(perStrategyTraders.getOrDefault(n, 0))));
 
+        MarkdownTable detail = new MarkdownTable(
+                List.of("Team", "Strategy", "Cause", "#Sell", "#Buy", "Budget blocked"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT));
+        diagnostics.forEach(diagnostic -> detail.addRow(
+                diagnostic.intent().teamName(),
+                STRATEGY_NAME.getOrDefault(diagnostic.intent().strategyId(), "Unmapped"),
+                diagnostic.cause().code(),
+                String.valueOf(diagnostic.intent().sellCandidates().size()),
+                String.valueOf(diagnostic.intent().buyPlan() == null || diagnostic.intent().buyPlan().getPositions() == null
+                        ? 0
+                        : diagnostic.intent().buyPlan().getPositions().size()),
+                diagnostic.budgetBlocked() ? "yes" : "no"));
+
         StringBuilder md = new StringBuilder();
         md.append("# No-transfer diagnostic (deterministic, pre-pipeline)\n\n");
         md.append("- seed: ").append(SEED).append('\n');
@@ -345,27 +322,31 @@ class TransferStrategyIT {
                 .append(" (strategies round-robined 1..5)\n\n");
         md.append("Classification mirrors `EndOfSeasonProcessor`'s gate order: strategy intent →\n");
         md.append("`TransferMarketService.canBeTransfered` (age/reputation/position/rating) → budget\n");
-        md.append("(`fee > transferBudget`). A team is flagged only if it has NO live opportunity on\n");
-        md.append("either side of the market.\n\n");
+        md.append("(`fee > transferBudget`). A team is flagged only if it has NO actual transfer match on\n");
+        md.append("either side of the market; just listing a seller no longer counts as a live opportunity.\n\n");
         md.append("## Why teams cannot trade\n\n").append(byCause.render());
         md.append("\n## Live opportunities by strategy\n\n").append(byStrat.render());
+        if (!diagnostics.isEmpty()) {
+            md.append("\n## Flagged teams\n\n").append(detail.render());
+        }
 
         Path report = Path.of("target", "transfer-no-trade-causes.md");
         Files.createDirectories(report.getParent());
         Files.writeString(report, md.toString());
         System.out.println(md);
 
-        // Academy teams never buy, so any Academy team flagged must be flagged for a
-        // buy-side reason, never "eligible seller found but couldn't buy".
-        assertThat(causeTally.keySet())
-                .as("INSUFFICIENT_BUDGET cause must not appear for a strategy that never buys")
-                .allSatisfy(k -> assertThat(k).doesNotContain("Academy never buys and INSUFFICIENT"));
         // The diagnostic must be total: every flagged team has exactly one cause.
         int flagged = causeTally.values().stream().mapToInt(Integer::intValue).sum();
         int traders = perStrategyTraders.values().stream().mapToInt(Integer::intValue).sum();
         assertThat(flagged + traders)
                 .as("every team must be classified as either a trader or a single no-trade cause")
                 .isEqualTo(allTeams.size());
+
+        assertThat(diagnostics.stream()
+                .filter(diagnostic -> diagnostic.intent().strategyId() == TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY)
+                .map(diagnostic -> diagnostic.cause().code()))
+                .as("Academy teams that cannot trade should fail because they do not buy")
+                .allMatch(code -> code.equals(TransferMarketDiagnostics.NoTransferCause.NO_BUY_TARGETS.code()));
     }
 
     private static double avgRating(List<PlayerTransferView> views) {

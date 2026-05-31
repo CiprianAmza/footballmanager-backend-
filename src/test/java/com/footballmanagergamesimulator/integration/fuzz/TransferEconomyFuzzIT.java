@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.integration.fuzz;
 import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.model.Transfer;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
@@ -15,10 +16,12 @@ import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.service.TransferMarketService;
 import com.footballmanagergamesimulator.service.TransferValueCalculator;
 import com.footballmanagergamesimulator.testutil.MarkdownTable;
+import com.footballmanagergamesimulator.testutil.TransferMarketDiagnostics;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
 import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
+import com.footballmanagergamesimulator.transfermarket.TransferStrategyUtil;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,10 +33,8 @@ import org.springframework.test.context.TestPropertySource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -51,8 +52,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Covers handoff §6.A requirements:
  * <ul>
- *   <li><b>#2</b> first-eleven market value per strategy, before vs after the campaign
- *       (which strategies grow / shrink the squad);</li>
+ *   <li><b>#2</b> total squad-value drift per strategy, before vs after the campaign
+ *       (plus the legacy top-11 view for comparison with the earlier handoff);</li>
  *   <li><b>#3</b> teams that make no transfers + the classified cause;</li>
  *   <li><b>#4</b> robustness to new / unmapped strategy ids (seeded fuzz).</li>
  * </ul>
@@ -69,7 +70,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Report written to {@code target/transfer-economy.md}.
  */
 @SpringBootTest
-@TestPropertySource(properties = "bootstrap.seed=20260528")
+@TestPropertySource(properties = {
+        "bootstrap.seed=20260528",
+        "transfer.economy.fuzz=true"
+})
 class TransferEconomyFuzzIT {
 
     @Autowired private CompetitionController competitionController;
@@ -86,15 +90,8 @@ class TransferEconomyFuzzIT {
     @Autowired private TransferMarketService transferMarketService;
 
     private static final long BASE_SEED = 20260528L;
-    private static final int SEASONS = 2;          // a short campaign — bump for deeper drift
+    private static final int SEASONS = 1;          // one full transfer campaign; keeps fuzz practical locally
     private static final long LEAGUE_TYPE_ID = 1L;
-
-    private static final Map<Long, String> STRATEGY_NAME = Map.of(
-            1L, "Academy",
-            2L, "BuyYoungSellHigh",
-            3L, "BuyFreeSellHigh",
-            4L, "BuyMidSellMid",
-            5L, "BuyTopSellWorst");
 
     @AfterEach
     void restoreProductionRng() {
@@ -107,7 +104,7 @@ class TransferEconomyFuzzIT {
     // ============================================================
 
     @Test
-    @DisplayName("First-eleven value per strategy + no-transfer causes over a campaign")
+    @DisplayName("Squad-value drift, transfer behaviour, and no-transfer causes over a campaign")
     void transferEconomyOverCampaign() throws IOException {
         long leagueCompId = competitionRepository.findIdsByTypeId(LEAGUE_TYPE_ID)
                 .stream().sorted().findFirst().orElseThrow();
@@ -124,10 +121,15 @@ class TransferEconomyFuzzIT {
         }
         teamRepository.saveAll(allTeams);
 
-        Map<Long, Long> valueBefore = new HashMap<>();
-        for (Team t : allTeams) valueBefore.put(t.getId(), firstElevenValue(t.getId()));
+        Map<Long, Long> squadValueBefore = new HashMap<>();
+        Map<Long, Long> firstElevenBefore = new HashMap<>();
+        for (Team t : allTeams) {
+            squadValueBefore.put(t.getId(), squadValue(t.getId()));
+            firstElevenBefore.put(t.getId(), firstElevenValue(t.getId()));
+        }
 
-        List<String> causeReport = new ArrayList<>();
+        List<TransferMarketDiagnostics.TeamNoTransferDiagnostic> noTransferDiagnostics = List.of();
+        Map<Long, StrategyEconomyStats> statsByStrategy = new TreeMap<>();
 
         for (int season = 0; season < SEASONS; season++) {
             int currentSeason = currentSeason();
@@ -136,35 +138,43 @@ class TransferEconomyFuzzIT {
 
             simulateLeague(leagueCompId, currentSeason);
 
-            // Classify no-transfer causes BEFORE the pipeline mutates squads/budgets,
-            // replaying the real eligibility gates (canBeTransfered + budget) against
-            // the same data the pipeline is about to act on.
-            List<String> causeReportThisSeason = season == 0
-                    ? classifyNoTransferCauses(strategyByTeam)
-                    : null;
+            if (season == 0) {
+                strategy.setRandomForTesting(new Random(BASE_SEED + season));
+                noTransferDiagnostics = TransferMarketDiagnostics.classifyNoTransferTeams(
+                        TransferMarketDiagnostics.snapshotTeamIntents(
+                                teamRepository.findAll(),
+                                strategy,
+                                humanRepository,
+                                tacticService),
+                        transferMarketService);
+            }
 
             strategy.setRandomForTesting(new Random(BASE_SEED + season));
             seasonTransitionService.processEndOfSeason(currentSeason);
 
-            if (season == 0) {
-                causeReport = causeReportThisSeason;
+            for (Transfer transfer : transferRepository.findAllBySeasonNumber(currentSeason)) {
+                statsByStrategy.computeIfAbsent(strategyByTeam.get(transfer.getSellTeamId()), ignored -> new StrategyEconomyStats())
+                        .addSale(transfer);
+                statsByStrategy.computeIfAbsent(strategyByTeam.get(transfer.getBuyTeamId()), ignored -> new StrategyEconomyStats())
+                        .addBuy(transfer);
             }
 
-            seasonTransitionService.processNewSeasonSetup(currentSeason);
+            if (season < SEASONS - 1) {
+                seasonTransitionService.processNewSeasonSetup(currentSeason);
+            }
         }
 
-        // Aggregate first-eleven value delta by strategy.
-        Map<Long, long[]> aggByStrategy = new TreeMap<>(); // strat -> {sumBefore, sumAfter, teamCount}
-        for (Team t : allTeams) {
+        for (Team t : teamRepository.findAll().stream().sorted(Comparator.comparingLong(Team::getId)).toList()) {
             long strat = strategyByTeam.get(t.getId());
-            long after = firstElevenValue(t.getId());
-            long[] agg = aggByStrategy.computeIfAbsent(strat, k -> new long[3]);
-            agg[0] += valueBefore.get(t.getId());
-            agg[1] += after;
-            agg[2] += 1;
+            StrategyEconomyStats stats = statsByStrategy.computeIfAbsent(strat, ignored -> new StrategyEconomyStats());
+            stats.teamCount++;
+            stats.squadValueBeforeTotal += squadValueBefore.get(t.getId());
+            stats.squadValueAfterTotal += squadValue(t.getId());
+            stats.firstElevenBeforeTotal += firstElevenBefore.get(t.getId());
+            stats.firstElevenAfterTotal += firstElevenValue(t.getId());
         }
 
-        String md = buildReport(leagueCompId, aggByStrategy, causeReport);
+        String md = buildReport(leagueCompId, statsByStrategy, noTransferDiagnostics);
         Path report = Path.of("target", "transfer-economy.md");
         Files.createDirectories(report.getParent());
         Files.writeString(report, md);
@@ -180,9 +190,19 @@ class TransferEconomyFuzzIT {
         assertThat(totalTransfers)
                 .as("the campaign must execute at least some transfers (pipeline sanity)")
                 .isGreaterThan(0L);
-        assertThat(aggByStrategy.keySet())
+        assertThat(statsByStrategy.keySet())
                 .as("every strategy must be represented among the teams")
                 .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L);
+        assertThat(statsByStrategy.getOrDefault(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY, new StrategyEconomyStats()).incomingCount)
+                .as("Academy must not complete incoming transfers")
+                .isZero();
+        StrategyEconomyStats buyYoungStats =
+                statsByStrategy.getOrDefault(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH, new StrategyEconomyStats());
+        if (buyYoungStats.incomingCount > 0) {
+            assertThat(buyYoungStats.maxBoughtAge)
+                    .as("BuyYoungSellHigh must only buy players aged 24 or below")
+                    .isLessThanOrEqualTo(24);
+        }
     }
 
     // ============================================================
@@ -223,7 +243,9 @@ class TransferEconomyFuzzIT {
             // below min — it just sells nobody there.)
             List<Human> squad = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
             Map<String, Integer> squadCount = new HashMap<>();
-            for (Human h : squad) squadCount.merge(h.getPosition(), 1, Integer::sum);
+            for (Human h : squad) {
+                squadCount.merge(TacticService.getBasePosition(h.getPosition()), 1, Integer::sum);
+            }
             Map<String, Integer> soldCount = new HashMap<>();
             for (PlayerTransferView v : sold) soldCount.merge(v.getPosition(), 1, Integer::sum);
             for (Map.Entry<String, Integer> e : soldCount.entrySet()) {
@@ -251,79 +273,12 @@ class TransferEconomyFuzzIT {
         }
     }
 
-    /**
-     * Pre-pipeline diagnostic: for every AI team, replay the exact gate order the
-     * {@code EndOfSeasonProcessor} buy/sell loop uses — strategy intent →
-     * {@link TransferMarketService#canBeTransfered} (age/reputation/position/rating)
-     * → budget ({@code fee > transferBudget}) — and classify why a team would make
-     * NO transfer. A team is NOT flagged if it has a live opportunity on either side
-     * (its sellers are buyable by someone, or it can buy someone).
-     *
-     * <p>Must be called BEFORE {@code processEndOfSeason} so the squads/budgets it
-     * inspects are the same ones the pipeline is about to act on.
-     */
-    private List<String> classifyNoTransferCauses(Map<Long, Long> strategyByTeam) {
-        HashMap<String, Integer> minPos = tacticService.getMinimumPositionNeeded();
-        HashMap<String, Integer> maxPos = tacticService.getMaximumPositionAllowed();
-
-        // 1. Build the AI sell market (position -> sellers) and per-team sell lists.
-        Map<String, List<PlayerTransferView>> market = new HashMap<>();
-        Map<Long, List<PlayerTransferView>> sellByTeam = new HashMap<>();
-        for (Long teamId : strategyByTeam.keySet()) {
-            Team t = teamRepository.findById(teamId).orElseThrow();
-            List<PlayerTransferView> sold = strategy.playersToSell(t, humanRepository, minPos);
-            sellByTeam.put(teamId, sold);
-            for (PlayerTransferView v : sold)
-                market.computeIfAbsent(v.getPosition(), k -> new ArrayList<>()).add(v);
-        }
-
-        // 2. Classify each team.
-        Map<String, Integer> causeTally = new LinkedHashMap<>();
-        for (Map.Entry<Long, Long> e : strategyByTeam.entrySet()) {
-            long teamId = e.getKey();
-            long strat = e.getValue();
-            Team t = teamRepository.findById(teamId).orElseThrow();
-            List<PlayerTransferView> sold = sellByTeam.getOrDefault(teamId, List.of());
-            BuyPlanTransferView plan = strategy.playersToBuy(t, humanRepository, maxPos);
-
-            boolean canSell = !sold.isEmpty();
-            boolean wantsBuy = plan != null && !plan.getPositions().isEmpty();
-
-            boolean buyMatch = false;
-            boolean eligibleButBroke = false;
-            if (wantsBuy) {
-                for (TransferPlayer want : plan.getPositions()) {
-                    List<PlayerTransferView> avail = market.get(want.getPosition());
-                    if (avail == null) continue;
-                    for (PlayerTransferView cand : avail) {
-                        if (cand.getTeamId() == teamId) continue;
-                        if (!transferMarketService.canBeTransfered(cand, plan, want)) continue;
-                        long fee = TransferValueCalculator.calculate(
-                                cand.getAge(), cand.getPosition(), cand.getRating());
-                        if (fee > t.getTransferBudget()) { eligibleButBroke = true; continue; }
-                        buyMatch = true;
-                        break;
-                    }
-                    if (buyMatch) break;
-                }
-            }
-
-            if (buyMatch || canSell) continue; // has a live opportunity → not flagged
-
-            String cause;
-            if (!STRATEGY_NAME.containsKey(strat)) cause = "UNMAPPED_STRATEGY";
-            else if (!wantsBuy && !canSell) cause = "NOTHING_TO_TRADE";
-            else if (!wantsBuy) cause = "NO_BUY_TARGETS";
-            else if (eligibleButBroke) cause = "NO_MARKET_MATCH:INSUFFICIENT_BUDGET";
-            else cause = "NO_MARKET_MATCH:NO_ELIGIBLE_SELLER";
-            causeTally.merge(cause, 1, Integer::sum);
-        }
-
-        MarkdownTable table = new MarkdownTable(
-                List.of("Cause", "Teams"),
-                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
-        causeTally.forEach((c, n) -> table.addRow(c, String.valueOf(n)));
-        return List.of(table.render().split("\n", -1));
+    private long squadValue(long teamId) {
+        return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE).stream()
+                .filter(player -> !player.isRetired())
+                .mapToLong(player -> TransferValueCalculator.calculate(
+                        player.getAge(), player.getPosition(), player.getRating()))
+                .sum();
     }
 
     private long firstElevenValue(long teamId) {
@@ -339,32 +294,163 @@ class TransferEconomyFuzzIT {
         return (int) roundRepository.findById(1L).orElseThrow().getSeason();
     }
 
-    private String buildReport(long leagueCompId, Map<Long, long[]> aggByStrategy, List<String> causeReport) {
+    private String buildReport(long leagueCompId,
+                               Map<Long, StrategyEconomyStats> statsByStrategy,
+                               List<TransferMarketDiagnostics.TeamNoTransferDiagnostic> diagnostics) {
+        MarkdownTable squadTable = new MarkdownTable(
+                List.of("Strategy", "Teams", "Avg squad before", "Avg squad after", "Avg delta", "Delta %"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
+        MarkdownTable firstElevenTable = new MarkdownTable(
+                List.of("Strategy", "Avg XI before", "Avg XI after", "Avg delta", "Delta %"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
+        MarkdownTable transferTable = new MarkdownTable(
+                List.of("Strategy", "Buys", "Avg buy age", "Max buy age", "Sales", "Avg sale fee"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
+
+        for (Map.Entry<Long, StrategyEconomyStats> entry : statsByStrategy.entrySet()) {
+            long strategyId = entry.getKey();
+            StrategyEconomyStats stats = entry.getValue();
+            squadTable.addRow(
+                    TransferMarketDiagnostics.strategyName(strategyId),
+                    String.valueOf(stats.teamCount),
+                    String.format("%,.0f", stats.avgSquadBefore()),
+                    String.format("%,.0f", stats.avgSquadAfter()),
+                    String.format("%+,.0f", stats.avgSquadDelta()),
+                    String.format("%+.1f%%", stats.squadDeltaPct()));
+            firstElevenTable.addRow(
+                    TransferMarketDiagnostics.strategyName(strategyId),
+                    String.format("%,.0f", stats.avgFirstElevenBefore()),
+                    String.format("%,.0f", stats.avgFirstElevenAfter()),
+                    String.format("%+,.0f", stats.avgFirstElevenDelta()),
+                    String.format("%+.1f%%", stats.firstElevenDeltaPct()));
+            transferTable.addRow(
+                    TransferMarketDiagnostics.strategyName(strategyId),
+                    String.valueOf(stats.incomingCount),
+                    stats.incomingCount == 0 ? "—" : String.format("%.1f", stats.avgBoughtAge()),
+                    stats.incomingCount == 0 ? "—" : String.valueOf(stats.maxBoughtAge),
+                    String.valueOf(stats.outgoingCount),
+                    stats.outgoingCount == 0 ? "—" : String.format("%,.0f", stats.avgSoldFee()));
+        }
+
+        Map<String, Integer> causeTally = new TreeMap<>();
+        Map<String, Integer> flaggedByStrategy = new TreeMap<>();
+        for (TransferMarketDiagnostics.TeamNoTransferDiagnostic diagnostic : diagnostics) {
+            causeTally.merge(diagnostic.cause().code(), 1, Integer::sum);
+            flaggedByStrategy.merge(
+                    TransferMarketDiagnostics.strategyName(diagnostic.intent().strategyId()),
+                    1,
+                    Integer::sum);
+        }
+
+        MarkdownTable causeTable = new MarkdownTable(
+                List.of("Cause", "Teams"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
+        causeTally.forEach((cause, count) -> causeTable.addRow(cause, String.valueOf(count)));
+
+        MarkdownTable flaggedTable = new MarkdownTable(
+                List.of("Strategy", "Flagged teams"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
+        for (long strategyId = 1L; strategyId <= 5L; strategyId++) {
+            flaggedTable.addRow(
+                    TransferMarketDiagnostics.strategyName(strategyId),
+                    String.valueOf(flaggedByStrategy.getOrDefault(
+                            TransferMarketDiagnostics.strategyName(strategyId), 0)));
+        }
+
         StringBuilder sb = new StringBuilder();
         sb.append("# Transfer economy report\n\n");
         sb.append("- seed: ").append(BASE_SEED).append('\n');
         sb.append("- seasons (campaign length): ").append(SEASONS).append('\n');
         sb.append("- league simulated: competition ").append(leagueCompId).append('\n');
-        sb.append("- value metric: Σ TransferValueCalculator over the top-11 by rating\n\n");
+        sb.append("- primary value metric: SUM TransferValueCalculator over the whole active squad\n");
+        sb.append("- end snapshot: after the final end-of-season transfer campaign, before season ")
+                .append(SEASONS + 1)
+                .append(" setup\n\n");
 
-        sb.append("## First-eleven value per strategy (campaign delta)\n\n");
-        sb.append("| Strategy | Teams | Avg before | Avg after | Avg Δ | Δ % |\n");
-        sb.append("|---|---|---|---|---|---|\n");
-        for (Map.Entry<Long, long[]> e : aggByStrategy.entrySet()) {
-            long strat = e.getKey();
-            long[] a = e.getValue();
-            long n = Math.max(1, a[2]);
-            double before = (double) a[0] / n;
-            double after = (double) a[1] / n;
-            double delta = after - before;
-            double pct = before == 0 ? 0 : (delta / before) * 100.0;
-            sb.append(String.format("| %s (%d) | %d | %,.0f | %,.0f | %,.0f | %+.1f%% |%n",
-                    STRATEGY_NAME.getOrDefault(strat, "?"), strat, a[2], before, after, delta, pct));
+        sb.append("## Squad value per strategy (campaign delta)\n\n");
+        sb.append(squadTable.render());
+        sb.append("\n## First-eleven value per strategy (legacy comparison)\n\n");
+        sb.append(firstElevenTable.render());
+        sb.append("\n## Completed transfer flow per strategy\n\n");
+        sb.append(transferTable.render());
+        sb.append("\n## Teams with no transfers - cause (season 1)\n\n");
+        if (causeTally.isEmpty()) {
+            sb.append("No teams were flagged by the stricter diagnostic.\n");
+        } else {
+            sb.append(causeTable.render());
+            sb.append("\n## Flagged teams by strategy\n\n");
+            sb.append(flaggedTable.render());
         }
-
-        sb.append("\n## Teams with no transfers — cause (season 1)\n\n");
-        causeReport.forEach(l -> sb.append(l).append('\n'));
         sb.append('\n');
         return sb.toString();
+    }
+
+    private static final class StrategyEconomyStats {
+        private int teamCount;
+        private long squadValueBeforeTotal;
+        private long squadValueAfterTotal;
+        private long firstElevenBeforeTotal;
+        private long firstElevenAfterTotal;
+        private int incomingCount;
+        private long boughtAgeTotal;
+        private int maxBoughtAge;
+        private int outgoingCount;
+        private long soldFeeTotal;
+
+        void addBuy(Transfer transfer) {
+            incomingCount++;
+            boughtAgeTotal += transfer.getPlayerAge();
+            maxBoughtAge = Math.max(maxBoughtAge, (int) transfer.getPlayerAge());
+        }
+
+        void addSale(Transfer transfer) {
+            outgoingCount++;
+            soldFeeTotal += transfer.getPlayerTransferValue();
+        }
+
+        double avgSquadBefore() {
+            return teamCount == 0 ? 0 : (double) squadValueBeforeTotal / teamCount;
+        }
+
+        double avgSquadAfter() {
+            return teamCount == 0 ? 0 : (double) squadValueAfterTotal / teamCount;
+        }
+
+        double avgSquadDelta() {
+            return avgSquadAfter() - avgSquadBefore();
+        }
+
+        double squadDeltaPct() {
+            double before = avgSquadBefore();
+            return before == 0 ? 0 : (avgSquadDelta() / before) * 100.0;
+        }
+
+        double avgFirstElevenBefore() {
+            return teamCount == 0 ? 0 : (double) firstElevenBeforeTotal / teamCount;
+        }
+
+        double avgFirstElevenAfter() {
+            return teamCount == 0 ? 0 : (double) firstElevenAfterTotal / teamCount;
+        }
+
+        double avgFirstElevenDelta() {
+            return avgFirstElevenAfter() - avgFirstElevenBefore();
+        }
+
+        double firstElevenDeltaPct() {
+            double before = avgFirstElevenBefore();
+            return before == 0 ? 0 : (avgFirstElevenDelta() / before) * 100.0;
+        }
+
+        double avgBoughtAge() {
+            return incomingCount == 0 ? 0 : (double) boughtAgeTotal / incomingCount;
+        }
+
+        double avgSoldFee() {
+            return outgoingCount == 0 ? 0 : (double) soldFeeTotal / outgoingCount;
+        }
     }
 }
