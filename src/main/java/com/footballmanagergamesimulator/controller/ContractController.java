@@ -32,6 +32,14 @@ public class ContractController {
     @Autowired
     private UserContext userContext;
 
+    @Autowired
+    private com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
+
+    /** True when the owner has barred the coach from contract negotiation for this team. */
+    private boolean contractsLocked(long teamId) {
+        return !coachPermissionService.canNegotiateContracts(teamId);
+    }
+
     /**
      * Calculate a player's wage demand based on rating, age, and market value.
      * Higher-rated players demand more. Young stars with high potential demand premium.
@@ -109,6 +117,9 @@ public class ContractController {
         Human player = playerOpt.get();
         if (player.getTeamId() == null || player.getTeamId() != userContext.getTeamId(request)) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Can only renew contracts for your own players"));
+        }
+        if (contractsLocked(player.getTeamId())) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Restricționat de patron: nu poți renegocia contracte."));
         }
 
         Round round = roundRepository.findById(1L).orElse(new Round());
@@ -300,6 +311,9 @@ public class ContractController {
         }
 
         long humanTeamId = userContext.getTeamId(request);
+        if (contractsLocked(humanTeamId)) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Restricționat de patron: nu poți negocia contracte."));
+        }
         if (player.getTeamId() != null && player.getTeamId() == humanTeamId) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Cannot sign a pre-contract with your own player"));
         }
@@ -403,6 +417,9 @@ public class ContractController {
         if (player.getTeamId() == null || player.getTeamId() != humanTeamId) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Not your player"));
         }
+        if (contractsLocked(humanTeamId)) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Restricționat de patron: nu poți negocia contracte."));
+        }
 
         if (body.containsKey("releaseClause")) {
             player.setReleaseClause(((Number) body.get("releaseClause")).longValue());
@@ -446,6 +463,9 @@ public class ContractController {
         Human player = playerOpt.get();
         if (player.getTeamId() == null || player.getTeamId() != userContext.getTeamId(request)) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Not your player"));
+        }
+        if (contractsLocked(player.getTeamId())) {
+            return ResponseEntity.status(403).body(Map.of("success", false, "message", "Restricționat de patron: nu poți negocia contracte."));
         }
 
         Random random = new Random();

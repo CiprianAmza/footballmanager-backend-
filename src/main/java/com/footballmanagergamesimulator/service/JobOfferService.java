@@ -38,8 +38,26 @@ public class JobOfferService {
     @Autowired private GameCalendarRepository gameCalendarRepository;
     @Autowired private UserContext userContext;
     @Autowired private GameStateService gameStateService;
+    @Autowired private OwnershipService ownershipService;
 
     private static final int OFFER_VALIDITY_DAYS = 7;
+
+    /**
+     * Boardroom rule (Faza 3): a human who owns a club cannot also coach a club in the SAME
+     * competition as one they own. Returns true when taking {@code targetTeamId} would violate it.
+     */
+    private boolean wouldConflictWithOwnedClub(long humanId, long targetTeamId) {
+        Team target = teamRepository.findById(targetTeamId).orElse(null);
+        if (target == null) return false;
+        for (Long ownedTeamId : ownershipService.ownedClubIds(humanId)) {
+            if (ownedTeamId == targetTeamId) continue;
+            Team owned = teamRepository.findById(ownedTeamId).orElse(null);
+            if (owned != null && owned.getCompetitionId() == target.getCompetitionId()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * Generate a job offer for the user from a specific team. Returns the created
@@ -226,6 +244,12 @@ public class JobOfferService {
 
         long oldTeamId = offer.getCurrentTeamId();
         long newTeamId = offer.getTeamId();
+
+        if (user.getManagerId() != null && wouldConflictWithOwnedClub(user.getManagerId(), newTeamId)) {
+            result.put("success", false);
+            result.put("message", "Nu poți antrena un club din aceeași competiție cu unul pe care îl deții.");
+            return result;
+        }
 
         // 1. Demote the AI manager currently at the offering team (free agent / retired)
         List<Human> aiManagers = humanRepository.findAllByTeamIdAndTypeId(newTeamId, TypeNames.MANAGER_TYPE);
@@ -508,6 +532,10 @@ public class JobOfferService {
 
         if (humanManager == null) {
             return "Human manager not found.";
+        }
+
+        if (wouldConflictWithOwnedClub(humanManager.getId(), newTeamId)) {
+            return "Nu poți antrena un club din aceeași competiție cu unul pe care îl deții.";
         }
 
         Human existingManager = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE).stream()

@@ -16,6 +16,7 @@ import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.core.type.TypeReference;     // <--- ACESTA ESTE IMPORTUL CORECT
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.parameters.P;
 import org.springframework.web.bind.annotation.*;
 
@@ -49,6 +50,8 @@ public class TacticController {
     PlayerSkillsRepository playerSkillsRepository;
     @Autowired
     PlayerValueService playerValueService;
+    @Autowired
+    com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -113,53 +116,116 @@ public class TacticController {
      * Endpoint ACTUALIZAT pentru a salva pozițiile exacte (JSON)
      */
     @PostMapping("/saveFormation")
-    public void saveFormation(@RequestBody PersonalizedTacticView personalizedTacticView) {
+    public ResponseEntity<?> saveFormation(@RequestBody PersonalizedTacticView personalizedTacticView) {
 
-        List<FormationData> formationDataList = personalizedTacticView.getFormationDataList();
-
-        // Nu mai refuzăm salvarea dacă sunt < 11 jucători, poate managerul vrea să salveze o tactică incompletă temporar
-        // if (formationDataList.size() < 11) return;
+        long teamId = personalizedTacticView.getTeamId();
+        CoachPermissions perms = coachPermissionService.getOrDefault(teamId);
+        PersonalizedTactic existing = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId).orElse(null);
 
         PersonalizedTactic personalizedTactic = new PersonalizedTactic();
-        personalizedTactic.setTeamId(personalizedTacticView.getTeamId());
+        personalizedTactic.setTeamId(teamId);
 
-        // 🔹 MODIFICARE MAJORĂ: Salvăm lista ca JSON String pentru a păstra positionIndex
-        // Vechea metodă cu "GK:1,DC:2" pierdea informația despre unde exact pe grilă se află jucătorul.
+        // ---- Starting XI ----
+        // When the owner has barred XI changes, keep the previously saved XI; otherwise take the
+        // coach's submission. Owner-locked slots are then forced on top (server-side validation,
+        // not just UI), so a coach cannot move a player the owner pinned to a slot.
+        List<FormationData> xi;
+        if (!perms.isCanPickXI() && existing != null && existing.getFirst11() != null) {
+            xi = parseFirst11(existing.getFirst11());
+        } else {
+            xi = personalizedTacticView.getFormationDataList() != null
+                    ? new ArrayList<>(personalizedTacticView.getFormationDataList())
+                    : new ArrayList<>();
+        }
+        applyOwnerLocks(xi, coachPermissionService.parseLockedSlots(perms.getLockedSlots()));
         try {
-            String jsonFormation = objectMapper.writeValueAsString(formationDataList);
-            personalizedTactic.setFirst11(jsonFormation);
+            personalizedTactic.setFirst11(objectMapper.writeValueAsString(xi));
         } catch (JsonProcessingException e) {
-            e.printStackTrace();
             throw new RuntimeException("Error converting formation to JSON");
         }
 
-        personalizedTactic.setTactic(personalizedTacticView.getTactic());
-        personalizedTactic.setMentality(personalizedTacticView.getMentality());
-        personalizedTactic.setTimeWasting(personalizedTacticView.getTimeWasting());
-        personalizedTactic.setInPossession(personalizedTacticView.getInPossession());
-        personalizedTactic.setPassingType(personalizedTacticView.getPassingType());
-        personalizedTactic.setTempo(personalizedTacticView.getTempo());
-        personalizedTactic.setDefensiveLine(personalizedTacticView.getDefensiveLine());
-        personalizedTactic.setPressing(personalizedTacticView.getPressing());
-        personalizedTactic.setWidth(personalizedTacticView.getWidth());
-        personalizedTactic.setDribbling(personalizedTacticView.getDribbling());
-        personalizedTactic.setFoulFrequency(personalizedTacticView.getFoulFrequency());
-        personalizedTactic.setFoulHardness(personalizedTacticView.getFoulHardness());
-        personalizedTactic.setTempoFragmentation(personalizedTacticView.getTempoFragmentation());
-        personalizedTactic.setWidePlay(personalizedTacticView.getWidePlay());
-        personalizedTactic.setTransition(personalizedTacticView.getTransition());
-        personalizedTactic.setPenaltyTakerId(personalizedTacticView.getPenaltyTakerId());
-        personalizedTactic.setFreeKickTakerId(personalizedTacticView.getFreeKickTakerId());
-        personalizedTactic.setCornerTakerLeftId(personalizedTacticView.getCornerTakerLeftId());
-        personalizedTactic.setCornerTakerRightId(personalizedTacticView.getCornerTakerRightId());
-
-        Optional<PersonalizedTactic> existingTactic = personalizedTacticRepository.findPersonalizedTacticByTeamId(personalizedTactic.getTeamId());
-        if (existingTactic.isPresent()) {
-            // Păstrăm ID-ul pentru update, ca să nu ștergem și să inserăm iar (mai eficient)
-            personalizedTactic.setId(existingTactic.get().getId());
-            personalizedTacticRepository.save(personalizedTactic);
+        // ---- Formation + instructions ----
+        if (perms.isCanChangeFormationTactics() || existing == null) {
+            personalizedTactic.setTactic(personalizedTacticView.getTactic());
+            personalizedTactic.setMentality(personalizedTacticView.getMentality());
+            personalizedTactic.setTimeWasting(personalizedTacticView.getTimeWasting());
+            personalizedTactic.setInPossession(personalizedTacticView.getInPossession());
+            personalizedTactic.setPassingType(personalizedTacticView.getPassingType());
+            personalizedTactic.setTempo(personalizedTacticView.getTempo());
+            personalizedTactic.setDefensiveLine(personalizedTacticView.getDefensiveLine());
+            personalizedTactic.setPressing(personalizedTacticView.getPressing());
+            personalizedTactic.setWidth(personalizedTacticView.getWidth());
+            personalizedTactic.setDribbling(personalizedTacticView.getDribbling());
+            personalizedTactic.setFoulFrequency(personalizedTacticView.getFoulFrequency());
+            personalizedTactic.setFoulHardness(personalizedTacticView.getFoulHardness());
+            personalizedTactic.setTempoFragmentation(personalizedTacticView.getTempoFragmentation());
+            personalizedTactic.setWidePlay(personalizedTacticView.getWidePlay());
+            personalizedTactic.setTransition(personalizedTacticView.getTransition());
         } else {
-            personalizedTacticRepository.save(personalizedTactic);
+            // Owner fixed the formation/instructions → keep the existing ones, ignore the coach's.
+            personalizedTactic.setTactic(existing.getTactic());
+            personalizedTactic.setMentality(existing.getMentality());
+            personalizedTactic.setTimeWasting(existing.getTimeWasting());
+            personalizedTactic.setInPossession(existing.getInPossession());
+            personalizedTactic.setPassingType(existing.getPassingType());
+            personalizedTactic.setTempo(existing.getTempo());
+            personalizedTactic.setDefensiveLine(existing.getDefensiveLine());
+            personalizedTactic.setPressing(existing.getPressing());
+            personalizedTactic.setWidth(existing.getWidth());
+            personalizedTactic.setDribbling(existing.getDribbling());
+            personalizedTactic.setFoulFrequency(existing.getFoulFrequency());
+            personalizedTactic.setFoulHardness(existing.getFoulHardness());
+            personalizedTactic.setTempoFragmentation(existing.getTempoFragmentation());
+            personalizedTactic.setWidePlay(existing.getWidePlay());
+            personalizedTactic.setTransition(existing.getTransition());
+        }
+
+        // ---- Set-piece takers ----
+        if (perms.isCanSetSetPieces() || existing == null) {
+            personalizedTactic.setPenaltyTakerId(personalizedTacticView.getPenaltyTakerId());
+            personalizedTactic.setFreeKickTakerId(personalizedTacticView.getFreeKickTakerId());
+            personalizedTactic.setCornerTakerLeftId(personalizedTacticView.getCornerTakerLeftId());
+            personalizedTactic.setCornerTakerRightId(personalizedTacticView.getCornerTakerRightId());
+        } else {
+            personalizedTactic.setPenaltyTakerId(existing.getPenaltyTakerId());
+            personalizedTactic.setFreeKickTakerId(existing.getFreeKickTakerId());
+            personalizedTactic.setCornerTakerLeftId(existing.getCornerTakerLeftId());
+            personalizedTactic.setCornerTakerRightId(existing.getCornerTakerRightId());
+        }
+
+        if (existing != null) {
+            personalizedTactic.setId(existing.getId());
+        }
+        personalizedTacticRepository.save(personalizedTactic);
+        return ResponseEntity.ok().build();
+    }
+
+    /** Parse a {@code first11} JSON string into FormationData, tolerating malformed/empty input. */
+    private List<FormationData> parseFirst11(String json) {
+        if (json == null || json.isBlank()) return new ArrayList<>();
+        try {
+            List<FormationData> parsed = objectMapper.readValue(json, new TypeReference<List<FormationData>>() {});
+            return parsed != null ? new ArrayList<>(parsed) : new ArrayList<>();
+        } catch (JsonProcessingException e) {
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * Force the owner's locked players into their pinned slots: drop any incoming entry that
+     * holds a locked player or sits on a locked slot, then add the locked assignments. This is
+     * the server-side guarantee behind XI-locking — the coach cannot override it via the API.
+     */
+    private void applyOwnerLocks(List<FormationData> xi, List<com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot> locks) {
+        if (locks == null || locks.isEmpty()) return;
+        Set<Long> lockedPlayers = locks.stream().map(l -> l.playerId()).collect(Collectors.toSet());
+        Set<Integer> lockedIndices = locks.stream().map(l -> l.positionIndex()).collect(Collectors.toSet());
+        xi.removeIf(fd -> lockedPlayers.contains(fd.getPlayerId()) || lockedIndices.contains(fd.getPositionIndex()));
+        for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot l : locks) {
+            FormationData fd = new FormationData();
+            fd.setPositionIndex(l.positionIndex());
+            fd.setPlayerId(l.playerId());
+            xi.add(fd);
         }
     }
 
@@ -646,9 +712,27 @@ public class TacticController {
 
         Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(team.getId(), 0)
                 .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+
+        // Owner XI-locking: pin players to their slots before the aptness fill, so the locked XI
+        // propagates to the match engine (this method is the canonical starter source) as well as
+        // the UI — and AI teams honour it too, with no scoring code change.
+        List<StarterSlot> slots = new ArrayList<>();
+        Set<Long> lockedPlayerIds = new HashSet<>();
+        Map<String, Integer> lockedCountByPos = new HashMap<>();
+        for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(team.getId())) {
+            if (lockedPlayerIds.contains(lock.playerId())) continue;
+            Human locked = humanRepository.findById(lock.playerId()).orElse(null);
+            if (locked == null || locked.getTeamId() == null || locked.getTeamId() != team.getId()) continue;
+            String slotPos = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
+            slots.add(new StarterSlot(adaptPlayer(locked, team), slotPos));
+            lockedPlayerIds.add(locked.getId());
+            lockedCountByPos.merge(slotPos, 1, Integer::sum);
+        }
+
         List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
                 .stream()
                 .filter(player -> !injuredIds.contains(player.getId()))
+                .filter(player -> !lockedPlayerIds.contains(player.getId()))
                 .toList();
         List<PlayerView> players = allPlayers.stream().map(player -> adaptPlayer(player, team)).toList();
         Map<String, List<PlayerView>> positionToPlayers = new HashMap<>();
@@ -657,10 +741,9 @@ public class TacticController {
             positionToPlayers.computeIfAbsent(playerView.getPosition(), k -> new ArrayList<>()).add(playerView);
         }
 
-        List<StarterSlot> slots = new ArrayList<>();
         List<PlayerView> restPlayers = new ArrayList<>();
         Deque<String> openSlots = new ArrayDeque<>();
-        int available = 11;
+        int available = 11 - slots.size();
 
         // Stable position order so out-of-position fillers map to open slots deterministically
         // (familiarity now depends on the slot, and tacticFormat is an unordered Map.of).
@@ -669,7 +752,8 @@ public class TacticController {
                 .toList();
         for (Map.Entry<String, Integer> entry: orderedSlots) {
             String position = entry.getKey();
-            int needed = entry.getValue();
+            // Slots already taken by owner-locked players at this position no longer need filling.
+            int needed = Math.max(0, entry.getValue() - lockedCountByPos.getOrDefault(position, 0));
 
             List<PlayerView> playersForThisPosition = positionToPlayers.getOrDefault(position, new ArrayList<>()).stream()
                     .sorted((x, y) -> Double.compare(aptness(y), aptness(x)))
@@ -940,7 +1024,21 @@ public class TacticController {
         Set<Long> usedPlayerIds = new HashSet<>();
         List<FormationData> result = new ArrayList<>();
 
+        // Owner XI-locks: pin locked players to their slots first; ask-assistant then works STRICTLY
+        // on the free slots only (never overrides an owner lock).
+        Set<Integer> lockedIndices = new HashSet<>();
+        for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(teamId)) {
+            if (usedPlayerIds.contains(lock.playerId())) continue;
+            FormationData fd = new FormationData();
+            fd.setPositionIndex(lock.positionIndex());
+            fd.setPlayerId(lock.playerId());
+            result.add(fd);
+            usedPlayerIds.add(lock.playerId());
+            lockedIndices.add(lock.positionIndex());
+        }
+
         for (int idx : gridIndices) {
+            if (lockedIndices.contains(idx)) continue; // owner pinned this slot
             String gridPos = tacticService.getPositionFromIndex(idx);
             String basePos = TacticService.getBasePosition(gridPos);
 

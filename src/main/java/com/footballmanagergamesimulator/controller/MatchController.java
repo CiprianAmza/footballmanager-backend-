@@ -503,6 +503,13 @@ public class MatchController {
                     result.put("postMatchPressConferenceOutcome",
                             teamScore > opponentScore ? "WIN"
                                     : teamScore < opponentScore ? "LOSS" : "DRAW");
+                    // Boardroom dynamics: if the owner restricts this coach, raise the arrogance/
+                    // humiliation question too (null when the owner imposes nothing).
+                    PressConference boardroomPc = pressConferenceService.generateBoardroomPressConference(
+                            userTeamId, season, matchday);
+                    if (boardroomPc != null) {
+                        result.put("boardroomPressConferenceId", boardroomPc.getId());
+                    }
                 } catch (Exception ex) { /* non-fatal */ }
             }
         }

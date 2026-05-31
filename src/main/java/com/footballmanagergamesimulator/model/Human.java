@@ -194,4 +194,15 @@ public class Human {
     @JsonProperty("isRetired")
     private boolean retired;
 
+    /**
+     * Boardroom press dynamics (Faza 6). An owner who overrules his coach grows more
+     * arrogant; the overruled coach grows more humiliated. Both 0-100, fed by press
+     * responses and the size of the owner's restrictions; high humiliation pushes the
+     * coach toward leaving and drags squad morale down.
+     */
+    @Column(columnDefinition = "double default 0")
+    private double ownerArrogance = 0;
+    @Column(columnDefinition = "double default 0")
+    private double coachHumiliation = 0;
+
 }
