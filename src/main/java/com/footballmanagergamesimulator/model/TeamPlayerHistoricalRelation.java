@@ -9,7 +9,8 @@ import lombok.Data;
 public class TeamPlayerHistoricalRelation {
 
     @Id
-    @GeneratedValue(strategy= GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "tphr_seq")
+    @SequenceGenerator(name = "tphr_seq", sequenceName = "tphr_seq", allocationSize = 1)
     private long id;
 
     /**
