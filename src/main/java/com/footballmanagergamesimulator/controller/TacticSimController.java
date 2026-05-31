@@ -49,7 +49,9 @@ public class TacticSimController {
     public record AnalyticalRow(String formation, String mentality, String tempo, String passingType,
                                 String inPossession, String timeWasting,
                                 double expectedPoints, double expectedGoalDifference,
-                                String defensiveLine, String pressing, String width) {}
+                                String defensiveLine, String pressing, String width,
+                                String dribbling, String foulFrequency, String foulHardness,
+                                String tempoFragmentation, String widePlay, String transition) {}
 
     public record AnalyticalResult(long teamId, String teamName, List<AnalyticalRow> rows) {}
 
@@ -71,7 +73,9 @@ public class TacticSimController {
         for (TacticRow r : ranked) {
             rows.add(new AnalyticalRow(r.formation(), r.mentality(), r.tempo(), r.passingType(),
                     r.inPossession(), r.timeWasting(), r.expectedPoints(), r.expectedGoalDifference(),
-                    r.defensiveLine(), r.pressing(), r.width()));
+                    r.defensiveLine(), r.pressing(), r.width(),
+                    r.dribbling(), r.foulFrequency(), r.foulHardness(),
+                    r.tempoFragmentation(), r.widePlay(), r.transition()));
         }
         String name = teamRepo.findNameById(teamId);
         return new AnalyticalResult(teamId, name == null ? "Team#" + teamId : name, rows);

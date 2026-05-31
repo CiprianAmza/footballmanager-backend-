@@ -1570,6 +1570,42 @@ public class MatchEngineConfig {
             return d == null ? 0.0 : d;
         }
 
+        // ---------------------------------------------------------------------------------------------
+        // Single-source catalog of the valid categorical values for every tactic axis (ordered). The
+        // numeric DEFAULT_*/override maps above remap what each value DOES; this is the authoritative
+        // list of which values EXIST. Production AI selection, the advisor, and the tests all enumerate
+        // from here so they always explore the exact same tactic space. Static (the catalog is fixed —
+        // overrides cannot add/remove values) so it is reachable without a Spring-managed instance.
+        // ---------------------------------------------------------------------------------------------
+        public static final List<String> MENTALITY_OPTIONS =
+                List.of("Very Attacking", "Attacking", "Balanced", "Defensive", "Very Defensive");
+        public static final List<String> TIME_WASTING_OPTIONS =
+                List.of("Never", "Sometimes", "Frequently", "Always");
+        public static final List<String> IN_POSSESSION_OPTIONS =
+                List.of("Standard", "Keep Ball", "Free Ball Early");
+        public static final List<String> PASSING_OPTIONS =
+                List.of("Short", "Normal", "Long");
+        public static final List<String> TEMPO_OPTIONS =
+                List.of("Much Lower", "Lower", "Standard", "Higher", "Much Higher");
+        public static final List<String> DEFENSIVE_LINE_OPTIONS =
+                List.of("Deep", "Standard", "High");
+        public static final List<String> PRESSING_OPTIONS =
+                List.of("Low", "Standard", "High");
+        public static final List<String> WIDTH_OPTIONS =
+                List.of("Narrow", "Balanced", "Wide");
+        public static final List<String> DRIBBLING_OPTIONS =
+                List.of("Less", "Standard", "More");
+        public static final List<String> FOUL_FREQUENCY_OPTIONS =
+                List.of("Rarely", "Normal", "Often");
+        public static final List<String> FOUL_HARDNESS_OPTIONS =
+                List.of("Soft", "Medium", "Hard");
+        public static final List<String> TEMPO_FRAGMENTATION_OPTIONS =
+                List.of("Flowing", "Normal", "Fragment");
+        public static final List<String> WIDE_PLAY_OPTIONS =
+                List.of("Cut Inside", "Shoot", "Cross");
+        public static final List<String> TRANSITION_OPTIONS =
+                List.of("Win Fouls", "Balanced", "Fast Counter");
+
         /** Attack share for a used base position: override → shipped default → 0.5. */
         public double attackShareFor(String position) {
             Double o = attackShare.get(position);

@@ -43,13 +43,18 @@ public class BestTacticService {
 
     public record TacticRow(String formation, String mentality, String tempo, String passingType,
                             String inPossession, String timeWasting, double expectedGoalDifference,
-                            double expectedPoints, String defensiveLine, String pressing, String width) {}
+                            double expectedPoints, String defensiveLine, String pressing, String width,
+                            String dribbling, String foulFrequency, String foulHardness,
+                            String tempoFragmentation, String widePlay, String transition) {}
 
     public record BestTacticResult(long teamId, String teamName, String recommendedFormation,
                                    String recommendedMentality, String recommendedTempo,
                                    String recommendedPassingType, String recommendedInPossession,
                                    String recommendedTimeWasting, String recommendedDefensiveLine,
                                    String recommendedPressing, String recommendedWidth,
+                                   String recommendedDribbling, String recommendedFoulFrequency,
+                                   String recommendedFoulHardness, String recommendedTempoFragmentation,
+                                   String recommendedWidePlay, String recommendedTransition,
                                    double expectedGoalDifference,
                                    double expectedPoints, double winProbability, double drawProbability,
                                    double lossProbability, double baseSquadValue, List<TacticRow> top) {}
@@ -80,7 +85,8 @@ public class BestTacticService {
                 double egd = tacticalScoreService.expectedGoalDifference(profile, mv, profile, neutralOpp);
                 double ep = tacticalScoreService.panelExpectedPoints(profile, mv);
                 all.add(new TacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
-                        t.getInPossession(), t.getTimeWasting(), egd, ep, null, null, null));
+                        t.getInPossession(), t.getTimeWasting(), egd, ep, null, null, null,
+                        null, null, null, null, null, null));
             }
         }
         all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
@@ -104,7 +110,9 @@ public class BestTacticService {
         return new BestTacticResult(teamId, name == null ? "Team#" + teamId : name,
                 best.formation(), best.mentality(), best.tempo(), best.passingType(),
                 best.inPossession(), best.timeWasting(), best.defensiveLine(), best.pressing(),
-                best.width(), best.expectedGoalDifference(),
+                best.width(), best.dribbling(), best.foulFrequency(), best.foulHardness(),
+                best.tempoFragmentation(), best.widePlay(), best.transition(),
+                best.expectedGoalDifference(),
                 best.expectedPoints(), wdl[0], wdl[1], wdl[2],
                 bestBaseValue, top);
     }
@@ -133,7 +141,9 @@ public class BestTacticService {
                 double ep = tacticalScoreService.panelExpectedPoints(profile, mv);
                 all.add(new TacticRow(formation, t.getMentality(), t.getTempo(), t.getPassingType(),
                         t.getInPossession(), t.getTimeWasting(), egd, ep,
-                        axes.getDefensiveLine(), axes.getPressing(), axes.getWidth()));
+                        axes.getDefensiveLine(), axes.getPressing(), axes.getWidth(),
+                        axes.getDribbling(), axes.getFoulFrequency(), axes.getFoulHardness(),
+                        axes.getTempoFragmentation(), axes.getWidePlay(), axes.getTransition()));
             }
         }
         all.sort(Comparator.comparingDouble(TacticRow::expectedPoints).reversed());
@@ -149,7 +159,9 @@ public class BestTacticService {
         managerTacticService.applyNewAxes(t, prof, ability, wideById.getOrDefault(r.formation(), 0.0));
         double ep = tacticalScoreService.panelExpectedPoints(prof, tacticalScoreService.vector(t));
         return new TacticRow(r.formation(), r.mentality(), r.tempo(), r.passingType(), r.inPossession(),
-                r.timeWasting(), r.expectedGoalDifference(), ep, t.getDefensiveLine(), t.getPressing(), t.getWidth());
+                r.timeWasting(), r.expectedGoalDifference(), ep, t.getDefensiveLine(), t.getPressing(), t.getWidth(),
+                t.getDribbling(), t.getFoulFrequency(), t.getFoulHardness(),
+                t.getTempoFragmentation(), t.getWidePlay(), t.getTransition());
     }
 
     private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");
@@ -174,6 +186,12 @@ public class BestTacticService {
         t.setDefensiveLine(r.defensiveLine());
         t.setPressing(r.pressing());
         t.setWidth(r.width());
+        t.setDribbling(r.dribbling());
+        t.setFoulFrequency(r.foulFrequency());
+        t.setFoulHardness(r.foulHardness());
+        t.setTempoFragmentation(r.tempoFragmentation());
+        t.setWidePlay(r.widePlay());
+        t.setTransition(r.transition());
         return t;
     }
 

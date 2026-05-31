@@ -83,8 +83,16 @@ class Team442SeasonPointsFuzzIT {
         Ctx ctx = setUp();
         Assumptions.assumeTrue(ctx != null, "Skipping — supply -Dteam.id=ID (your team) to run this harness");
 
+        // The team plays its recommended non-swept axes (Strat-2 line/press/width + Faza-2 instructions),
+        // constant across the swept base settings — so the sweep reflects production, not a neutral tactic.
+        double teamAbility = ctx.coaches[ctx.teamIdx].pickAbility();
+        PersonalizedTactic axesProto = new PersonalizedTactic();
+        managerTacticService.applyNewAxes(axesProto, ctx.profiles[ctx.teamIdx], teamAbility,
+                teamWideShare(ctx.teamId, ctx.formation));
+
         List<TacticResult> results = new ArrayList<>(900);
         for (PersonalizedTactic t : managerTacticService.candidateTactics()) {
+            stampNewAxes(t, axesProto);
             TacticVector teamVec = tacticalScoreService.vector(t);
             SeasonPoints sp = ctx.simulatePoints(teamVec);
             results.add(new TacticResult(t, sp.avg(), sp.min(), sp.max()));
@@ -110,14 +118,18 @@ class Team442SeasonPointsFuzzIT {
 
         sb.append("## All 900 tactics, ranked by average points (desc)\n\n");
         MarkdownTable table = new MarkdownTable(
-                List.of("#", "Mentality", "Tempo", "Passing", "In Possession", "Time Wasting", "AvgPts", "MinPts", "MaxPts"),
+                List.of("#", "Mentality", "Tempo", "Passing", "In Possession", "Time Wasting",
+                        "Line/Press/Width", "Instructions", "AvgPts", "MinPts", "MaxPts"),
                 List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
                         MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
+                        MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
                         MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
         for (int i = 0; i < results.size(); i++) {
             TacticResult r = results.get(i);
-            table.addRow(String.valueOf(i + 1), r.tactic().getMentality(), r.tactic().getTempo(),
-                    r.tactic().getPassingType(), r.tactic().getInPossession(), r.tactic().getTimeWasting(),
+            PersonalizedTactic t = r.tactic();
+            table.addRow(String.valueOf(i + 1), t.getMentality(), t.getTempo(),
+                    t.getPassingType(), t.getInPossession(), t.getTimeWasting(),
+                    t.getDefensiveLine() + "/" + t.getPressing() + "/" + t.getWidth(), instructions(t),
                     String.format("%.2f", r.avgPts()), String.valueOf(r.minPts()), String.valueOf(r.maxPts()));
         }
         sb.append(table.render()).append('\n');
@@ -325,8 +337,49 @@ class Team442SeasonPointsFuzzIT {
     // ==================== report helpers ====================
 
     private static String describe(PersonalizedTactic t) {
-        return String.format("%s | tempo %s | passing %s | possession %s | time-wasting %s",
-                t.getMentality(), t.getTempo(), t.getPassingType(), t.getInPossession(), t.getTimeWasting());
+        return String.format("%s | tempo %s | passing %s | possession %s | time-wasting %s | %s/%s/%s | %s",
+                t.getMentality(), t.getTempo(), t.getPassingType(), t.getInPossession(), t.getTimeWasting(),
+                t.getDefensiveLine(), t.getPressing(), t.getWidth(), instructions(t));
+    }
+
+    private static String instructions(PersonalizedTactic t) {
+        return String.join(", ", t.getDribbling(), t.getFoulFrequency(), t.getFoulHardness(),
+                t.getTempoFragmentation(), t.getWidePlay(), t.getTransition());
+    }
+
+    /** Copy the recommended non-swept axes (Strat-2 + Faza-2) onto a swept base candidate. */
+    private static void stampNewAxes(PersonalizedTactic t, PersonalizedTactic axes) {
+        t.setDefensiveLine(axes.getDefensiveLine());
+        t.setPressing(axes.getPressing());
+        t.setWidth(axes.getWidth());
+        t.setDribbling(axes.getDribbling());
+        t.setFoulFrequency(axes.getFoulFrequency());
+        t.setFoulHardness(axes.getFoulHardness());
+        t.setTempoFragmentation(axes.getTempoFragmentation());
+        t.setWidePlay(axes.getWidePlay());
+        t.setTransition(axes.getTransition());
+    }
+
+    private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");
+
+    /** Share of the XI's match value in wide positions (for the width identity), mirroring production. */
+    private double teamWideShare(long teamId, String formation) {
+        List<TacticController.StarterSlot> slots = tacticController.getBestElevenWithSlots(String.valueOf(teamId), formation);
+        List<Long> ids = slots.stream().map(s -> s.player().getId()).toList();
+        Map<Long, PlayerSkills> skills = new HashMap<>();
+        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skills.put(s.getPlayerId(), s);
+        double total = 0, wide = 0;
+        for (TacticController.StarterSlot slot : slots) {
+            var pv = slot.player();
+            String used = slot.usedPosition();
+            PlayerSkills sk = skills.get(pv.getId());
+            double value = sk != null
+                    ? playerValueService.evaluatePlayer(sk, pv.getPosition(), used, pv.getMorale(), pv.getFitness())
+                    : playerValueService.evaluatePlayer(pv.getRating(), pv.getPosition(), used, pv.getMorale(), pv.getFitness());
+            total += value;
+            if (WIDE_POSITIONS.contains(used)) wide += value;
+        }
+        return total <= 0 ? 0 : wide / total;
     }
 
     private record SeasonPoints(double avg, int min, int max) {}

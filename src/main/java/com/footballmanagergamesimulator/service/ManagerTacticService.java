@@ -1,15 +1,16 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.config.MatchEngineConfig.TacticalModel;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 /**
  * Chooses a tactic for an AI manager based on his tactical ability. The full tactic-setting space
@@ -18,6 +19,10 @@ import java.util.List;
  * at rank {@code round((100-a)/100 × (N-1))} — top coaches play near-optimal tactics, weak coaches
  * play poor ones. Because the model is matchup-based, "best on average" still loses some specific
  * matchups, so leagues hold a meaningful spread of tactical quality rather than one dominant setup.
+ *
+ * <p>Every valid value of every axis is enumerated from the single-source catalog on
+ * {@link MatchEngineConfig.TacticalModel} (the {@code *_OPTIONS} lists), so production AI selection,
+ * the advisor, and the tests always explore the exact same tactic space.
  */
 @Service
 public class ManagerTacticService {
@@ -25,23 +30,14 @@ public class ManagerTacticService {
     @Autowired TacticalScoreService tacticalScoreService;
     @Autowired MatchEngineConfig engineConfig;
 
-    private static final List<String> MENTALITIES = List.of(
-            "Very Attacking", "Attacking", "Balanced", "Defensive", "Very Defensive");
-    private static final List<String> TIME_WASTING = List.of("Never", "Sometimes", "Frequently", "Always");
-    private static final List<String> IN_POSSESSION = List.of("Standard", "Keep Ball", "Free Ball Early");
-    private static final List<String> PASSING = List.of("Short", "Normal", "Long");
-    private static final List<String> TEMPO = List.of("Much Lower", "Lower", "Standard", "Higher", "Much Higher");
-    private static final List<String> LINE_HEIGHTS = List.of("Deep", "Standard", "High");
-    private static final List<String> PRESSING = List.of("Low", "Standard", "High");
-
     /** All candidate tactic-setting combinations (formation is chosen separately by squad fit). */
     public List<PersonalizedTactic> candidateTactics() {
         List<PersonalizedTactic> out = new ArrayList<>(900);
-        for (String mentality : MENTALITIES)
-            for (String timeWasting : TIME_WASTING)
-                for (String inPossession : IN_POSSESSION)
-                    for (String passing : PASSING)
-                        for (String tempo : TEMPO)
+        for (String mentality : TacticalModel.MENTALITY_OPTIONS)
+            for (String timeWasting : TacticalModel.TIME_WASTING_OPTIONS)
+                for (String inPossession : TacticalModel.IN_POSSESSION_OPTIONS)
+                    for (String passing : TacticalModel.PASSING_OPTIONS)
+                        for (String tempo : TacticalModel.TEMPO_OPTIONS)
                             out.add(build(mentality, timeWasting, inPossession, passing, tempo));
         return out;
     }
@@ -62,7 +58,10 @@ public class ManagerTacticService {
 
     /**
      * Pick a tactic for a manager of the given ability (0-100) facing a representative opponent.
-     * Ability 100 ⇒ the top-ranked tactic; ability 0 ⇒ the worst.
+     * Ability 100 ⇒ the top-ranked tactic; ability 0 ⇒ the worst. The chosen base tactic is then
+     * completed with the defensive line, pressing and the Faza-2 team instructions via the same
+     * skill-ranked greedy search the advisor uses, so production AI explores all axes. Width is left
+     * to the caller (a squad-shape identity via {@link #widthIdentity}).
      */
     public PersonalizedTactic chooseTactic(TeamProfile mine, TeamProfile opponent, double tacticalAbility) {
         List<PersonalizedTactic> ranked = rankTactics(mine, opponent);
@@ -70,6 +69,7 @@ public class ManagerTacticService {
         int index = (int) Math.round((100 - a) / 100.0 * (ranked.size() - 1));
         PersonalizedTactic base = ranked.get(index);
         augmentLineAndPress(base, mine, a);
+        augmentInstructions(base, mine, a);
         return base;
     }
 
@@ -78,13 +78,14 @@ public class ManagerTacticService {
      * line×press combinations (holding the chosen settings fixed) by {@link
      * TacticalScoreService#panelExpectedPoints} and take the one at the manager's ability rank — top
      * coaches play the panel-optimal line/press, weak coaches play poor ones. Avoids enumerating the
-     * full settings × line × press × width grid (27× larger) on the per-round AI hot path.
+     * full settings × line × press × width grid on the per-round AI hot path.
      */
     private void augmentLineAndPress(PersonalizedTactic base, TeamProfile mine, double ability) {
         record Combo(String line, String press, double score) {}
-        List<Combo> combos = new ArrayList<>(LINE_HEIGHTS.size() * PRESSING.size());
-        for (String line : LINE_HEIGHTS) {
-            for (String press : PRESSING) {
+        List<String> lines = TacticalModel.DEFENSIVE_LINE_OPTIONS, presses = TacticalModel.PRESSING_OPTIONS;
+        List<Combo> combos = new ArrayList<>(lines.size() * presses.size());
+        for (String line : lines) {
+            for (String press : presses) {
                 base.setDefensiveLine(line);
                 base.setPressing(press);
                 combos.add(new Combo(line, press,
@@ -98,13 +99,49 @@ public class ManagerTacticService {
     }
 
     /**
-     * Stamp the Strat-2 axes onto a base tactic for advisor / simulation suggestions: defensive line +
-     * pressing via the skill-ranked coordinate search, width as the squad-shape identity. The perf
-     * mitigation for "enumerate the new axes" — O(900 + 9) instead of the full 24,300-combo grid.
+     * Pick the six Faza-2 team instructions (dribbling, foul frequency, foul hardness, tempo
+     * fragmentation, wide play, transition) for {@code base} via a per-axis skill-ranked greedy search
+     * (coordinate descent): for each axis, holding the rest fixed, rank its values by {@link
+     * TacticalScoreService#panelExpectedPoints} and take the one at the manager's ability rank. Top
+     * coaches play near-optimal instructions, weak coaches poor ones — the same selection model as
+     * line/press, so production AI, advisor and tests all explore these axes identically.
+     */
+    private void augmentInstructions(PersonalizedTactic base, TeamProfile mine, double ability) {
+        for (InstructionAxis axis : INSTRUCTION_AXES) {
+            record Scored(String value, double score) {}
+            List<Scored> scored = new ArrayList<>(axis.options().size());
+            for (String value : axis.options()) {
+                axis.setter().accept(base, value);
+                scored.add(new Scored(value,
+                        tacticalScoreService.panelExpectedPoints(mine, tacticalScoreService.vector(base))));
+            }
+            scored.sort(Comparator.comparingDouble(Scored::score).reversed());
+            int idx = (int) Math.round((100 - ability) / 100.0 * (scored.size() - 1));
+            axis.setter().accept(base, scored.get(idx).value());
+        }
+    }
+
+    /** One Faza-2 instruction axis: its valid values (from the config catalog) + how to set it. */
+    private record InstructionAxis(List<String> options, BiConsumer<PersonalizedTactic, String> setter) {}
+
+    private static final List<InstructionAxis> INSTRUCTION_AXES = List.of(
+            new InstructionAxis(TacticalModel.DRIBBLING_OPTIONS, PersonalizedTactic::setDribbling),
+            new InstructionAxis(TacticalModel.FOUL_FREQUENCY_OPTIONS, PersonalizedTactic::setFoulFrequency),
+            new InstructionAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, PersonalizedTactic::setFoulHardness),
+            new InstructionAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, PersonalizedTactic::setTempoFragmentation),
+            new InstructionAxis(TacticalModel.WIDE_PLAY_OPTIONS, PersonalizedTactic::setWidePlay),
+            new InstructionAxis(TacticalModel.TRANSITION_OPTIONS, PersonalizedTactic::setTransition));
+
+    /**
+     * Stamp every non-grid axis onto a base tactic for advisor / simulation suggestions: defensive line
+     * + pressing via the skill-ranked coordinate search, width as the squad-shape identity, and the six
+     * Faza-2 instructions via the per-axis greedy search. Produces the same complete 14-axis tactic the
+     * production AI ({@link #chooseTactic}) does, so advisor == production.
      */
     public void applyNewAxes(PersonalizedTactic base, TeamProfile mine, double ability, double wideShare) {
         augmentLineAndPress(base, mine, ability);
         base.setWidth(widthIdentity(wideShare));
+        augmentInstructions(base, mine, ability);
     }
 
     /**

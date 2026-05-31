@@ -51,6 +51,9 @@ public class TacticSimulationService {
 
     public record TacticPointsRow(String mentality, String tempo, String passingType,
                                   String inPossession, String timeWasting,
+                                  String defensiveLine, String pressing, String width,
+                                  String dribbling, String foulFrequency, String foulHardness,
+                                  String tempoFragmentation, String widePlay, String transition,
                                   double avgPoints, int minPoints, int maxPoints) {}
 
     public record TacticPointsResult(long teamId, String teamName, String formation,
@@ -100,6 +103,12 @@ public class TacticSimulationService {
             t.setDefensiveLine(axesProto.getDefensiveLine());
             t.setPressing(axesProto.getPressing());
             t.setWidth(axesProto.getWidth());
+            t.setDribbling(axesProto.getDribbling());
+            t.setFoulFrequency(axesProto.getFoulFrequency());
+            t.setFoulHardness(axesProto.getFoulHardness());
+            t.setTempoFragmentation(axesProto.getTempoFragmentation());
+            t.setWidePlay(axesProto.getWidePlay());
+            t.setTransition(axesProto.getTransition());
             TacticVector teamVec = tacticalScoreService.vector(t);
             int[] minMax = {Integer.MAX_VALUE, Integer.MIN_VALUE};
             long sum = 0;
@@ -115,7 +124,11 @@ public class TacticSimulationService {
                 if (pts > minMax[1]) minMax[1] = pts;
             }
             rows.add(new TacticPointsRow(t.getMentality(), t.getTempo(), t.getPassingType(),
-                    t.getInPossession(), t.getTimeWasting(), sum / (double) n, minMax[0], minMax[1]));
+                    t.getInPossession(), t.getTimeWasting(),
+                    t.getDefensiveLine(), t.getPressing(), t.getWidth(),
+                    t.getDribbling(), t.getFoulFrequency(), t.getFoulHardness(),
+                    t.getTempoFragmentation(), t.getWidePlay(), t.getTransition(),
+                    sum / (double) n, minMax[0], minMax[1]));
         }
         rows.sort(Comparator.comparingDouble(TacticPointsRow::avgPoints).reversed());
 

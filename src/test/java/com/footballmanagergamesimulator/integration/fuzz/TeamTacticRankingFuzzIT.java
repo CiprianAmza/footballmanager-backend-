@@ -46,12 +46,14 @@ class TeamTacticRankingFuzzIT {
         assertThat(all).as("15 formations × 900 settings").hasSize(15 * 900);
 
         MarkdownTable table = new MarkdownTable(
-                List.of("#", "Formation", "Mentality", "Tempo", "Passing", "In Possession", "Time Wasting", "Exp.Pts", "xGD"),
-                List.of(Align.RIGHT, Align.LEFT, Align.LEFT, Align.LEFT, Align.LEFT, Align.LEFT, Align.LEFT, Align.RIGHT, Align.RIGHT));
+                List.of("#", "Formation", "Mentality", "Tempo", "Passing", "In Possession", "Time Wasting",
+                        "Line/Press/Width", "Instructions", "Exp.Pts", "xGD"),
+                List.of(Align.RIGHT, Align.LEFT, Align.LEFT, Align.LEFT, Align.LEFT, Align.LEFT, Align.LEFT,
+                        Align.LEFT, Align.LEFT, Align.RIGHT, Align.RIGHT));
         int rank = 1;
         for (TacticRow r : all) {
             table.addRow(String.valueOf(rank++), r.formation(), r.mentality(), r.tempo(), r.passingType(),
-                    r.inPossession(), r.timeWasting(),
+                    r.inPossession(), r.timeWasting(), strat2(r), instructions(r),
                     String.format("%.4f", r.expectedPoints()), String.format("%+.4f", r.expectedGoalDifference()));
         }
 
@@ -78,7 +80,16 @@ class TeamTacticRankingFuzzIT {
 
         System.out.printf("=== ALL TACTICS RANKED: %s (id %d) → %s ===%n", label, teamId, out.toAbsolutePath());
         System.out.printf("best=%.4f worst=%.4f distinct=%d/%d%n", best, worst, distinct, all.size());
-        System.out.printf("Top: %s / %s / %s / %s / %s / %s%n", top.formation(), top.mentality(), top.tempo(),
-                top.passingType(), top.inPossession(), top.timeWasting());
+        System.out.printf("Top: %s / %s / %s / %s / %s / %s | %s | %s%n", top.formation(), top.mentality(), top.tempo(),
+                top.passingType(), top.inPossession(), top.timeWasting(), strat2(top), instructions(top));
+    }
+
+    private static String strat2(TacticRow r) {
+        return r.defensiveLine() + "/" + r.pressing() + "/" + r.width();
+    }
+
+    private static String instructions(TacticRow r) {
+        return String.join(", ", r.dribbling(), r.foulFrequency(), r.foulHardness(),
+                r.tempoFragmentation(), r.widePlay(), r.transition());
     }
 }

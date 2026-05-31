@@ -32,12 +32,19 @@ class ManagerTacticServiceTest {
     }
 
     @Test
-    void chooseTactic_setsLineAndPressing() {
+    void chooseTactic_setsLinePressingAndFaza2Instructions() {
         TeamProfile mine = service.tacticalScoreService.profile(
                 List.of(new StarterValue("ST", 1200), new StarterValue("MC", 1200), new StarterValue("DC", 1200)));
         PersonalizedTactic top = service.chooseTactic(mine, mine, 100);
-        assertThat(top.getDefensiveLine()).isIn("Deep", "Standard", "High");
-        assertThat(top.getPressing()).isIn("Low", "Standard", "High");
+        assertThat(top.getDefensiveLine()).isIn(MatchEngineConfig.TacticalModel.DEFENSIVE_LINE_OPTIONS);
+        assertThat(top.getPressing()).isIn(MatchEngineConfig.TacticalModel.PRESSING_OPTIONS);
+        // The Faza-2 team instructions must now be chosen too (production AI explores all axes).
+        assertThat(top.getDribbling()).isIn(MatchEngineConfig.TacticalModel.DRIBBLING_OPTIONS);
+        assertThat(top.getFoulFrequency()).isIn(MatchEngineConfig.TacticalModel.FOUL_FREQUENCY_OPTIONS);
+        assertThat(top.getFoulHardness()).isIn(MatchEngineConfig.TacticalModel.FOUL_HARDNESS_OPTIONS);
+        assertThat(top.getTempoFragmentation()).isIn(MatchEngineConfig.TacticalModel.TEMPO_FRAGMENTATION_OPTIONS);
+        assertThat(top.getWidePlay()).isIn(MatchEngineConfig.TacticalModel.WIDE_PLAY_OPTIONS);
+        assertThat(top.getTransition()).isIn(MatchEngineConfig.TacticalModel.TRANSITION_OPTIONS);
     }
 
     @Test

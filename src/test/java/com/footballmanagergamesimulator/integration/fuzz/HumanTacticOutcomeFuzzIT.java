@@ -145,8 +145,15 @@ class HumanTacticOutcomeFuzzIT {
         double neutralMean = ctx.meanPosForHumanTactic(tacticalScoreService.vector(
                 buildTactic("Balanced", "Sometimes", "Standard", "Normal", "Standard")));
 
+        // The human plays the recommended non-swept axes (Strat-2 + Faza-2), constant across the swept
+        // base settings, so the recommendation reflects the full production tactic, not a neutral one.
+        PersonalizedTactic axesProto = new PersonalizedTactic();
+        managerTacticService.applyNewAxes(axesProto, ctx.profiles[ctx.humanIdx],
+                ctx.coaches[ctx.humanIdx].pickAbility(), teamWideShare(ctx.humanTeamId, ctx.humanFormation));
+
         List<TacticResult> results = new ArrayList<>(900);
         for (PersonalizedTactic t : managerTacticService.candidateTactics()) {
+            stampNewAxes(t, axesProto);
             double mp = ctx.meanPosForHumanTactic(tacticalScoreService.vector(t));
             results.add(new TacticResult(t, mp));
         }
@@ -167,17 +174,24 @@ class HumanTacticOutcomeFuzzIT {
         sb.append("- Tempo: `").append(best.tactic().getTempo()).append("`\n");
         sb.append("- Passing: `").append(best.tactic().getPassingType()).append("`\n");
         sb.append("- In possession: `").append(best.tactic().getInPossession()).append("`\n");
-        sb.append("- Time wasting: `").append(best.tactic().getTimeWasting()).append("`\n\n");
+        sb.append("- Time wasting: `").append(best.tactic().getTimeWasting()).append("`\n");
+        sb.append("- Line/Press/Width: `").append(best.tactic().getDefensiveLine()).append("/")
+          .append(best.tactic().getPressing()).append("/").append(best.tactic().getWidth()).append("`\n");
+        sb.append("- Instructions: `").append(instructions(best.tactic())).append("`\n\n");
 
         sb.append("## Top 15 tactics\n\n");
         MarkdownTable table = new MarkdownTable(
-                List.of("#", "Mentality", "Tempo", "Passing", "Possession", "Time-wasting", "Mean Pos"),
+                List.of("#", "Mentality", "Tempo", "Passing", "Possession", "Time-wasting",
+                        "Line/Press/Width", "Instructions", "Mean Pos"),
                 List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
-                        MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
+                        MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
+                        MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
         for (int i = 0; i < Math.min(15, results.size()); i++) {
             TacticResult r = results.get(i);
-            table.addRow(String.valueOf(i + 1), r.tactic().getMentality(), r.tactic().getTempo(),
-                    r.tactic().getPassingType(), r.tactic().getInPossession(), r.tactic().getTimeWasting(),
+            PersonalizedTactic t = r.tactic();
+            table.addRow(String.valueOf(i + 1), t.getMentality(), t.getTempo(),
+                    t.getPassingType(), t.getInPossession(), t.getTimeWasting(),
+                    t.getDefensiveLine() + "/" + t.getPressing() + "/" + t.getWidth(), instructions(t),
                     String.format("%.2f", r.meanPos()));
         }
         sb.append(table.render()).append('\n');
@@ -378,6 +392,46 @@ class HumanTacticOutcomeFuzzIT {
             starters.add(new TacticalScoreService.StarterValue(used, value));
         }
         return tacticalScoreService.profile(starters);
+    }
+
+    private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");
+
+    /** Share of the XI's match value in wide positions (for the width identity), mirroring production. */
+    private double teamWideShare(long teamId, String formation) {
+        List<TacticController.StarterSlot> slots = tacticController.getBestElevenWithSlots(String.valueOf(teamId), formation);
+        List<Long> ids = slots.stream().map(s -> s.player().getId()).toList();
+        Map<Long, PlayerSkills> skills = new HashMap<>();
+        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skills.put(s.getPlayerId(), s);
+        double total = 0, wide = 0;
+        for (TacticController.StarterSlot slot : slots) {
+            var pv = slot.player();
+            String used = slot.usedPosition();
+            PlayerSkills sk = skills.get(pv.getId());
+            double value = sk != null
+                    ? playerValueService.evaluatePlayer(sk, pv.getPosition(), used, pv.getMorale(), pv.getFitness())
+                    : playerValueService.evaluatePlayer(pv.getRating(), pv.getPosition(), used, pv.getMorale(), pv.getFitness());
+            total += value;
+            if (WIDE_POSITIONS.contains(used)) wide += value;
+        }
+        return total <= 0 ? 0 : wide / total;
+    }
+
+    private static String instructions(PersonalizedTactic t) {
+        return String.join(", ", t.getDribbling(), t.getFoulFrequency(), t.getFoulHardness(),
+                t.getTempoFragmentation(), t.getWidePlay(), t.getTransition());
+    }
+
+    /** Copy the recommended non-swept axes (Strat-2 + Faza-2) onto a swept base candidate. */
+    private static void stampNewAxes(PersonalizedTactic t, PersonalizedTactic axes) {
+        t.setDefensiveLine(axes.getDefensiveLine());
+        t.setPressing(axes.getPressing());
+        t.setWidth(axes.getWidth());
+        t.setDribbling(axes.getDribbling());
+        t.setFoulFrequency(axes.getFoulFrequency());
+        t.setFoulHardness(axes.getFoulHardness());
+        t.setTempoFragmentation(axes.getTempoFragmentation());
+        t.setWidePlay(axes.getWidePlay());
+        t.setTransition(axes.getTransition());
     }
 
     /** Formation maximizing the squad's total value (best fit for the players). */
