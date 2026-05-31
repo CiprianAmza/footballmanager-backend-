@@ -121,8 +121,16 @@ public class PlayerCardService {
         return competition.get().getNationId();
     }
 
+    /** Compact face descriptor (the 5 indices the FE renders a layered face from). Built from the
+     *  individual Human getters added with the nation/faces feature; null if none are present. */
     private Object extractFaceDescriptor(Human player) {
-        return invokeOptionalGetter(player, "getFaceDescriptor").orElse(null);
+        java.util.Map<String, Object> face = new java.util.LinkedHashMap<>();
+        invokeOptionalGetter(player, "getBaseFaceId").ifPresent(v -> face.put("baseFaceId", v));
+        invokeOptionalGetter(player, "getSkinTone").ifPresent(v -> face.put("skinTone", v));
+        invokeOptionalGetter(player, "getHairStyle").ifPresent(v -> face.put("hairStyle", v));
+        invokeOptionalGetter(player, "getHairColor").ifPresent(v -> face.put("hairColor", v));
+        invokeOptionalGetter(player, "getEyeColor").ifPresent(v -> face.put("eyeColor", v));
+        return face.isEmpty() ? null : face;
     }
 
     private Optional<Object> invokeOptionalGetter(Human player, String getterName) {

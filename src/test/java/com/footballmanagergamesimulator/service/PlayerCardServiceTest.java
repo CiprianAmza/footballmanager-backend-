@@ -83,7 +83,10 @@ class PlayerCardServiceTest {
         assertThat(card.getPosition()).isEqualTo("ST");
         assertThat(card.getAge()).isEqualTo(23);
         assertThat(card.getNationId()).isEqualTo(24L);
-        assertThat(card.getFaceDescriptor()).isNull();
+        assertThat(card.getFaceDescriptor()).isInstanceOf(java.util.Map.class);
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> face = (java.util.Map<String, Object>) card.getFaceDescriptor();
+        assertThat(face).containsKeys("baseFaceId", "skinTone", "hairStyle", "hairColor", "eyeColor");
         assertThat(List.of(card.getOverall(), card.getPac(), card.getSho(), card.getPas(), card.getDri(), card.getDef(), card.getPhy()))
                 .allSatisfy(value -> assertThat(value).isBetween(0, 99));
     }
