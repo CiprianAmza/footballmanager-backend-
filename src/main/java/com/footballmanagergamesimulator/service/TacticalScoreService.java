@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 
 /**
@@ -86,12 +85,10 @@ public class TacticalScoreService {
         String possession = orDefault(t.getInPossession(), "Standard");
         String timeWasting = orDefault(t.getTimeWasting(), "Sometimes");
 
-        double bias = MENTALITY_BIAS.getOrDefault(mentality, 0.0)
-                + POSSESSION_BIAS.getOrDefault(possession, 0.0);
-        double risk = TEMPO_RISK.getOrDefault(tempo, 0.0)
-                + PASSING_RISK.getOrDefault(passing, 0.0);
-        double control = POSSESSION_CONTROL.getOrDefault(possession, 0.0)
-                + TIME_WASTING_CONTROL.getOrDefault(timeWasting, 0.0);
+        MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
+        double bias = cfg.mentalityBias(mentality) + cfg.possessionBias(possession);
+        double risk = cfg.tempoRisk(tempo) + cfg.passingRisk(passing);
+        double control = cfg.possessionControl(possession) + cfg.timeWastingControl(timeWasting);
 
         return new TacticVector(
                 clamp(bias, -1.2, 1.5),
@@ -191,18 +188,4 @@ public class TacticalScoreService {
 
     private static String orDefault(String v, String def) { return v == null || v.isBlank() ? def : v; }
     private static double clamp(double v, double lo, double hi) { return Math.max(lo, Math.min(hi, v)); }
-
-    // Categorical setting -> numeric axis contributions (tunable defaults; could move to config later).
-    private static final Map<String, Double> MENTALITY_BIAS = Map.of(
-            "Very Defensive", -1.0, "Defensive", -0.5, "Balanced", 0.0, "Attacking", 0.5, "Very Attacking", 1.0);
-    private static final Map<String, Double> POSSESSION_BIAS = Map.of(
-            "Standard", 0.0, "Keep Ball", -0.10, "Free Ball Early", 0.15);
-    private static final Map<String, Double> TEMPO_RISK = Map.of(
-            "Much Lower", -1.0, "Lower", -0.5, "Standard", 0.0, "Higher", 0.5, "Much Higher", 1.0);
-    private static final Map<String, Double> PASSING_RISK = Map.of(
-            "Short", -0.15, "Normal", 0.0, "Long", 0.20, "Direct", 0.20);
-    private static final Map<String, Double> POSSESSION_CONTROL = Map.of(
-            "Standard", 0.0, "Keep Ball", 0.6, "Free Ball Early", -0.1);
-    private static final Map<String, Double> TIME_WASTING_CONTROL = Map.of(
-            "Never", -0.1, "Sometimes", 0.0, "Frequently", 0.4, "Always", 0.6);
 }

@@ -1335,6 +1335,13 @@ public class MatchEngineConfig {
         private double extraTimeOpennessScale = 0.33;
         /** OVERRIDE: used base position → share of a player's value assigned to attack (rest = defense). */
         private Map<String, Double> attackShare = new HashMap<>();
+        /** OVERRIDE: categorical tactic setting → numeric axis contribution (see DEFAULT_* below). */
+        private Map<String, Double> mentalityBias = new HashMap<>();
+        private Map<String, Double> possessionBias = new HashMap<>();
+        private Map<String, Double> tempoRisk = new HashMap<>();
+        private Map<String, Double> passingRisk = new HashMap<>();
+        private Map<String, Double> possessionControl = new HashMap<>();
+        private Map<String, Double> timeWastingControl = new HashMap<>();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean v) { this.enabled = v; }
@@ -1360,6 +1367,33 @@ public class MatchEngineConfig {
         public void setExtraTimeOpennessScale(double v) { this.extraTimeOpennessScale = v; }
         public Map<String, Double> getAttackShare() { return attackShare; }
         public void setAttackShare(Map<String, Double> v) { this.attackShare = v; }
+        public Map<String, Double> getMentalityBias() { return mentalityBias; }
+        public void setMentalityBias(Map<String, Double> v) { this.mentalityBias = v; }
+        public Map<String, Double> getPossessionBias() { return possessionBias; }
+        public void setPossessionBias(Map<String, Double> v) { this.possessionBias = v; }
+        public Map<String, Double> getTempoRisk() { return tempoRisk; }
+        public void setTempoRisk(Map<String, Double> v) { this.tempoRisk = v; }
+        public Map<String, Double> getPassingRisk() { return passingRisk; }
+        public void setPassingRisk(Map<String, Double> v) { this.passingRisk = v; }
+        public Map<String, Double> getPossessionControl() { return possessionControl; }
+        public void setPossessionControl(Map<String, Double> v) { this.possessionControl = v; }
+        public Map<String, Double> getTimeWastingControl() { return timeWastingControl; }
+        public void setTimeWastingControl(Map<String, Double> v) { this.timeWastingControl = v; }
+
+        // Resolver accessors: override → shipped default → 0.0 (unknown key), matching prior getOrDefault semantics.
+        public double mentalityBias(String k) { return resolve(mentalityBias, DEFAULT_MENTALITY_BIAS, k); }
+        public double possessionBias(String k) { return resolve(possessionBias, DEFAULT_POSSESSION_BIAS, k); }
+        public double tempoRisk(String k) { return resolve(tempoRisk, DEFAULT_TEMPO_RISK, k); }
+        public double passingRisk(String k) { return resolve(passingRisk, DEFAULT_PASSING_RISK, k); }
+        public double possessionControl(String k) { return resolve(possessionControl, DEFAULT_POSSESSION_CONTROL, k); }
+        public double timeWastingControl(String k) { return resolve(timeWastingControl, DEFAULT_TIME_WASTING_CONTROL, k); }
+
+        private static double resolve(Map<String, Double> override, Map<String, Double> shipped, String key) {
+            Double o = override.get(key);
+            if (o != null) return o;
+            Double d = shipped.get(key);
+            return d == null ? 0.0 : d;
+        }
 
         /** Attack share for a used base position: override → shipped default → 0.5. */
         public double attackShareFor(String position) {
@@ -1381,5 +1415,19 @@ public class MatchEngineConfig {
             DEFAULT_ATTACK_SHARE.put("DC", 0.12);
             DEFAULT_ATTACK_SHARE.put("GK", 0.00);
         }
+
+        /** Shipped categorical setting → numeric axis contributions (tunable; override via config maps). */
+        private static final Map<String, Double> DEFAULT_MENTALITY_BIAS = Map.of(
+                "Very Defensive", -1.0, "Defensive", -0.5, "Balanced", 0.0, "Attacking", 0.5, "Very Attacking", 1.0);
+        private static final Map<String, Double> DEFAULT_POSSESSION_BIAS = Map.of(
+                "Standard", 0.0, "Keep Ball", -0.10, "Free Ball Early", 0.15);
+        private static final Map<String, Double> DEFAULT_TEMPO_RISK = Map.of(
+                "Much Lower", -1.0, "Lower", -0.5, "Standard", 0.0, "Higher", 0.5, "Much Higher", 1.0);
+        private static final Map<String, Double> DEFAULT_PASSING_RISK = Map.of(
+                "Short", -0.15, "Normal", 0.0, "Long", 0.20, "Direct", 0.20);
+        private static final Map<String, Double> DEFAULT_POSSESSION_CONTROL = Map.of(
+                "Standard", 0.0, "Keep Ball", 0.6, "Free Ball Early", -0.1);
+        private static final Map<String, Double> DEFAULT_TIME_WASTING_CONTROL = Map.of(
+                "Never", -0.1, "Sometimes", 0.0, "Frequently", 0.4, "Always", 0.6);
     }
 }

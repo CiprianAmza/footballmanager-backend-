@@ -12,10 +12,13 @@ import com.footballmanagergamesimulator.repository.TransferRepository;
 import com.footballmanagergamesimulator.service.MatchSimulationService;
 import com.footballmanagergamesimulator.service.SeasonTransitionService;
 import com.footballmanagergamesimulator.service.TacticService;
+import com.footballmanagergamesimulator.service.TransferMarketService;
 import com.footballmanagergamesimulator.service.TransferValueCalculator;
+import com.footballmanagergamesimulator.testutil.MarkdownTable;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
+import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,7 +33,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +83,7 @@ class TransferEconomyFuzzIT {
     @Autowired private CompositeTransferStrategy strategy;
     @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private TacticService tacticService;
+    @Autowired private TransferMarketService transferMarketService;
 
     private static final long BASE_SEED = 20260528L;
     private static final int SEASONS = 2;          // a short campaign — bump for deeper drift
@@ -133,14 +136,18 @@ class TransferEconomyFuzzIT {
 
             simulateLeague(leagueCompId, currentSeason);
 
-            // Snapshot intent (RNG-independent: "wants to sell/buy?") for cause analysis.
-            Map<Long, int[]> intent = snapshotIntent(strategyByTeam);
+            // Classify no-transfer causes BEFORE the pipeline mutates squads/budgets,
+            // replaying the real eligibility gates (canBeTransfered + budget) against
+            // the same data the pipeline is about to act on.
+            List<String> causeReportThisSeason = season == 0
+                    ? classifyNoTransferCauses(strategyByTeam)
+                    : null;
 
             strategy.setRandomForTesting(new Random(BASE_SEED + season));
             seasonTransitionService.processEndOfSeason(currentSeason);
 
             if (season == 0) {
-                causeReport = classifyNoTransferCauses(strategyByTeam, intent, currentSeason);
+                causeReport = causeReportThisSeason;
             }
 
             seasonTransitionService.processNewSeasonSetup(currentSeason);
@@ -244,50 +251,79 @@ class TransferEconomyFuzzIT {
         }
     }
 
-    /** Per team: {wantsToSell (eligible>0), wantsToBuy (buy options>0)} — RNG-independent. */
-    private Map<Long, int[]> snapshotIntent(Map<Long, Long> strategyByTeam) {
+    /**
+     * Pre-pipeline diagnostic: for every AI team, replay the exact gate order the
+     * {@code EndOfSeasonProcessor} buy/sell loop uses — strategy intent →
+     * {@link TransferMarketService#canBeTransfered} (age/reputation/position/rating)
+     * → budget ({@code fee > transferBudget}) — and classify why a team would make
+     * NO transfer. A team is NOT flagged if it has a live opportunity on either side
+     * (its sellers are buyable by someone, or it can buy someone).
+     *
+     * <p>Must be called BEFORE {@code processEndOfSeason} so the squads/budgets it
+     * inspects are the same ones the pipeline is about to act on.
+     */
+    private List<String> classifyNoTransferCauses(Map<Long, Long> strategyByTeam) {
         HashMap<String, Integer> minPos = tacticService.getMinimumPositionNeeded();
         HashMap<String, Integer> maxPos = tacticService.getMaximumPositionAllowed();
-        Map<Long, int[]> intent = new HashMap<>();
+
+        // 1. Build the AI sell market (position -> sellers) and per-team sell lists.
+        Map<String, List<PlayerTransferView>> market = new HashMap<>();
+        Map<Long, List<PlayerTransferView>> sellByTeam = new HashMap<>();
         for (Long teamId : strategyByTeam.keySet()) {
             Team t = teamRepository.findById(teamId).orElseThrow();
             List<PlayerTransferView> sold = strategy.playersToSell(t, humanRepository, minPos);
-            BuyPlanTransferView plan = strategy.playersToBuy(t, humanRepository, maxPos);
-            int wantsSell = sold.isEmpty() ? 0 : 1;
-            int wantsBuy = (plan == null || plan.getPositions().isEmpty()) ? 0 : 1;
-            intent.put(teamId, new int[]{wantsSell, wantsBuy});
-        }
-        return intent;
-    }
-
-    private List<String> classifyNoTransferCauses(Map<Long, Long> strategyByTeam,
-                                                  Map<Long, int[]> intent, long season) {
-        Set<Long> traded = new HashSet<>();
-        for (com.footballmanagergamesimulator.model.Transfer tr : transferRepository.findAllBySeasonNumber(season)) {
-            traded.add(tr.getBuyTeamId());
-            traded.add(tr.getSellTeamId());
+            sellByTeam.put(teamId, sold);
+            for (PlayerTransferView v : sold)
+                market.computeIfAbsent(v.getPosition(), k -> new ArrayList<>()).add(v);
         }
 
+        // 2. Classify each team.
         Map<String, Integer> causeTally = new LinkedHashMap<>();
-        List<String> lines = new ArrayList<>();
         for (Map.Entry<Long, Long> e : strategyByTeam.entrySet()) {
             long teamId = e.getKey();
-            if (traded.contains(teamId)) continue;
-
             long strat = e.getValue();
-            int[] in = intent.getOrDefault(teamId, new int[]{0, 0});
+            Team t = teamRepository.findById(teamId).orElseThrow();
+            List<PlayerTransferView> sold = sellByTeam.getOrDefault(teamId, List.of());
+            BuyPlanTransferView plan = strategy.playersToBuy(t, humanRepository, maxPos);
+
+            boolean canSell = !sold.isEmpty();
+            boolean wantsBuy = plan != null && !plan.getPositions().isEmpty();
+
+            boolean buyMatch = false;
+            boolean eligibleButBroke = false;
+            if (wantsBuy) {
+                for (TransferPlayer want : plan.getPositions()) {
+                    List<PlayerTransferView> avail = market.get(want.getPosition());
+                    if (avail == null) continue;
+                    for (PlayerTransferView cand : avail) {
+                        if (cand.getTeamId() == teamId) continue;
+                        if (!transferMarketService.canBeTransfered(cand, plan, want)) continue;
+                        long fee = TransferValueCalculator.calculate(
+                                cand.getAge(), cand.getPosition(), cand.getRating());
+                        if (fee > t.getTransferBudget()) { eligibleButBroke = true; continue; }
+                        buyMatch = true;
+                        break;
+                    }
+                    if (buyMatch) break;
+                }
+            }
+
+            if (buyMatch || canSell) continue; // has a live opportunity → not flagged
+
             String cause;
             if (!STRATEGY_NAME.containsKey(strat)) cause = "UNMAPPED_STRATEGY";
-            else if (in[0] == 0 && in[1] == 0) cause = "NOTHING_TO_TRADE";
-            else if (in[0] == 0) cause = "CANNOT_SELL (min-position block / no surplus)";
-            else if (in[1] == 0) cause = "NO_BUY_TARGETS (positions full / Academy never buys)";
-            else cause = "NO_MARKET_MATCH (budget / eligibility / no counterpart)";
-            causeTally.merge(cause.replaceAll(" .*", ""), 1, Integer::sum);
+            else if (!wantsBuy && !canSell) cause = "NOTHING_TO_TRADE";
+            else if (!wantsBuy) cause = "NO_BUY_TARGETS";
+            else if (eligibleButBroke) cause = "NO_MARKET_MATCH:INSUFFICIENT_BUDGET";
+            else cause = "NO_MARKET_MATCH:NO_ELIGIBLE_SELLER";
+            causeTally.merge(cause, 1, Integer::sum);
         }
-        lines.add("| Cause | Teams |");
-        lines.add("|---|---|");
-        causeTally.forEach((c, n) -> lines.add("| " + c + " | " + n + " |"));
-        return lines;
+
+        MarkdownTable table = new MarkdownTable(
+                List.of("Cause", "Teams"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
+        causeTally.forEach((c, n) -> table.addRow(c, String.valueOf(n)));
+        return List.of(table.render().split("\n", -1));
     }
 
     private long firstElevenValue(long teamId) {
