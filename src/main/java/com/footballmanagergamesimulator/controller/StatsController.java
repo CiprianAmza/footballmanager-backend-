@@ -8,6 +8,8 @@ import com.footballmanagergamesimulator.model.TeamDataHubStats;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.frontend.PlayerAnalyticsView;
+import com.footballmanagergamesimulator.service.PlayerAnalyticsService;
 import com.footballmanagergamesimulator.service.StatsAggregationService;
 import com.footballmanagergamesimulator.service.StatsService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +40,7 @@ public class StatsController {
     @Autowired HumanRepository humanRepository;
     @Autowired ScorerLeaderboardRepository scorerLeaderboardRepository;
     @Autowired StatsAggregationService statsAggregationService;
+    @Autowired PlayerAnalyticsService playerAnalyticsService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -176,5 +179,18 @@ public class StatsController {
     @GetMapping("/player/{playerId}/competitionBreakdown")
     public Map<String, Object> getPlayerCompetitionBreakdown(@PathVariable long playerId) {
         return statsAggregationService.getPlayerCompetitionBreakdown(playerId);
+    }
+
+    /**
+     * GET /stats/player/{playerId}/{competitionId}/{seasonNumber}/analytics
+     * Synthetic StatsBomb-style analytics (Faza 1): per-90 "expected" metrics
+     * synthesized from attributes, percentile-ranked vs same-position-group peers
+     * in the (competition, season), plus an attribute-modulated pitch heatmap.
+     */
+    @GetMapping("/player/{playerId}/{competitionId}/{seasonNumber}/analytics")
+    public PlayerAnalyticsView getPlayerAnalytics(@PathVariable long playerId,
+                                                  @PathVariable long competitionId,
+                                                  @PathVariable int seasonNumber) {
+        return playerAnalyticsService.getPlayerAnalytics(playerId, competitionId, seasonNumber);
     }
 }

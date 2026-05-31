@@ -421,3 +421,130 @@ Tot pe `master` (comituri „New Match Engine"); ultimul batch (TacticSim) **sta
 - **Backend behavior**: `/loans/recall` întoarce mereu 400 „Cannot recall during season" — de decis.
 - **FE**: testare live a paginilor noi (admin hub, `/tactics`, `/simulate`) + a meciului live unificat; smoke two-leg interactiv LoC nevalidat.
 - **Convenție**: userul face commit-urile (handoff-ul + staged-ul rămân de comis de el).
+
+---
+
+## 17. Adâncimea tacticii (Strat 1/2/3) + variante UI + patron — sesiune 2026-05-31 (NECOMIS)
+
+Tot necomis pe disc; **userul face commit-urile** (backend + FE în repo-uri separate). Gate:
+**`mvn verify` 165/0/0** + **`ng build` verde**. A rezolvat cele două degenerări din §16.5
+(„control gratis" + formații identice) și a adăugat contre tactice reale + viață de patron (planuri).
+
+### 17.1 Engine — adâncimea tacticii (backend)
+| Temă | Ce | Fișiere |
+|---|---|---|
+| **Strat 1** | `controlAttackCost=0.15`: control devine trade-off (+apărare, −atac propriu, −openness) → sparge optimul degenerat „Keep Ball + Always". | `MatchEngineConfig.TacticalModel`, `TacticalScoreService.matchup()` |
+| **Strat 2 — contre dependente de adversar** | 3 axe noi pe `PersonalizedTactic`: **defensiveLine** (Deep/Standard/High — linie înaltă pedepsită de joc direct + suport teritoriu), **pressing** (Low/Standard/High — scade atacul advers + cost stamina + amplifică vulnerabilitatea liniei), **width** (Narrow/Balanced/Wide — piatră-foarfece-hârtie width-vs-width). Toți termenii **no-op la neutru** (determinism intact). | `PersonalizedTactic`, `TacticalScoreService.vector()/matchup()`, `MatchEngineConfig.TacticalModel` (knob-uri `lineHeight*`/`press*`/`widthStrength` + hărți `lineHeightAxis`/`pressAxis`/`widthAxis`/`passingDirectness`), `TacticController`+`PersonalizedTacticView` (save/load) |
+| **Euristică AI pt. noile axe** | `chooseTactic` alege line+press prin căutare **coordonată** (9 combinații × `panelExpectedPoints`, rang după skill — fără grid 24k); width = **identitate de lot** (`widthIdentity(wideShare)`, praguri `aiWidthWideThreshold=0.38`/`aiWidthNarrowThreshold=0.28`). | `ManagerTacticService`, `MatchRoundSimulator` (wideShareCache) |
+| **ratioExponent 2.0→1.5** | Producția two-axis (`TacticalModel.ratioExponent`) — favoritul nu mai câștigă determinist. Validat `ChampionshipPredictionFuzzIT` (3 sezoane): poziție medie 3.33, titlu 33% (era 1.00 / 100%). n mic — de re-rulat 15-20 sezoane dacă vrei calibrare 1.5 vs ~1.7. | `MatchEngineConfig.TacticalModel` |
+| **Strat 3 v1 — formații distincte** | `FORMATIONS` rescrise cu poziții fine (DM/AMC/AML/AMR/WBL/WBR) → **4231≠4141≠451**, **532≠5212**. `attackShare` fine (DM 0.30, AMC 0.72, AM* 0.85, WB* 0.55), familiaritate natural→fine (mare, ca formațiile fine să nu fie penalizate), `getValueForTacticDisplay` include fine, `weight()` fallback prin base position, `getBasePosition` +DM/WBL/WBR. | `TacticService`, `MatchEngineConfig` (PlayerValue + TacticalModel) |
+| **Strat 3 v2 — poziții fine NATURALE + generare** | Squad gen produce 1 DM + 1 AMC + 1 AML + 1 AMR + 1 WBL + 1 WBR (template 22 nou); youth la fel; generarea (skill/rating/physical/tricou) **normalizează prin `getBasePosition`** (AML→ML winger, WBL→DL etc.) ca specialiștii să fie generați corect; familiaritate naturală pt. toate pozițiile fine. | `SquadGenerationService`, `YouthAcademyService`, `CompetitionService`, `PlayerSkillsService`, `HumanService`, `MatchEngineConfig` |
+| **FIX regresie transfer** (cauzată de v2) | Strategiile de transfer + `EndOfSeasonProcessor` dădeau **NPE la final de sezon** (`Map.get(pozițieFină)` pe hărți cu 8 chei base) → cascadă pe obiective/fixtures. Fix: normalizare la base în cele 5 strategii (chei + view) + testele. | `transfermarket/*TransferStrategy`, `TransferStrategyIT` |
+| **Amicale → two-axis** | `FriendlyMatchService` rula scalar divergent → rutat prin `MatchRoundSimulator.scoreStandaloneMatch` (two-axis, flag-aware). Gata cu copia scalară. | `FriendlyMatchService`, `MatchRoundSimulator` |
+| **Advisor/sim sugerează noile axe** | Recomandarea + ranking + simularea includ defensiveLine/pressing/width (coordonată line/press + width-identity, fără grid 27×). | `BestTacticService`, `TacticSimController`, `TacticSimulationService`, `ManagerTacticService.applyNewAxes` |
+
+**Teste noi**: `TacticalScoreServiceTest` (cost-control + cele 3 contre + neutru=no-op), `ManagerTacticServiceTest` (euristică AI). `TacticServiceTest` rescris (ordonare relativă, nu indici absoluți). `SquadGenerationServiceTest` actualizat la noul template.
+
+### 17.2 Frontend (repo separat, NECOMIS)
+- **Bug legacy reparat** (`tactic.component`): tokenii aliniați la backend (mentality `Normal→Balanced`, tempo `Very Slow…→Much Lower…`, timeWasting `Yes/No→Never/…`, inPossession +`Standard`) — înainte se rezolvau la 0 (neutru) și setările nu făceau nimic.
+- **Toate cele 15 formații** disponibile pe toate paginile (din `GET /tactic/formationLayout/{key}` + `getAllPossibleTactics`); cheia backend salvată, eticheta drăguță afișată. Enabler backend: `getFormationGridIndices` are toate 15 cheile (11 celule fiecare) + `getPositionFromIndex` mapează fine pe grid; endpoint `GET /tactic/formationLayout/{tactic}`.
+- **Dropdown-uri noi** (Defensive Line / Pressing / Width) pe toate paginile.
+- **Vizualizări pe teren**: linie defensivă (se mută cu Deep/Standard/High; repoziționată la nivelul liniei de fundași ~68% — Standard la back four, High sus, Deep spre poartă) + **Width mută cercurile** (translateX per coloană, Wide +10/Narrow −14) + **Def Line mută blocul defensiv** (translateY ponderat pe rând: fundași+DM mult, atac ~0, GK puțin).
+- **5 variante UI** noi (`/tactics1`…`/tactics5`): modernist (glassmorphism), clasic CM/FM, mobil-tabbed, **analytics dashboard** (gauge-uri + def-line + width-band vizualizate), wizard „blueprint" luminos. Toate reutilizează logica TS + rezolvă bug-ul de scroll (`.list-panel` height mărginit + `overflow-y:auto`). Cablate în `app.module` + `app-routing`.
+
+### 17.3 Documente de design / planuri scrise (de aprobat, NEîncepute)
+- `TACTICAL_DEPTH_DESIGN.md` — designul Strat 1/2/3 (implementat).
+- `TACTICAL_INSTRUCTIONS_PLAN.md` — instrucțiuni per-jucător (popup „+" + etichete sub jucător) + instrucțiuni noi de echipă (dribling/fault/fragmentare/cross/counter) + sub-pagină executanți; cum contează în valoarea tacticii. Mult există deja (`PlayerInstructionService`/`PlayerRoleService`/`InstructionWeights`); tactics1-5 doar trebuie să re-adauge datele per-celulă.
+- `PLAYER_ANALYTICS_PLAN.md` — analize StatsBomb-style per (jucător, competiție, sezon). Insight: engine-ul e Poisson/two-axis (nu simulează poziții) → metricile se **sintetizează din atribute + tactică** (Faza 1), heatmap SVG sintetic.
+- `BOARDROOM_OWNER_LIFE_PLAN.md` — viața extra-sportivă + **sistem de patroni**: avere/active/acțiuni, cumpărare/vânzare cluburi+acțiuni (+vânzare de necesitate), piața antrenorilor (ofertă + clauză reziliere), invest/withdraw, și ⭐ **matricea de permisiuni** (patronul human decide granular ce poate antrenorul — inclusiv blocarea sloturilor din XI; ask-assistant doar pe libere; respectat și de AI), + dinamica presă **aroganță/umilință**. 6 faze. Infrastructură bogată existentă (`Human.wealth`, finanțe, `PressConference`, `JobOfferService`, XI în `first11`).
+
+### 17.4 RĂMAS / de decis
+- **ratioExponent**: 1.5 vs ~1.7 — re-rulează 15-20 sezoane.
+- **Strat 3**: roluri/instrucțiuni pentru pozițiile fine cad pe base/gol (cosmetic).
+- **FE smoke vizual** (nu pot rula UI): cele 15 formații pe teren, def-line/width pe fiecare pagină, alege varianta preferată (tactics1-5) → retragem restul.
+- **Implementarea celor 3 planuri** (instrucțiuni / analytics / boardroom) — neîncepută; userul alege ordinea.
+- **Commit-urile** + sincronizarea acestui handoff după commit — convenția userului.
+
+---
+
+## 18. Reglaje teren, instrucțiuni jucător/echipă, executanți, §D, Analytics + Boardroom — sesiune 2026-05-31 (post-commit §17, NECOMIS)
+
+§17 a fost comis de user. Tot ce urmează e NECOMIS (backend + FE separat). Gate curent:
+**`mvn verify` 181/0/0** + **`ng build` verde**. **Pagini canonice de tactică alese de user: `tactics1`
+(modernist) + `tactics4` (analytics dashboard)** — feature-urile noi per-pagină merg DOAR pe ele;
+restul (tactics, tactics2, tactics3, tactics5) rămân ca în §17.
+
+### 18.1 Reglaje vizuale teren (toate paginile cu linie)
+- **Width mută cercurile** pe orizontală (`cellWidthShift`, translateX per coloană; Wide **+10** /
+  Narrow **−24** după feedback „prea în afară"), nu doar o bandă.
+- **Def Line mută blocul defensiv** pe verticală (`cellDefLineShift`, translateY ponderat pe rând:
+  fundași+DM mult, atac ~0, GK puțin) ȘI linia galbenă repoziționată la nivelul fundașilor
+  (Standard ~68% din înălțime / High ~56% / Deep ~76%; tactics4 pe `bottom`: 32/44/24). Doar
+  `translate` → cercurile rămân rotunde.
+
+### 18.2 Instrucțiuni de echipă Faza 2 (backend) + UI pe tactics1/tactics4
+- **Backend**: 6 setări noi pe `PersonalizedTactic` (`dribbling`, `foulFrequency`, `foulHardness`,
+  `tempoFragmentation`, `widePlay`, `transition`). Se **adună în axele existente** (`risk`/`control`/
+  `width`) în `TacticalScoreService.vector()`; `matchup()`/`score()` **neatinse** → neutru = no-op
+  exact, determinism păstrat. 8 hărți config în `TacticalModel` + propagare save/load. (Fix: default
+  `widePlay=Shoot` adăuga 0.25 risk → `Shoot→0`.)
+- **FE (tactics1 + tactics4)**: 6 controale + trimise în save.
+
+### 18.3 Instrucțiuni + roluri PER-JUCĂTOR pe tactics1/tactics4 (FE; backend exista)
+- Popup din **„+"** pe fiecare jucător: tab Roluri (din `/tactic/roles` + `/allRoleSuitabilities`, cu %
+  suitabilitate) + tab Instrucțiuni (din `/tactic/instructions`, toggle).
+- **Etichete scurte sub jucător**: duty + instrucțiuni abreviate (ex. „Support · Shoot+ · Pass+").
+- Per-jucător (rol/duty/instrucțiuni) salvat în `formationDataList` + restaurat la load.
+
+### 18.4 Executanți lovituri (sub-pagină pe tactics1/tactics4; backend exista)
+- Panou SET PIECES: 4 dropdown-uri (Penalty / Free Kick / Corner L / Corner R) din lot + buton
+  Auto-Suggest (`/tactic/suggestSetPieceTakers/{teamId}`) + salvare/restaurare a celor 4 id-uri.
+
+### 18.5 §D — rol/instrucțiuni contează în engine-ul two-axis de PRODUCȚIE
+- `MatchRoundSimulator.starterValues`: valoarea fiecărui titular ×= **factor de rol**
+  (`PlayerRoleService.computeEffectiveRating`, ca în `LineupRatingService`) × **multiplicator
+  instrucțiuni** (`PlayerInstructionService`, ±8%), citite din `first11` JSON al tacticii salvate
+  (per playerId). AI/uman fără roluri → factor 1 → fără regresie. Helper-e noi `roleInstructionFactor`
+  + `savedRoleData` (parse `first11`).
+
+### 18.6 Analytics jucător — Faza 1 + Faza 2
+- **Faza 1** (sintetic): `service/PlayerAnalyticsService` + `MatchEngineConfig.Analytics` (ponderi
+  atribut→metrică, grupe poziție, prag aparișii, template heatmap) + DTO `PlayerAnalyticsView` +
+  endpoint `GET /stats/player/{playerId}/{competitionId}/{seasonNumber}/analytics`. FE: componentă
+  `player-analytics` (badge rating, bare percentile, heatmap SVG hand-rolled) + tab „Analytics" pe
+  pagina player. Percentile vs peers din aceeași grupă de poziție în comp+sezon.
+- **Faza 2** (acumulare per meci): entitate `model/PlayerSeasonStat` (player+comp+sezon: aparișii,
+  minute + tally-uri sintetice). `service/AnalyticsFormula` = sursă unică pt. formulele atribut→metrică
+  (Faza 1 + 2 identice). `service/PlayerMatchStatService.recordRealMatchForTeam` apelat pe **cele 2 căi
+  REALE** de meci (`MatchRoundSimulator.getScorersForTeamSimplified` AI + `LineupRatingService.
+  getScorersForTeam` uman/live), DUPĂ persistarea scorerilor, batched, modulat de tactică (pressing/
+  defensive line). **Read-only față de scor → determinism intact**; uneltele advisor/sim/fuzz NU trec
+  pe-acolo. `PlayerAnalyticsService` preferă acumulatul (aparișii ≥ prag) → per-90 din sume/minute +
+  percentile pe acumulat; altfel Faza 1. DTO are flag `accumulated` (FE poate arăta „real" vs
+  „proiectat" — ajustare FE opțională, neimplementată).
+
+### 18.7 Boardroom (viața extra-sportivă / patroni) — Faza 1-2
+- **Backend**: entități `Asset` / `ClubShareholding` / `Ownership` + repos + `OwnershipService` /
+  `AssetService` / `ShareMarketService` + `BoardroomController` (avere, active buy/sell, acțiuni
+  buy/sell, invest/withdraw owner-guarded) + `MatchEngineConfig.Boardroom` (prag patronat % >50%,
+  model preț acțiuni noțional, prețuri default case/mașini) + IT.
+- **FE**: secțiune `/boardroom` (hub, wealth cu filtru humani, assets, ownership).
+- Decizii agenți: patronat **derivat** din % acțiuni > prag; acțiuni pe piață **noțională** (ating doar
+  `Human.wealth`); invest/withdraw prin `FinanceService` (`OWNER_INJECTION`); dividende amânate.
+- Fix igienă: 2 coloane H2 cuvinte-rezervate (`Asset.value`→`asset_value`, `ClubShareholding.percent`
+  →`percent_stake`).
+
+### 18.8 Planuri scrise (de implementat; 3 docuri în rădăcină)
+`TACTICAL_INSTRUCTIONS_PLAN.md` (Faza 1+2 instrucțiuni — LIVRATE pe tactics1/4), `PLAYER_ANALYTICS_PLAN.md`
+(Faza 1+2 — LIVRATE), `BOARDROOM_OWNER_LIFE_PLAN.md` (Faza 1-2 LIVRATE; **rămase Faza 3-6**: piața
+antrenorilor + clauză reziliere → matricea de **permisiuni** antrenor → **XI-locking** cu lock-icons pe
+tactics1/4 → presă **aroganță/umilință**).
+
+### 18.9 RĂMAS / de decis
+- **Boardroom Faza 3-6** (recomandat next: leagă patronul de permisiuni + XI-locking pe paginile canonice).
+- **FE**: flag `accumulated` în pagina de analytics; smoke vizual pe tactics1/tactics4 (instrucțiuni,
+  popup „+", executanți, def-line/width); decizie finală pe variante (păstrăm tactics1+tactics4).
+- **ratioExponent** 1.5↔1.7 (necesită tweak la `ChampionshipPredictionFuzzIT` ca să accepte nr. sezoane).
+- **Wiring FE** (app.module + app-routing) pentru noile componente îl face autorul-orchestrator (eu) la
+  final de val — agenții nu ating modulele.
+- **Commit-urile** + re-sincronizarea acestui handoff după commit — convenția userului.

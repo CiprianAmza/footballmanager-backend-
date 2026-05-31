@@ -3,6 +3,9 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.PlayerView;
+import com.footballmanagergamesimulator.frontend.FormationData;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
@@ -89,9 +92,12 @@ public class MatchRoundSimulator {
     @Autowired private TacticController tacticController;
     @Autowired private TacticService tacticService;
     @Autowired private PlayerValueService playerValueService;
+    @Autowired private PlayerRoleService playerRoleService;
+    @Autowired private PlayerInstructionService playerInstructionService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private TacticalScoreService tacticalScoreService;
     @Autowired private ManagerTacticService managerTacticService;
+    @Autowired private PlayerMatchStatService playerMatchStatService;
     @Autowired private UserContext userContext;
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
@@ -978,6 +984,8 @@ public class MatchRoundSimulator {
         List<Long> ids = starters.stream().map(s -> s.player().getId()).toList();
         Map<Long, PlayerSkills> skillsById = new HashMap<>();
         for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skillsById.put(s.getPlayerId(), s);
+        // §D: per-player role + instructions from the saved tactic count in the two-axis value too.
+        Map<Long, FormationData> savedById = savedRoleData(teamId);
 
         List<TacticalScoreService.StarterValue> values = new ArrayList<>();
         for (TacticController.StarterSlot slot : starters) {
@@ -987,10 +995,48 @@ public class MatchRoundSimulator {
             double v = sk != null
                     ? playerValueService.evaluatePlayer(sk, natural, used, pv.getMorale(), pv.getFitness())
                     : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
+            v *= roleInstructionFactor(savedById.get(pv.getId()), sk, used);
             values.add(new TacticalScoreService.StarterValue(used, v));
         }
         return values;
     }
+
+    /** Combined role-suitability × instruction multiplier for a starter, from the team's saved tactic.
+     *  Mirrors {@code LineupRatingService}: role (when set) blends into the positional base via
+     *  {@code computeEffectiveRating}; instructions give a small ±multiplier. Returns 1.0 when no saved
+     *  role/instructions (so AI teams + unset humans are unchanged → determinism preserved). */
+    private double roleInstructionFactor(FormationData fd, PlayerSkills sk, String used) {
+        if (fd == null) return 1.0;
+        String usedBase = TacticService.getBasePosition(used);
+        double factor = 1.0;
+        if (sk != null && fd.getRole() != null && !fd.getRole().isEmpty()) {
+            double positional = playerValueService.computePositionalValue(sk, usedBase);
+            if (positional > 0) {
+                double effective = playerRoleService.computeEffectiveRating(sk, fd.getRole(), positional);
+                factor *= effective / positional;
+            }
+        }
+        factor *= playerInstructionService.computeInstructionMultiplier(fd.getInstructions(), usedBase, "general");
+        return factor;
+    }
+
+    /** playerId → saved FormationData (role/duty/instructions) parsed from the team's PersonalizedTactic
+     *  {@code first11} JSON. Empty when no saved tactic (AI teams). */
+    private Map<Long, FormationData> savedRoleData(long teamId) {
+        Map<Long, FormationData> map = new HashMap<>();
+        personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId).ifPresent(pt -> {
+            String json = pt.getFirst11();
+            if (json == null || json.isBlank()) return;
+            try {
+                for (FormationData fd : roleObjectMapper.readValue(json, new TypeReference<List<FormationData>>() {})) {
+                    if (fd.getPlayerId() > 0) map.put(fd.getPlayerId(), fd);
+                }
+            } catch (Exception ignored) { /* malformed JSON → no role data, value unchanged */ }
+        });
+        return map;
+    }
+
+    private final ObjectMapper roleObjectMapper = new ObjectMapper();
 
     /** The tactic vector a team plays: a human's chosen {@code PersonalizedTactic} when present,
      *  otherwise the AI manager's skill-ranked pick (cached per round). */
@@ -1346,6 +1392,12 @@ public class MatchRoundSimulator {
 
         scorerRepository.saveAll(possibleScorers);
         if (!leaderboardToSave.isEmpty()) scorerLeaderboardRepository.saveAll(leaderboardToSave);
+
+        // Analytics Faza 2 — accumulate synthetic per-player stats for this REAL match.
+        // Runs AFTER the scoreline + scorers are persisted; read-only w.r.t. scoring.
+        PersonalizedTactic tactic = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1).orElse(null);
+        playerMatchStatService.recordRealMatchForTeam(
+                teamId1, playerViews, tactic, competitionId, Integer.parseInt(currentSeason));
     }
 
     // ============================================================

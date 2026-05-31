@@ -24,6 +24,14 @@ public class PersonalizedTacticView {
     private String pressing;
     private String width;
 
+    // Faza 2 team-level instructions (null ⇒ neutral)
+    private String dribbling;
+    private String foulFrequency;
+    private String foulHardness;
+    private String tempoFragmentation;
+    private String widePlay;
+    private String transition;
+
     // Set piece takers
     private Long penaltyTakerId;
     private Long freeKickTakerId;

@@ -262,4 +262,80 @@ class TacticalScoreServiceTest {
         double attVsWide = service.matchup(a, wide, b, oppWide).effAtt1();
         assertThat(attVsNarrow).as("wide attack beats a narrow defense; cancels vs a wide one").isGreaterThan(attVsWide);
     }
+
+    // ==================== Faza 2: team-level instructions ====================
+
+    /** Build a tactic with the six Faza-2 instructions; everything else explicitly neutral. */
+    private PersonalizedTactic faza2(String dribbling, String foulFrequency, String foulHardness,
+                                     String fragmentation, String widePlay, String transition) {
+        PersonalizedTactic t = new PersonalizedTactic();
+        t.setMentality("Balanced"); t.setTempo("Standard");
+        t.setTimeWasting("Sometimes"); t.setInPossession("Standard"); t.setPassingType("Normal");
+        t.setDefensiveLine("Standard"); t.setPressing("Low"); t.setWidth("Balanced");
+        t.setDribbling(dribbling); t.setFoulFrequency(foulFrequency); t.setFoulHardness(foulHardness);
+        t.setTempoFragmentation(fragmentation); t.setWidePlay(widePlay); t.setTransition(transition);
+        return t;
+    }
+
+    private static final String D = "Standard", FF = "Normal", FH = "Medium", FR = "Normal",
+            WP = "Shoot", TR = "Balanced";
+
+    @Test
+    void faza2_allNeutral_yieldsSameVectorAsADefaultTactic() {
+        TacticVector neutral = service.vector(new PersonalizedTactic());
+        TacticVector explicitNeutral = service.vector(faza2(D, FF, FH, FR, WP, TR));
+        assertThat(explicitNeutral.risk()).isCloseTo(neutral.risk(), within(1e-9));
+        assertThat(explicitNeutral.control()).isCloseTo(neutral.control(), within(1e-9));
+        assertThat(explicitNeutral.width()).isCloseTo(neutral.width(), within(1e-9));
+        assertThat(neutral.risk()).isEqualTo(0.0);
+        assertThat(neutral.control()).isEqualTo(0.0);
+        assertThat(neutral.width()).isEqualTo(0.0);
+    }
+
+    @Test
+    void faza2_dribbling_movesRisk() {
+        double more = service.vector(faza2("More", FF, FH, FR, WP, TR)).risk();
+        double less = service.vector(faza2("Less", FF, FH, FR, WP, TR)).risk();
+        assertThat(more).as("more dribbling raises risk").isGreaterThan(less);
+    }
+
+    @Test
+    void faza2_foulFrequency_raisesControl() {
+        double often = service.vector(faza2(D, "Often", FH, FR, WP, TR)).control();
+        double rarely = service.vector(faza2(D, "Rarely", FH, FR, WP, TR)).control();
+        assertThat(often).as("fouling often (disruption proxy) raises control").isGreaterThan(rarely);
+    }
+
+    @Test
+    void faza2_foulHardness_raisesControl() {
+        double hard = service.vector(faza2(D, FF, "Hard", FR, WP, TR)).control();
+        double soft = service.vector(faza2(D, FF, "Soft", FR, WP, TR)).control();
+        assertThat(hard).as("hard fouling raises control").isGreaterThan(soft);
+    }
+
+    @Test
+    void faza2_fragmentation_raisesControl() {
+        double fragment = service.vector(faza2(D, FF, FH, "Fragment", WP, TR)).control();
+        double flowing = service.vector(faza2(D, FF, FH, "Flowing", WP, TR)).control();
+        assertThat(fragment).as("fragmenting the game raises control").isGreaterThan(flowing);
+    }
+
+    @Test
+    void faza2_widePlay_crossWidensCutInsideNarrows() {
+        double cross = service.vector(faza2(D, FF, FH, FR, "Cross", TR)).width();
+        double cutInside = service.vector(faza2(D, FF, FH, FR, "Cut Inside", TR)).width();
+        assertThat(cross).as("crossing widens the attack").isGreaterThan(cutInside);
+        // Cut-inside / shoot add a touch of risk, crossing adds none.
+        double cutInsideRisk = service.vector(faza2(D, FF, FH, FR, "Cut Inside", TR)).risk();
+        double crossRisk = service.vector(faza2(D, FF, FH, FR, "Cross", TR)).risk();
+        assertThat(cutInsideRisk).as("cut-inside adds shooting risk; crossing does not").isGreaterThan(crossRisk);
+    }
+
+    @Test
+    void faza2_transition_fastCounterRaisesRiskLowersControl() {
+        TacticVector fast = service.vector(faza2(D, FF, FH, FR, WP, "Fast Counter"));
+        TacticVector winFouls = service.vector(faza2(D, FF, FH, FR, WP, "Win Fouls"));
+        assertThat(fast.risk()).as("fast counter raises risk").isGreaterThan(winFouls.risk());
+        assertThat(fast.control()).as("fast counter lowers control vs win-fouls").isLessThan(winFouls.control());
+    }
 }

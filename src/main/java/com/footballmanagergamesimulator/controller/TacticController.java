@@ -80,6 +80,12 @@ public class TacticController {
         view.setDefensiveLine(savedTactic.getDefensiveLine());
         view.setPressing(savedTactic.getPressing());
         view.setWidth(savedTactic.getWidth());
+        view.setDribbling(savedTactic.getDribbling());
+        view.setFoulFrequency(savedTactic.getFoulFrequency());
+        view.setFoulHardness(savedTactic.getFoulHardness());
+        view.setTempoFragmentation(savedTactic.getTempoFragmentation());
+        view.setWidePlay(savedTactic.getWidePlay());
+        view.setTransition(savedTactic.getTransition());
         view.setPenaltyTakerId(savedTactic.getPenaltyTakerId());
         view.setFreeKickTakerId(savedTactic.getFreeKickTakerId());
         view.setCornerTakerLeftId(savedTactic.getCornerTakerLeftId());
@@ -136,6 +142,12 @@ public class TacticController {
         personalizedTactic.setDefensiveLine(personalizedTacticView.getDefensiveLine());
         personalizedTactic.setPressing(personalizedTacticView.getPressing());
         personalizedTactic.setWidth(personalizedTacticView.getWidth());
+        personalizedTactic.setDribbling(personalizedTacticView.getDribbling());
+        personalizedTactic.setFoulFrequency(personalizedTacticView.getFoulFrequency());
+        personalizedTactic.setFoulHardness(personalizedTacticView.getFoulHardness());
+        personalizedTactic.setTempoFragmentation(personalizedTacticView.getTempoFragmentation());
+        personalizedTactic.setWidePlay(personalizedTacticView.getWidePlay());
+        personalizedTactic.setTransition(personalizedTacticView.getTransition());
         personalizedTactic.setPenaltyTakerId(personalizedTacticView.getPenaltyTakerId());
         personalizedTactic.setFreeKickTakerId(personalizedTacticView.getFreeKickTakerId());
         personalizedTactic.setCornerTakerLeftId(personalizedTacticView.getCornerTakerLeftId());

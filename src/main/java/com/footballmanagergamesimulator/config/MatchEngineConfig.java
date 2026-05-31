@@ -55,6 +55,13 @@ public class MatchEngineConfig {
     private InstructionWeights instructionWeights = new InstructionWeights();
     private TeamTalk teamTalk = new TeamTalk();
     private TacticalModel tacticalModel = new TacticalModel();
+    private Boardroom boardroom = new Boardroom();
+    private Analytics analytics = new Analytics();
+
+    public Boardroom getBoardroom() { return boardroom; }
+    public void setBoardroom(Boardroom boardroom) { this.boardroom = boardroom; }
+    public Analytics getAnalytics() { return analytics; }
+    public void setAnalytics(Analytics analytics) { this.analytics = analytics; }
 
     public Power getPower() { return power; }
     public void setPower(Power power) { this.power = power; }
@@ -92,6 +99,46 @@ public class MatchEngineConfig {
     public void setTeamTalk(TeamTalk teamTalk) { this.teamTalk = teamTalk; }
     public TacticalModel getTacticalModel() { return tacticalModel; }
     public void setTacticalModel(TacticalModel tacticalModel) { this.tacticalModel = tacticalModel; }
+
+    // ==================== BOARDROOM / OWNER LIFE ====================
+    /**
+     * Tunables for the extra-sporting "Boardroom" life (Faza 1-2): the share
+     * ownership threshold, the notional share-price model, and default catalog
+     * prices for buyable personal assets.
+     */
+    public static class Boardroom {
+        /** A human owning more than this % of a club becomes its owner. */
+        private double ownershipThresholdPercent = 50.0;
+
+        /**
+         * Notional price of 1% of a club's shares, expressed as a fraction of the
+         * club's {@code totalFinances + reputation*repValue}. Buying/selling shares
+         * moves wealth at this rate; it never touches club finances (shares trade on
+         * a notional market, not the club balance).
+         */
+        private double sharePricePerPercentOfFinances = 0.01;
+        /** Adds club reputation (scaled) to the notional valuation so prestige costs. */
+        private long sharePriceReputationValue = 50_000L;
+        /** Floor price for 1% so even a broke/low-rep club's shares cost something. */
+        private long sharePriceFloorPerPercent = 100_000L;
+
+        /** Default catalog prices for buyable personal assets. */
+        private long houseDefaultPrice = 2_000_000L;
+        private long carDefaultPrice = 250_000L;
+
+        public double getOwnershipThresholdPercent() { return ownershipThresholdPercent; }
+        public void setOwnershipThresholdPercent(double v) { this.ownershipThresholdPercent = v; }
+        public double getSharePricePerPercentOfFinances() { return sharePricePerPercentOfFinances; }
+        public void setSharePricePerPercentOfFinances(double v) { this.sharePricePerPercentOfFinances = v; }
+        public long getSharePriceReputationValue() { return sharePriceReputationValue; }
+        public void setSharePriceReputationValue(long v) { this.sharePriceReputationValue = v; }
+        public long getSharePriceFloorPerPercent() { return sharePriceFloorPerPercent; }
+        public void setSharePriceFloorPerPercent(long v) { this.sharePriceFloorPerPercent = v; }
+        public long getHouseDefaultPrice() { return houseDefaultPrice; }
+        public void setHouseDefaultPrice(long v) { this.houseDefaultPrice = v; }
+        public long getCarDefaultPrice() { return carDefaultPrice; }
+        public void setCarDefaultPrice(long v) { this.carDefaultPrice = v; }
+    }
 
     // ==================== POWER / POISSON ====================
     public static class Power {
@@ -1405,6 +1452,15 @@ public class MatchEngineConfig {
         private Map<String, Double> pressAxis = new HashMap<>();
         private Map<String, Double> widthAxis = new HashMap<>();
         private Map<String, Double> passingDirectness = new HashMap<>();
+        // Faza 2 team-level instruction → axis contributions (see DEFAULT_* below).
+        private Map<String, Double> dribblingRisk = new HashMap<>();
+        private Map<String, Double> foulControl = new HashMap<>();
+        private Map<String, Double> foulHardnessControl = new HashMap<>();
+        private Map<String, Double> fragmentationControl = new HashMap<>();
+        private Map<String, Double> widePlayWidth = new HashMap<>();
+        private Map<String, Double> widePlayRisk = new HashMap<>();
+        private Map<String, Double> transitionRisk = new HashMap<>();
+        private Map<String, Double> transitionControl = new HashMap<>();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean v) { this.enabled = v; }
@@ -1470,6 +1526,22 @@ public class MatchEngineConfig {
         public void setWidthAxis(Map<String, Double> v) { this.widthAxis = v; }
         public Map<String, Double> getPassingDirectness() { return passingDirectness; }
         public void setPassingDirectness(Map<String, Double> v) { this.passingDirectness = v; }
+        public Map<String, Double> getDribblingRisk() { return dribblingRisk; }
+        public void setDribblingRisk(Map<String, Double> v) { this.dribblingRisk = v; }
+        public Map<String, Double> getFoulControl() { return foulControl; }
+        public void setFoulControl(Map<String, Double> v) { this.foulControl = v; }
+        public Map<String, Double> getFoulHardnessControl() { return foulHardnessControl; }
+        public void setFoulHardnessControl(Map<String, Double> v) { this.foulHardnessControl = v; }
+        public Map<String, Double> getFragmentationControl() { return fragmentationControl; }
+        public void setFragmentationControl(Map<String, Double> v) { this.fragmentationControl = v; }
+        public Map<String, Double> getWidePlayWidth() { return widePlayWidth; }
+        public void setWidePlayWidth(Map<String, Double> v) { this.widePlayWidth = v; }
+        public Map<String, Double> getWidePlayRisk() { return widePlayRisk; }
+        public void setWidePlayRisk(Map<String, Double> v) { this.widePlayRisk = v; }
+        public Map<String, Double> getTransitionRisk() { return transitionRisk; }
+        public void setTransitionRisk(Map<String, Double> v) { this.transitionRisk = v; }
+        public Map<String, Double> getTransitionControl() { return transitionControl; }
+        public void setTransitionControl(Map<String, Double> v) { this.transitionControl = v; }
 
         // Resolver accessors: override → shipped default → 0.0 (unknown key), matching prior getOrDefault semantics.
         public double mentalityBias(String k) { return resolve(mentalityBias, DEFAULT_MENTALITY_BIAS, k); }
@@ -1482,6 +1554,14 @@ public class MatchEngineConfig {
         public double pressAxis(String k) { return resolve(pressAxis, DEFAULT_PRESS_AXIS, k); }
         public double widthAxis(String k) { return resolve(widthAxis, DEFAULT_WIDTH_AXIS, k); }
         public double passingDirectness(String k) { return resolve(passingDirectness, DEFAULT_PASSING_DIRECTNESS, k); }
+        public double dribblingRisk(String k) { return resolve(dribblingRisk, DEFAULT_DRIBBLING_RISK, k); }
+        public double foulControl(String k) { return resolve(foulControl, DEFAULT_FOUL_CONTROL, k); }
+        public double foulHardnessControl(String k) { return resolve(foulHardnessControl, DEFAULT_FOUL_HARDNESS_CONTROL, k); }
+        public double fragmentationControl(String k) { return resolve(fragmentationControl, DEFAULT_FRAGMENTATION_CONTROL, k); }
+        public double widePlayWidth(String k) { return resolve(widePlayWidth, DEFAULT_WIDE_PLAY_WIDTH, k); }
+        public double widePlayRisk(String k) { return resolve(widePlayRisk, DEFAULT_WIDE_PLAY_RISK, k); }
+        public double transitionRisk(String k) { return resolve(transitionRisk, DEFAULT_TRANSITION_RISK, k); }
+        public double transitionControl(String k) { return resolve(transitionControl, DEFAULT_TRANSITION_CONTROL, k); }
 
         private static double resolve(Map<String, Double> override, Map<String, Double> shipped, String key) {
             Double o = override.get(key);
@@ -1539,5 +1619,230 @@ public class MatchEngineConfig {
                 "Narrow", -1.0, "Balanced", 0.0, "Wide", 1.0);
         private static final Map<String, Double> DEFAULT_PASSING_DIRECTNESS = Map.of(
                 "Short", 0.0, "Normal", 0.4, "Long", 1.0, "Direct", 1.0);
+        // Faza 2 team-level instructions (neutral key ⇒ 0 so a default tactic is a no-op).
+        private static final Map<String, Double> DEFAULT_DRIBBLING_RISK = Map.of(
+                "Less", -0.3, "Standard", 0.0, "More", 0.3);
+        private static final Map<String, Double> DEFAULT_FOUL_CONTROL = Map.of(
+                "Rarely", -0.05, "Normal", 0.0, "Often", 0.15);
+        private static final Map<String, Double> DEFAULT_FOUL_HARDNESS_CONTROL = Map.of(
+                "Soft", -0.05, "Medium", 0.0, "Hard", 0.15);
+        private static final Map<String, Double> DEFAULT_FRAGMENTATION_CONTROL = Map.of(
+                "Flowing", -0.25, "Normal", 0.0, "Fragment", 0.4);
+        private static final Map<String, Double> DEFAULT_WIDE_PLAY_WIDTH = Map.of(
+                "Cut Inside", -0.5, "Shoot", 0.0, "Cross", 0.6);
+        private static final Map<String, Double> DEFAULT_WIDE_PLAY_RISK = Map.of(
+                "Cut Inside", 0.15, "Shoot", 0.0, "Cross", 0.0);
+        private static final Map<String, Double> DEFAULT_TRANSITION_RISK = Map.of(
+                "Win Fouls", -0.2, "Balanced", 0.0, "Fast Counter", 0.4);
+        private static final Map<String, Double> DEFAULT_TRANSITION_CONTROL = Map.of(
+                "Win Fouls", 0.3, "Balanced", 0.0, "Fast Counter", -0.1);
+    }
+
+    /**
+     * Player Analytics (Faza 1) — synthetic StatsBomb-style metrics.
+     *
+     * <p>The match engine is Poisson/two-axis and records no positional/pressing
+     * event data, so per-90 "expected" metrics are <b>synthesized</b> from
+     * {@code PlayerSkills} attributes via the weight maps below, then turned into
+     * percentiles versus same-position-group peers. The heatmap is a per-position
+     * density template modulated by attributes. Everything is config-driven with
+     * shipped defaults — overridable via {@code match.engine.analytics.*}.
+     *
+     * <p>Weight-map convention: each metric maps attribute-name → weight. The
+     * synthesized per-90 value is {@code base * (weightedAttrAvg/20) ^ exponent}
+     * where {@code weightedAttrAvg} is the weight-normalized average of the
+     * referenced 1-20 attributes. So higher relevant attributes ⇒ higher metric
+     * (monotone), which the unit test asserts.
+     */
+    public static class Analytics {
+
+        /** A player needs >= this many appearances in a (competition, season) to be a percentile peer. */
+        private int minAppearances = 3;
+
+        /** Multiplier applied to the synthetic per-90 (so values land in a realistic StatsBomb-ish band). */
+        private Map<String, Double> metricBase = new HashMap<>();
+        /** Shaping exponent per metric (>1 spreads the top end, <1 compresses). */
+        private Map<String, Double> metricExponent = new HashMap<>();
+        /** metric -> (attribute name -> weight). Synthesized value driven by these attributes. */
+        private Map<String, Map<String, Double>> metricWeights = new HashMap<>();
+        /** Base position (GK/DC/DL.../MC/ST...) -> position-group key used for peer comparison + heatmap. */
+        private Map<String, String> positionGroups = new HashMap<>();
+        /** Pressing-tactic key -> multiplier applied to pressure-family metrics (ties Faza 1 to Strat-2 press axis). */
+        private Map<String, Double> pressMetricMultiplier = new HashMap<>();
+        /**
+         * Position-group -> heatmap template: a row-major grid of base densities (0..1)
+         * over a 6-wide x 5-tall pitch (attack to the right). Modulated per-player by
+         * Work Rate / Pace / Off The Ball at synthesis time.
+         */
+        private Map<String, double[][]> heatmapTemplates = new HashMap<>();
+
+        public int getMinAppearances() { return minAppearances; }
+        public void setMinAppearances(int v) { this.minAppearances = v; }
+        public Map<String, Double> getMetricBase() { return metricBase; }
+        public void setMetricBase(Map<String, Double> v) { this.metricBase = v; }
+        public Map<String, Double> getMetricExponent() { return metricExponent; }
+        public void setMetricExponent(Map<String, Double> v) { this.metricExponent = v; }
+        public Map<String, Map<String, Double>> getMetricWeights() { return metricWeights; }
+        public void setMetricWeights(Map<String, Map<String, Double>> v) { this.metricWeights = v; }
+        public Map<String, String> getPositionGroups() { return positionGroups; }
+        public void setPositionGroups(Map<String, String> v) { this.positionGroups = v; }
+        public Map<String, Double> getPressMetricMultiplier() { return pressMetricMultiplier; }
+        public void setPressMetricMultiplier(Map<String, Double> v) { this.pressMetricMultiplier = v; }
+        public Map<String, double[][]> getHeatmapTemplates() { return heatmapTemplates; }
+        public void setHeatmapTemplates(Map<String, double[][]> v) { this.heatmapTemplates = v; }
+
+        // ---- Resolver accessors: override map → shipped default ----
+
+        /** Ordered list of metric names to display (shipped order; matches the screenshots' set). */
+        public List<String> metricNames() {
+            return DEFAULT_METRIC_NAMES;
+        }
+
+        public double metricBase(String metric) {
+            Double o = metricBase.get(metric);
+            if (o != null) return o;
+            return DEFAULT_METRIC_BASE.getOrDefault(metric, 1.0);
+        }
+
+        public double metricExponent(String metric) {
+            Double o = metricExponent.get(metric);
+            if (o != null) return o;
+            return DEFAULT_METRIC_EXPONENT.getOrDefault(metric, 1.0);
+        }
+
+        public Map<String, Double> metricWeights(String metric) {
+            Map<String, Double> o = metricWeights.get(metric);
+            if (o != null && !o.isEmpty()) return o;
+            return DEFAULT_METRIC_WEIGHTS.getOrDefault(metric, Map.of());
+        }
+
+        /** Base position → group ("GK","DEF","FB","MID","WIDE","ATT"); default MID. */
+        public String positionGroup(String basePosition) {
+            String o = positionGroups.get(basePosition);
+            if (o != null) return o;
+            return DEFAULT_POSITION_GROUPS.getOrDefault(basePosition, "MID");
+        }
+
+        /** Pressing tactic multiplier (Low/Standard/High …) → 1.0 when unknown/neutral. */
+        public double pressMetricMultiplier(String key) {
+            Double o = pressMetricMultiplier.get(key);
+            if (o != null) return o;
+            return DEFAULT_PRESS_METRIC_MULTIPLIER.getOrDefault(key, 1.0);
+        }
+
+        public double[][] heatmapTemplate(String group) {
+            double[][] o = heatmapTemplates.get(group);
+            if (o != null) return o;
+            return DEFAULT_HEATMAP_TEMPLATES.getOrDefault(group, DEFAULT_HEATMAP_TEMPLATES.get("MID"));
+        }
+
+        // ---- Shipped defaults ----
+
+        private static final List<String> DEFAULT_METRIC_NAMES = List.of(
+                "Defensive Actions", "Def Action Regains", "Pressures", "Pressure Regains",
+                "Counterpressures", "Counterpressure Regains", "Pass %", "Expected Goals");
+
+        private static final Map<String, Double> DEFAULT_METRIC_BASE = new HashMap<>();
+        private static final Map<String, Double> DEFAULT_METRIC_EXPONENT = new HashMap<>();
+        private static final Map<String, Map<String, Double>> DEFAULT_METRIC_WEIGHTS = new HashMap<>();
+        static {
+            // base ≈ realistic per-90 ceiling for a maxed-out (all-20) player on that metric.
+            DEFAULT_METRIC_BASE.put("Defensive Actions", 14.0);
+            DEFAULT_METRIC_BASE.put("Def Action Regains", 8.0);
+            DEFAULT_METRIC_BASE.put("Pressures", 28.0);
+            DEFAULT_METRIC_BASE.put("Pressure Regains", 10.0);
+            DEFAULT_METRIC_BASE.put("Counterpressures", 16.0);
+            DEFAULT_METRIC_BASE.put("Counterpressure Regains", 6.0);
+            DEFAULT_METRIC_BASE.put("Pass %", 100.0);
+            DEFAULT_METRIC_BASE.put("Expected Goals", 0.9);
+
+            DEFAULT_METRIC_EXPONENT.put("Defensive Actions", 1.4);
+            DEFAULT_METRIC_EXPONENT.put("Def Action Regains", 1.4);
+            DEFAULT_METRIC_EXPONENT.put("Pressures", 1.2);
+            DEFAULT_METRIC_EXPONENT.put("Pressure Regains", 1.3);
+            DEFAULT_METRIC_EXPONENT.put("Counterpressures", 1.2);
+            DEFAULT_METRIC_EXPONENT.put("Counterpressure Regains", 1.3);
+            DEFAULT_METRIC_EXPONENT.put("Pass %", 0.55);   // compress: even average players complete most passes
+            DEFAULT_METRIC_EXPONENT.put("Expected Goals", 1.8);
+
+            DEFAULT_METRIC_WEIGHTS.put("Defensive Actions", Map.of(
+                    "Tackling", 0.30, "Anticipation", 0.20, "Positioning", 0.20, "Work Rate", 0.15, "Aggression", 0.15));
+            DEFAULT_METRIC_WEIGHTS.put("Def Action Regains", Map.of(
+                    "Tackling", 0.25, "Marking", 0.20, "Anticipation", 0.25, "Strength", 0.15, "Positioning", 0.15));
+            DEFAULT_METRIC_WEIGHTS.put("Pressures", Map.of(
+                    "Work Rate", 0.35, "Stamina", 0.25, "Aggression", 0.20, "Off The Ball", 0.20));
+            DEFAULT_METRIC_WEIGHTS.put("Pressure Regains", Map.of(
+                    "Work Rate", 0.25, "Aggression", 0.20, "Anticipation", 0.25, "Tackling", 0.30));
+            DEFAULT_METRIC_WEIGHTS.put("Counterpressures", Map.of(
+                    "Work Rate", 0.30, "Aggression", 0.25, "Stamina", 0.20, "Teamwork", 0.25));
+            DEFAULT_METRIC_WEIGHTS.put("Counterpressure Regains", Map.of(
+                    "Aggression", 0.25, "Anticipation", 0.25, "Tackling", 0.25, "Work Rate", 0.25));
+            DEFAULT_METRIC_WEIGHTS.put("Pass %", Map.of(
+                    "Passing", 0.35, "Technique", 0.25, "Decisions", 0.20, "Composure", 0.20));
+            DEFAULT_METRIC_WEIGHTS.put("Expected Goals", Map.of(
+                    "Finishing", 0.40, "Off The Ball", 0.25, "Composure", 0.20, "Anticipation", 0.15));
+        }
+
+        private static final Map<String, String> DEFAULT_POSITION_GROUPS = new HashMap<>();
+        static {
+            DEFAULT_POSITION_GROUPS.put("GK", "GK");
+            DEFAULT_POSITION_GROUPS.put("DC", "DEF");
+            DEFAULT_POSITION_GROUPS.put("DL", "FB");
+            DEFAULT_POSITION_GROUPS.put("DR", "FB");
+            DEFAULT_POSITION_GROUPS.put("WBL", "FB");
+            DEFAULT_POSITION_GROUPS.put("WBR", "FB");
+            DEFAULT_POSITION_GROUPS.put("DM", "MID");
+            DEFAULT_POSITION_GROUPS.put("MC", "MID");
+            DEFAULT_POSITION_GROUPS.put("AMC", "MID");
+            DEFAULT_POSITION_GROUPS.put("ML", "WIDE");
+            DEFAULT_POSITION_GROUPS.put("MR", "WIDE");
+            DEFAULT_POSITION_GROUPS.put("AML", "WIDE");
+            DEFAULT_POSITION_GROUPS.put("AMR", "WIDE");
+            DEFAULT_POSITION_GROUPS.put("ST", "ATT");
+        }
+
+        private static final Map<String, Double> DEFAULT_PRESS_METRIC_MULTIPLIER = Map.of(
+                "Low", 0.8, "Standard", 1.0, "High", 1.25);
+
+        /** 5 rows (top→bottom of pitch) x 6 columns (own goal left → opp goal right). */
+        private static final Map<String, double[][]> DEFAULT_HEATMAP_TEMPLATES = new HashMap<>();
+        static {
+            DEFAULT_HEATMAP_TEMPLATES.put("GK", new double[][]{
+                    {0.05, 0.02, 0, 0, 0, 0},
+                    {0.20, 0.05, 0, 0, 0, 0},
+                    {0.90, 0.15, 0, 0, 0, 0},
+                    {0.20, 0.05, 0, 0, 0, 0},
+                    {0.05, 0.02, 0, 0, 0, 0}});
+            DEFAULT_HEATMAP_TEMPLATES.put("DEF", new double[][]{
+                    {0.10, 0.30, 0.20, 0.05, 0, 0},
+                    {0.30, 0.70, 0.35, 0.10, 0, 0},
+                    {0.40, 0.90, 0.45, 0.10, 0, 0},
+                    {0.30, 0.70, 0.35, 0.10, 0, 0},
+                    {0.10, 0.30, 0.20, 0.05, 0, 0}});
+            DEFAULT_HEATMAP_TEMPLATES.put("FB", new double[][]{
+                    {0.20, 0.60, 0.70, 0.50, 0.20, 0.05},
+                    {0.10, 0.40, 0.45, 0.30, 0.10, 0.02},
+                    {0.05, 0.20, 0.25, 0.15, 0.05, 0},
+                    {0.10, 0.40, 0.45, 0.30, 0.10, 0.02},
+                    {0.20, 0.60, 0.70, 0.50, 0.20, 0.05}});
+            DEFAULT_HEATMAP_TEMPLATES.put("MID", new double[][]{
+                    {0.05, 0.15, 0.30, 0.30, 0.15, 0.05},
+                    {0.10, 0.35, 0.65, 0.65, 0.35, 0.10},
+                    {0.15, 0.45, 0.90, 0.90, 0.45, 0.15},
+                    {0.10, 0.35, 0.65, 0.65, 0.35, 0.10},
+                    {0.05, 0.15, 0.30, 0.30, 0.15, 0.05}});
+            DEFAULT_HEATMAP_TEMPLATES.put("WIDE", new double[][]{
+                    {0.10, 0.40, 0.70, 0.80, 0.70, 0.40},
+                    {0.05, 0.20, 0.35, 0.45, 0.40, 0.25},
+                    {0.02, 0.10, 0.15, 0.20, 0.20, 0.15},
+                    {0.05, 0.20, 0.35, 0.45, 0.40, 0.25},
+                    {0.10, 0.40, 0.70, 0.80, 0.70, 0.40}});
+            DEFAULT_HEATMAP_TEMPLATES.put("ATT", new double[][]{
+                    {0, 0.05, 0.15, 0.40, 0.60, 0.40},
+                    {0, 0.10, 0.30, 0.70, 0.85, 0.55},
+                    {0, 0.15, 0.40, 0.90, 1.00, 0.70},
+                    {0, 0.10, 0.30, 0.70, 0.85, 0.55},
+                    {0, 0.05, 0.15, 0.40, 0.60, 0.40}});
+        }
     }
 }

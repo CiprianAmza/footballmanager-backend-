@@ -98,6 +98,13 @@ public class TacticalScoreService {
         String line = orDefault(t.getDefensiveLine(), "Standard");
         String press = orDefault(t.getPressing(), "Low");
         String width = orDefault(t.getWidth(), "Balanced");
+        // Faza 2 team-level instructions (neutral token ⇒ 0 contribution ⇒ no-op).
+        String dribbling = orDefault(t.getDribbling(), "Standard");
+        String foulFrequency = orDefault(t.getFoulFrequency(), "Normal");
+        String foulHardness = orDefault(t.getFoulHardness(), "Medium");
+        String fragmentation = orDefault(t.getTempoFragmentation(), "Normal");
+        String widePlay = orDefault(t.getWidePlay(), "Shoot");
+        String transition = orDefault(t.getTransition(), "Balanced");
 
         MatchEngineConfig.TacticalModel cfg = engineConfig.getTacticalModel();
         double bias = cfg.mentalityBias(mentality) + cfg.possessionBias(possession);
@@ -107,6 +114,12 @@ public class TacticalScoreService {
         double lineAxis = cfg.lineHeightAxis(line);
         double pressAxis = cfg.pressAxis(press);
         double widthAxis = cfg.widthAxis(width);
+
+        // Faza 2: fold team-level instructions into the EXISTING axes (neutral ⇒ +0 ⇒ exact no-op).
+        risk += cfg.dribblingRisk(dribbling) + cfg.widePlayRisk(widePlay) + cfg.transitionRisk(transition);
+        control += cfg.foulControl(foulFrequency) + cfg.foulHardnessControl(foulHardness)
+                + cfg.fragmentationControl(fragmentation) + cfg.transitionControl(transition);
+        widthAxis += cfg.widePlayWidth(widePlay);
 
         return new TacticVector(
                 clamp(bias, -1.2, 1.5),

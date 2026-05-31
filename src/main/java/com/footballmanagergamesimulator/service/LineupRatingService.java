@@ -67,6 +67,7 @@ public class LineupRatingService {
     @Autowired private CompetitionService competitionService;
     @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private TeamPostMatchService teamPostMatchService;
+    @Autowired private PlayerMatchStatService playerMatchStatService;
 
     @Autowired @Lazy private TacticController tacticController;
     @Autowired private GameStateService gameStateService;
@@ -381,6 +382,16 @@ public class LineupRatingService {
             }).forEach(substitutions::add);
         }
 
+        // Snapshot the starting XI (before substitutes get merged in) for Faza 2 analytics.
+        List<PlayerView> startingXI = new ArrayList<>();
+        for (Scorer s : possibleScorers) {
+            PlayerView pv = new PlayerView();
+            pv.setId(s.getPlayerId());
+            pv.setPosition(s.getPosition());
+            pv.setRating(s.getRating());
+            startingXI.add(pv);
+        }
+
         Random random = new Random();
         int substitutesDone = random.nextInt(0, Math.min(6, substitutions.size() + 1));
         if (!substitutions.isEmpty()) {
@@ -499,6 +510,12 @@ public class LineupRatingService {
                 scorerLeaderboardRepository.save(scorerLeaderboardEntry);
             }
         }
+
+        // Analytics Faza 2 — accumulate synthetic per-player stats for this REAL match.
+        // Runs AFTER the scoreline + scorers are persisted; read-only w.r.t. scoring.
+        playerMatchStatService.recordRealMatchForTeam(
+                teamId, startingXI, personalizedTacticOpt.orElse(null),
+                competitionId, gameStateService.currentSeason());
     }
 
     /**
