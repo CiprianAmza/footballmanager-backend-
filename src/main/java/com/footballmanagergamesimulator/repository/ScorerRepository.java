@@ -22,4 +22,6 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
 
     List<Scorer> findTop5ByPlayerIdOrderByIdDesc(long playerId);
 
+    List<Scorer> findAllByPlayerIdAndCompetitionTypeId(long playerId, int competitionTypeId);
+
 }

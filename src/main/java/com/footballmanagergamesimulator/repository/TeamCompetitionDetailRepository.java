@@ -9,6 +9,8 @@ public interface TeamCompetitionDetailRepository extends JpaRepository<TeamCompe
 
   List<TeamCompetitionDetail> findTeamCompetitionDetailByTeamIdAndCompetitionId(long teamId, long competitionId);
 
+  List<TeamCompetitionDetail> findAllByCompetitionId(long competitionId);
+
   default TeamCompetitionDetail findFirstByTeamIdAndCompetitionId(long teamId, long competitionId) {
     List<TeamCompetitionDetail> results = findTeamCompetitionDetailByTeamIdAndCompetitionId(teamId, competitionId);
     return results.isEmpty() ? null : results.get(0);

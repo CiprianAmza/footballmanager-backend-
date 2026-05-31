@@ -157,4 +157,24 @@ public class StatsController {
     public Map<String, Object> comparePlayersHeadToHead(@PathVariable long playerId1, @PathVariable long playerId2) {
         return statsAggregationService.comparePlayersHeadToHead(playerId1, playerId2);
     }
+
+    /**
+     * GET /stats/team/{teamId}/competitionBreakdown
+     * Per-(competition, season) team record — League / Cup / LoC / Stars Cup kept
+     * separate instead of summed together. League position only on league lines.
+     */
+    @GetMapping("/team/{teamId}/competitionBreakdown")
+    public List<com.footballmanagergamesimulator.model.CompetitionStatLine> getTeamCompetitionBreakdown(@PathVariable long teamId) {
+        return statsAggregationService.getTeamCompetitionBreakdown(teamId);
+    }
+
+    /**
+     * GET /stats/player/{playerId}/competitionBreakdown
+     * All-competitions total plus per-competition and per-(type, season)
+     * goals/assists/appearances for one player.
+     */
+    @GetMapping("/player/{playerId}/competitionBreakdown")
+    public Map<String, Object> getPlayerCompetitionBreakdown(@PathVariable long playerId) {
+        return statsAggregationService.getPlayerCompetitionBreakdown(playerId);
+    }
 }
