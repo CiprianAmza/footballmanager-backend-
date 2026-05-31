@@ -136,8 +136,14 @@ public class NewSeasonSetupProcessor {
                 .mapToLong(Competition::getId)
                 .boxed()
                 .collect(Collectors.toSet());
+        // Load every TeamCompetitionDetail once and group by competition so the
+        // per-competition snapshot below is a map lookup, not a findAll() per loop.
+        Map<Long, List<TeamCompetitionDetail>> detailsByCompetition = teamCompetitionDetailRepository.findAll()
+                .stream()
+                .collect(Collectors.groupingBy(tcd -> (long) tcd.getCompetitionId()));
         for (Long competitionId : competitions)
-            saveHistoricalValues(competitionId, round.getSeason());
+            saveHistoricalValues(competitionId, round.getSeason(),
+                    detailsByCompetition.getOrDefault(competitionId, List.of()));
         saveAllPlayerTeamHistoricalRelations(round.getSeason());
 
         // Return loaned players (handles buy obligations and salary adjustments)
@@ -503,9 +509,21 @@ public class NewSeasonSetupProcessor {
         }
     }
 
+    /**
+     * Backward-compatible entry: loads the competition's details itself. Kept so
+     * external callers and tests keep working; the per-season pipeline uses the
+     * overload below with a preloaded list to avoid a findAll() per competition.
+     */
     public void saveHistoricalValues(Long competitionId, Long seasonNumber) {
         List<TeamCompetitionDetail> teams = teamCompetitionDetailRepository.findAll()
                 .stream()
+                .filter(tcd -> tcd.getCompetitionId() == competitionId)
+                .collect(Collectors.toList());
+        saveHistoricalValues(competitionId, seasonNumber, teams);
+    }
+
+    public void saveHistoricalValues(Long competitionId, Long seasonNumber, List<TeamCompetitionDetail> preloadedDetails) {
+        List<TeamCompetitionDetail> teams = preloadedDetails.stream()
                 .filter(tcd -> tcd.getCompetitionId() == competitionId)
                 .collect(Collectors.toList());
 

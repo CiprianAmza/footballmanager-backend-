@@ -2,11 +2,13 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionHistory;
+import com.footballmanagergamesimulator.model.CompetitionStatLine;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.model.MatchStats;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.model.TeamDataHubStats;
 import com.footballmanagergamesimulator.model.Transfer;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
@@ -15,6 +17,7 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.MatchStatsRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.TransferRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +54,7 @@ public class StatsAggregationService {
     @Autowired private MatchEventRepository matchEventRepository;
     @Autowired private MatchStatsRepository matchStatsRepository;
     @Autowired private TransferRepository transferRepository;
+    @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
 
     // ==================== TEAM DATA HUB ====================
 
@@ -861,5 +865,150 @@ public class StatsAggregationService {
                 .map(s -> Math.round(s.getRating() * 10.0) / 10.0).toList());
 
         return profile;
+    }
+
+    // ==================== TEAM COMPETITION BREAKDOWN ====================
+
+    /**
+     * Per-(competition, season) team record (matches/W/D/L/goals), so League / Cup /
+     * LoC / Stars Cup are never summed together the way the manager snapshot does.
+     * Matches are reconstructed from the Scorer rows (same technique as
+     * {@link #getTeamDataHubStats}) grouped by competition+season. League position is
+     * attached only on league-type lines (typeId 1 or 3), read from the live standings.
+     */
+    public List<CompetitionStatLine> getTeamCompetitionBreakdown(long teamId) {
+        List<Scorer> teamScorers = scorerRepository.findAllByTeamId(teamId);
+
+        // (competitionId|season) -> reconstructed unique matches -> [teamScore, opponentScore]
+        Map<String, CompetitionStatLine> lines = new LinkedHashMap<>();
+        Map<String, Map<String, int[]>> matchesByLine = new LinkedHashMap<>();
+
+        String lastMatchKey = "";
+        int matchCounter = 0;
+        for (Scorer s : teamScorers) {
+            // skip season-start placeholder rows (teamScore=-1, opponentTeamId=-1)
+            if (s.getTeamScore() < 0 || s.getOpponentTeamId() < 0) continue;
+
+            String lineKey = s.getCompetitionId() + "|" + s.getSeasonNumber();
+            lines.computeIfAbsent(lineKey, k -> new CompetitionStatLine(
+                    s.getCompetitionId(), s.getCompetitionTypeId(), s.getCompetitionName(), s.getSeasonNumber()));
+
+            String candidateKey = s.getCompetitionId() + "_" + s.getSeasonNumber() + "_"
+                    + s.getOpponentTeamId() + "_" + s.getTeamScore() + "_" + s.getOpponentScore();
+            if (!candidateKey.equals(lastMatchKey)) {
+                matchCounter++;
+                lastMatchKey = candidateKey;
+            }
+            String matchKey = candidateKey + "_" + matchCounter;
+            matchesByLine.computeIfAbsent(lineKey, k -> new LinkedHashMap<>())
+                    .putIfAbsent(matchKey, new int[]{s.getTeamScore(), s.getOpponentScore()});
+        }
+
+        for (Map.Entry<String, CompetitionStatLine> e : lines.entrySet()) {
+            CompetitionStatLine line = e.getValue();
+            for (int[] scores : matchesByLine.getOrDefault(e.getKey(), Map.of()).values()) {
+                int ts = scores[0], os = scores[1];
+                line.setMatches(line.getMatches() + 1);
+                line.setGoalsFor(line.getGoalsFor() + ts);
+                line.setGoalsAgainst(line.getGoalsAgainst() + os);
+                if (ts > os) line.setWins(line.getWins() + 1);
+                else if (ts == os) line.setDraws(line.getDraws() + 1);
+                else line.setLosses(line.getLosses() + 1);
+            }
+            if (line.getCompetitionTypeId() == 1 || line.getCompetitionTypeId() == 3) {
+                line.setLeaguePosition(computeLeaguePosition(teamId, line.getCompetitionId()));
+            }
+        }
+
+        return lines.values().stream()
+                .sorted(Comparator.comparingInt(CompetitionStatLine::getSeasonNumber).reversed()
+                        .thenComparingInt(CompetitionStatLine::getCompetitionTypeId))
+                .toList();
+    }
+
+    /** Live standings position of a team in a competition (1-based). Returns null if not found. */
+    private Integer computeLeaguePosition(long teamId, long competitionId) {
+        List<TeamCompetitionDetail> standings = teamCompetitionDetailRepository.findAllByCompetitionId(competitionId).stream()
+                .sorted((o1, o2) -> {
+                    if (o1.getPoints() != o2.getPoints()) return o2.getPoints() - o1.getPoints();
+                    if (o1.getGoalDifference() != o2.getGoalDifference()) return o2.getGoalDifference() - o1.getGoalDifference();
+                    return o2.getGoalsFor() - o1.getGoalsFor();
+                })
+                .toList();
+        int pos = 1;
+        for (TeamCompetitionDetail d : standings) {
+            if (d.getTeamId() == teamId) return pos;
+            pos++;
+        }
+        return null;
+    }
+
+    // ==================== PLAYER COMPETITION BREAKDOWN ====================
+
+    /**
+     * All-competitions total PLUS per-competition and per-(competitionTypeId, season)
+     * goals/assists/appearances for one player, derived entirely from Scorer rows.
+     * Fixes the leaderboard gap where LoC (4) and Stars Cup (5) were dropped.
+     */
+    public Map<String, Object> getPlayerCompetitionBreakdown(long playerId) {
+        List<Scorer> allScorers = scorerRepository.findAllByPlayerId(playerId).stream()
+                .filter(s -> s.getTeamScore() >= 0 && s.getOpponentTeamId() >= 0) // drop placeholders
+                .toList();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("playerId", playerId);
+        result.put("playerName", humanRepository.findById(playerId).map(Human::getName).orElse("Unknown"));
+
+        // All-competitions total
+        result.put("total", aggBlock(allScorers));
+
+        // Per competition (one entry per distinct competitionId)
+        Map<Long, List<Scorer>> byComp = allScorers.stream()
+                .collect(Collectors.groupingBy(Scorer::getCompetitionId, LinkedHashMap::new, Collectors.toList()));
+        List<Map<String, Object>> byCompetition = new ArrayList<>();
+        for (Map.Entry<Long, List<Scorer>> e : byComp.entrySet()) {
+            Scorer sample = e.getValue().get(0);
+            Map<String, Object> row = aggBlock(e.getValue());
+            row.put("competitionId", e.getKey());
+            row.put("competitionTypeId", sample.getCompetitionTypeId());
+            row.put("competitionName", sample.getCompetitionName());
+            byCompetition.add(row);
+        }
+        result.put("byCompetition", byCompetition);
+
+        // Per (competitionTypeId, season) — keeps LoC/Stars Cup separated across seasons
+        String[] typeNames = {"", "League", "Cup", "Second League", "League of Champions", "Stars Cup"};
+        Map<String, List<Scorer>> byTypeSeason = allScorers.stream()
+                .collect(Collectors.groupingBy(s -> s.getCompetitionTypeId() + "|" + s.getSeasonNumber(),
+                        LinkedHashMap::new, Collectors.toList()));
+        List<Map<String, Object>> byTypeAndSeason = new ArrayList<>();
+        for (Map.Entry<String, List<Scorer>> e : byTypeSeason.entrySet()) {
+            Scorer sample = e.getValue().get(0);
+            int typeId = sample.getCompetitionTypeId();
+            Map<String, Object> row = aggBlock(e.getValue());
+            row.put("competitionTypeId", typeId);
+            row.put("competitionTypeName", typeId >= 0 && typeId < typeNames.length ? typeNames[typeId] : "Other");
+            row.put("seasonNumber", sample.getSeasonNumber());
+            byTypeAndSeason.add(row);
+        }
+        byTypeAndSeason.sort(Comparator
+                .comparingInt((Map<String, Object> r) -> (int) r.get("seasonNumber")).reversed()
+                .thenComparingInt(r -> (int) r.get("competitionTypeId")));
+        result.put("byTypeAndSeason", byTypeAndSeason);
+
+        return result;
+    }
+
+    /** goals/assists/appearances/avgRating aggregate for a set of scorer rows. */
+    private Map<String, Object> aggBlock(List<Scorer> scorers) {
+        Map<String, Object> block = new LinkedHashMap<>();
+        int appearances = scorers.size();
+        block.put("appearances", appearances);
+        block.put("goals", scorers.stream().mapToInt(Scorer::getGoals).sum());
+        block.put("assists", scorers.stream().mapToInt(Scorer::getAssists).sum());
+        block.put("avgRating", appearances > 0
+                ? Math.round(scorers.stream().mapToDouble(Scorer::getRating).average().orElse(0) * 100.0) / 100.0
+                : 0.0);
+        return block;
     }
 }

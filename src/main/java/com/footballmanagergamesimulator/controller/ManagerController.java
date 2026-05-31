@@ -12,6 +12,7 @@ import com.footballmanagergamesimulator.repository.ManagerHistoryRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.StatsAggregationService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -41,6 +42,9 @@ public class ManagerController {
 
     @Autowired
     private RoundRepository roundRepository;
+
+    @Autowired
+    private StatsAggregationService statsAggregationService;
 
     /**
      * Full career history for a specific manager
@@ -174,6 +178,9 @@ public class ManagerController {
         snapshot.put("promoted", false);
         snapshot.put("relegated", false);
         snapshot.put("inProgress", true); // flag the frontend can use to style differently
+        // Per-competition breakdown (League/Cup/LoC/Stars Cup kept separate); the mixed
+        // gamesPlayed/wins/... fields above are intentionally left untouched for back-compat.
+        snapshot.put("competitionBreakdown", statsAggregationService.getTeamCompetitionBreakdown(team.getId()));
         return snapshot;
     }
 

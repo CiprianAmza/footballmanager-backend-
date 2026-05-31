@@ -166,6 +166,13 @@ public class EndOfSeasonProcessor {
             }
 
             List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
+            // Pre-resolve every team once so the standings comparator's reputation
+            // tiebreaker is a map lookup instead of a per-comparison findById (N+1).
+            Map<Long, Team> teamsById = teamRepository.findAll().stream()
+                    .collect(Collectors.toMap(Team::getId, t -> t, (a, b) -> a));
+            Map<Long, Integer> reputationById = new HashMap<>();
+            for (Map.Entry<Long, Team> e : teamsById.entrySet())
+                reputationById.put(e.getKey(), e.getValue().getReputation());
             for (Long id : leagueCompetitionIds) {
                 int finalId = Math.toIntExact(id);
                 List<TeamCompetitionDetail> teamCompetitionDetailList = teamCompetitionDetails.stream()
@@ -178,10 +185,8 @@ public class EndOfSeasonProcessor {
                             if (o1.getGoalsFor() != o2.getGoalsFor())
                                 return o1.getGoalsFor() < o2.getGoalsFor() ? 1 : -1;
                             // Fallback: sort by team reputation (for when no matches were played)
-                            Team teamA = teamRepository.findById(o1.getTeamId()).orElse(null);
-                            Team teamB = teamRepository.findById(o2.getTeamId()).orElse(null);
-                            int repA = teamA != null ? teamA.getReputation() : 0;
-                            int repB = teamB != null ? teamB.getReputation() : 0;
+                            int repA = reputationById.getOrDefault(o1.getTeamId(), 0);
+                            int repB = reputationById.getOrDefault(o2.getTeamId(), 0);
                             return Integer.compare(repB, repA);
                         }).toList();
 
@@ -227,7 +232,8 @@ public class EndOfSeasonProcessor {
             List<PlayerTransferView> playersForTransferMarket = new ArrayList<>();
             for (Long teamId : teamIds) {
                 if (userContext.isHumanTeam(teamId)) continue;
-                Team team = teamRepository.findById(teamId).orElse(new Team());
+                // Read-only lookup — reuse the preloaded map; preserve the new Team() fallback.
+                Team team = teamsById.getOrDefault(teamId, new Team());
                 playersForTransferMarket.addAll(compositeTransferStrategy.playersToSell(team, humanRepository, tacticService.getMinimumPositionNeeded()));
             }
 
@@ -242,7 +248,8 @@ public class EndOfSeasonProcessor {
             Map<PlayerTransferView, List<BuyPlanTransferView>> buyPlan = new HashMap<>();
             for (Long teamId : teamIds) {
                 if (userContext.isHumanTeam(teamId)) continue;
-                Team team = teamRepository.findById(teamId).orElse(new Team());
+                // Read-only lookup — reuse the preloaded map; preserve the new Team() fallback.
+                Team team = teamsById.getOrDefault(teamId, new Team());
                 BuyPlanTransferView buyPlanTransferView = compositeTransferStrategy.playersToBuy(team, humanRepository, tacticService.getMaximumPositionAllowed());
                 if (buyPlanTransferView == null) continue;
 
@@ -321,6 +328,8 @@ public class EndOfSeasonProcessor {
 
             // AI Loan Logic
             Random loanRandom = new Random();
+            // Keep findAll() here: potentialTeams ordering feeds the seeded RNG pick,
+            // so the deterministic id-ordered list must be preserved.
             List<Team> allTeams = teamRepository.findAll();
             for (Long teamId : teamIds) {
                 if (userContext.isHumanTeam(teamId)) continue;
@@ -339,7 +348,8 @@ public class EndOfSeasonProcessor {
                             .collect(Collectors.toList());
                     if (potentialTeams.isEmpty()) continue;
                     Team loanTeam = potentialTeams.get(loanRandom.nextInt(potentialTeams.size()));
-                    Team parentTeam = teamRepository.findById(teamId).orElse(null);
+                    // Read-only (id + name only) — reuse preloaded map; preserve null-skip semantics.
+                    Team parentTeam = teamsById.get(teamId);
                     if (parentTeam == null) continue;
                     long loanFee = (long) (loanPlayer.getTransferValue() * 0.05);
                     loanPlayer.setTeamId(loanTeam.getId());
