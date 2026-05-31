@@ -4,6 +4,7 @@ import com.footballmanagergamesimulator.frontend.PlayerCardView;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.NationService;
 import com.footballmanagergamesimulator.service.PlayerCardService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,6 +25,7 @@ class HumanControllerTest {
         HumanRepository humanRepository = mock(HumanRepository.class);
         TeamRepository teamRepository = mock(TeamRepository.class);
         PlayerSkillsRepository playerSkillsRepository = mock(PlayerSkillsRepository.class);
+        NationService nationService = mock(NationService.class);
         PlayerCardService playerCardService = mock(PlayerCardService.class);
 
         PlayerCardView cardView = new PlayerCardView();
@@ -43,7 +45,7 @@ class HumanControllerTest {
         when(playerCardService.getPlayerCard(7L)).thenReturn(Optional.of(cardView));
 
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
-                new HumanController(humanRepository, teamRepository, playerSkillsRepository, playerCardService))
+                new HumanController(humanRepository, teamRepository, playerSkillsRepository, nationService, playerCardService))
                 .build();
 
         mockMvc.perform(get("/humans/7/card"))
