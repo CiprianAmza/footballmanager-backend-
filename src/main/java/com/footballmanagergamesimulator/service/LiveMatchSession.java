@@ -95,6 +95,7 @@ public class LiveMatchSession {
     final int targetHomeGoals, targetAwayGoals;
     final Set<Integer> homeGoalMinutes, awayGoalMinutes;
     private final boolean pinned;
+    final boolean deferPersistenceUntilCommit;
 
     // --- Engine state ---
     // Non-final so determinism IT can swap in a seeded Random via
@@ -102,14 +103,19 @@ public class LiveMatchSession {
     Random random;
     int currentMinute = 0;
     boolean finished = false;
+    boolean deferredArtifactsPersisted = false;
     /** Flipped to true by {@link #markCommitted()} once the post-match
      *  work has been persisted. Used by GameAdvanceService to know
      *  whether to skip suspensions/news/PC for this match (they happen
      *  on /commit instead). */
     boolean committed = false;
+    final List<ManualSubstitution> manualSubstitutions = new ArrayList<>();
+
+    record ManualSubstitution(long teamId, long playerOutId, long playerInId, int minute) {}
 
     public boolean isCommitted() { return committed; }
     public boolean isFinished() { return finished; }
+    public boolean isAwaitingCommit() { return finished && !committed; }
     public int getHomeScore() { return homeScore; }
     public int getAwayScore() { return awayScore; }
     public long getTeamId1() { return teamId1; }
@@ -123,6 +129,14 @@ public class LiveMatchSession {
      *  all post-match work has run. Idempotent. */
     public synchronized void markCommitted() {
         this.committed = true;
+    }
+
+    public synchronized boolean hasManualSubstitutions() {
+        return !manualSubstitutions.isEmpty();
+    }
+
+    public synchronized List<ManualSubstitution> getManualSubstitutions() {
+        return List.copyOf(manualSubstitutions);
     }
 
     // ---- Deferred context for /commit (stashed by simulateMatchday) ----
@@ -189,8 +203,24 @@ public class LiveMatchSession {
     public int getDeferredMatchIndex() { return deferredMatchIndex; }
 
     /** Mutators for /commit's knockout extra-time decider. */
-    public synchronized void bumpHomeScore() { this.homeScore++; }
-    public synchronized void bumpAwayScore() { this.awayScore++; }
+    public synchronized void bumpHomeScore() {
+        this.homeScore++;
+        refreshFullTimeEvent();
+    }
+    public synchronized void bumpAwayScore() {
+        this.awayScore++;
+        refreshFullTimeEvent();
+    }
+
+    public synchronized void applyCommitScore(int homeScore, int awayScore) {
+        this.homeScore = homeScore;
+        this.awayScore = awayScore;
+        this.homeShotsOnTarget = Math.max(this.homeShotsOnTarget, homeScore);
+        this.awayShotsOnTarget = Math.max(this.awayShotsOnTarget, awayScore);
+        this.homeShots = Math.max(this.homeShots, this.homeShotsOnTarget);
+        this.awayShots = Math.max(this.awayShots, this.awayShotsOnTarget);
+        refreshFullTimeEvent();
+    }
 
     /** Snapshot the LiveMatchData DTO that's currently cached so /commit's
      *  callers can pass it to persistLiveMatchStats. */
@@ -226,6 +256,18 @@ public class LiveMatchSession {
                 generateGoalAnimations, matchup, random, -1, -1);
     }
 
+    LiveMatchSession(LiveMatchSimulationService svc,
+                     long teamId1, long teamId2,
+                     double power1, double power2,
+                     long competitionId, int season, int round,
+                     boolean generateGoalAnimations,
+                     TacticalScoreService.Matchup matchup,
+                     Random random,
+                     int targetHomeGoals, int targetAwayGoals) {
+        this(svc, teamId1, teamId2, power1, power2, competitionId, season, round,
+                generateGoalAnimations, matchup, random, targetHomeGoals, targetAwayGoals, false);
+    }
+
     /**
      * Seeded constructor — used by determinism IT / fuzz tests to make a live
      * match reproducible given a fixed seed. Same (seed, config, inputs) →
@@ -244,7 +286,8 @@ public class LiveMatchSession {
                      boolean generateGoalAnimations,
                      TacticalScoreService.Matchup matchup,
                      Random random,
-                     int targetHomeGoals, int targetAwayGoals) {
+                     int targetHomeGoals, int targetAwayGoals,
+                     boolean deferPersistenceUntilCommit) {
         this.svc = svc;
         this.teamId1 = teamId1;
         this.teamId2 = teamId2;
@@ -253,6 +296,7 @@ public class LiveMatchSession {
         this.round = round;
         this.generateGoalAnimations = generateGoalAnimations;
         this.random = random;
+        this.deferPersistenceUntilCommit = deferPersistenceUntilCommit;
 
         this.homeTeamName = svc.teamRepository.findNameById(teamId1);
         this.awayTeamName = svc.teamRepository.findNameById(teamId2);
@@ -354,8 +398,9 @@ public class LiveMatchSession {
      * Tick the engine forward up to {@code targetMinute} (clamped to
      * {@code totalMinutes}). Idempotent — calling with a minute already
      * past returns immediately. When the engine reaches full time on this
-     * call, the full-time event is emitted, match events flushed to DB,
-     * and post-match fitness persisted.
+     * call, the full-time event is emitted. Legacy one-shot sessions persist
+     * their events + fitness immediately; interactive deferred-commit sessions
+     * leave that work for {@code /commit}.
      *
      * <p>Synchronized — guards against concurrent /advance and /substitute
      * calls from racing the same session.
@@ -380,12 +425,48 @@ public class LiveMatchSession {
 
         if (currentMinute >= totalMinutes && !finished) {
             finished = true;
-            timeline.add(svc.createMinuteEvent(totalMinutes, homeScore, awayScore, "full_time",
-                    "FULL TIME! " + homeTeamName + " " + homeScore + " - " + awayScore + " " + awayTeamName,
-                    0, null, 0, null));
-            if (!dbEvents.isEmpty()) svc.matchEventRepository.saveAll(dbEvents);
-            svc.persistPostMatchFitness(matchStates, team1All, team2All);
+            refreshFullTimeEvent();
+            if (!deferPersistenceUntilCommit) {
+                persistDeferredArtifacts();
+            }
         }
+    }
+
+    private void refreshFullTimeEvent() {
+        if (!finished) return;
+        LiveMatchMinute fullTime = svc.createMinuteEvent(totalMinutes, homeScore, awayScore, "full_time",
+                "FULL TIME! " + homeTeamName + " " + homeScore + " - " + awayScore + " " + awayTeamName,
+                0, null, 0, null);
+        for (int i = timeline.size() - 1; i >= 0; i--) {
+            if ("full_time".equals(timeline.get(i).getEventType())) {
+                timeline.set(i, fullTime);
+                return;
+            }
+        }
+        timeline.add(fullTime);
+    }
+
+    public synchronized List<MatchEvent> nonGoalDbEvents() {
+        return dbEvents.stream()
+                .filter(e -> !"goal".equals(e.getEventType()))
+                .filter(e -> !"assist".equals(e.getEventType()))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    public synchronized void persistDeferredArtifacts() {
+        persistDeferredArtifacts(new ArrayList<>(dbEvents));
+    }
+
+    public synchronized void persistDeferredArtifacts(List<MatchEvent> eventsToPersist) {
+        if (deferredArtifactsPersisted) return;
+        if (!finished) {
+            throw new IllegalStateException("Cannot persist deferred live-match artifacts before full time.");
+        }
+        if (eventsToPersist != null && !eventsToPersist.isEmpty()) {
+            svc.matchEventRepository.saveAll(eventsToPersist);
+        }
+        svc.persistPostMatchFitness(matchStates, team1All, team2All);
+        deferredArtifactsPersisted = true;
     }
 
     /** Count players from {@code teamIds} currently on the pitch. */
@@ -778,14 +859,9 @@ public class LiveMatchSession {
      * not have to pass it, and we reject mixing players across teams.
      */
     synchronized void applyUserSub(long playerOutId, long playerInId) {
-        // Note: we deliberately allow subs even after the engine reaches
-        // full-time — Faza 3 v1 runs the engine synchronously and lets the
-        // user make subs DURING playback. The swap toggles isOnPitch (so
-        // the live pitch+bench view updates) and a sub event is spliced
-        // into the timeline at the user's current minute. The pre-baked
-        // events past that point are not re-simulated — that's the v1
-        // limitation, and the real "engine respects subs" mode is a
-        // bigger refactor.
+        if (finished) {
+            throw new InvalidSubstitutionException("Match already finished. Commit the result instead.");
+        }
         if (playerOutId == playerInId) throw new InvalidSubstitutionException("Same player on both ends of the swap.");
 
         PlayerMatchState off = matchStates.get(playerOutId);
@@ -839,6 +915,7 @@ public class LiveMatchSession {
                 if (timeline.get(i).getMinute() > eventMinute) { insertAt = i; break; }
             }
             timeline.add(insertAt, subEvent);
+            manualSubstitutions.add(new ManualSubstitution(teamId, offHuman.getId(), onHuman.getId(), eventMinute));
 
             dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
                     eventMinute, "substitution", offHuman.getId(), offHuman.getName(), teamId,
@@ -920,6 +997,7 @@ public class LiveMatchSession {
         // --- Interactive live state ---
         data.setCurrentMinute(currentMinute);
         data.setFinished(finished);
+        data.setAwaitingCommit(isAwaitingCommit());
         data.setHomeSubsRemaining(Math.max(0, 3 - homeSubsUsed));
         data.setAwaySubsRemaining(Math.max(0, 3 - awaySubsUsed));
         data.setHomePitch(buildPitchView(team1Ids, true));

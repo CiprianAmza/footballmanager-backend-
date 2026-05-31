@@ -128,6 +128,15 @@ public class MatchSimulationService {
      * @param totalExpectedGoals expected combined goals, split by the amplified power ratio
      */
     public List<Integer> calculateScores(double power1, double power2, double totalExpectedGoals) {
+        return calculateScores(power1, power2, totalExpectedGoals, this.random);
+    }
+
+    /** Deterministic-friendly overload used by live-commit rescores. */
+    public List<Integer> calculateScores(double power1, double power2, Random rng) {
+        return calculateScores(power1, power2, engineConfig.getPower().getExpectedGoalsTotal(), rng);
+    }
+
+    private List<Integer> calculateScores(double power1, double power2, double totalExpectedGoals, Random rng) {
         double total = power1 + power2;
         if (total == 0) return List.of(1, 1);
 
@@ -147,11 +156,9 @@ public class MatchSimulationService {
         double expected1 = totalExpectedGoals * adjRatio1;
         double expected2 = totalExpectedGoals * adjRatio2;
 
-        // Uses the field-level RNG so fuzz tests can inject a seeded Random
-        // via setRandomForTesting(...). See javadoc on the `random` field.
         int maxGoals = engineConfig.getPower().getMaxGoalsPerTeam();
-        int score1 = poissonGoals(this.random, expected1, maxGoals);
-        int score2 = poissonGoals(this.random, expected2, maxGoals);
+        int score1 = poissonGoals(rng, expected1, maxGoals);
+        int score2 = poissonGoals(rng, expected2, maxGoals);
 
         return List.of(score1, score2);
     }
@@ -468,23 +475,17 @@ public class MatchSimulationService {
      * side are appended only for human-team matches so AI vs AI games stay
      * cheap.
      */
-    public void generateMatchEvents(long competitionId, int seasonNumber, int roundNumber,
-                                    long teamId1, long teamId2, int teamScore1, int teamScore2,
-                                    String tactic1, String tactic2) {
-
-        // Field-level RNG so determinism IT holds.
+    public List<MatchEvent> buildGoalAndAssistEvents(long competitionId, int seasonNumber, int roundNumber,
+                                                     long teamId1, long teamId2, int teamScore1, int teamScore2,
+                                                     String tactic1, String tactic2) {
         Random random = this.random;
         List<MatchEvent> events = new ArrayList<>();
 
-        boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
-
         String[] goalDescriptions = {"Tap in", "Header", "Long range shot", "Free kick", "Penalty", "Solo run", "Volley"};
-
         Optional<PersonalizedTactic> tactic1Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
         Optional<PersonalizedTactic> tactic2Opt = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
-
         MatchEngineConfig.Events ev = engineConfig.getEvents();
-        MatchEngineConfig.Fouls fl = engineConfig.getFouls();
+
         int totalGoals = teamScore1 + teamScore2;
         List<Integer> goalMinutes = new ArrayList<>();
         for (int i = 0; i < totalGoals; i++) {
@@ -499,102 +500,40 @@ public class MatchSimulationService {
         Collections.shuffle(shuffledIndices);
 
         for (int i = 0; i < totalGoals; i++) {
-            if (i < teamScore1) {
-                team1GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
-            } else {
-                team2GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
-            }
+            if (i < teamScore1) team1GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
+            else team2GoalMinutes.add(goalMinutes.get(shuffledIndices.get(i)));
         }
         Collections.sort(team1GoalMinutes);
         Collections.sort(team2GoalMinutes);
 
         List<Human> team1Players = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.PLAYER_TYPE);
         List<Human> team2Players = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.PLAYER_TYPE);
-
         List<Human> team1Outfield = team1Players.stream().filter(p -> !"GK".equals(p.getPosition())).collect(Collectors.toList());
         List<Human> team2Outfield = team2Players.stream().filter(p -> !"GK".equals(p.getPosition())).collect(Collectors.toList());
-
         if (team1Outfield.isEmpty()) team1Outfield = new ArrayList<>(team1Players);
         if (team2Outfield.isEmpty()) team2Outfield = new ArrayList<>(team2Players);
 
-        for (int minute : team1GoalMinutes) {
-            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
-            Human scorer = resolveGoalScorer(description, team1Outfield, tactic1Opt.orElse(null), random);
-            MatchEvent goalEvent = new MatchEvent();
-            goalEvent.setCompetitionId(competitionId);
-            goalEvent.setSeasonNumber(seasonNumber);
-            goalEvent.setRoundNumber(roundNumber);
-            goalEvent.setTeamId1(teamId1);
-            goalEvent.setTeamId2(teamId2);
-            goalEvent.setMinute(minute);
-            goalEvent.setEventType("goal");
-            goalEvent.setPlayerId(scorer.getId());
-            goalEvent.setPlayerName(scorer.getName());
-            goalEvent.setTeamId(teamId1);
-            goalEvent.setDetails(description);
-            events.add(goalEvent);
+        appendGoalEvents(events, competitionId, seasonNumber, roundNumber, teamId1, teamId2, teamId1,
+                team1GoalMinutes, team1Outfield, tactic1Opt.orElse(null), goalDescriptions, ev, random);
+        appendGoalEvents(events, competitionId, seasonNumber, roundNumber, teamId1, teamId2, teamId2,
+                team2GoalMinutes, team2Outfield, tactic2Opt.orElse(null), goalDescriptions, ev, random);
+        return events;
+    }
 
-            // Assist chance (no assist for penalties)
-            if (!"Penalty".equals(description) && random.nextDouble() < ev.getAssistProbability() && team1Outfield.size() > 1) {
-                List<Human> possibleAssisters = team1Outfield.stream()
-                        .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
-                if (!possibleAssisters.isEmpty()) {
-                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
-                    MatchEvent assistEvent = new MatchEvent();
-                    assistEvent.setCompetitionId(competitionId);
-                    assistEvent.setSeasonNumber(seasonNumber);
-                    assistEvent.setRoundNumber(roundNumber);
-                    assistEvent.setTeamId1(teamId1);
-                    assistEvent.setTeamId2(teamId2);
-                    assistEvent.setMinute(minute);
-                    assistEvent.setEventType("assist");
-                    assistEvent.setPlayerId(assister.getId());
-                    assistEvent.setPlayerName(assister.getName());
-                    assistEvent.setTeamId(teamId1);
-                    assistEvent.setDetails("Assist");
-                    events.add(assistEvent);
-                }
-            }
-        }
+    public void generateMatchEvents(long competitionId, int seasonNumber, int roundNumber,
+                                    long teamId1, long teamId2, int teamScore1, int teamScore2,
+                                    String tactic1, String tactic2) {
 
-        for (int minute : team2GoalMinutes) {
-            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
-            Human scorer = resolveGoalScorer(description, team2Outfield, tactic2Opt.orElse(null), random);
-            MatchEvent goalEvent = new MatchEvent();
-            goalEvent.setCompetitionId(competitionId);
-            goalEvent.setSeasonNumber(seasonNumber);
-            goalEvent.setRoundNumber(roundNumber);
-            goalEvent.setTeamId1(teamId1);
-            goalEvent.setTeamId2(teamId2);
-            goalEvent.setMinute(minute);
-            goalEvent.setEventType("goal");
-            goalEvent.setPlayerId(scorer.getId());
-            goalEvent.setPlayerName(scorer.getName());
-            goalEvent.setTeamId(teamId2);
-            goalEvent.setDetails(description);
-            events.add(goalEvent);
+        // Field-level RNG so determinism IT holds.
+        Random random = this.random;
+        List<MatchEvent> events = buildGoalAndAssistEvents(
+                competitionId, seasonNumber, roundNumber, teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2);
 
-            if (!"Penalty".equals(description) && random.nextDouble() < ev.getAssistProbability() && team2Outfield.size() > 1) {
-                List<Human> possibleAssisters = team2Outfield.stream()
-                        .filter(p -> p.getId() != scorer.getId()).collect(Collectors.toList());
-                if (!possibleAssisters.isEmpty()) {
-                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
-                    MatchEvent assistEvent = new MatchEvent();
-                    assistEvent.setCompetitionId(competitionId);
-                    assistEvent.setSeasonNumber(seasonNumber);
-                    assistEvent.setRoundNumber(roundNumber);
-                    assistEvent.setTeamId1(teamId1);
-                    assistEvent.setTeamId2(teamId2);
-                    assistEvent.setMinute(minute);
-                    assistEvent.setEventType("assist");
-                    assistEvent.setPlayerId(assister.getId());
-                    assistEvent.setPlayerName(assister.getName());
-                    assistEvent.setTeamId(teamId2);
-                    assistEvent.setDetails("Assist");
-                    events.add(assistEvent);
-                }
-            }
-        }
+        boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
+        MatchEngineConfig.Events ev = engineConfig.getEvents();
+        MatchEngineConfig.Fouls fl = engineConfig.getFouls();
+        List<Human> team1Players = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.PLAYER_TYPE);
+        List<Human> team2Players = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.PLAYER_TYPE);
 
         // Cards + subs only for human-team matches.
         if (isHumanMatch) {
@@ -676,6 +615,56 @@ public class MatchSimulationService {
         }
 
         matchEventRepository.saveAll(events);
+    }
+
+    private void appendGoalEvents(List<MatchEvent> events,
+                                  long competitionId, int seasonNumber, int roundNumber,
+                                  long teamId1, long teamId2, long scoringTeamId,
+                                  List<Integer> goalMinutes, List<Human> outfieldPlayers,
+                                  PersonalizedTactic tactic,
+                                  String[] goalDescriptions,
+                                  MatchEngineConfig.Events ev,
+                                  Random random) {
+        for (int minute : goalMinutes) {
+            String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
+            Human scorer = resolveGoalScorer(description, outfieldPlayers, tactic, random);
+
+            MatchEvent goalEvent = new MatchEvent();
+            goalEvent.setCompetitionId(competitionId);
+            goalEvent.setSeasonNumber(seasonNumber);
+            goalEvent.setRoundNumber(roundNumber);
+            goalEvent.setTeamId1(teamId1);
+            goalEvent.setTeamId2(teamId2);
+            goalEvent.setMinute(minute);
+            goalEvent.setEventType("goal");
+            goalEvent.setPlayerId(scorer.getId());
+            goalEvent.setPlayerName(scorer.getName());
+            goalEvent.setTeamId(scoringTeamId);
+            goalEvent.setDetails(description);
+            events.add(goalEvent);
+
+            if (!"Penalty".equals(description) && random.nextDouble() < ev.getAssistProbability() && outfieldPlayers.size() > 1) {
+                List<Human> possibleAssisters = outfieldPlayers.stream()
+                        .filter(p -> p.getId() != scorer.getId())
+                        .collect(Collectors.toList());
+                if (!possibleAssisters.isEmpty()) {
+                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
+                    MatchEvent assistEvent = new MatchEvent();
+                    assistEvent.setCompetitionId(competitionId);
+                    assistEvent.setSeasonNumber(seasonNumber);
+                    assistEvent.setRoundNumber(roundNumber);
+                    assistEvent.setTeamId1(teamId1);
+                    assistEvent.setTeamId2(teamId2);
+                    assistEvent.setMinute(minute);
+                    assistEvent.setEventType("assist");
+                    assistEvent.setPlayerId(assister.getId());
+                    assistEvent.setPlayerName(assister.getName());
+                    assistEvent.setTeamId(scoringTeamId);
+                    assistEvent.setDetails("Assist");
+                    events.add(assistEvent);
+                }
+            }
+        }
     }
 
     /**

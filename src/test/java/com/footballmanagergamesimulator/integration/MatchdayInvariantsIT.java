@@ -306,15 +306,27 @@ class MatchdayInvariantsIT {
     @Order(30)
     @DisplayName("roundInjuredIds: DB-backed lookup returns active injuries (regression for dead-cache bug)")
     void roundInjuredIds_returnsDbBackedInjuriesOutsideSimulateRound() {
-        // Pick any team that has at least one player.
-        Team team = teamRepository.findAll().stream()
-                .filter(t -> !humanRepository.findAllByTeamIdAndTypeId(t.getId(), 1L).isEmpty())
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("bootstrap should have produced at least one team with players"));
-        Human player = humanRepository.findAllByTeamIdAndTypeId(team.getId(), 1L).get(0);
+        Team team = null;
+        Human player = null;
+        Set<Long> before = java.util.Collections.emptySet();
+        for (Team candidate : teamRepository.findAll()) {
+            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(candidate.getId(), 1L);
+            if (players.isEmpty()) continue;
+            Set<Long> injured = matchSimulationOrchestrator.roundInjuredIds(candidate.getId());
+            Human healthy = players.stream()
+                    .filter(p -> !injured.contains(p.getId()))
+                    .findFirst()
+                    .orElse(null);
+            if (healthy != null) {
+                team = candidate;
+                player = healthy;
+                before = injured;
+                break;
+            }
+        }
+        assertNotNull(team, "bootstrap should have produced at least one team with a healthy player");
+        assertNotNull(player, "expected to pick a healthy player for the injury fallback regression test");
 
-        // Pre-condition: no active injury for this player → not in the returned set.
-        Set<Long> before = matchSimulationOrchestrator.roundInjuredIds(team.getId());
         assertFalse(before.contains(player.getId()),
                 "pre-condition: player should not be injured before we add the injury");
 

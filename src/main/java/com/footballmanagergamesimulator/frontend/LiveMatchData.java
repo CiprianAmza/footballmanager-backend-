@@ -57,6 +57,8 @@ public class LiveMatchData {
     private int currentMinute;
     /** True once full-time has fired. */
     private boolean finished;
+    /** True after full-time but before POST /match/live/{key}/commit finalizes persistence. */
+    private boolean awaitingCommit;
     /** Remaining substitutions per side (0..3). */
     private int homeSubsRemaining;
     private int awaySubsRemaining;
