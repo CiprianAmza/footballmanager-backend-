@@ -138,21 +138,9 @@ public class TacticSimulationService {
         }
         rows.sort(Comparator.comparingDouble(TacticPointsRow::avgPoints).reversed());
 
-        // Keep only the distinct average-points values (as displayed, 2 decimals); on a tie, prefer
-        // the row with the highest MINIMUM points (best worst-case). Many tactics score identically,
-        // so this collapses the list to the genuinely different outcomes.
-        Map<String, TacticPointsRow> byAvg = new LinkedHashMap<>();
-        for (TacticPointsRow r : rows) {
-            String key = String.format("%.2f", r.avgPoints());
-            TacticPointsRow cur = byAvg.get(key);
-            if (cur == null || r.minPoints() > cur.minPoints()) byAvg.put(key, r);
-        }
-        List<TacticPointsRow> distinct = new ArrayList<>(byAvg.values());
-        distinct.sort(Comparator.comparingDouble(TacticPointsRow::avgPoints).reversed());
-
         String name = teamRepo.findNameById(teamId);
         return new TacticPointsResult(teamId, name == null ? "Team#" + teamId : name,
-                form, n, oppCount, distinct);
+                form, n, oppCount, rows);
     }
 
     public record AnalyticalRow(String mentality, String tempo, String passingType, String inPossession,

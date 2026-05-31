@@ -258,3 +258,52 @@ match:
       penalty-weaker-team-win-chance: 0.5 # Shootout coin-flip; 0.55 gives the weaker side a slight edge.
       # NOTE: which knockout rounds are two-leg is tournament *structure* — it now lives in
       # CompetitionFormatConfig (the format single-source), not here.
+player:
+  card:
+    attribute-scale:
+      source-min: 1.0
+      source-max: 20.0
+      target-min: 0.0
+      target-max: 99.0
+    overall-scale:
+      source-min: 1.0
+      source-max: 300.0
+      target-min: 0.0
+      target-max: 99.0
+    buckets:
+      PAC:
+        Acceleration: 1.0
+        Pace: 1.0
+      SHO:
+        Finishing: 1.35
+        "Long Shots": 1.1
+        "Penalty Taking": 0.85
+        Composure: 0.8
+        Technique: 0.6
+        Strength: 0.4
+      PAS:
+        Passing: 1.2
+        Crossing: 1.0
+        Vision: 1.0
+        "Free Kick": 0.85
+        Corners: 0.7
+        Technique: 0.6
+      DRI:
+        Dribbling: 1.2
+        Agility: 1.0
+        Balance: 0.95
+        "First Touch": 0.95
+        Flair: 0.85
+        Technique: 0.75
+      DEF:
+        Marking: 1.1
+        Tackling: 1.2
+        Positioning: 1.0
+        Heading: 0.75
+        Anticipation: 0.85
+      PHY:
+        Strength: 1.0
+        Stamina: 1.0
+        "Jumping Reach": 0.9
+        Aggression: 0.8
+        "Natural Fitness": 0.8

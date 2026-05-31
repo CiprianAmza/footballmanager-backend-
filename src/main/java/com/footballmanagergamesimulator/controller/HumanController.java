@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.frontend.PlayerView;
+import com.footballmanagergamesimulator.frontend.PlayerCardView;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Player;
 import com.footballmanagergamesimulator.model.PlayerSkills;
@@ -8,6 +9,7 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.PlayerCardService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -24,13 +26,18 @@ public class HumanController {
     HumanRepository humanRepository;
     TeamRepository teamRepository;
     PlayerSkillsRepository playerSkillsRepository;
+    PlayerCardService playerCardService;
 
     @Autowired
-    public HumanController(HumanRepository humanRepository, TeamRepository teamRepository, PlayerSkillsRepository playerSkillsRepository) {
+    public HumanController(HumanRepository humanRepository,
+                           TeamRepository teamRepository,
+                           PlayerSkillsRepository playerSkillsRepository,
+                           PlayerCardService playerCardService) {
 
         this.humanRepository = humanRepository;
         this.teamRepository = teamRepository;
         this.playerSkillsRepository = playerSkillsRepository;
+        this.playerCardService = playerCardService;
     }
 
     @GetMapping("/allPlayers")
@@ -57,6 +64,15 @@ public class HumanController {
         PlayerView playerView = buildPlayerView(human.get());
 
         return playerView;
+    }
+
+    @GetMapping("/{playerId}/card")
+    public PlayerCardView getCard(@PathVariable(name = "playerId") Long playerId) {
+
+        if (playerId == null)
+            return null;
+
+        return playerCardService.getPlayerCard(playerId).orElse(null);
     }
     
     @GetMapping("/compare/{playerId1}/{playerId2}")
