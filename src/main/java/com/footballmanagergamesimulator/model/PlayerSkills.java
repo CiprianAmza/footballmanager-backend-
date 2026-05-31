@@ -15,7 +15,8 @@ import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL;
 public class PlayerSkills {
 
   @Id
-  @GeneratedValue(strategy= GenerationType.IDENTITY)
+  @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "player_skills_seq")
+  @SequenceGenerator(name = "player_skills_seq", sequenceName = "player_skills_seq", allocationSize = 1)
   private long id;
 
   private long playerId;

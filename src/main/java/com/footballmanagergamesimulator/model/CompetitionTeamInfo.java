@@ -9,7 +9,8 @@ import lombok.Data;
 public class CompetitionTeamInfo {
 
   @Id
-  @GeneratedValue(strategy= GenerationType.IDENTITY)
+  @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "cti_seq")
+  @SequenceGenerator(name = "cti_seq", sequenceName = "cti_seq", allocationSize = 1)
   private long id;
 
   /**

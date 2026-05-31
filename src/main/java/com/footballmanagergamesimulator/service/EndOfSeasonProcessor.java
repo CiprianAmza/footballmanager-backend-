@@ -148,6 +148,7 @@ public class EndOfSeasonProcessor {
             // (needed when encounters=0 and no matches were played)
             long currentSeason = currentSeason();
             List<CompetitionTeamInfo> currentSeasonEntries = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason);
+            List<TeamCompetitionDetail> newTcds = new ArrayList<>();
             for (Long id : leagueCompetitionIds) {
                 List<Long> leagueTeamIds = currentSeasonEntries.stream()
                         .filter(cti -> cti.getCompetitionId() == id)
@@ -160,10 +161,11 @@ public class EndOfSeasonProcessor {
                         tcd.setTeamId(tid);
                         tcd.setCompetitionId(id);
                         tcd.setForm("");
-                        teamCompetitionDetailRepository.save(tcd);
+                        newTcds.add(tcd);
                     }
                 }
             }
+            teamCompetitionDetailRepository.saveAll(newTcds);
 
             List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
             // Pre-resolve every team once so the standings comparator's reputation
@@ -173,6 +175,7 @@ public class EndOfSeasonProcessor {
             Map<Long, Integer> reputationById = new HashMap<>();
             for (Map.Entry<Long, Team> e : teamsById.entrySet())
                 reputationById.put(e.getKey(), e.getValue().getReputation());
+            List<CompetitionTeamInfo> newStandingsCtis = new ArrayList<>();
             for (Long id : leagueCompetitionIds) {
                 int finalId = Math.toIntExact(id);
                 List<TeamCompetitionDetail> teamCompetitionDetailList = teamCompetitionDetails.stream()
@@ -207,7 +210,7 @@ public class EndOfSeasonProcessor {
                     competitionTeamInfo.setSeasonNumber(currentSeason + 1);
                     competitionTeamInfo.setRound(1L);
                     competitionTeamInfo.setTeamId(teamCompetitionDetail.getTeamId());
-                    competitionTeamInfoRepository.save(competitionTeamInfo);
+                    newStandingsCtis.add(competitionTeamInfo);
 
                     Long cupId = leagueToCupMap.get(id);
                     if (cupId != null) {
@@ -216,11 +219,12 @@ public class EndOfSeasonProcessor {
                         competitionTeamInfoCup.setSeasonNumber(currentSeason + 1);
                         competitionTeamInfoCup.setRound(index <= numByes ? 2L : 1L);
                         competitionTeamInfoCup.setTeamId(teamCompetitionDetail.getTeamId());
-                        competitionTeamInfoRepository.save(competitionTeamInfoCup);
+                        newStandingsCtis.add(competitionTeamInfoCup);
                     }
                     index++;
                 }
             }
+            competitionTeamInfoRepository.saveAll(newStandingsCtis);
 
             europeanCompetitionService.qualifyTeamsForEuropeanCompetitions();
 

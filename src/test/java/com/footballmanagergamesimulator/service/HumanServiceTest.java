@@ -231,10 +231,11 @@ class HumanServiceTest {
         round.setSeason(1L);
 
         when(roundRepository.findById(1L)).thenReturn(Optional.of(round));
-        when(humanRepository.save(any(Human.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // Regens are now persisted in a single batched saveAll (insert-batching enabled).
+        when(humanRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
         humanService.addRegens(teamFacilities, 1L);
 
-        verify(humanRepository, atLeast(1)).save(any(Human.class));
+        verify(humanRepository, atLeast(1)).saveAll(anyList());
     }
 }

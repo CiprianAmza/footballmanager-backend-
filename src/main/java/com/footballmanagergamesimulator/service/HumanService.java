@@ -379,34 +379,70 @@ public class HumanService {
     }
 
     public void addRegens(TeamFacilities teamFacilities, long teamId) {
-
-      int nrRegens = 1;
       long currentSeason = roundRepository.findById(1L).get().getSeason();
+
+      List<Human> newPlayers = new ArrayList<>();
+      collectRegens(teamFacilities, teamId, currentSeason, newPlayers);
+      // Persist the generated humans first so their IDs are assigned, then build
+      // skills + historical relations from those ids and flush each in one batch.
+      newPlayers = (List<Human>) humanRepository.saveAll(newPlayers);
+
+      List<PlayerSkills> newSkills = new ArrayList<>();
+      List<TeamPlayerHistoricalRelation> newRelations = new ArrayList<>();
+      buildRegenSkillsAndRelations(newPlayers, currentSeason, newSkills, newRelations);
+
+      humanRepository.saveAll(newPlayers); // re-save with recomputed rating
+      playerSkillsRepository.saveAll(newSkills);
+      teamPlayerHistoricalRelationRepository.saveAll(newRelations);
+    }
+
+    /**
+     * Batch-friendly regen generation: appends freshly generated (unsaved) regen
+     * {@link Human}s for {@code teamId} to {@code collector}. The caller is
+     * responsible for persisting them via {@code saveAll} and then calling
+     * {@link #buildRegenSkillsAndRelations} to produce the dependent rows.
+     * Hoisting {@code currentSeason} out of the per-team loop avoids the
+     * {@code roundRepository.findById(1L)} round-trip per team.
+     */
+    public void collectRegens(TeamFacilities teamFacilities, long teamId,
+                              long currentSeason, List<Human> collector) {
+      int nrRegens = 1;
       for (int i = 0; i < nrRegens; i++) {
           Human player = generateHuman(teamId, teamFacilities.getYouthAcademyLevel());
-          player = humanRepository.save(player);
+          collector.add(player);
+      }
+    }
 
+    /**
+     * For each already-persisted regen {@link Human} (IDs assigned), generates its
+     * {@link PlayerSkills}, recomputes the rating from the attributes (mutating the
+     * Human in place), and creates the {@link TeamPlayerHistoricalRelation}. Appends
+     * the new skills/relations to the supplied collectors for a single batched flush.
+     */
+    public void buildRegenSkillsAndRelations(List<Human> persistedPlayers, long currentSeason,
+                                             List<PlayerSkills> skillsCollector,
+                                             List<TeamPlayerHistoricalRelation> relationCollector) {
+      for (Human player : persistedPlayers) {
           PlayerSkills playerSkills = new PlayerSkills();
           playerSkills.setPlayerId(player.getId());
           playerSkills.setPosition(player.getPosition());
           competitionService.generateSkills(playerSkills, player.getRating());
-          playerSkillsRepository.save(playerSkills);
 
           // Recompute rating from attributes
           double computedRating = PlayerSkillsService.computeOverallRating(playerSkills);
           player.setRating(computedRating);
           player.setCurrentAbility((int) computedRating);
           player.setBestEverRating(computedRating);
-          humanRepository.save(player);
 
           TeamPlayerHistoricalRelation relation = new TeamPlayerHistoricalRelation();
           relation.setPlayerId(player.getId());
-          relation.setTeamId(teamId);
+          relation.setTeamId(player.getTeamId());
           relation.setSeasonNumber(currentSeason);
           relation.setRating(player.getRating());
-          teamPlayerHistoricalRelationRepository.save(relation);
-      }
 
+          skillsCollector.add(playerSkills);
+          relationCollector.add(relation);
+      }
     }
 
     private Human generateHuman(long teamId, long youthAcademyLevel) {
