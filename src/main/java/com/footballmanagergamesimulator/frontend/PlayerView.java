@@ -60,4 +60,5 @@ public class PlayerView {
   private int noseShape;
   private int eyeShape;
   private int mouthShape;
+  private int browShape;
 }

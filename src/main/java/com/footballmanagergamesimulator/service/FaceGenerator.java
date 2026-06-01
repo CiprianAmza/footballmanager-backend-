@@ -26,20 +26,51 @@ public class FaceGenerator {
     /** Mouth has a single (human) catalog of this many shapes. */
     private static final int MOUTH_SHAPE_COUNT = 5;
 
-    // Shape catalogs are split into a HUMAN region (low indices) and an ALIEN region (high indices),
-    // matching the FE player-face component. A nation's "alienness" sets the chance of drawing from
-    // the alien region — Gallactick is mostly alien (Galactik-Football style), others mostly human.
-    private static final int FACE_HUMAN = 5, FACE_ALIEN = 5;   // faceShape 0-4 human, 5-9 alien
+    // Nose/eye catalogs split into a HUMAN region (low) + ALIEN region (high), matching the FE.
     private static final int NOSE_HUMAN = 5, NOSE_ALIEN = 5;   // noseShape 0-4 / 5-9
     private static final int EYE_HUMAN = 5, EYE_ALIEN = 5;     // eyeShape 0-4 / 5-9
-    private static final int HAIR_HUMAN = 14, HAIR_ALIEN = 6;  // hairStyle 0-13 / 14-19
 
-    /** Per-nation chance (0..1) of drawing the ALIEN region of each shape catalog. */
+    /** Per-nation chance (0..1) of drawing the ALIEN nose/eye region — Gallactick mostly alien. */
     private static double alienness(long nationId) {
         if (nationId == 1L) return 0.90; // Gallactick — alien athletes
         if (nationId == 0L) return 0.10; // International / continental
         return 0.04;                     // earthly nations — occasional exotic
     }
+
+    // Per-nation STRUCTURAL identity (mirror of the FE player-face NATION_STRUCTURE table): the favored
+    // pool of head silhouettes (faceShape 0-15) and hair silhouettes (hairStyle 0-19) per nation, so
+    // each nation is recognizable by head + hair while keeping per-player variety within the pool.
+    private static final Map<Long, int[]> NATION_HEAD = Map.of(
+            0L, new int[]{0, 1, 2, 4},        // International
+            1L, new int[]{5, 6, 7, 8, 9},     // Gallactick — alien skulls
+            2L, new int[]{14, 3, 0, 11},      // Dong
+            3L, new int[]{15, 2, 6, 12},      // Khess
+            4L, new int[]{11, 10, 0, 1},      // FootieCup
+            5L, new int[]{13, 4, 12, 1},      // Cards
+            6L, new int[]{11, 13, 12, 15},    // Literature — distinctive non-oval (dome/tall/heart/hex)
+            7L, new int[]{15, 13, 2, 6});     // Eleven
+    private static final Map<Long, int[]> NATION_HAIR = Map.of(
+            0L, new int[]{0, 1, 3, 5, 8},
+            1L, new int[]{14, 15, 17, 18, 19},// Gallactick — exotic hair
+            2L, new int[]{2, 13, 14, 4},
+            3L, new int[]{14, 2, 15, 11},
+            4L, new int[]{8, 1, 5, 17},
+            5L, new int[]{0, 3, 6, 10},
+            6L, new int[]{5, 7, 9, 10},
+            7L, new int[]{3, 2, 11, 14});
+    /** Per-nation favored eyebrow pool (browShape 0-8), mirror of the FE NATION_STRUCTURE brows. */
+    private static final Map<Long, int[]> NATION_BROW = Map.of(
+            0L, new int[]{0, 2, 4},
+            1L, new int[]{4, 8, 1},
+            2L, new int[]{3, 5, 7},
+            3L, new int[]{6, 1, 5},
+            4L, new int[]{7, 0, 5},
+            5L, new int[]{4, 8, 2},
+            6L, new int[]{8, 5, 2},
+            7L, new int[]{5, 4, 6});
+    private static final int[] DEFAULT_HEAD_POOL = {0, 1, 2, 4};
+    private static final int[] DEFAULT_HAIR_POOL = {0, 1, 3, 5, 8};
+    private static final int[] DEFAULT_BROW_POOL = {0, 2, 4};
 
     /** Per-nation skin-tone weights over indices 0-5 (light -> dark). */
     private static final Map<Long, int[]> SKIN_TONE_WEIGHTS = Map.of(
@@ -77,15 +108,21 @@ public class FaceGenerator {
         player.setBaseFaceId(random.nextInt(BASE_FACE_COUNT));
         player.setSkinTone(weightedPick(random, SKIN_TONE_WEIGHTS.getOrDefault(nationId, DEFAULT_SKIN)));
         double al = alienness(nationId);
-        player.setHairStyle(pickShape(random, HAIR_HUMAN, HAIR_ALIEN, al));
+        // Hair + head silhouettes are drawn from the nation's favored pool (structural identity).
+        player.setHairStyle(pickFrom(random, NATION_HAIR.getOrDefault(nationId, DEFAULT_HAIR_POOL)));
         player.setHairColor(weightedPick(random, HAIR_COLOR_WEIGHTS.getOrDefault(nationId, DEFAULT_HAIR)));
         player.setEyeColor(random.nextInt(EYE_COLOR_COUNT));
-        // Shape indices — drawn AFTER the colour/hair picks; each split into a human (low) and an
-        // alien (high) region, the alien region drawn with probability {@code al} (nation alienness).
-        player.setFaceShape(pickShape(random, FACE_HUMAN, FACE_ALIEN, al));
+        player.setFaceShape(pickFrom(random, NATION_HEAD.getOrDefault(nationId, DEFAULT_HEAD_POOL)));
+        // Nose/eye keep the human/alien split (Gallactick mostly alien via alienness).
         player.setNoseShape(pickShape(random, NOSE_HUMAN, NOSE_ALIEN, al));
         player.setEyeShape(pickShape(random, EYE_HUMAN, EYE_ALIEN, al));
         player.setMouthShape(random.nextInt(MOUTH_SHAPE_COUNT));
+        player.setBrowShape(pickFrom(random, NATION_BROW.getOrDefault(nationId, DEFAULT_BROW_POOL)));
+    }
+
+    /** Uniformly pick one index from a favored pool. */
+    private int pickFrom(Random random, int[] pool) {
+        return pool[random.nextInt(pool.length)];
     }
 
     /** Pick a shape index: with probability {@code alienness} draw the ALIEN region

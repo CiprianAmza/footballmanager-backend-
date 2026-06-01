@@ -134,6 +134,7 @@ public class PlayerCardService {
         invokeOptionalGetter(player, "getNoseShape").ifPresent(v -> face.put("noseShape", v));
         invokeOptionalGetter(player, "getEyeShape").ifPresent(v -> face.put("eyeShape", v));
         invokeOptionalGetter(player, "getMouthShape").ifPresent(v -> face.put("mouthShape", v));
+        invokeOptionalGetter(player, "getBrowShape").ifPresent(v -> face.put("browShape", v));
         return face.isEmpty() ? null : face;
     }
 

@@ -898,6 +898,7 @@ public class TacticController {
         playerView.setNoseShape(human.getNoseShape());
         playerView.setEyeShape(human.getEyeShape());
         playerView.setMouthShape(human.getMouthShape());
+        playerView.setBrowShape(human.getBrowShape());
 
         return playerView;
     }

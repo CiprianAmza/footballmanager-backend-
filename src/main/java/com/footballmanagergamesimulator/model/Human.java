@@ -104,6 +104,8 @@ public class Human {
     private int eyeShape;
     @Column(columnDefinition = "int default 0")
     private int mouthShape;
+    @Column(columnDefinition = "int default 0")
+    private int browShape;
 
     // Playing time tracking (for player happiness system)
     @Column(columnDefinition = "int default 0")
