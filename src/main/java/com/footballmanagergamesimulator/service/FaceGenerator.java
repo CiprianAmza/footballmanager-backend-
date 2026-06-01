@@ -24,6 +24,8 @@ public class FaceGenerator {
     private static final int BASE_FACE_COUNT = 10;
     private static final int HAIR_STYLE_COUNT = 10;
     private static final int EYE_COLOR_COUNT = 4;
+    /** Distinct shapes per facial component the FE can render (face/nose/eye/mouth). */
+    private static final int SHAPE_COUNT = 5;
 
     /** Per-nation skin-tone weights over indices 0-5 (light -> dark). */
     private static final Map<Long, int[]> SKIN_TONE_WEIGHTS = Map.of(
@@ -63,6 +65,12 @@ public class FaceGenerator {
         player.setHairStyle(random.nextInt(HAIR_STYLE_COUNT));
         player.setHairColor(weightedPick(random, HAIR_COLOR_WEIGHTS.getOrDefault(nationId, DEFAULT_HAIR)));
         player.setEyeColor(random.nextInt(EYE_COLOR_COUNT));
+        // Shape indices (each 0..SHAPE_COUNT-1) — drawn AFTER the colour/hair picks so previously
+        // generated faces keep their colours; these add independent shape variety per player.
+        player.setFaceShape(random.nextInt(SHAPE_COUNT));
+        player.setNoseShape(random.nextInt(SHAPE_COUNT));
+        player.setEyeShape(random.nextInt(SHAPE_COUNT));
+        player.setMouthShape(random.nextInt(SHAPE_COUNT));
     }
 
     /** Pick an index in [0, weights.length) with probability proportional to its weight. */

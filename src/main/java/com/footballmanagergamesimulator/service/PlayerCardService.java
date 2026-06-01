@@ -130,6 +130,10 @@ public class PlayerCardService {
         invokeOptionalGetter(player, "getHairStyle").ifPresent(v -> face.put("hairStyle", v));
         invokeOptionalGetter(player, "getHairColor").ifPresent(v -> face.put("hairColor", v));
         invokeOptionalGetter(player, "getEyeColor").ifPresent(v -> face.put("eyeColor", v));
+        invokeOptionalGetter(player, "getFaceShape").ifPresent(v -> face.put("faceShape", v));
+        invokeOptionalGetter(player, "getNoseShape").ifPresent(v -> face.put("noseShape", v));
+        invokeOptionalGetter(player, "getEyeShape").ifPresent(v -> face.put("eyeShape", v));
+        invokeOptionalGetter(player, "getMouthShape").ifPresent(v -> face.put("mouthShape", v));
         return face.isEmpty() ? null : face;
     }
 

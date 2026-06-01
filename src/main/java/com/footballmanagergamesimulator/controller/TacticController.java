@@ -880,6 +880,17 @@ public class TacticController {
         playerView.setTransferValue(human.getTransferValue());
         playerView.setWealth(human.getWealth());
 
+        // Face descriptor so the squad/pitch can render the player's actual face (not a default one).
+        playerView.setBaseFaceId(human.getBaseFaceId());
+        playerView.setSkinTone(human.getSkinTone());
+        playerView.setHairStyle(human.getHairStyle());
+        playerView.setHairColor(human.getHairColor());
+        playerView.setEyeColor(human.getEyeColor());
+        playerView.setFaceShape(human.getFaceShape());
+        playerView.setNoseShape(human.getNoseShape());
+        playerView.setEyeShape(human.getEyeShape());
+        playerView.setMouthShape(human.getMouthShape());
+
         return playerView;
     }
 

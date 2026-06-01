@@ -187,6 +187,10 @@ public class HumanController {
         playerView.setHairStyle(player.getHairStyle());
         playerView.setHairColor(player.getHairColor());
         playerView.setEyeColor(player.getEyeColor());
+        playerView.setFaceShape(player.getFaceShape());
+        playerView.setNoseShape(player.getNoseShape());
+        playerView.setEyeShape(player.getEyeShape());
+        playerView.setMouthShape(player.getMouthShape());
 
         return playerView;
     }

@@ -55,4 +55,9 @@ public class PlayerView {
   private int hairStyle;
   private int hairColor;
   private int eyeColor;
+  // Shape indices (independent of colour) — picked randomly per player on the backend.
+  private int faceShape;
+  private int noseShape;
+  private int eyeShape;
+  private int mouthShape;
 }

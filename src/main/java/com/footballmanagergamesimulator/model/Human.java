@@ -95,6 +95,15 @@ public class Human {
     private int hairColor;
     @Column(columnDefinition = "int default 0")
     private int eyeColor;
+    // Shape indices (independent of colour) — each picks a distinct masculine component on the FE.
+    @Column(columnDefinition = "int default 0")
+    private int faceShape;
+    @Column(columnDefinition = "int default 0")
+    private int noseShape;
+    @Column(columnDefinition = "int default 0")
+    private int eyeShape;
+    @Column(columnDefinition = "int default 0")
+    private int mouthShape;
 
     // Playing time tracking (for player happiness system)
     @Column(columnDefinition = "int default 0")
