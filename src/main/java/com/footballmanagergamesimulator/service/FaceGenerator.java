@@ -47,7 +47,7 @@ public class FaceGenerator {
             3L, new int[]{15, 2, 6, 12},      // Khess
             4L, new int[]{11, 10, 0, 1},      // FootieCup
             5L, new int[]{13, 4, 12, 1},      // Cards
-            6L, new int[]{11, 13, 12, 15},    // Literature — distinctive non-oval (dome/tall/heart/hex)
+            6L, new int[]{16, 17, 10, 11},    // Literature — lunar: crescent-moon(16)/onion-dome(17)/crescent(10)/semicircle(11)
             7L, new int[]{15, 13, 2, 6});     // Eleven
     private static final Map<Long, int[]> NATION_HAIR = Map.of(
             0L, new int[]{0, 1, 3, 5, 8},
