@@ -52,6 +52,8 @@ public class TacticController {
     PlayerValueService playerValueService;
     @Autowired
     com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
+    @Autowired
+    com.footballmanagergamesimulator.service.NationService nationService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -879,6 +881,12 @@ public class TacticController {
         playerView.setReleaseClause(human.getReleaseClause());
         playerView.setTransferValue(human.getTransferValue());
         playerView.setWealth(human.getWealth());
+
+        // Nation (so squad/pitch faces can show the per-nation signature).
+        com.footballmanagergamesimulator.service.NationService.NationInfo nation = nationService.infoForTeam(team.getId());
+        playerView.setNationId(nation.id());
+        playerView.setNationName(nation.name());
+        playerView.setNationFlagCode(nation.flagCode());
 
         // Face descriptor so the squad/pitch can render the player's actual face (not a default one).
         playerView.setBaseFaceId(human.getBaseFaceId());

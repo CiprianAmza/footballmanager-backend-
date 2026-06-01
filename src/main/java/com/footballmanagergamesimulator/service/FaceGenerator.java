@@ -22,10 +22,24 @@ import java.util.Random;
 public class FaceGenerator {
 
     private static final int BASE_FACE_COUNT = 10;
-    private static final int HAIR_STYLE_COUNT = 10;
     private static final int EYE_COLOR_COUNT = 4;
-    /** Distinct shapes per facial component the FE can render (face/nose/eye/mouth). */
-    private static final int SHAPE_COUNT = 5;
+    /** Mouth has a single (human) catalog of this many shapes. */
+    private static final int MOUTH_SHAPE_COUNT = 5;
+
+    // Shape catalogs are split into a HUMAN region (low indices) and an ALIEN region (high indices),
+    // matching the FE player-face component. A nation's "alienness" sets the chance of drawing from
+    // the alien region — Gallactick is mostly alien (Galactik-Football style), others mostly human.
+    private static final int FACE_HUMAN = 5, FACE_ALIEN = 5;   // faceShape 0-4 human, 5-9 alien
+    private static final int NOSE_HUMAN = 5, NOSE_ALIEN = 5;   // noseShape 0-4 / 5-9
+    private static final int EYE_HUMAN = 5, EYE_ALIEN = 5;     // eyeShape 0-4 / 5-9
+    private static final int HAIR_HUMAN = 14, HAIR_ALIEN = 6;  // hairStyle 0-13 / 14-19
+
+    /** Per-nation chance (0..1) of drawing the ALIEN region of each shape catalog. */
+    private static double alienness(long nationId) {
+        if (nationId == 1L) return 0.90; // Gallactick — alien athletes
+        if (nationId == 0L) return 0.10; // International / continental
+        return 0.04;                     // earthly nations — occasional exotic
+    }
 
     /** Per-nation skin-tone weights over indices 0-5 (light -> dark). */
     private static final Map<Long, int[]> SKIN_TONE_WEIGHTS = Map.of(
@@ -62,15 +76,25 @@ public class FaceGenerator {
         // Draw order is fixed so the descriptor is reproducible from the seed.
         player.setBaseFaceId(random.nextInt(BASE_FACE_COUNT));
         player.setSkinTone(weightedPick(random, SKIN_TONE_WEIGHTS.getOrDefault(nationId, DEFAULT_SKIN)));
-        player.setHairStyle(random.nextInt(HAIR_STYLE_COUNT));
+        double al = alienness(nationId);
+        player.setHairStyle(pickShape(random, HAIR_HUMAN, HAIR_ALIEN, al));
         player.setHairColor(weightedPick(random, HAIR_COLOR_WEIGHTS.getOrDefault(nationId, DEFAULT_HAIR)));
         player.setEyeColor(random.nextInt(EYE_COLOR_COUNT));
-        // Shape indices (each 0..SHAPE_COUNT-1) — drawn AFTER the colour/hair picks so previously
-        // generated faces keep their colours; these add independent shape variety per player.
-        player.setFaceShape(random.nextInt(SHAPE_COUNT));
-        player.setNoseShape(random.nextInt(SHAPE_COUNT));
-        player.setEyeShape(random.nextInt(SHAPE_COUNT));
-        player.setMouthShape(random.nextInt(SHAPE_COUNT));
+        // Shape indices — drawn AFTER the colour/hair picks; each split into a human (low) and an
+        // alien (high) region, the alien region drawn with probability {@code al} (nation alienness).
+        player.setFaceShape(pickShape(random, FACE_HUMAN, FACE_ALIEN, al));
+        player.setNoseShape(pickShape(random, NOSE_HUMAN, NOSE_ALIEN, al));
+        player.setEyeShape(pickShape(random, EYE_HUMAN, EYE_ALIEN, al));
+        player.setMouthShape(random.nextInt(MOUTH_SHAPE_COUNT));
+    }
+
+    /** Pick a shape index: with probability {@code alienness} draw the ALIEN region
+     *  [humanCount, humanCount+alienCount), otherwise the HUMAN region [0, humanCount). */
+    private int pickShape(Random random, int humanCount, int alienCount, double alienness) {
+        if (alienCount > 0 && random.nextDouble() < alienness) {
+            return humanCount + random.nextInt(alienCount);
+        }
+        return random.nextInt(humanCount);
     }
 
     /** Pick an index in [0, weights.length) with probability proportional to its weight. */
