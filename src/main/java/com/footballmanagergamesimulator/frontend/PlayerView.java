@@ -61,4 +61,6 @@ public class PlayerView {
   private int eyeShape;
   private int mouthShape;
   private int browShape;
+  // Exotic species (whole-nation mapping); "human" = default earthly face.
+  private String species;
 }

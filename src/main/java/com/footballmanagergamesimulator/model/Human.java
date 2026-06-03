@@ -106,6 +106,9 @@ public class Human {
     private int mouthShape;
     @Column(columnDefinition = "int default 0")
     private int browShape;
+    // Exotic species (whole-nation mapping in FaceGenerator); "human" = default earthly face.
+    @Column(columnDefinition = "varchar(20) default 'human'")
+    private String species = "human";
 
     // Playing time tracking (for player happiness system)
     @Column(columnDefinition = "int default 0")

@@ -192,6 +192,7 @@ public class HumanController {
         playerView.setEyeShape(player.getEyeShape());
         playerView.setMouthShape(player.getMouthShape());
         playerView.setBrowShape(player.getBrowShape());
+        playerView.setSpecies(player.getSpecies());
 
         return playerView;
     }

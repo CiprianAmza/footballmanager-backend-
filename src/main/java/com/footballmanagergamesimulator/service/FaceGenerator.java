@@ -97,6 +97,14 @@ public class FaceGenerator {
     private static final int[] DEFAULT_SKIN = {17, 17, 17, 17, 16, 16};
     private static final int[] DEFAULT_HAIR = {17, 17, 17, 17, 16, 16};
 
+    /** Whole-nation exotic species mapping (1:1). Nations absent here keep the default "human" face. */
+    private static final Map<Long, String> NATION_SPECIES = Map.of(
+            1L, "eleftamide",   // Gallactick
+            2L, "rokykario",    // Dong
+            3L, "saurian",      // Khess
+            5L, "crystalline",  // Cards
+            6L, "monument");    // Literature
+
     /**
      * Assign the face descriptor on {@code player} using the player's id as the deterministic seed and
      * {@code nationId} to pick the weighted skin/hair distributions. Idempotent for a given (id, nation).
@@ -118,6 +126,7 @@ public class FaceGenerator {
         player.setEyeShape(pickShape(random, EYE_HUMAN, EYE_ALIEN, al));
         player.setMouthShape(random.nextInt(MOUTH_SHAPE_COUNT));
         player.setBrowShape(pickFrom(random, NATION_BROW.getOrDefault(nationId, DEFAULT_BROW_POOL)));
+        player.setSpecies(NATION_SPECIES.getOrDefault(nationId, "human"));
     }
 
     /** Uniformly pick one index from a favored pool. */
