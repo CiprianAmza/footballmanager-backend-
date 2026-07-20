@@ -1,14 +1,18 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.model.Suspension;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.SuspensionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -32,6 +36,10 @@ public class SuspensionService {
     private MatchEventRepository matchEventRepository;
     @Autowired
     private ManagerInboxRepository managerInboxRepository;
+    @Autowired
+    private CompetitionTeamInfoMatchRepository fixtureRepository;
+    @Autowired(required = false)
+    private GameplayFeatureConfig gameplayFeatures;
 
     // ==================== CARD PROCESSING ====================
 
@@ -45,38 +53,12 @@ public class SuspensionService {
      * @param season        the season number
      */
     public void processMatchCards(Long competitionId, int matchday, int season) {
-        if (competitionId == null) return;
+        if (competitionId == null || isAvailabilityDisabled()) return;
 
         List<MatchEvent> events = matchEventRepository
                 .findAllByCompetitionIdAndSeasonNumberAndRoundNumber(competitionId, season, matchday);
 
-        // Extract unique team pairs from the events
-        Set<Long> processedTeams = new java.util.HashSet<>();
-        for (MatchEvent event : events) {
-            if (processedTeams.contains(event.getTeamId())) continue;
-
-            if ("red_card".equals(event.getEventType()) || "yellow_card".equals(event.getEventType())) {
-                long teamId = event.getTeamId();
-                processedTeams.add(teamId);
-
-                if ("red_card".equals(event.getEventType())) {
-                    Suspension suspension = createRedCardSuspension(event, competitionId, season);
-                    if (userContext.isHumanTeam(event.getTeamId())) {
-                        sendSuspensionNotification(suspension);
-                    }
-                }
-
-                if ("yellow_card".equals(event.getEventType())) {
-                    long yellowCount = countYellowCards(event.getPlayerId(), competitionId, season);
-                    if (yellowCount > 0 && yellowCount % YELLOW_CARD_ACCUMULATION == 0) {
-                        Suspension suspension = createYellowAccumulationSuspension(event, competitionId, season);
-                        if (userContext.isHumanTeam(event.getTeamId())) {
-                            sendSuspensionNotification(suspension);
-                        }
-                    }
-                }
-            }
-        }
+        processEvents(events, competitionId, season);
     }
 
     /**
@@ -92,37 +74,65 @@ public class SuspensionService {
      * @return list of newly created suspensions
      */
     public List<Suspension> processMatchCards(long competitionId, int season, int roundNumber, long team1Id, long team2Id) {
+        if (isAvailabilityDisabled()) return List.of();
         List<Suspension> newSuspensions = new ArrayList<>();
 
         List<MatchEvent> events = matchEventRepository
                 .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
                         competitionId, season, roundNumber, team1Id, team2Id);
 
+        newSuspensions.addAll(processEvents(events, competitionId, season));
+        return newSuspensions;
+    }
+
+    /**
+     * Persist bans exactly once. Yellow-card bans are derived from the number of
+     * completed five-card milestones, rather than from the final total modulo
+     * five; this also works when a fast-forward chunk contains several rounds.
+     */
+    private List<Suspension> processEvents(List<MatchEvent> events, long competitionId, int season) {
+        List<Suspension> created = new ArrayList<>();
+
         for (MatchEvent event : events) {
-            if ("red_card".equals(event.getEventType())) {
-                Suspension suspension = createRedCardSuspension(event, competitionId, season);
-                newSuspensions.add(suspension);
-
-                if (userContext.isHumanTeam(event.getTeamId())) {
-                    sendSuspensionNotification(suspension);
-                }
+            if (!"red_card".equals(event.getEventType())) continue;
+            if (event.getId() > 0
+                    && suspensionRepository.existsBySourceMatchEventIdAndReason(event.getId(), "RED_CARD")) {
+                continue;
             }
-
-            if ("yellow_card".equals(event.getEventType())) {
-                long yellowCount = countYellowCards(event.getPlayerId(), competitionId, season);
-
-                if (yellowCount > 0 && yellowCount % YELLOW_CARD_ACCUMULATION == 0) {
-                    Suspension suspension = createYellowAccumulationSuspension(event, competitionId, season);
-                    newSuspensions.add(suspension);
-
-                    if (userContext.isHumanTeam(event.getTeamId())) {
-                        sendSuspensionNotification(suspension);
-                    }
-                }
-            }
+            Suspension suspension = createRedCardSuspension(event, competitionId, season);
+            created.add(suspension);
+            notifyIfHuman(suspension);
         }
 
-        return newSuspensions;
+        Map<Long, List<MatchEvent>> yellowsByPlayer = events.stream()
+                .filter(event -> "yellow_card".equals(event.getEventType()))
+                .collect(Collectors.groupingBy(MatchEvent::getPlayerId));
+        for (List<MatchEvent> playerEvents : yellowsByPlayer.values()) {
+            MatchEvent source = playerEvents.stream()
+                    .max(Comparator.comparingLong(MatchEvent::getId))
+                    .orElseThrow();
+            long completedMilestones = countYellowCards(source.getPlayerId(), competitionId, season)
+                    / YELLOW_CARD_ACCUMULATION;
+            long existingBans = suspensionRepository
+                    .sumMatchesBannedByPlayerAndCompetitionAndSeasonAndReason(
+                            source.getPlayerId(), competitionId, season, "ACCUMULATED_YELLOWS");
+            int missingBans = (int) Math.max(0, completedMilestones - existingBans);
+            if (missingBans == 0) continue;
+
+            // A legacy/large fast-forward save may have skipped more than one
+            // milestone. Represent the debt as one row, avoiding duplicate UI cards.
+            Suspension suspension = createYellowAccumulationSuspension(
+                    source, competitionId, season, missingBans);
+            created.add(suspension);
+            notifyIfHuman(suspension);
+        }
+        return created;
+    }
+
+    private void notifyIfHuman(Suspension suspension) {
+        if (userContext.isHumanTeam(suspension.getTeamId())) {
+            sendSuspensionNotification(suspension);
+        }
     }
 
     // ==================== SUSPENSION CREATION ====================
@@ -141,6 +151,7 @@ public class SuspensionService {
         suspension.setReason("RED_CARD");
         suspension.setSeasonNumber(season);
         suspension.setDayIssued(0); // Will be set from game calendar if available
+        suspension.setSourceMatchEventId(event.getId());
         suspension.setActive(true);
         return suspensionRepository.save(suspension);
     }
@@ -148,17 +159,19 @@ public class SuspensionService {
     /**
      * Create a 1-match suspension for accumulated yellow cards.
      */
-    private Suspension createYellowAccumulationSuspension(MatchEvent event, long competitionId, int season) {
+    private Suspension createYellowAccumulationSuspension(
+            MatchEvent event, long competitionId, int season, int matchesBanned) {
         Suspension suspension = new Suspension();
         suspension.setPlayerId(event.getPlayerId());
         suspension.setPlayerName(event.getPlayerName());
         suspension.setTeamId(event.getTeamId());
         suspension.setCompetitionId(competitionId);
-        suspension.setMatchesBanned(1);
+        suspension.setMatchesBanned(matchesBanned);
         suspension.setMatchesServed(0);
         suspension.setReason("ACCUMULATED_YELLOWS");
         suspension.setSeasonNumber(season);
         suspension.setDayIssued(0);
+        suspension.setSourceMatchEventId(event.getId());
         suspension.setActive(true);
         return suspensionRepository.save(suspension);
     }
@@ -174,16 +187,20 @@ public class SuspensionService {
      * @param competitionId the competition ID
      */
     public void serveMatchday(long teamId, long competitionId) {
+        if (isAvailabilityDisabled()) return;
         List<Suspension> active = suspensionRepository
                 .findAllByTeamIdAndCompetitionIdAndActive(teamId, competitionId, true);
 
+        Set<String> servedNotifications = new HashSet<>();
         for (Suspension s : active) {
             s.setMatchesServed(s.getMatchesServed() + 1);
             if (s.getMatchesServed() >= s.getMatchesBanned()) {
                 s.setActive(false);
 
                 // Notify human team when suspension is served
-                if (userContext.isHumanTeam(s.getTeamId())) {
+                String notificationKey = s.getPlayerId() + ":" + s.getReason();
+                if (userContext.isHumanTeam(s.getTeamId())
+                        && servedNotifications.add(notificationKey)) {
                     sendSuspensionServedNotification(s);
                 }
             }
@@ -201,6 +218,7 @@ public class SuspensionService {
      * @return list of suspended player IDs
      */
     public List<Long> getSuspendedPlayerIds(long teamId, long competitionId) {
+        if (isAvailabilityDisabled()) return List.of();
         return suspensionRepository
                 .findAllByTeamIdAndCompetitionIdAndActive(teamId, competitionId, true)
                 .stream()
@@ -215,6 +233,7 @@ public class SuspensionService {
      * @return list of active suspensions
      */
     public List<Suspension> getActiveSuspensionsForPlayer(long playerId) {
+        if (isAvailabilityDisabled()) return List.of();
         return suspensionRepository.findAllByPlayerIdAndActive(playerId, true);
     }
 
@@ -226,6 +245,7 @@ public class SuspensionService {
      * @return list of active suspensions
      */
     public List<Suspension> getActiveSuspensionsForTeamInCompetition(long teamId, long competitionId) {
+        if (isAvailabilityDisabled()) return List.of();
         return suspensionRepository.findAllByTeamIdAndCompetitionIdAndActive(teamId, competitionId, true);
     }
 
@@ -237,6 +257,7 @@ public class SuspensionService {
      * @return true if the player has an active suspension in this competition
      */
     public boolean isPlayerSuspended(long playerId, long competitionId) {
+        if (isAvailabilityDisabled()) return false;
         List<Suspension> suspensions = suspensionRepository.findAllByPlayerIdAndActive(playerId, true);
         return suspensions.stream().anyMatch(s -> s.getCompetitionId() == competitionId);
     }
@@ -250,7 +271,42 @@ public class SuspensionService {
      * @return number of yellow cards
      */
     public long getYellowCardCount(long playerId, long competitionId, int season) {
+        if (isAvailabilityDisabled()) return 0;
         return countYellowCards(playerId, competitionId, season);
+    }
+
+    public boolean isAvailabilityDisabled() {
+        return gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled();
+    }
+
+    /**
+     * Complete the discipline side-effects for exactly one played fixture.
+     * The persisted guard makes both normal Continue and Fast Forward safe to
+     * retry without serving a ban twice or processing the same cards twice.
+     */
+    @Transactional
+    public void processPlayedFixture(CompetitionTeamInfoMatch fixture, int season) {
+        // Keep the disabled feature genuinely free: no discipline queries and no
+        // per-fixture UPDATE merely to mark a side-effect that is turned off.
+        if (isAvailabilityDisabled()) return;
+        if (fixture == null || fixture.isDisciplineProcessed()
+                || fixture.getTeam1Score() < 0 || fixture.getTeam2Score() < 0) return;
+        serveMatchday(fixture.getTeam1Id(), fixture.getCompetitionId());
+        serveMatchday(fixture.getTeam2Id(), fixture.getCompetitionId());
+        processMatchCards(fixture.getCompetitionId(), season, (int) fixture.getRound(),
+                fixture.getTeam1Id(), fixture.getTeam2Id());
+        fixture.setDisciplineProcessed(true);
+        fixtureRepository.save(fixture);
+    }
+
+    @Transactional
+    public void processPlayedFixture(long competitionId, int season, int round,
+                                     long team1Id, long team2Id, int legNumber) {
+        fixtureRepository.findPlayedFixture(competitionId, round, String.valueOf(season),
+                        team1Id, team2Id, legNumber).stream()
+                .filter(fixture -> fixture.getTeam1Score() >= 0 && fixture.getTeam2Score() >= 0)
+                .findFirst()
+                .ifPresent(fixture -> processPlayedFixture(fixture, season));
     }
 
     // ==================== PRIVATE HELPERS ====================

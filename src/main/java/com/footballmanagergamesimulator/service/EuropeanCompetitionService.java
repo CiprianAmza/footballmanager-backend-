@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.algorithms.RoundRobin;
 import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.CompetitionHistory;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
@@ -10,6 +11,7 @@ import com.footballmanagergamesimulator.model.Team;
 import java.util.Comparator;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
@@ -18,6 +20,7 @@ import com.footballmanagergamesimulator.repository.TeamCompetitionDetailReposito
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -52,6 +55,7 @@ import java.util.stream.Collectors;
 public class EuropeanCompetitionService {
 
     @Autowired private CompetitionRepository competitionRepository;
+    @Autowired private CompetitionHistoryRepository competitionHistoryRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
@@ -61,6 +65,7 @@ public class EuropeanCompetitionService {
     @Autowired private RoundRobin roundRobin;
     @Autowired private EuropeanCoefficientService coefficientService;
     @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
+    @Autowired private com.footballmanagergamesimulator.config.EuropeanQualificationPolicy qualificationPolicy;
     @Autowired private com.footballmanagergamesimulator.service.tournament.TournamentEngine tournamentEngine;
 
     /** Resolve the {@link com.footballmanagergamesimulator.config.CompetitionFormat}
@@ -85,7 +90,8 @@ public class EuropeanCompetitionService {
      * rounds 8-10 (QF, SF, Final); groups for rounds 2-7.
      */
     public boolean isKnockoutRound(long competitionId, long roundId) {
-        Set<Long> cupIds = competitionIdsByType(2);
+        Set<Long> cupIds = new HashSet<>(competitionIdsByType(2));
+        cupIds.addAll(competitionIdsByType(6));
         if (cupIds.contains(competitionId)) return true;
 
         Set<Long> starsCupIds = competitionIdsByType(5);
@@ -259,9 +265,15 @@ public class EuropeanCompetitionService {
                 .collect(Collectors.toList());
 
         int f = participants.size();
-        if (f <= slots || f < 2) return; // nothing to trim
+        if (f < 2) return;
+        var plan = formatOf(competitionId).europeanPlan();
+        boolean tieredEntryRound = plan != null && roundId >= 0 && roundId < plan.preliminaryRounds()
+                && plan.stageForRound((int) roundId).bracketSize() == f && f <= slots;
+        if (f <= slots && !tieredEntryRound) return; // generic trim already reached its target
 
-        int eliminate = Math.min(f - slots, f / 2);
+        // In a tiered access round every entrant plays (2→1, then 8→4).
+        // Generic formats retain the old trim-to-slots/byes calculation.
+        int eliminate = tieredEntryRound ? f / 2 : Math.min(f - slots, f / 2);
         int coeffSeason = Integer.parseInt(currentSeason()) - 1;
         participants.sort((a, b) -> {
             double coeffA = coefficientService.getClubCoefficientRolling(a, coeffSeason);
@@ -701,7 +713,8 @@ public class EuropeanCompetitionService {
     // ============================================================
 
     public void qualifyTeamsForEuropeanCompetitions() {
-        long nextSeason = Long.parseLong(currentSeason()) + 1;
+        long completedSeason = Long.parseLong(currentSeason());
+        long nextSeason = completedSeason + 1;
         System.out.println("=== qualifyTeamsForEuropeanCompetitions: qualifying for season " + nextSeason + " ===");
 
         // Find European competition IDs dynamically
@@ -742,27 +755,31 @@ public class EuropeanCompetitionService {
             standingsByLeague.put(leagueId, standings);
         }
 
-        // LoC entry (configurable): the competition is sized for a fixed number of
-        // entrants (CompetitionFormat.totalTeams). Slots are allocated to leagues by
-        // coefficient rank (layered halving), each league sends its top-K teams, and
-        // the seeded field is assigned to preliminary rounds — the strongest enter at
-        // the group draw, the weakest play the earliest prelim (see EuropeanFormatPlan).
+        // LoC entry is tiered and must match what the coefficient page promises:
+        // 12 direct to groups, 7 entering qualifying round 2, and 2 entering
+        // qualifying round 1. Never put a direct qualifier into a preliminary tie.
         com.footballmanagergamesimulator.config.CompetitionFormat locFmt = competitionFormat.get(4);
         com.footballmanagergamesimulator.config.EuropeanFormatPlan locPlan = locFmt.europeanPlan();
         if (locPlan != null) {
-            Map<Long, Integer> allocation =
-                    coefficientService.allocateTeamsPerLeague(locPlan.totalTeams(), java.util.Map.of());
-            List<Long> seededEntrants = new ArrayList<>();
-            for (Map.Entry<Long, Integer> alloc : allocation.entrySet()) {
-                List<TeamCompetitionDetail> standings = standingsByLeague.get(alloc.getKey());
+            for (int rank = 1; rank <= Math.min(numLeagues, 7); rank++) {
+                List<TeamCompetitionDetail> standings = standingsByLeague.get(sortedLeagueIds.get(rank - 1));
                 if (standings == null) continue;
-                for (int i = 0; i < alloc.getValue() && i < standings.size(); i++) {
-                    seededEntrants.add(standings.get(i).getTeamId());
+                int position = 0;
+                int direct = qualificationPolicy.directForRank(rank);
+                int qualifying = qualificationPolicy.qualifyingForRank(rank);
+                int preliminary = qualificationPolicy.preliminaryForRank(rank);
+                for (int i = 0; i < direct && position < standings.size(); i++, position++) {
+                    saveLocQualifier(standings.get(position).getTeamId(), locCompetitionId,
+                            nextSeason, locPlan.groupStartRound());
                 }
-            }
-            Map<Long, Integer> startRounds = assignEntrantsToPrelimRounds(seededEntrants, locPlan.slots());
-            for (Map.Entry<Long, Integer> entry : startRounds.entrySet()) {
-                saveLocQualifier(entry.getKey(), locCompetitionId, nextSeason, entry.getValue());
+                for (int i = 0; i < qualifying && position < standings.size(); i++, position++) {
+                    saveLocQualifier(standings.get(position).getTeamId(), locCompetitionId,
+                            nextSeason, 1);
+                }
+                for (int i = 0; i < preliminary && position < standings.size(); i++, position++) {
+                    saveLocQualifier(standings.get(position).getTeamId(), locCompetitionId,
+                            nextSeason, 0);
+                }
             }
         }
 
@@ -816,19 +833,16 @@ public class EuropeanCompetitionService {
 
             long cupCompId = cupOpt.get().getId();
 
-            // Find cup winner from TeamCompetitionDetail (sorted by points, the winner has most wins)
-            List<TeamCompetitionDetail> cupStandings = allDetails.stream()
-                    .filter(d -> d.getCompetitionId() == cupCompId)
-                    .sorted((a, b) -> {
-                        if (a.getPoints() != b.getPoints()) return b.getPoints() - a.getPoints();
-                        if (a.getGoalDifference() != b.getGoalDifference()) return b.getGoalDifference() - a.getGoalDifference();
-                        return b.getGoalsFor() - a.getGoalsFor();
-                    })
-                    .toList();
-
-            if (cupStandings.isEmpty()) continue;
-
-            long cupWinnerTeamId = cupStandings.get(0).getTeamId();
+            // A knockout cup is not a league table: the winner can have fewer
+            // aggregate points than a semi-finalist (draws/penalties are the
+            // common example).  The end-of-season snapshot stores the actual
+            // champion as position 1; persisted final results are the fallback.
+            Long cupWinnerTeamId = resolveCupWinnerTeamId(cupCompId, completedSeason);
+            if (cupWinnerTeamId == null) {
+                System.out.println("=== No authoritative cup winner for competition "
+                        + cupCompId + " season " + completedSeason + "; reserved spot skipped ===");
+                continue;
+            }
             System.out.println("=== Cup winner for nation " + nationId + ": team " + cupWinnerTeamId + " ===");
 
             // Check if cup winner is already qualified for European competition
@@ -856,6 +870,154 @@ public class EuropeanCompetitionService {
                 System.out.println("=== Cup winner team " + cupWinnerTeamId + " qualified for Stars Cup (reserved cup spot) ===");
             }
         }
+    }
+
+    /**
+     * Resolves a cup champion from knockout truth, never from aggregate points.
+     * Package visibility intentionally keeps this directly unit-testable.
+     */
+    Long resolveCupWinnerTeamId(long competitionId, long season) {
+        Optional<CompetitionHistory> snapshotWinner = competitionHistoryRepository
+                .findByCompetitionId(competitionId).stream()
+                .filter(history -> history.getSeasonNumber() == season && history.getLastPosition() == 1)
+                .min(Comparator.comparingLong(CompetitionHistory::getId));
+        if (snapshotWinner.isPresent()) {
+            return snapshotWinner.get().getTeamId();
+        }
+
+        return competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, season).stream()
+                .filter(detail -> detail.getWinnerTeamId() != null)
+                .filter(detail -> !"FIRST_LEG".equalsIgnoreCase(detail.getDecidedBy()))
+                .max(Comparator.comparingLong(CompetitionTeamInfoDetail::getRoundId)
+                        .thenComparingInt(CompetitionTeamInfoDetail::getDay)
+                        .thenComparingLong(CompetitionTeamInfoDetail::getId))
+                .map(CompetitionTeamInfoDetail::getWinnerTeamId)
+                .orElse(null);
+    }
+
+    /**
+     * Rebuilds only the domestic Stars Cup allocation before that competition
+     * starts. This is used to repair saves created by the old "most cup points
+     * equals champion" rule. It deliberately refuses to alter a drawn or played
+     * Stars Cup, where replacing entrants would corrupt the bracket.
+     */
+    @Transactional
+    public Map<String, Object> repairStarsCupDomesticQualifiers(long targetSeason) {
+        if (targetSeason < 2) {
+            throw new IllegalArgumentException("Stars Cup qualification can only be repaired from season 2 onward");
+        }
+
+        Competition loc = competitionRepository.findAll().stream()
+                .filter(competition -> competition.getTypeId() == 4)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("League of Champions competition is missing"));
+        Competition starsCup = competitionRepository.findAll().stream()
+                .filter(competition -> competition.getTypeId() == 5)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Stars Cup competition is missing"));
+
+        List<CompetitionTeamInfo> currentStarsEntries = competitionTeamInfoRepository
+                .findAllByCompetitionIdAndSeasonNumber(starsCup.getId(), targetSeason);
+        boolean groupDrawn = currentStarsEntries.stream()
+                .anyMatch(entry -> entry.getGroupNumber() > 0 || entry.getPotNumber() > 0);
+        boolean fixturesExist = !competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndSeasonNumberOrderByRoundAscMatchIndexAsc(
+                        starsCup.getId(), String.valueOf(targetSeason)).isEmpty();
+        boolean resultsExist = !competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndSeasonNumber(starsCup.getId(), targetSeason).isEmpty();
+        if (groupDrawn || fixturesExist || resultsExist) {
+            throw new IllegalStateException("Stars Cup season " + targetSeason
+                    + " has already been drawn or played and cannot be repaired safely");
+        }
+
+        long completedSeason = targetSeason - 1;
+        List<Long> sortedLeagueIds = coefficientService.getLeagueIdsSortedByCoefficient();
+        if (sortedLeagueIds.isEmpty()) {
+            throw new IllegalStateException("No domestic leagues are available for qualification");
+        }
+
+        List<CompetitionHistory> completedHistory = competitionHistoryRepository
+                .findAllBySeasonNumber(completedSeason);
+        Map<Long, List<CompetitionHistory>> standingsByLeague = new HashMap<>();
+        for (Long leagueId : sortedLeagueIds) {
+            List<CompetitionHistory> standings = completedHistory.stream()
+                    .filter(history -> history.getCompetitionId() == leagueId)
+                    .filter(history -> history.getLastPosition() > 0)
+                    .sorted(Comparator.comparingLong(CompetitionHistory::getLastPosition))
+                    .toList();
+            standingsByLeague.put(leagueId, standings);
+        }
+
+        Set<Long> alreadyQualified = competitionTeamInfoRepository
+                .findAllByCompetitionIdAndSeasonNumber(loc.getId(), targetSeason).stream()
+                .map(CompetitionTeamInfo::getTeamId)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        java.util.LinkedHashSet<Long> expectedStarsTeams = new java.util.LinkedHashSet<>();
+
+        int[] starsCupLeagueSpots = {1, 1, 1, 1, 0, 0, 0};
+        int leagueCount = Math.min(sortedLeagueIds.size(), starsCupLeagueSpots.length);
+        for (int rank = 0; rank < leagueCount; rank++) {
+            int given = 0;
+            for (CompetitionHistory standing : standingsByLeague.getOrDefault(sortedLeagueIds.get(rank), List.of())) {
+                if (given >= starsCupLeagueSpots[rank]) break;
+                if (alreadyQualified.add(standing.getTeamId())) {
+                    expectedStarsTeams.add(standing.getTeamId());
+                    given++;
+                }
+            }
+        }
+
+        List<Competition> allCompetitions = competitionRepository.findAll();
+        for (int rank = 0; rank < leagueCount; rank++) {
+            long leagueId = sortedLeagueIds.get(rank);
+            Competition league = competitionRepository.findById(leagueId).orElse(null);
+            if (league == null) continue;
+            Optional<Competition> cup = allCompetitions.stream()
+                    .filter(competition -> competition.getTypeId() == 2
+                            && competition.getNationId() == league.getNationId())
+                    .findFirst();
+            if (cup.isEmpty()) continue;
+
+            Long cupWinner = resolveCupWinnerTeamId(cup.get().getId(), completedSeason);
+            if (cupWinner == null) continue;
+            if (alreadyQualified.add(cupWinner)) {
+                expectedStarsTeams.add(cupWinner);
+                continue;
+            }
+
+            for (CompetitionHistory standing : standingsByLeague.getOrDefault(leagueId, List.of())) {
+                if (alreadyQualified.add(standing.getTeamId())) {
+                    expectedStarsTeams.add(standing.getTeamId());
+                    break;
+                }
+            }
+        }
+
+        Set<Long> previousTeams = currentStarsEntries.stream()
+                .map(CompetitionTeamInfo::getTeamId)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        Set<Long> added = new java.util.LinkedHashSet<>(expectedStarsTeams);
+        added.removeAll(previousTeams);
+        Set<Long> removed = new java.util.LinkedHashSet<>(previousTeams);
+        removed.removeAll(expectedStarsTeams);
+
+        if (!added.isEmpty() || !removed.isEmpty()) {
+            competitionTeamInfoRepository.deleteAll(currentStarsEntries);
+            for (Long teamId : expectedStarsTeams) {
+                saveStarsCupQualifier(teamId, starsCup.getId(), targetSeason);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("season", targetSeason);
+        result.put("competitionId", starsCup.getId());
+        result.put("previousTeamIds", previousTeams);
+        result.put("expectedTeamIds", expectedStarsTeams);
+        result.put("addedTeamIds", added);
+        result.put("removedTeamIds", removed);
+        result.put("changed", !added.isEmpty() || !removed.isEmpty());
+        return result;
     }
 
     private void saveLocQualifier(long teamId, long locCompetitionId, long season, int round) {

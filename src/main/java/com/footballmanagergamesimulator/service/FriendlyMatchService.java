@@ -24,6 +24,8 @@ public class FriendlyMatchService {
     @Autowired
     private MatchSimulationService matchSimulationService;
     @Autowired
+    private MatchStatsService matchStatsService;
+    @Autowired
     private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired
     private ManagerInboxRepository managerInboxRepository;
@@ -298,27 +300,22 @@ public class FriendlyMatchService {
         double homePower = outcome.homePower();
         double awayPower = outcome.awayPower();
 
-        // Generate basic stats
-        Random rng = new Random();
-        double totalPower = homePower + awayPower;
-        double homeRatio = totalPower > 0 ? homePower / totalPower : 0.5;
-
-        int homePoss = (int) Math.round(Math.max(30, Math.min(70, homeRatio * 100 + 3 + rng.nextGaussian() * 4)));
-        int homeShots = (int) (homeGoals * 3 + rng.nextInt(8) + 5);
-        int awayShots = (int) (awayGoals * 3 + rng.nextInt(8) + 5);
-        int homeSoT = Math.max(homeGoals, homeShots / 3 + rng.nextInt(3));
-        int awaySoT = Math.max(awayGoals, awayShots / 3 + rng.nextInt(3));
+        // Use the same chance/shot model as competitive matches. In particular,
+        // goals do not manufacture extra shots after the score is known.
+        MatchStats generatedStats = matchStatsService.generateMatchStats(
+                0, match.getSeason(), match.getDay(), homeId, awayId,
+                homeGoals, awayGoals, homePower, awayPower, null, null);
 
         // Update friendly match
         match.setHomeGoals(homeGoals);
         match.setAwayGoals(awayGoals);
         match.setStatus("COMPLETED");
-        match.setHomePossession(homePoss);
-        match.setAwayPossession(100 - homePoss);
-        match.setHomeShots(homeShots);
-        match.setAwayShots(awayShots);
-        match.setHomeShotsOnTarget(homeSoT);
-        match.setAwayShotsOnTarget(awaySoT);
+        match.setHomePossession(generatedStats.getHomePossession());
+        match.setAwayPossession(generatedStats.getAwayPossession());
+        match.setHomeShots(generatedStats.getHomeShots());
+        match.setAwayShots(generatedStats.getAwayShots());
+        match.setHomeShotsOnTarget(generatedStats.getHomeShotsOnTarget());
+        match.setAwayShotsOnTarget(generatedStats.getAwayShotsOnTarget());
         friendlyMatchRepository.save(match);
 
         // Apply match day fitness loss to both teams' players
@@ -345,8 +342,8 @@ public class FriendlyMatchService {
         result.put("score", homeGoals + " - " + awayGoals);
         result.put("homeGoals", homeGoals);
         result.put("awayGoals", awayGoals);
-        result.put("homePossession", homePoss);
-        result.put("awayPossession", 100 - homePoss);
+        result.put("homePossession", generatedStats.getHomePossession());
+        result.put("awayPossession", generatedStats.getAwayPossession());
         return result;
     }
 

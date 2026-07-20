@@ -8,7 +8,10 @@ import java.sql.Date;
 
 @Entity
 @Data
-@Table(name="human")
+@Table(name="human", indexes = {
+        @Index(name = "idx_human_team_type", columnList = "teamId,typeId"),
+        @Index(name = "idx_human_type_retired", columnList = "typeId,retired")
+})
 public class Human {
 
     @Id
@@ -180,6 +183,15 @@ public class Human {
      */
     @Column(columnDefinition = "varchar(20) default 'GOALS_ONLY'")
     private String matchHighlightsLevel = "GOALS_ONLY";
+
+    /**
+     * Unattended simulation mode. When enabled for the human manager, CONTINUE
+     * never stops for optional interaction and matches use the instant engine.
+     * The manager is also protected from dismissal so a long multi-season run
+     * cannot strand the career on the job-selection screen.
+     */
+    @Column(columnDefinition = "boolean default false")
+    private boolean alwaysContinue = false;
 
     /**
      * Coaching attributes (used when typeId is a coach type: 5-10)

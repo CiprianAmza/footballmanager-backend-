@@ -10,6 +10,11 @@ import java.util.Optional;
 
 public interface CompetitionTeamInfoMatchRepository extends JpaRepository<CompetitionTeamInfoMatch, Long> {
 
+    List<CompetitionTeamInfoMatch> findAllBySeasonNumber(String seasonNumber);
+
+    List<CompetitionTeamInfoMatch> findAllByCompetitionIdAndSeasonNumberOrderByRoundAscMatchIndexAsc(
+            long competitionId, String seasonNumber);
+
     /** Fetch a specific leg of a two-leg tie (used to aggregate leg 2 with the persisted leg 1). */
     Optional<CompetitionTeamInfoMatch> findByTieIdAndLegNumber(long tieId, int legNumber);
 
@@ -37,4 +42,15 @@ public interface CompetitionTeamInfoMatchRepository extends JpaRepository<Compet
             @Param("round") long round,
             @Param("matchIndex") int matchIndex,
             @Param("seasonNumber") String seasonNumber);
+
+    @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE c.competitionId = :competitionId "
+            + "AND c.round = :round AND c.seasonNumber = :seasonNumber "
+            + "AND c.team1Id = :team1Id AND c.team2Id = :team2Id AND c.legNumber = :legNumber")
+    List<CompetitionTeamInfoMatch> findPlayedFixture(
+            @Param("competitionId") long competitionId,
+            @Param("round") long round,
+            @Param("seasonNumber") String seasonNumber,
+            @Param("team1Id") long team1Id,
+            @Param("team2Id") long team2Id,
+            @Param("legNumber") int legNumber);
 }

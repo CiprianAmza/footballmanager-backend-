@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Injury;
@@ -14,6 +15,7 @@ import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.repository.SuspensionRepository;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,8 +49,10 @@ public class MatchSimulationService {
     @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired private InjuryRepository injuryRepository;
+    @Autowired private SuspensionRepository suspensionRepository;
     @Autowired private UserContext userContext;
     @Autowired MatchEngineConfig engineConfig; // package-private so unit tests can inject a plain config
+    @Autowired(required = false) GameplayFeatureConfig gameplayFeatures;
 
     /**
      * Shared RNG used by {@link #calculateScores} and other scoring helpers.
@@ -207,17 +211,19 @@ public class MatchSimulationService {
      * Check if a player is currently injured (has an active injury with days remaining > 0).
      */
     public boolean isPlayerInjured(long playerId) {
+        if (availabilityDisabled()) return false;
         Optional<Injury> activeInjury = injuryRepository.findByPlayerIdAndDaysRemainingGreaterThan(playerId, 0);
         return activeInjury.isPresent();
     }
 
     /**
      * Find all active suspensions for a given player.
-     * Note: Suspension check delegated to SuspensionService — kept as a stub so
-     * {@link #isPlayerAvailable} doesn't need to inject the full suspension flow.
+     * Kept repository-only to avoid coupling this low-level match utility to the
+     * notification/discipline service.
      */
     private List<Suspension> findActiveSuspensionsForPlayer(long playerId) {
-        return List.of();
+        if (availabilityDisabled()) return List.of();
+        return suspensionRepository.findAllByPlayerIdAndActive(playerId, true);
     }
 
     // ==================== MATCH RESULTS ====================
@@ -271,10 +277,12 @@ public class MatchSimulationService {
         result.put("events", eventList);
 
         // Get scorers for each team
-        List<Scorer> team1Scorers = scorerRepository.findAllByCompetitionIdAndSeasonNumberAndTeamIdAndOpponentTeamId(
-                competitionId, season, team1Id, team2Id);
-        List<Scorer> team2Scorers = scorerRepository.findAllByCompetitionIdAndSeasonNumberAndTeamIdAndOpponentTeamId(
-                competitionId, season, team2Id, team1Id);
+        List<Scorer> team1Scorers = scorerRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamIdAndOpponentTeamId(
+                        competitionId, season, roundNumber, team1Id, team2Id);
+        List<Scorer> team2Scorers = scorerRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamIdAndOpponentTeamId(
+                        competitionId, season, roundNumber, team2Id, team1Id);
 
         result.put("team1Scorers", mapScorers(team1Scorers));
         result.put("team2Scorers", mapScorers(team2Scorers));
@@ -410,10 +418,15 @@ public class MatchSimulationService {
      * @return set of player IDs who are currently injured
      */
     public Set<Long> getInjuredPlayerIds(long teamId) {
+        if (availabilityDisabled()) return Set.of();
         return injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
                 .stream()
                 .map(Injury::getPlayerId)
                 .collect(Collectors.toSet());
+    }
+
+    private boolean availabilityDisabled() {
+        return gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled();
     }
 
     // ==================== MORALE CALCULATION ====================

@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 
@@ -24,17 +25,20 @@ public class GameStateService {
 
     private final GameInitializationService gameInitializationService;
     private final CompetitionRepository competitionRepository;
+    private final RoundRepository roundRepository;
 
     private Round round;
 
-    private Set<Long> cachedLeagueCompIds;
-    private Set<Long> cachedCupCompIds;
-    private Set<Long> cachedSecondLeagueCompIds;
+    private volatile Set<Long> cachedLeagueCompIds;
+    private volatile Set<Long> cachedCupCompIds;
+    private volatile Set<Long> cachedSecondLeagueCompIds;
 
     public GameStateService(GameInitializationService gameInitializationService,
-                            CompetitionRepository competitionRepository) {
+                            CompetitionRepository competitionRepository,
+                            RoundRepository roundRepository) {
         this.gameInitializationService = gameInitializationService;
         this.competitionRepository = competitionRepository;
+        this.roundRepository = roundRepository;
     }
 
     @PostConstruct
@@ -54,24 +58,43 @@ public class GameStateService {
         return round.getRound();
     }
 
-    public Set<Long> getLeagueCompetitionIdsCached() {
+    /**
+     * Publishes a committed Round state to readers. Season-transition code calls
+     * this from an after-commit callback so REST endpoints never observe a
+     * half-built season.
+     */
+    public synchronized void publishRoundState(long currentRound, long currentSeason) {
+        round.setRound(currentRound);
+        round.setSeason(currentSeason);
+    }
+
+    public synchronized Set<Long> getLeagueCompetitionIdsCached() {
         if (cachedLeagueCompIds == null) {
-            cachedLeagueCompIds = competitionRepository.findIdsByTypeId(1);
+            cachedLeagueCompIds = Set.copyOf(competitionRepository.findIdsByTypeId(1));
         }
         return cachedLeagueCompIds;
     }
 
-    public Set<Long> getCupCompetitionIdsCached() {
+    public synchronized Set<Long> getCupCompetitionIdsCached() {
         if (cachedCupCompIds == null) {
-            cachedCupCompIds = competitionRepository.findIdsByTypeId(2);
+            cachedCupCompIds = Set.copyOf(competitionRepository.findIdsByTypeId(2));
         }
         return cachedCupCompIds;
     }
 
-    public Set<Long> getSecondLeagueCompetitionIdsCached() {
+    public synchronized Set<Long> getSecondLeagueCompetitionIdsCached() {
         if (cachedSecondLeagueCompIds == null) {
-            cachedSecondLeagueCompIds = competitionRepository.findIdsByTypeId(3);
+            cachedSecondLeagueCompIds = Set.copyOf(competitionRepository.findIdsByTypeId(3));
         }
         return cachedSecondLeagueCompIds;
+    }
+
+    /** Refresh all process-local state after the native save-game importer runs. */
+    public synchronized void reloadAfterImport() {
+        this.round = roundRepository.findById(1L)
+                .orElseThrow(() -> new IllegalStateException("Imported save contains no Round row"));
+        this.cachedLeagueCompIds = null;
+        this.cachedCupCompIds = null;
+        this.cachedSecondLeagueCompIds = null;
     }
 }

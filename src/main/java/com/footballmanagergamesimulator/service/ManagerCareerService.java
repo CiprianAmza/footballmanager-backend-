@@ -30,8 +30,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -141,7 +146,8 @@ public class ManagerCareerService {
             for (CompetitionHistory ch : allCompHistory) {
                 if (ch.getTeamId() == team.getId() && ch.getLastPosition() == 1) {
                     Competition comp = allCompetitions.stream()
-                            .filter(c -> c.getId() == ch.getCompetitionId() && (c.getTypeId() == 2 || c.getTypeId() == 4 || c.getTypeId() == 5))
+                            .filter(c -> c.getId() == ch.getCompetitionId() && (c.getTypeId() == 2
+                                    || c.getTypeId() == 4 || c.getTypeId() == 5 || c.getTypeId() == 6))
                             .findFirst().orElse(null);
                     if (comp != null) trophies.add(comp.getName());
                 }
@@ -224,6 +230,12 @@ public class ManagerCareerService {
     }
 
     private void checkManagerFiringForTeam(long humanTeamId, int season) {
+        Human currentManager = resolveHumanManager(humanTeamId);
+        if (currentManager != null && currentManager.isAlwaysContinue()) {
+            // An unattended simulation must not become stranded on the fired/free-agent screen.
+            return;
+        }
+
         List<SeasonObjective> humanObjectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(humanTeamId, season);
         if (humanObjectives.isEmpty()) return;
 
@@ -305,6 +317,22 @@ public class ManagerCareerService {
         managerInboxRepository.save(inbox);
     }
 
+    private Human resolveHumanManager(long teamId) {
+        Long linkedManagerId = userRepository.findAllByTeamId(teamId).stream()
+                .map(User::getManagerId)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (linkedManagerId != null) {
+            Human linkedManager = humanRepository.findById(linkedManagerId).orElse(null);
+            if (linkedManager != null) return linkedManager;
+        }
+        return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
+
     private void fireAIManagers(int season) {
         List<Team> allTeams = teamRepository.findAll();
         List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
@@ -366,57 +394,107 @@ public class ManagerCareerService {
      * or already pending/cooldown) do we auto-respawn an AI replacement so the
      * simulator never finds a managerless team.
      *
-     * <p>Called from the advance loop each tick (cheap: skips teams with too few
-     * games). This is the ONLY path that produces opportunistic human offers.
+     * <p>Called only after a league matchday. The caller passes the leagues that
+     * actually played, so cup-only days and routine calendar advances do no
+     * manager-career work. This is the ONLY path that produces opportunistic
+     * human offers.
      */
     public void evaluateMidSeasonSackings(int season) {
-        List<TeamCompetitionDetail> allDetails = teamCompetitionDetailRepository.findAll();
-        if (allDetails.isEmpty()) return;
+        Set<Long> leagueCompIds = new HashSet<>(competitionRepository.findIdsByTypeId(1));
+        leagueCompIds.addAll(competitionRepository.findIdsByTypeId(3));
+        evaluateMidSeasonSackings(season, leagueCompIds);
+    }
 
-        List<Team> allTeams = teamRepository.findAll();
-        List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
-        List<Competition> allCompetitions = competitionRepository.findAll();
-        List<CompetitionTeamInfo> allCompInfos = competitionTeamInfoRepository.findAll();
+    /**
+     * Evaluate only the league competitions that have just completed a round.
+     * All repository reads are scoped to those competitions and the membership
+     * rows of the current season. Standings, managers and predicted positions
+     * are indexed once, avoiding the previous nested full-history scans.
+     */
+    public void evaluateMidSeasonSackings(int season, Set<Long> playedLeagueCompetitionIds) {
+        if (playedLeagueCompetitionIds == null || playedLeagueCompetitionIds.isEmpty()) return;
 
-        Set<Long> leagueCompIds = allCompetitions.stream()
-                .filter(c -> c.getTypeId() == 1 || c.getTypeId() == 3)
-                .map(Competition::getId)
+        List<CompetitionTeamInfo> currentMemberships = competitionTeamInfoRepository
+                .findAllByCompetitionIdInAndSeasonNumber(playedLeagueCompetitionIds, season);
+        if (currentMemberships.isEmpty()) return;
+
+        Map<Long, Set<Long>> currentTeamIdsByCompetition = currentMemberships.stream()
+                .collect(Collectors.groupingBy(
+                        CompetitionTeamInfo::getCompetitionId,
+                        Collectors.mapping(CompetitionTeamInfo::getTeamId, Collectors.toSet())));
+        Set<Long> currentTeamIds = currentMemberships.stream()
+                .map(CompetitionTeamInfo::getTeamId)
                 .collect(Collectors.toSet());
 
-        for (Team team : allTeams) {
+        Map<Long, Team> teamsById = teamRepository.findAllById(currentTeamIds).stream()
+                .collect(Collectors.toMap(Team::getId, team -> team));
+        Map<Long, Human> activeManagersByTeam = humanRepository
+                .findAllByTeamIdInAndTypeId(currentTeamIds, TypeNames.MANAGER_TYPE).stream()
+                .filter(manager -> manager.getTeamId() != null && !manager.isRetired())
+                .collect(Collectors.toMap(
+                        Human::getTeamId,
+                        manager -> manager,
+                        (first, ignored) -> first));
+
+        Map<Long, List<TeamCompetitionDetail>> standingsByCompetition =
+                teamCompetitionDetailRepository.findAllByCompetitionIdIn(playedLeagueCompetitionIds).stream()
+                        .filter(detail -> currentTeamIdsByCompetition
+                                .getOrDefault(detail.getCompetitionId(), Set.of())
+                                .contains(detail.getTeamId()))
+                        .collect(Collectors.groupingBy(
+                                TeamCompetitionDetail::getCompetitionId,
+                                LinkedHashMap::new,
+                                Collectors.toList()));
+
+        for (Map.Entry<Long, List<TeamCompetitionDetail>> entry : standingsByCompetition.entrySet()) {
+            evaluateLeagueSackings(season, entry.getValue(), teamsById, activeManagersByTeam);
+        }
+    }
+
+    private void evaluateLeagueSackings(
+            int season,
+            Collection<TeamCompetitionDetail> leagueDetails,
+            Map<Long, Team> teamsById,
+            Map<Long, Human> activeManagersByTeam) {
+        List<TeamCompetitionDetail> standings = leagueDetails.stream()
+                .sorted(ManagerCareerService::compareStandingRows)
+                .toList();
+        if (standings.isEmpty()) return;
+
+        Map<Long, Integer> currentPositions = new HashMap<>();
+        for (int index = 0; index < standings.size(); index++) {
+            currentPositions.put(standings.get(index).getTeamId(), index + 1);
+        }
+
+        List<Team> reputationOrder = standings.stream()
+                .map(detail -> teamsById.get(detail.getTeamId()))
+                .filter(java.util.Objects::nonNull)
+                .sorted(Comparator.comparingInt(Team::getReputation).reversed())
+                .toList();
+        Map<Long, Integer> predictedPositions = new HashMap<>();
+        for (int index = 0; index < reputationOrder.size(); index++) {
+            predictedPositions.put(reputationOrder.get(index).getId(), index + 1);
+        }
+
+        for (TeamCompetitionDetail leagueDetail : standings) {
+            Team team = teamsById.get(leagueDetail.getTeamId());
+            if (team == null) continue;
             if (userContext.isHumanTeam(team.getId())) continue;
-            Human manager = allManagers.stream()
-                    .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
-                    .findFirst().orElse(null);
+            if (team.getLastMidSeasonManagerChangeSeason() == season) continue;
+            Human manager = activeManagersByTeam.get(team.getId());
             if (manager == null) continue;
+            if (leagueDetail.getGames() < MIN_MATCHES_FOR_SACKING) continue;
 
-            TeamCompetitionDetail leagueDetail = allDetails.stream()
-                    .filter(d -> d.getTeamId() == team.getId() && leagueCompIds.contains(d.getCompetitionId()))
-                    .findFirst().orElse(null);
-            if (leagueDetail == null || leagueDetail.getGames() < MIN_MATCHES_FOR_SACKING) continue;
-
-            long competitionId = leagueDetail.getCompetitionId();
-            List<TeamCompetitionDetail> standings = allDetails.stream()
-                    .filter(d -> d.getCompetitionId() == competitionId)
-                    .sorted((o1, o2) -> {
-                        if (o1.getPoints() != o2.getPoints()) return o2.getPoints() - o1.getPoints();
-                        if (o1.getGoalDifference() != o2.getGoalDifference()) return o2.getGoalDifference() - o1.getGoalDifference();
-                        return o2.getGoalsFor() - o1.getGoalsFor();
-                    })
-                    .toList();
-            int currentPosition = 1;
-            for (TeamCompetitionDetail s : standings) {
-                if (s.getTeamId() == team.getId()) break;
-                currentPosition++;
-            }
-
-            int predicted = predictedLeaguePosition(team, competitionId, allTeams, allCompInfos, allDetails, season);
+            int currentPosition = currentPositions.getOrDefault(team.getId(), standings.size());
+            int predicted = predictedPositions.getOrDefault(team.getId(), reputationOrder.size());
             if (currentPosition - predicted < POSITION_SHORTFALL_FOR_SACKING) continue;
 
             // Sack the AI manager — seat stays open for now.
             manager.setTeamId(0L);
             manager.setRetired(true);
             humanRepository.save(manager);
+            team.setLastMidSeasonManagerChangeSeason(season);
+            teamRepository.save(team);
 
             boolean offered = offerVacantSeatToHuman(team, season);
             if (!offered) {
@@ -428,21 +506,12 @@ public class ManagerCareerService {
         }
     }
 
-    /** Reputation-predicted league rank for a team within a competition (1-based). */
-    private int predictedLeaguePosition(Team team, long competitionId, List<Team> allTeams,
-                                        List<CompetitionTeamInfo> allCompInfos,
-                                        List<TeamCompetitionDetail> allDetails, int season) {
-        List<Team> teamsInComp = allTeams.stream()
-                .filter(t -> allCompInfos.stream()
-                        .anyMatch(i -> i.getTeamId() == t.getId() && i.getCompetitionId() == competitionId && i.getSeasonNumber() == season)
-                        || allDetails.stream()
-                        .anyMatch(d -> d.getTeamId() == t.getId() && d.getCompetitionId() == competitionId))
-                .sorted(Comparator.comparingInt(Team::getReputation).reversed())
-                .toList();
-        for (int i = 0; i < teamsInComp.size(); i++) {
-            if (teamsInComp.get(i).getId() == team.getId()) return i + 1;
+    private static int compareStandingRows(TeamCompetitionDetail left, TeamCompetitionDetail right) {
+        if (left.getPoints() != right.getPoints()) return Integer.compare(right.getPoints(), left.getPoints());
+        if (left.getGoalDifference() != right.getGoalDifference()) {
+            return Integer.compare(right.getGoalDifference(), left.getGoalDifference());
         }
-        return teamsInComp.isEmpty() ? 1 : teamsInComp.size() / 2;
+        return Integer.compare(right.getGoalsFor(), left.getGoalsFor());
     }
 
     /**

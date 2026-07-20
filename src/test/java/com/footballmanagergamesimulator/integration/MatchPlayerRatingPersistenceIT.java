@@ -48,19 +48,28 @@ class MatchPlayerRatingPersistenceIT {
         List<MatchPlayerRating> rows = ratingRepo
                 .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId(competitionId, season, round, teamId);
 
-        // A real starting XI: between 1 and 11 starters (some may be injured/missing).
+        // The historical snapshot contains the real starting XI and can also include the bench.
         assertThat(rows).isNotEmpty();
-        assertThat(rows.size()).isBetween(1, 11);
+        List<MatchPlayerRating> starters = rows.stream().filter(r -> !r.isSubstitute()).toList();
+        assertThat(starters.size()).isBetween(1, 11);
 
         double summed = 0;
         for (MatchPlayerRating row : rows) {
             assertThat(row.getPlayerId()).isPositive();
             assertThat(row.getPlayerName()).isNotBlank();
             assertThat(row.getPosition()).isNotBlank();
-            assertThat(row.getRating()).isGreaterThan(0.0);
+            assertThat(row.getFormation()).isEqualTo("442");
+            assertThat(row.getPositionIndex()).isBetween(0, 99);
             assertThat(row.getAge()).isPositive();
             assertThat(row.getNationId()).isNotNegative();
-            summed += row.getRating();
+            assertThat(row.getSpecies()).isNotBlank();
+            if (!row.isSubstitute()) {
+                assertThat(row.getRating()).isGreaterThan(0.0);
+                assertThat(row.getPositionIndex()).isLessThan(30);
+                summed += row.getRating();
+            } else {
+                assertThat(row.getPositionIndex()).isGreaterThanOrEqualTo(30);
+            }
         }
 
         // Persisted rows are exactly the per-player decomposition the engine sums.

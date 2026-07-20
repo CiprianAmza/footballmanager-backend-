@@ -165,6 +165,55 @@ public class PlayerSkillsService {
         return Math.max(1, Math.min(300, weighted * 15));
     }
 
+    /**
+     * Moves only attributes that contribute to the positional overall until the
+     * computed value is as close as the integer 1-20 attribute scale permits.
+     * Non-relevant attributes are left unchanged, preserving the position profile.
+     */
+    public static double calibrateOverallRating(PlayerSkills skills, double targetRating) {
+        double target = Math.max(1, Math.min(300, targetRating));
+        double current = computeOverallRating(skills);
+        int direction = Double.compare(target, current);
+        if (direction == 0) return current;
+
+        double currentError = Math.abs(target - current);
+        int maxSteps = SETTER_MAP.size() * 20;
+
+        for (int step = 0; step < maxSteps && currentError > 0.000001; step++) {
+            String bestAttribute = null;
+            int bestValue = 0;
+            double bestRating = current;
+            double bestError = currentError;
+
+            for (Map.Entry<String, Function<PlayerSkills, Integer>> entry : GETTER_MAP.entrySet()) {
+                String attribute = entry.getKey();
+                int originalValue = entry.getValue().apply(skills);
+                int candidateValue = originalValue + direction;
+                if (candidateValue < 1 || candidateValue > 20) continue;
+
+                BiConsumer<PlayerSkills, Integer> setter = SETTER_MAP.get(attribute);
+                setter.accept(skills, candidateValue);
+                double candidateRating = computeOverallRating(skills);
+                setter.accept(skills, originalValue);
+
+                double candidateError = Math.abs(target - candidateRating);
+                if (candidateError + 0.000001 < bestError) {
+                    bestAttribute = attribute;
+                    bestValue = candidateValue;
+                    bestRating = candidateRating;
+                    bestError = candidateError;
+                }
+            }
+
+            if (bestAttribute == null) break;
+            SETTER_MAP.get(bestAttribute).accept(skills, bestValue);
+            current = bestRating;
+            currentError = bestError;
+        }
+
+        return current;
+    }
+
     private static double gkRating(PlayerSkills s) {
         return s.getReflexes() * 0.18
                 + s.getHandling() * 0.16

@@ -12,6 +12,10 @@ import java.util.*;
 @Service
 public class FinanceService {
 
+    /** Matchday income request accumulated by the round simulator. */
+    public record MatchDayIncomeInput(long teamId, int day, long opponentId,
+                                      String competitionName) {}
+
     @Autowired
     private TeamRepository teamRepository;
     @Autowired
@@ -112,6 +116,74 @@ public class FinanceService {
         recordTransaction(teamId, season, day, "MATCH_DAY",
                 "Match day vs " + (opponent != null ? opponent.getName() : "Unknown") + " (" + competitionName + ") - " + attendance + " fans",
                 matchDayIncome);
+    }
+
+    /**
+     * Round-level matchday income calculation. Teams, opponents and stadiums are fetched once;
+     * all ledger rows and changed team balances are then saved in batches.
+     */
+    public void processMatchDayIncomeBatch(int season, List<MatchDayIncomeInput> inputs) {
+        if (inputs == null || inputs.isEmpty()) return;
+
+        Set<Long> allTeamIds = new HashSet<>();
+        Set<Long> homeTeamIds = new HashSet<>();
+        for (MatchDayIncomeInput input : inputs) {
+            allTeamIds.add(input.teamId());
+            allTeamIds.add(input.opponentId());
+            homeTeamIds.add(input.teamId());
+        }
+
+        Map<Long, Team> teamsById = new HashMap<>();
+        for (Team team : teamRepository.findAllById(allTeamIds)) {
+            teamsById.put(team.getId(), team);
+        }
+        Map<Long, Stadium> stadiumsByTeam = new HashMap<>();
+        for (Stadium stadium : stadiumRepository.findAllByTeamIdIn(homeTeamIds)) {
+            stadiumsByTeam.put(stadium.getTeamId(), stadium);
+        }
+
+        List<FinancialRecord> records = new ArrayList<>(inputs.size());
+        for (MatchDayIncomeInput input : inputs) {
+            Team team = teamsById.get(input.teamId());
+            if (team == null) continue;
+            Team opponent = teamsById.get(input.opponentId());
+            Stadium stadium = stadiumsByTeam.get(input.teamId());
+
+            int capacity = stadium != null ? stadium.getEffectiveCapacity() : team.getStadiumCapacity();
+            if (capacity <= 0) capacity = 30000;
+            double revenueMultiplier = stadium != null ? stadium.getRevenueMultiplier() : 1.0;
+            double baseOccupancy = 0.60 + random.nextDouble() * 0.20;
+            double repBoost = Math.min(team.getReputation() / 20000.0, 0.15);
+            double opponentBoost = opponent != null
+                    ? Math.min(opponent.getReputation() / 30000.0, 0.10) : 0;
+            double occupancy = Math.min(baseOccupancy + repBoost + opponentBoost, 0.99);
+            int attendance = (int) (capacity * occupancy);
+            int ticketPrice = 25 + Math.min(team.getReputation() / 400, 25);
+            long amount = (long) (attendance * ticketPrice * revenueMultiplier);
+
+            FinancialRecord record = new FinancialRecord();
+            record.setTeamId(input.teamId());
+            record.setSeasonNumber(season);
+            record.setDay(input.day());
+            record.setCategory("MATCH_DAY");
+            record.setDescription("Match day vs "
+                    + (opponent != null ? opponent.getName() : "Unknown")
+                    + " (" + input.competitionName() + ") - " + attendance + " fans");
+            record.setAmount(amount);
+            records.add(record);
+
+            team.setTotalFinances(team.getTotalFinances() + amount);
+            int confidencePct = getTransferBudgetPercentage(team.getBoardConfidence());
+            team.setTransferBudget(team.getTransferBudget()
+                    + (long) (amount * confidencePct / 100.0));
+        }
+
+        if (!records.isEmpty()) financialRecordRepository.saveAll(records);
+        List<Team> changedTeams = homeTeamIds.stream()
+                .map(teamsById::get)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!changedTeams.isEmpty()) teamRepository.saveAll(changedTeams);
     }
 
     /**
@@ -332,16 +404,16 @@ public class FinanceService {
         report.put("transferBudgetPercentage", getTransferBudgetPercentage(team.getBoardConfidence()));
         report.put("stadiumCapacity", team.getStadiumCapacity());
 
-        // Category breakdown
+        // Category breakdown. Build it from the actual ledger so new transaction
+        // categories are never silently omitted from income/expense totals.
+        List<FinancialRecord> records = financialRecordRepository.findAllByTeamIdAndSeasonNumber(teamId, season);
         Map<String, Long> breakdown = new LinkedHashMap<>();
-        for (String cat : List.of("MATCH_DAY", "TV_INCOME", "MERCHANDISING", "SPONSORSHIP",
-                "TRANSFER_SALE", "TRANSFER_BUY", "WAGES", "PRIZE_MONEY",
-                "OWNER_INJECTION", "LOAN_FEE", "SCOUT_COST", "DEBT_INTEREST", "OTHER")) {
-            long sum = financialRecordRepository.sumByTeamIdAndSeasonNumberAndCategory(teamId, season, cat);
-            if (sum != 0) {
-                breakdown.put(cat, sum);
-            }
+        for (FinancialRecord record : records) {
+            String category = record.getCategory() == null || record.getCategory().isBlank()
+                    ? "OTHER" : record.getCategory();
+            breakdown.merge(category, record.getAmount(), Long::sum);
         }
+        breakdown.entrySet().removeIf(entry -> entry.getValue() == 0);
         report.put("breakdown", breakdown);
 
         long totalIncome = breakdown.entrySet().stream()
@@ -368,7 +440,6 @@ public class FinanceService {
         report.put("monthlyWages", monthlyWages);
 
         // All records for this season
-        List<FinancialRecord> records = financialRecordRepository.findAllByTeamIdAndSeasonNumber(teamId, season);
         report.put("transactions", records);
 
         return report;

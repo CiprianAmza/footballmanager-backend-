@@ -10,4 +10,6 @@ public interface SponsorshipRepository extends JpaRepository<Sponsorship, Long> 
     List<Sponsorship> findAllByTeamIdAndStatus(long teamId, String status);
 
     List<Sponsorship> findAllByTeamId(long teamId);
+
+    List<Sponsorship> findAllByStatusInAndEndSeasonLessThan(List<String> statuses, int season);
 }

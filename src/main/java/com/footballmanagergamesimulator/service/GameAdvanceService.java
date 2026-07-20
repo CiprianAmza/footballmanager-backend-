@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.CalendarEvent;
 import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.repository.CalendarEventRepository;
 import com.footballmanagergamesimulator.repository.GameCalendarRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,12 +40,13 @@ public class GameAdvanceService {
     @Autowired private CalendarEventRepository calendarEventRepository;
     @Autowired private TeamTalkController teamTalkController;
     @Autowired private UserRepository userRepository;
+    @Autowired private HumanRepository humanRepository;
     @Autowired @Lazy private JobOfferService jobOfferService;
     @Autowired @Lazy private AdminController adminController;
-    @Autowired @Lazy private ManagerCareerService managerCareerService;
 
     @Autowired private CalendarEventDispatcher calendarEventDispatcher;
     @Autowired private MatchdayBatchProcessor matchdayBatchProcessor;
+    @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired @Lazy private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired private GameLock gameLock;
 
@@ -59,6 +61,7 @@ public class GameAdvanceService {
      */
     private static final Set<String> IMPORTANT_EVENT_TYPES = Set.of(
             "MATCH_LEAGUE", "MATCH_CUP", "MATCH_EUROPEAN", "MATCH_FRIENDLY",
+            "EUROPEAN_DRAW",
             "PRESS_CONFERENCE", "BOARD_MEETING", "AWARDS_CEREMONY",
             "SEASON_START", "SEASON_END", "SEASON_TRANSITION",
             "TRANSFER_WINDOW_OPEN", "TRANSFER_WINDOW_CLOSE",
@@ -90,8 +93,13 @@ public class GameAdvanceService {
         }
 
         GameCalendar calendar = calendarService.getOrCreateCalendar(season);
+        injuryTimelineService.processRecoveries(season, calendar.getCurrentDay());
+        if ("MORNING".equals(calendar.getCurrentPhase())) {
+            calendarEventDispatcher.processDailyMaintenance(season, calendar.getCurrentDay());
+        }
+        boolean alwaysContinue = isAlwaysContinueActive();
 
-        if (calendar.isManagerFired()) {
+        if (calendar.isManagerFired() && !alwaysContinue) {
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("paused", true);
             result.put("reason", "MANAGER_FIRED");
@@ -104,16 +112,20 @@ public class GameAdvanceService {
 
         // Hard pause: any logged-in user has a pending job offer → block advance
         // until they accept/decline. Frontend shows a banner / inbox modal.
-        Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar);
-        if (jobOfferBlock != null) return jobOfferBlock;
+        if (!alwaysContinue) {
+            Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar);
+            if (jobOfferBlock != null) return jobOfferBlock;
+        }
 
         // Hard pause: an uncommitted live-match session exists for a human user
         // (typically because the user refreshed the browser mid-match). Block
         // advance and signal the FE to resume the live modal — without this,
         // the calendar would silently roll past the matchday with no result
         // for the human team.
-        Map<String, Object> liveMatchBlock = checkLiveMatchPause(season, calendar);
-        if (liveMatchBlock != null) return liveMatchBlock;
+        if (!alwaysContinue) {
+            Map<String, Object> liveMatchBlock = checkLiveMatchPause(season, calendar);
+            if (liveMatchBlock != null) return liveMatchBlock;
+        }
 
         // Clear pause flag - pressing CONTINUE is the user input that unpauses
         if (calendar.isPaused()) {
@@ -124,12 +136,14 @@ public class GameAdvanceService {
         // Run the offer generator — admin force OR sacking-driven (a club sacks
         // its AI manager and offers the open seat to an in-band human).
         try {
-            maybeGenerateJobOffers(season);
+            maybeGenerateForcedJobOffers();
         } catch (Exception ex) {
             System.err.println("Job offer generator failed: " + ex);
         }
 
         List<Map<String, Object>> processedEvents = new ArrayList<>();
+        String pauseReason = null;
+        String blockingEvent = null;
         int startDay = calendar.getCurrentDay();
 
         // Process all remaining phases of the current day in one CONTINUE press
@@ -172,14 +186,18 @@ public class GameAdvanceService {
                 }
                 calendarService.markEventCompleted(event.getId());
 
-                boolean isImportant = IMPORTANT_EVENT_TYPES.contains(event.getEventType());
+                boolean isImportant = IMPORTANT_EVENT_TYPES.contains(event.getEventType())
+                        && !Boolean.FALSE.equals(eventResult.get("userRelevant"));
                 if (isImportant) {
                     processedEvents.add(eventResult);
                 }
 
-                if (eventResult.containsKey("awaitingInput") && (boolean) eventResult.get("awaitingInput")) {
+                if (!alwaysContinue && eventResult.containsKey("awaitingInput")
+                        && (boolean) eventResult.get("awaitingInput")) {
                     calendar.setPaused(true);
                     gameCalendarRepository.save(calendar);
+                    pauseReason = "AWAITING_INPUT";
+                    blockingEvent = event.getEventType();
                     break;
                 }
             }
@@ -246,10 +264,15 @@ public class GameAdvanceService {
                                 "details", "New season " + (season + 1) + " is starting!",
                                 "newSeason", season + 1
                         )));
-                        result.put("paused", true);
+                        result.put("paused", !alwaysContinue);
+                        if (!alwaysContinue) {
+                            result.put("reason", "AWAITING_INPUT");
+                            result.put("blockingEvent", "SEASON_TRANSITION");
+                        }
                         result.put("transferWindowOpen", false);
-                        calendar.setPaused(true);
+                        calendar.setPaused(!alwaysContinue);
                         gameCalendarRepository.save(calendar);
+                        result.put("alwaysContinue", alwaysContinue);
                         return result;
                     }
                 }
@@ -266,7 +289,12 @@ public class GameAdvanceService {
         result.put("seasonPhase", calendarService.getSeasonPhase(calendar.getCurrentDay()));
         result.put("eventsProcessed", processedEvents);
         result.put("paused", calendar.isPaused());
+        if (calendar.isPaused() && pauseReason != null) {
+            result.put("reason", pauseReason);
+            result.put("blockingEvent", blockingEvent);
+        }
         result.put("transferWindowOpen", calendar.isTransferWindowOpen());
+        result.put("alwaysContinue", alwaysContinue);
 
         // Find next upcoming event
         CalendarEvent nextEvent = calendarService.getNextPendingEvent(season);
@@ -296,6 +324,7 @@ public class GameAdvanceService {
         state.put("transferWindowOpen", calendar.isTransferWindowOpen());
         state.put("managerFired", calendar.isManagerFired());
         state.put("paused", calendar.isPaused());
+        state.put("alwaysContinue", isAlwaysContinueActive());
 
         // Upcoming events for next 7 days
         List<Map<String, Object>> upcoming = new ArrayList<>();
@@ -400,14 +429,30 @@ public class GameAdvanceService {
     }
 
     /**
-     * Decide whether to spawn job offers this tick. Two paths:
-     *  - Admin force flag → guaranteed opportunistic offer for every active user.
-     *  - Sacking-driven → a club whose AI manager is sacked mid-season (enough
-     *    matches played AND sitting far below its predicted rank) leaves the seat
-     *    open and offers it to a free-agent human whose reputation is in band.
-     *    Declined clubs respect a multi-month cooldown.
+     * Single-player games normally have one configured user. In a multi-user save,
+     * unattended mode is active only when every configured human manager opted in,
+     * so one player cannot suppress another player's pauses. Free-agent managers
+     * remain configured through User.managerId and must keep the setting active;
+     * otherwise a dismissal would silently turn an unattended simulation off.
      */
-    private void maybeGenerateJobOffers(int season) {
+    public boolean isAlwaysContinueActive() {
+        Set<Long> managerIds = userRepository.findAll().stream()
+                .filter(user -> user.getManagerId() != null)
+                .map(user -> user.getManagerId())
+                .collect(java.util.stream.Collectors.toSet());
+        if (managerIds.isEmpty()) return false;
+
+        List<com.footballmanagergamesimulator.model.Human> managers = new ArrayList<>();
+        humanRepository.findAllById(managerIds).forEach(managers::add);
+        return managers.size() == managerIds.size()
+                && managers.stream().allMatch(com.footballmanagergamesimulator.model.Human::isAlwaysContinue);
+    }
+
+    /**
+     * Process the admin force flag. Normal sacking-driven offers are evaluated
+     * by MatchdayBatchProcessor only after a league round changes a table.
+     */
+    private void maybeGenerateForcedJobOffers() {
         if (!adminController.areJobOffersEnabled()) return;
 
         if (adminController.consumeForceOfferFlag()) {
@@ -419,10 +464,6 @@ public class GameAdvanceService {
                     System.err.println("Failed to force offer for user " + u.getId() + ": " + ex);
                 }
             }
-            return;
         }
-
-        // Normal path: offers come ONLY from clubs that sack their AI manager.
-        managerCareerService.evaluateMidSeasonSackings(season);
     }
 }

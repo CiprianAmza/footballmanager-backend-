@@ -5,7 +5,11 @@ import lombok.Data;
 
 @Entity
 @Data
-@Table(name="competitionTeamInfoMatch")
+@Table(name="competitionTeamInfoMatch", indexes = {
+        @Index(name = "idx_ctim_comp_season_round_leg", columnList = "competitionId,seasonNumber,round,leg_number"),
+        @Index(name = "idx_ctim_team1_season", columnList = "team1Id,seasonNumber"),
+        @Index(name = "idx_ctim_team2_season", columnList = "team2Id,seasonNumber")
+})
 public class CompetitionTeamInfoMatch {
 
   @Id
@@ -56,8 +60,18 @@ public class CompetitionTeamInfoMatch {
    * two-leg tie can aggregate with the first even when the legs are simulated on
    * separate calendar days (different simulateRound calls). -1 = not played yet.
    */
-  @Column(name = "team1_score")
+  @Column(name = "team1_score", nullable = false,
+          columnDefinition = "integer default -1")
   private int team1Score = -1;
-  @Column(name = "team2_score")
+  @Column(name = "team2_score", nullable = false,
+          columnDefinition = "integer default -1")
   private int team2Score = -1;
+
+  /**
+   * Guards discipline side-effects when Continue/Fast Forward retries or sees
+   * the same calendar event more than once.
+   */
+  @Column(name = "discipline_processed", nullable = false,
+          columnDefinition = "boolean default false")
+  private boolean disciplineProcessed;
 }

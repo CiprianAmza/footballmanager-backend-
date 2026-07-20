@@ -20,4 +20,6 @@ public class ScheduleView {
     private long teamId1; // home team id
     private long teamId2; // away team id
     private int day; // calendar day for sorting
+    private Long winnerTeamId;
+    private String decidedBy;
 }

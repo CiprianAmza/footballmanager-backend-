@@ -40,6 +40,10 @@ public class AssistantManagerService {
     private TacticService tacticService;
     @Autowired
     private PlayerRoleService playerRoleService;
+    @Autowired
+    private InjuryTimelineService injuryTimelineService;
+    @Autowired(required = false)
+    private com.footballmanagergamesimulator.config.GameplayFeatureConfig gameplayFeatures;
 
     /**
      * Get the assistant manager for a team, if one exists.
@@ -110,10 +114,12 @@ public class AssistantManagerService {
         }
 
         List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-        Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
+        Set<Long> injuredIds = availabilityDisabled() ? Set.of()
+                : injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
                 .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
 
         int currentSeason = (int) roundRepository.findById(1L).orElse(new Round()).getSeason();
+        InjuryTimelineService.GameDate currentDate = injuryTimelineService.currentDate();
 
         List<Map<String, Object>> concerns = new ArrayList<>();
 
@@ -130,7 +136,8 @@ public class AssistantManagerService {
                 concern.put("message", String.format("%s is injured (%s) — %d days remaining. Cannot play.",
                         player.getName(),
                         injury != null ? injury.getInjuryType() : "unknown",
-                        injury != null ? injury.getDaysRemaining() : 0));
+                        injury != null ? injuryTimelineService.remainingDays(
+                                injury, currentDate.season(), currentDate.day()) : 0));
                 concerns.add(concern);
             }
 
@@ -205,6 +212,10 @@ public class AssistantManagerService {
         }
 
         return result;
+    }
+
+    private boolean availabilityDisabled() {
+        return gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled();
     }
 
     /**

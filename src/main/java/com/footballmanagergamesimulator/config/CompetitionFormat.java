@@ -96,9 +96,13 @@ public final class CompetitionFormat {
         this.preliminaryRounds = Set.copyOf(b.preliminaryRounds);
         this.seededKnockoutDrawRounds = Set.copyOf(b.seededKnockoutDrawRounds);
         this.twoLegRounds = Set.copyOf(b.twoLegRounds);
-        this.europeanPlan = (kind == Kind.GROUPS_THEN_KNOCKOUT && totalTeams > 0)
-                ? EuropeanFormatPlan.derive(totalTeams, groupCount, groupSize, qualifyPerGroupToKnockout)
-                : null;
+        this.europeanPlan = b.tieredEuropeanEntries != null
+                ? EuropeanFormatPlan.deriveTiered(
+                        b.tieredEuropeanEntries[0], b.tieredEuropeanEntries[1], b.tieredEuropeanEntries[2],
+                        groupCount, groupSize, qualifyPerGroupToKnockout)
+                : (kind == Kind.GROUPS_THEN_KNOCKOUT && totalTeams > 0)
+                    ? EuropeanFormatPlan.derive(totalTeams, groupCount, groupSize, qualifyPerGroupToKnockout)
+                    : null;
     }
 
     public int totalTeams() { return totalTeams; }
@@ -218,6 +222,7 @@ public final class CompetitionFormat {
         private Set<Integer> preliminaryRounds = Set.of();
         private Set<Integer> seededKnockoutDrawRounds = Set.of();
         private Set<Integer> twoLegRounds = Set.of();
+        private int[] tieredEuropeanEntries;
 
         private Builder(int typeId, Kind kind) { this.typeId = typeId; this.kind = kind; }
 
@@ -226,6 +231,11 @@ public final class CompetitionFormat {
             this.encountersByTeamCount = byTeamCount; this.defaultEncounters = defaultEncounters; return this;
         }
         public Builder totalTeams(int v) { this.totalTeams = v; return this; }
+        public Builder tieredEuropeanEntries(int directGroup, int firstRound, int secondRoundNew) {
+            this.totalTeams = directGroup + firstRound + secondRoundNew;
+            this.tieredEuropeanEntries = new int[]{directGroup, firstRound, secondRoundNew};
+            return this;
+        }
         public Builder groups(int count, int size) { this.groupCount = count; this.groupSize = size; return this; }
         public Builder qualifyPerGroupToKnockout(int v) { this.qualifyPerGroupToKnockout = v; return this; }
         public Builder playoffQualifyPerGroup(int v) { this.playoffQualifyPerGroup = v; return this; }

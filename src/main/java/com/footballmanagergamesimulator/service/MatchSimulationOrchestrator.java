@@ -43,6 +43,10 @@ public class MatchSimulationOrchestrator {
         return matchRoundSimulator.roundInjuredIds(teamId);
     }
 
+    public Set<Long> roundUnavailableIds(long teamId) {
+        return matchRoundSimulator.roundUnavailableIds(teamId);
+    }
+
     public String roundTeamName(long teamId) {
         return matchRoundSimulator.roundTeamName(teamId);
     }

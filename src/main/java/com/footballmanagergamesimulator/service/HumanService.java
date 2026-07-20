@@ -329,31 +329,27 @@ public class HumanService {
 
       Random random = new Random();
       List<Human> humans = humanRepository
-              .findAll()
+              .findAllByTypeId(TypeNames.PLAYER_TYPE)
               .stream()
               .filter(human -> human.getAge() > 34)
-              .filter(human -> human.getTypeId() == TypeNames.PLAYER_TYPE)
               .toList();
 
+      List<Human> retiredPlayers = new ArrayList<>();
       for (Human human: humans) {
         int chance = random.nextInt(0, 2);
         if (chance == 1) {
             human.setTeamId(null);
             human.setRetired(true);
-            humanRepository.save(human);
-
-            // remove stats of current season as well from ScorerLeaderboardEntry
-            removeCurrentSeasonStatsFromScorerLeaderboardEntry(human);
+            retiredPlayers.add(human);
         }
-          //humanRepository.delete(human); // todo not sure we should delete them... maybe keep them in a different way or transform them in managers?
       }
-    }
+      humanRepository.saveAll(retiredPlayers);
 
-    private void removeCurrentSeasonStatsFromScorerLeaderboardEntry(Human human) {
-
-        Optional<ScorerLeaderboardEntry> scorerLeaderboardEntryOptional = scorerLeaderboardRepository.findByPlayerId(human.getId());
-        if (scorerLeaderboardEntryOptional.isPresent()) {
-            ScorerLeaderboardEntry scorerLeaderboardEntry = scorerLeaderboardEntryOptional.get();
+      if (!retiredPlayers.isEmpty()) {
+        List<Long> retiredIds = retiredPlayers.stream().map(Human::getId).toList();
+        List<ScorerLeaderboardEntry> entries =
+                scorerLeaderboardRepository.findAllByPlayerIdIn(retiredIds);
+        for (ScorerLeaderboardEntry scorerLeaderboardEntry : entries) {
             scorerLeaderboardEntry.setCurrentSeasonGames(0);
             scorerLeaderboardEntry.setCurrentSeasonGoals(0);
             scorerLeaderboardEntry.setCurrentSeasonLeagueGames(0);
@@ -363,14 +359,18 @@ public class HumanService {
             scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGames(0);
             scorerLeaderboardEntry.setCurrentSeasonSecondLeagueGoals(0);
             scorerLeaderboardEntry.setActive(false);
-
-            scorerLeaderboardRepository.save(scorerLeaderboardEntry);
         }
+        scorerLeaderboardRepository.saveAll(entries);
+      }
     }
 
     public void addOneYearToAge() {
 
-      List<Human> humans = humanRepository.findAll();
+      // Age only active people. For retired players the stored age represents
+      // their retirement age and is what historical trackers should display.
+      List<Human> humans = humanRepository.findAll().stream()
+              .filter(human -> !human.isRetired())
+              .toList();
 
       for (Human human: humans) {
         human.setAge(human.getAge() + 1);
@@ -408,7 +408,8 @@ public class HumanService {
                               long currentSeason, List<Human> collector) {
       int nrRegens = 1;
       for (int i = 0; i < nrRegens; i++) {
-          Human player = generateHuman(teamId, teamFacilities.getYouthAcademyLevel());
+          Human player = generateHuman(
+                  teamId, teamFacilities.getYouthAcademyLevel(), currentSeason);
           collector.add(player);
       }
     }
@@ -445,7 +446,8 @@ public class HumanService {
       }
     }
 
-    private Human generateHuman(long teamId, long youthAcademyLevel) {
+    private Human generateHuman(
+            long teamId, long youthAcademyLevel, long currentSeason) {
 
       Random random = new Random();
       int ratingAround = (int) youthAcademyLevel * 10;
@@ -463,7 +465,6 @@ public class HumanService {
       human.setCurrentStatus("Senior");
       human.setTeamId(teamId);
       human.setTypeId(1);
-      long currentSeason = roundRepository.findById(1L).get().getSeason();
       human.setSeasonCreated(currentSeason);
       human.setSeasonOfBestEverRating((int) currentSeason);
 

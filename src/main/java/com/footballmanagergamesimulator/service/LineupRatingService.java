@@ -30,6 +30,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,6 +58,12 @@ import java.util.Set;
  */
 @Service
 public class LineupRatingService {
+
+    /** Cached AI lineup plus its in-memory scorer rows, ready for one round-level flush. */
+    public record AiLineupInput(long teamId, String tactic,
+                                List<TacticController.StarterSlot> starters,
+                                List<PlayerView> substitutes,
+                                List<Scorer> scorers) {}
 
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired private HumanRepository humanRepository;
@@ -106,7 +115,7 @@ public class LineupRatingService {
 
         if (personalizedTacticOpt.isPresent()) {
             PersonalizedTactic personalized = personalizedTacticOpt.get();
-            Set<Long> injuredIds = matchSimulationOrchestrator.roundInjuredIds(teamId);
+            Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(teamId);
 
             try {
                 List<FormationData> formationDataList = objectMapper.readValue(
@@ -124,7 +133,7 @@ public class LineupRatingService {
 
                     Human player = playerOpt.get();
 
-                    if (injuredIds.contains(player.getId())) continue;
+                    if (unavailableIds.contains(player.getId())) continue;
 
                     String tacticPosition = tacticService.getPositionFromIndex(data.getPositionIndex());
                     String naturalPos = TacticService.getBasePosition(player.getPosition());
@@ -186,14 +195,21 @@ public class LineupRatingService {
         return lines;
     }
 
-    /**
-     * Captures the per-starter {@link #computePlayerRatings} values for a single team in a single
-     * match and persists them as {@link MatchPlayerRating} rows (player snapshot: name, position,
-     * rating, age, nationId). Idempotent: replaces any existing rows for the same match+team.
-     */
+    /** Captures the complete historical lineup (starters + bench) for a match. */
     public void persistPlayerRatings(long competitionId, int season, int round, long teamId, String tactic) {
 
         List<PlayerRatingLine> lines = computePlayerRatings(teamId, tactic);
+        Map<Long, PlayerRatingLine> lineByPlayer = new HashMap<>();
+        for (PlayerRatingLine line : lines) lineByPlayer.put(line.playerId(), line);
+
+        Map<Long, Scorer> scorerByPlayer = new HashMap<>();
+        for (Scorer scorer : scorerRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId(
+                        competitionId, season, round, teamId)) {
+            scorerByPlayer.put(scorer.getPlayerId(), scorer);
+        }
+
+        List<FormationData> formationSnapshot = buildFormationSnapshot(teamId, tactic);
         long nationId = resolveTeamNationId(teamId);
 
         List<MatchPlayerRating> existing = matchPlayerRatingRepository
@@ -203,22 +219,267 @@ public class LineupRatingService {
         }
 
         List<MatchPlayerRating> rows = new ArrayList<>();
-        for (PlayerRatingLine line : lines) {
-            Human player = humanRepository.findById(line.playerId()).orElse(null);
+        for (FormationData formationData : formationSnapshot) {
+            Human player = humanRepository.findById(formationData.getPlayerId()).orElse(null);
+            if (player == null) continue;
+
+            boolean substitute = formationData.getPositionIndex() >= 30;
+            PlayerRatingLine engineLine = lineByPlayer.get(player.getId());
+            // A personalized XI may still contain an injured player. It was not used by the
+            // engine, so it must not be shown as a starter in the historical lineup.
+            if (!substitute && engineLine == null) continue;
+
+            Scorer scorer = scorerByPlayer.get(player.getId());
             MatchPlayerRating row = new MatchPlayerRating();
             row.setCompetitionId(competitionId);
             row.setSeasonNumber(season);
             row.setRoundNumber(round);
             row.setTeamId(teamId);
-            row.setPlayerId(line.playerId());
-            row.setPlayerName(player != null ? player.getName() : "");
-            row.setPosition(line.position());
-            row.setRating(line.rating());
-            row.setAge(player != null ? player.getAge() : 0);
+            row.setPlayerId(player.getId());
+            row.setPlayerName(player.getName());
+            row.setPosition(engineLine != null ? engineLine.position() : player.getPosition());
+            row.setPositionIndex(formationData.getPositionIndex());
+            row.setFormation(tactic);
+            row.setRole(formationData.getRole());
+            row.setDuty(formationData.getDuty());
+            row.setSubstitute(substitute);
+            row.setRating(engineLine != null ? engineLine.rating() : 0);
+            row.setPerformanceRating(scorer != null ? scorer.getRating() : 0);
+            row.setGoals(scorer != null ? scorer.getGoals() : 0);
+            row.setAssists(scorer != null ? scorer.getAssists() : 0);
+            row.setAge(player.getAge());
             row.setNationId(nationId);
+            copyFaceSnapshot(row, player);
             rows.add(row);
         }
         matchPlayerRatingRepository.saveAll(rows);
+    }
+
+    /**
+     * Batched AI-match variant. MatchRoundSimulator already selected and cached the XI/bench while
+     * calculating team strength, so rebuilding both through the UI-oriented TacticController costs
+     * hundreds of redundant nation/player lookups. Reuse those exact selections and load skills +
+     * player entities once.
+     */
+    public void persistPlayerRatings(long competitionId, int season, int round, long teamId,
+                                     String tactic,
+                                     List<TacticController.StarterSlot> starters,
+                                     List<PlayerView> substitutes) {
+        if (starters == null || starters.isEmpty()) {
+            persistPlayerRatings(competitionId, season, round, teamId, tactic);
+            return;
+        }
+
+        List<Scorer> scorers = scorerRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId(
+                        competitionId, season, round, teamId);
+        persistPlayerRatingsBatch(competitionId, season, round,
+                List.of(new AiLineupInput(teamId, tactic, starters, substitutes, scorers)));
+    }
+
+    /**
+     * Persists every AI lineup in a competition round with one player query, one skills query,
+     * one idempotency query and one save call. Scorer rows are supplied in memory so we do not
+     * write them and immediately query them back for each team.
+     */
+    public void persistPlayerRatingsBatch(long competitionId, int season, int round,
+                                          List<AiLineupInput> inputs) {
+        if (inputs == null || inputs.isEmpty()) return;
+
+        // Historical rating identity is (competition, season, round, team), so if a legacy
+        // two-leg round contains the same team twice, retain the final snapshot just like the
+        // previous per-match delete-and-reinsert path did.
+        Map<Long, AiLineupInput> lastInputByTeam = new LinkedHashMap<>();
+        for (AiLineupInput input : inputs) {
+            if (input != null && input.starters() != null && !input.starters().isEmpty()) {
+                lastInputByTeam.put(input.teamId(), input);
+            }
+        }
+        List<AiLineupInput> validInputs = new ArrayList<>(lastInputByTeam.values());
+        if (validInputs.isEmpty()) return;
+
+        List<Long> playerIds = new ArrayList<>();
+        Set<Long> teamIds = new HashSet<>();
+        for (AiLineupInput input : validInputs) {
+            teamIds.add(input.teamId());
+            for (TacticController.StarterSlot starter : input.starters()) {
+                if (starter.player().getId() > 0) playerIds.add(starter.player().getId());
+            }
+            if (input.substitutes() != null) {
+                for (PlayerView substitute : input.substitutes()) {
+                    if (substitute.getId() > 0) playerIds.add(substitute.getId());
+                }
+            }
+        }
+
+        Map<Long, Human> playerById = new HashMap<>();
+        for (Human player : humanRepository.findAllById(playerIds)) {
+            playerById.put(player.getId(), player);
+        }
+        Map<Long, PlayerSkills> skillsById = new HashMap<>();
+        for (PlayerSkills skills : playerSkillsRepository.findAllByPlayerIdIn(playerIds)) {
+            skillsById.put(skills.getPlayerId(), skills);
+        }
+
+        List<MatchPlayerRating> existing = matchPlayerRatingRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamIdIn(
+                        competitionId, season, round, teamIds);
+        if (!existing.isEmpty()) matchPlayerRatingRepository.deleteAllInBatch(existing);
+
+        Map<Long, Team> teamById = new HashMap<>();
+        Set<Long> leagueIds = new HashSet<>();
+        for (Team team : teamRepository.findAllById(teamIds)) {
+            teamById.put(team.getId(), team);
+            leagueIds.add(team.getCompetitionId());
+        }
+        Map<Long, Competition> leagueById = new HashMap<>();
+        for (Competition league : competitionRepository.findAllById(leagueIds)) {
+            leagueById.put(league.getId(), league);
+        }
+
+        List<MatchPlayerRating> rows = new ArrayList<>();
+        for (AiLineupInput input : validInputs) {
+            Map<Long, Scorer> scorerByPlayer = new HashMap<>();
+            if (input.scorers() != null) {
+                for (Scorer scorer : input.scorers()) {
+                    scorerByPlayer.put(scorer.getPlayerId(), scorer);
+                }
+            }
+
+            Team team = teamById.get(input.teamId());
+            Competition league = team != null ? leagueById.get(team.getCompetitionId()) : null;
+            long nationId = league != null ? league.getNationId() : -1;
+            int[] gridIndices = tacticService.getFormationGridIndices(input.tactic());
+            Set<Integer> usedGridIndices = new HashSet<>();
+
+            for (TacticController.StarterSlot starter : input.starters()) {
+                Human player = playerById.get(starter.player().getId());
+                if (player == null) continue;
+                int positionIndex = findGridIndexForSlot(
+                        gridIndices, usedGridIndices, starter.usedPosition());
+                if (positionIndex < 0) continue;
+                usedGridIndices.add(positionIndex);
+
+                PlayerSkills skills = skillsById.get(player.getId());
+                double engineRating = skills != null
+                        ? playerValueService.evaluatePlayer(
+                                skills, player.getPosition(), starter.usedPosition(),
+                                player.getMorale(), player.getFitness())
+                        : playerValueService.evaluatePlayer(
+                                player.getRating(), player.getPosition(), starter.usedPosition(),
+                                player.getMorale(), player.getFitness());
+                rows.add(buildRatingRow(
+                        competitionId, season, round, input.teamId(), input.tactic(), nationId,
+                        player, starter.usedPosition(), positionIndex, false,
+                        engineRating, scorerByPlayer.get(player.getId())));
+            }
+
+            int benchIndex = 30;
+            if (input.substitutes() != null) {
+                for (PlayerView substitute : input.substitutes()) {
+                    Human player = playerById.get(substitute.getId());
+                    if (player == null) continue;
+                    rows.add(buildRatingRow(
+                            competitionId, season, round, input.teamId(), input.tactic(), nationId,
+                            player, player.getPosition(), benchIndex++, true,
+                            0, scorerByPlayer.get(player.getId())));
+                }
+            }
+        }
+
+        matchPlayerRatingRepository.saveAll(rows);
+    }
+
+    private MatchPlayerRating buildRatingRow(long competitionId, int season, int round,
+                                              long teamId, String tactic, long nationId,
+                                              Human player, String position, int positionIndex,
+                                              boolean substitute, double engineRating, Scorer scorer) {
+        MatchPlayerRating row = new MatchPlayerRating();
+        row.setCompetitionId(competitionId);
+        row.setSeasonNumber(season);
+        row.setRoundNumber(round);
+        row.setTeamId(teamId);
+        row.setPlayerId(player.getId());
+        row.setPlayerName(player.getName());
+        row.setPosition(position);
+        row.setPositionIndex(positionIndex);
+        row.setFormation(tactic);
+        row.setSubstitute(substitute);
+        row.setRating(engineRating);
+        row.setPerformanceRating(scorer != null ? scorer.getRating() : 0);
+        row.setGoals(scorer != null ? scorer.getGoals() : 0);
+        row.setAssists(scorer != null ? scorer.getAssists() : 0);
+        row.setAge(player.getAge());
+        row.setNationId(nationId);
+        copyFaceSnapshot(row, player);
+        return row;
+    }
+
+    /** Uses the manager's exact saved grid, or deterministically maps the AI-picked XI to it. */
+    private List<FormationData> buildFormationSnapshot(long teamId, String tactic) {
+        Optional<PersonalizedTactic> personalizedOpt =
+                personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
+        if (personalizedOpt.isPresent() && personalizedOpt.get().getFirst11() != null) {
+            try {
+                List<FormationData> saved = objectMapper.readValue(
+                        personalizedOpt.get().getFirst11(),
+                        new TypeReference<List<FormationData>>() {});
+                if (!saved.isEmpty()) return saved;
+            } catch (Exception e) {
+                System.err.println("Could not snapshot personalized lineup for team " + teamId + ": " + e.getMessage());
+            }
+        }
+
+        List<FormationData> snapshot = new ArrayList<>();
+        List<TacticController.StarterSlot> starters =
+                tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
+        int[] gridIndices = tacticService.getFormationGridIndices(tactic);
+        Set<Integer> usedGridIndices = new HashSet<>();
+
+        for (TacticController.StarterSlot starter : starters) {
+            int positionIndex = findGridIndexForSlot(gridIndices, usedGridIndices, starter.usedPosition());
+            if (positionIndex < 0) continue;
+            usedGridIndices.add(positionIndex);
+
+            FormationData data = new FormationData();
+            data.setPositionIndex(positionIndex);
+            data.setPlayerId(starter.player().getId());
+            snapshot.add(data);
+        }
+
+        int benchIndex = 30;
+        for (PlayerView substitute : tacticController.getSubstitutions(String.valueOf(teamId), tactic)) {
+            FormationData data = new FormationData();
+            data.setPositionIndex(benchIndex++);
+            data.setPlayerId(substitute.getId());
+            snapshot.add(data);
+        }
+        return snapshot;
+    }
+
+    private int findGridIndexForSlot(int[] gridIndices, Set<Integer> used, String usedPosition) {
+        String basePosition = TacticService.getBasePosition(usedPosition);
+        for (int index : gridIndices) {
+            if (used.contains(index)) continue;
+            String gridPosition = TacticService.getBasePosition(tacticService.getPositionFromIndex(index));
+            if (basePosition != null && basePosition.equals(gridPosition)) return index;
+        }
+        for (int index : gridIndices) if (!used.contains(index)) return index;
+        return -1;
+    }
+
+    private void copyFaceSnapshot(MatchPlayerRating row, Human player) {
+        row.setBaseFaceId(player.getBaseFaceId());
+        row.setSkinTone(player.getSkinTone());
+        row.setHairStyle(player.getHairStyle());
+        row.setHairColor(player.getHairColor());
+        row.setEyeColor(player.getEyeColor());
+        row.setFaceShape(player.getFaceShape());
+        row.setNoseShape(player.getNoseShape());
+        row.setEyeShape(player.getEyeShape());
+        row.setMouthShape(player.getMouthShape());
+        row.setBrowShape(player.getBrowShape());
+        row.setSpecies(player.getSpecies());
     }
 
     /** Team's nation = its league competition's nationId (team -> competition -> nationId). */
@@ -337,7 +598,8 @@ public class LineupRatingService {
      * Handles personalized-tactic JSON sourcing with an auto-best-eleven
      * fallback; respects injuries via the orchestrator's per-round cache.
      */
-    public void getScorersForTeam(long teamId, long opponentTeamId, int teamScore, int opponentScore, String tactic, long competitionId) {
+    public void getScorersForTeam(long teamId, long opponentTeamId, int teamScore, int opponentScore,
+                                  String tactic, long competitionId, int roundNumber) {
 
         Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
         long competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
@@ -354,7 +616,7 @@ public class LineupRatingService {
         if (personalizedTacticOpt.isPresent()) {
             try {
                 PersonalizedTactic personalized = personalizedTacticOpt.get();
-                Set<Long> injuredIds = matchSimulationOrchestrator.roundInjuredIds(teamId);
+                Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(teamId);
 
                 List<FormationData> formationList = objectMapper.readValue(
                         personalized.getFirst11(),
@@ -367,11 +629,12 @@ public class LineupRatingService {
 
                     Human player = playerOpt.get();
 
-                    if (injuredIds.contains(player.getId())) continue;
+                    if (unavailableIds.contains(player.getId())) continue;
 
                     Scorer scorer = new Scorer();
                     scorer.setPlayerId(player.getId());
                     scorer.setSeasonNumber(gameStateService.currentSeason());
+                    scorer.setRoundNumber(roundNumber);
                     scorer.setTeamId(teamId);
                     scorer.setOpponentTeamId(opponentTeamId);
                     scorer.setPosition(player.getPosition());
@@ -410,6 +673,7 @@ public class LineupRatingService {
                 Scorer scorer = new Scorer();
                 scorer.setPlayerId(playerView.getId());
                 scorer.setSeasonNumber(gameStateService.currentSeason());
+                scorer.setRoundNumber(roundNumber);
                 scorer.setTeamId(teamId);
                 scorer.setOpponentTeamId(opponentTeamId);
                 scorer.setPosition(playerView.getPosition());
@@ -430,6 +694,7 @@ public class LineupRatingService {
                 Scorer scorer = new Scorer();
                 scorer.setPlayerId(playerView.getId());
                 scorer.setSeasonNumber(gameStateService.currentSeason());
+                scorer.setRoundNumber(roundNumber);
                 scorer.setTeamId(teamId);
                 scorer.setOpponentTeamId(opponentTeamId);
                 scorer.setPosition(playerView.getPosition());

@@ -15,6 +15,49 @@ spring:
         order_updates: true
 
 # =============================================================
+# Matchday simulation scheduling
+# =============================================================
+# Independent competitions run on a bounded platform-thread pool. The planner
+# serializes competitions that share teams and keeps European competitions on
+# one lane, so player state and coefficient/draw state are not updated twice at
+# the same time. Set enabled=false for an immediate sequential fallback.
+simulation:
+  training:
+    # Ratings/skills are recalculated at most once every three weeks. Fitness
+    # and the chance of a training injury are still processed per session.
+    rating-update-interval-days: 21
+  matchday:
+    parallel:
+      enabled: true
+      workers: 4
+
+# =============================================================
+# General gameplay feature switches
+# =============================================================
+gameplay:
+  # Temporary mode requested for long simulations. When true, injuries and
+  # suspensions are neither generated nor considered for team availability.
+  player-availability-disabled: true
+
+# =============================================================
+# Global award weighting
+# =============================================================
+# Championships are ranked by the average rating of each club's best 11 players.
+# Map keys are inclusive rank ceilings: 3 => positions 1-3 use x4, 5 => 4-5 use x3.
+awards:
+  weighting:
+    league-strength:
+      top-players-per-team: 11
+      rank-multipliers:
+        3: 4.0
+        5: 3.0
+        7: 2.0
+      default-multiplier: 1.0
+    golden-boot:
+      goal-weight: 2.5
+      assist-weight: 1.0
+
+# =============================================================
 # Match Engine Configuration
 # =============================================================
 # Single source of truth for every numeric constant that
@@ -201,9 +244,12 @@ match:
       pass-accuracy-noise-sigma: 1.5
       pass-accuracy-keep-ball-bonus: 3.0
       pass-accuracy-long-ball-penalty: -5.0
-      shots-base: 6.0
-      shots-edge-scale: 16.0
-      shots-goals-bonus: 1.5
+      shots-base: 5.0
+      shots-edge-scale: 15.0
+      shots-control-noise-sigma: 0.12
+      shots-tempo-noise-sigma: 0.22
+      shots-team-noise-sigma: 0.28
+      shots-max: 40
       shots-on-target-base: 0.40
       shots-on-target-edge-span: 0.10
       shots-on-target-noise: 0.08
@@ -235,10 +281,14 @@ match:
       cross-accuracy-base: 0.28
       cross-accuracy-edge-scale: 0.08
       cross-accuracy-noise: 0.08
-      big-chances-so-t-ratio: 0.6
-      xg-per-big-chance: 0.35
-      xg-per-sot-miss: 0.12
-      xg-per-wide-shot: 0.05
+      xg-big-chance-rate: 0.08
+      xg-big-chance-power-span: 0.06
+      xg-regular-min: 0.01
+      xg-regular-max: 0.24
+      xg-big-min: 0.30
+      xg-big-max: 0.75
+      xg-scoreline-probability-floor: 0.0001
+      xg-scoreline-resample-attempts: 25
       tactical-possession-keep-ball: 5.0
       tactical-possession-free-ball-early: -3.0
       tactical-possession-short-passing: 3.0

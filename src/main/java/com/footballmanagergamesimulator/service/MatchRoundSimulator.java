@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.FormationData;
@@ -30,9 +31,12 @@ import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.repository.SuspensionRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.user.UserContext;
+import com.footballmanagergamesimulator.user.User;
+import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.apache.commons.math3.distribution.EnumeratedDistribution;
 import org.apache.commons.math3.util.Pair;
@@ -48,9 +52,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -68,6 +74,7 @@ public class MatchRoundSimulator {
 
     @Autowired private HumanRepository humanRepository;
     @Autowired private InjuryRepository injuryRepository;
+    @Autowired private SuspensionRepository suspensionRepository;
     @Autowired private TeamRepository teamRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private CompetitionRepository competitionRepository;
@@ -94,23 +101,26 @@ public class MatchRoundSimulator {
     @Autowired private PlayerValueService playerValueService;
     @Autowired private PlayerRoleService playerRoleService;
     @Autowired private PlayerInstructionService playerInstructionService;
+    @Autowired private InjuryTimelineService injuryTimelineService;
+    @Autowired private CoachPermissionService coachPermissionService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private TacticalScoreService tacticalScoreService;
     @Autowired private ManagerTacticService managerTacticService;
     @Autowired private PlayerMatchStatService playerMatchStatService;
     @Autowired private UserContext userContext;
+    @Autowired private UserRepository userRepository;
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
+    @Autowired(required = false) private GameplayFeatureConfig gameplayFeatures;
     @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
 
     /**
-     * Shared RNG used by simulateRound + AI helpers + injury batched paths.
-     * Held as a field so determinism IT (seed → reproducible round) can swap
-     * in a seeded {@link Random} via {@link #setRandomForTesting(Random)}.
-     * Production code never touches this — it stays the default
-     * non-seeded {@link Random} so AI matches feel random as before.
+     * One RNG per simulation thread. A shared {@link Random} is internally safe,
+     * but interleaving calls from several competitions makes their outcomes depend
+     * on scheduler timing. Keeping the stream local also avoids a global contention
+     * point in the hot path.
      */
-    private Random random = new Random();
+    private final ThreadLocal<Random> threadRandom = ThreadLocal.withInitial(Random::new);
 
     /**
      * Test-only seam: swap the RNG for determinism / fuzz tests so the same
@@ -119,30 +129,57 @@ public class MatchRoundSimulator {
      * code MUST NOT use this method.
      */
     public void setRandomForTesting(Random random) {
-        this.random = random;
+        threadRandom.set(Objects.requireNonNull(random));
+    }
+
+    private Human resolveCurrentManager(long teamId, List<Human> managers) {
+        if (managers.isEmpty()) return null;
+        Long linkedManagerId = userRepository.findAllByTeamId(teamId).stream()
+                .map(User::getManagerId)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (linkedManagerId == null) return managers.get(0);
+        return managers.stream()
+                .filter(manager -> manager.getId() == linkedManagerId)
+                .findFirst()
+                .orElse(managers.get(0));
     }
 
     // ===== AI rating caches (lifetime: app, mirrors original controller behavior). =====
-    private final Map<Long, Double> simpleRatingCache = new HashMap<>();
-    private final Map<Long, String> managerTacticCache = new HashMap<>();
-    private final Map<Long, List<PlayerView>> bestElevenCache = new HashMap<>();
-    private final Map<Long, List<PlayerView>> substitutionsCache = new HashMap<>();
+    private final Map<Long, Double> simpleRatingCache = new ConcurrentHashMap<>();
+    private final Map<Long, String> managerTacticCache = new ConcurrentHashMap<>();
+    private final Map<Long, List<PlayerView>> bestElevenCache = new ConcurrentHashMap<>();
+    private final Map<Long, List<TacticController.StarterSlot>> starterSlotsCache = new ConcurrentHashMap<>();
+    private final Map<Long, List<PlayerView>> substitutionsCache = new ConcurrentHashMap<>();
     // Two-axis tactical-model caches (only populated when tactical-model.enabled): a team's coached
     // attack/defense profile and the tactic its manager picked for the season.
-    private final Map<Long, TacticalScoreService.TeamProfile> profileCache = new HashMap<>();
-    private final Map<Long, TacticalScoreService.TacticVector> tacticVectorCache = new HashMap<>();
+    private final Map<Long, TacticalScoreService.TeamProfile> profileCache = new ConcurrentHashMap<>();
+    private final Map<Long, TacticalScoreService.TacticVector> tacticVectorCache = new ConcurrentHashMap<>();
     // XI value share in wide positions, for the AI's squad-shape width identity (see teamTacticVector).
-    private final Map<Long, Double> wideShareCache = new HashMap<>();
+    private final Map<Long, Double> wideShareCache = new ConcurrentHashMap<>();
+    // Formation ranking used to rebuild the full UI-oriented PlayerView squad for every candidate
+    // shape. Keep a compact, batch-loaded evaluation squad and the resulting values instead.
+    private final Map<Long, FormationEvaluationSquad> formationSquadCache = new ConcurrentHashMap<>();
+    private final Map<Long, Map<String, Double>> formationValueCache = new ConcurrentHashMap<>();
 
-    // ===== Per-round caches (populated at start of simulateRound, cleared at end). =====
-    // simulateRound runs sequentially (one competition's round at a time from the
-    // single-threaded GameAdvanceService loop), so instance fields are safe.
-    private Map<Long, List<Human>> roundPlayersByTeam;
-    private Map<Long, Set<Long>> roundInjuredIdsByTeam;
-    private Map<Long, Team> roundTeamsById;
-    private Competition roundCompetition;
-    private String roundCompetitionName;
-    private long roundCompetitionTypeId;
+    // ===== Per-round state (populated at start of simulateRound, cleared at end). =====
+    // MatchRoundSimulator is a singleton, therefore every worker needs its own view
+    // of the current competition and its managed entities.
+    private record RoundContext(
+            Map<Long, List<Human>> playersByTeam,
+            Map<Long, List<Human>> managersByTeam,
+            Map<Long, Set<Long>> injuredIdsByTeam,
+            Map<Long, Set<Long>> suspendedIdsByTeam,
+            Map<Long, Team> teamsById,
+            Map<Long, TeamCompetitionDetail> competitionDetailsByTeam,
+            Map<Long, PersonalizedTactic> tacticsByTeam,
+            Map<Long, ScorerLeaderboardEntry> leaderboardByPlayer,
+            Competition competition,
+            String competitionName,
+            long competitionTypeId) {}
+
+    private final ThreadLocal<RoundContext> roundContext = new ThreadLocal<>();
 
     // ============================================================
     //  Public entry point
@@ -170,7 +207,7 @@ public class MatchRoundSimulator {
         long nextRound = _roundId + 1;
 
         // Field-level RNG so determinism IT holds across simulateRound.
-        Random random = this.random;
+        Random random = threadRandom.get();
         List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
                 .findAllByCompetitionIdAndRoundAndSeasonNumber(_competitionId, _roundId, getCurrentSeason());
         if (onlyLeg != null) {
@@ -192,6 +229,10 @@ public class MatchRoundSimulator {
         List<Injury> batchedInjuries = new ArrayList<>();
         List<Human> batchedInjuredPlayers = new ArrayList<>();
         List<Human> batchedManagers = new ArrayList<>();
+        List<Scorer> batchedScorers = new ArrayList<>();
+        List<LineupRatingService.AiLineupInput> batchedLineups = new ArrayList<>();
+        List<PlayerMatchStatService.TeamMatchInput> batchedPlayerStats = new ArrayList<>();
+        List<FinanceService.MatchDayIncomeInput> batchedMatchdayIncome = new ArrayList<>();
 
         // Pre-cache competition type IDs (avoids repeated findAll per match)
         Set<Long> cachedLeagueCompIds = gameStateService.getLeagueCompetitionIdsCached();
@@ -208,28 +249,84 @@ public class MatchRoundSimulator {
             participatingTeamIds.add(m.getTeam2Id());
         }
 
+        Map<Long, List<Human>> playersByTeam;
+        Map<Long, List<Human>> managersByTeam;
+        Map<Long, Set<Long>> injuredIdsByTeam;
+        Map<Long, Set<Long>> suspendedIdsByTeam;
+        Map<Long, Team> teamsById;
+        Map<Long, TeamCompetitionDetail> competitionDetailsByTeam;
+        Map<Long, PersonalizedTactic> tacticsByTeam;
+        Map<Long, ScorerLeaderboardEntry> leaderboardByPlayer;
         if (!participatingTeamIds.isEmpty()) {
-            roundPlayersByTeam = humanRepository
+            playersByTeam = humanRepository
                     .findAllByTeamIdInAndTypeId(participatingTeamIds, TypeNames.PLAYER_TYPE)
                     .stream()
                     .collect(Collectors.groupingBy(Human::getTeamId));
-            roundInjuredIdsByTeam = injuryRepository
+            managersByTeam = humanRepository
+                    .findAllByTeamIdInAndTypeId(participatingTeamIds, TypeNames.MANAGER_TYPE)
+                    .stream()
+                    .collect(Collectors.groupingBy(Human::getTeamId));
+            injuredIdsByTeam = availabilityDisabled() ? Map.of() : injuryRepository
                     .findAllByTeamIdInAndDaysRemainingGreaterThan(participatingTeamIds, 0)
                     .stream()
                     .collect(Collectors.groupingBy(
                             Injury::getTeamId,
                             Collectors.mapping(Injury::getPlayerId, Collectors.toSet())));
-            roundTeamsById = teamRepository.findAllById(participatingTeamIds).stream()
+            suspendedIdsByTeam = availabilityDisabled() ? Map.of() : suspensionRepository
+                    .findAllByCompetitionIdAndTeamIdInAndActive(
+                            _competitionId, participatingTeamIds, true)
+                    .stream()
+                    .collect(Collectors.groupingBy(
+                            com.footballmanagergamesimulator.model.Suspension::getTeamId,
+                            Collectors.mapping(
+                                    com.footballmanagergamesimulator.model.Suspension::getPlayerId,
+                                    Collectors.toSet())));
+            teamsById = teamRepository.findAllById(participatingTeamIds).stream()
                     .collect(Collectors.toMap(Team::getId, t -> t));
+            competitionDetailsByTeam = teamCompetitionDetailRepository
+                    .findAllByCompetitionIdAndTeamIdIn(_competitionId, participatingTeamIds)
+                    .stream()
+                    .collect(Collectors.toMap(
+                            TeamCompetitionDetail::getTeamId, detail -> detail,
+                            (left, right) -> left));
+            tacticsByTeam = personalizedTacticRepository.findAllByTeamIdIn(participatingTeamIds)
+                    .stream()
+                    .collect(Collectors.toMap(
+                            PersonalizedTactic::getTeamId, tactic -> tactic,
+                            (left, right) -> left));
+            List<Long> roundPlayerIds = playersByTeam.values().stream()
+                    .flatMap(List::stream)
+                    .map(Human::getId)
+                    .toList();
+            leaderboardByPlayer = roundPlayerIds.isEmpty() ? Map.of()
+                    : scorerLeaderboardRepository.findAllByPlayerIdIn(roundPlayerIds)
+                            .stream()
+                            .collect(Collectors.toMap(
+                                    ScorerLeaderboardEntry::getPlayerId, entry -> entry,
+                                    (left, right) -> left));
         } else {
-            roundPlayersByTeam = Map.of();
-            roundInjuredIdsByTeam = Map.of();
-            roundTeamsById = Map.of();
+            playersByTeam = Map.of();
+            managersByTeam = Map.of();
+            injuredIdsByTeam = Map.of();
+            suspendedIdsByTeam = Map.of();
+            teamsById = Map.of();
+            competitionDetailsByTeam = Map.of();
+            tacticsByTeam = Map.of();
+            leaderboardByPlayer = Map.of();
         }
 
-        roundCompetition = competitionRepository.findById(_competitionId).orElse(null);
-        roundCompetitionName = roundCompetition != null ? roundCompetition.getName() : "";
-        roundCompetitionTypeId = roundCompetition != null ? roundCompetition.getTypeId() : 0L;
+        Competition competition = competitionRepository.findById(_competitionId).orElse(null);
+        String competitionName = competition != null ? competition.getName() : "";
+        long competitionTypeId = competition != null ? competition.getTypeId() : 0L;
+        // Availability changes every matchday. Preserve the expensive squad/skill
+        // cache, but always rebuild the XI, bench and match power.
+        participatingTeamIds.forEach(this::invalidateMatchdayLineupCaches);
+
+        roundContext.set(new RoundContext(playersByTeam, managersByTeam, injuredIdsByTeam,
+                suspendedIdsByTeam,
+                teamsById, competitionDetailsByTeam,
+                tacticsByTeam, leaderboardByPlayer,
+                competition, competitionName, competitionTypeId));
 
         long _tPreloadDone = System.nanoTime();
 
@@ -302,9 +399,11 @@ public class MatchRoundSimulator {
                 // Check if any human manager has viewFullMatch enabled
                 boolean useFullMatchEngine = false;
                 long humanTeamIdForMatch = userContext.isHumanTeam(teamId1) ? teamId1 : teamId2;
-                Human humanManager = humanRepository.findAllByTeamIdAndTypeId(humanTeamIdForMatch, TypeNames.MANAGER_TYPE)
-                        .stream().findFirst().orElse(null);
-                if (humanManager != null && humanManager.isViewFullMatch() && adminScore == null) {
+                List<Human> humanManagers = humanRepository
+                        .findAllByTeamIdAndTypeId(humanTeamIdForMatch, TypeNames.MANAGER_TYPE);
+                Human humanManager = resolveCurrentManager(humanTeamIdForMatch, humanManagers);
+                if (humanManager != null && humanManager.isViewFullMatch()
+                        && !humanManager.isAlwaysContinue() && adminScore == null) {
                     useFullMatchEngine = true;
                 }
 
@@ -390,8 +489,8 @@ public class MatchRoundSimulator {
                     }
 
                     // Full scorer tracking with weighted distribution
-                    lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
-                    lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
+                    lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId);
+                    lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId);
                     // Per-player lineup ratings for the match statistics view
                     lineupRatingService.persistPlayerRatings(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, tactic1);
                     lineupRatingService.persistPlayerRatings(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId2, tactic2);
@@ -417,7 +516,10 @@ public class MatchRoundSimulator {
                     teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
                     teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
 
-                    europeanCoefficientService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                    if (competitionTypeId == 4 || competitionTypeId == 5) {
+                        europeanCoefficientService.awardCoefficientPoints(
+                                _competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                    }
 
                     teamPostMatchService.generateMatchReport(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
                     teamPostMatchService.updateManagerReputationAfterMatch(teamId1, teamId2, teamScore1, teamScore2);
@@ -462,14 +564,36 @@ public class MatchRoundSimulator {
                     // only team talk + home advantage are applied here (team1 = home side).
                     List<Integer> scores = matchSimulationService.calculateScores(
                             matchSimulationService.effectiveTeamPower(teamPower1, teamTalkFactor(teamId1), true),
-                            matchSimulationService.effectiveTeamPower(teamPower2, teamTalkFactor(teamId2), false));
+                            matchSimulationService.effectiveTeamPower(teamPower2, teamTalkFactor(teamId2), false),
+                            random);
                     teamScore1 = scores.get(0);
                     teamScore2 = scores.get(1);
                 }
 
                 _ts = System.nanoTime();
-                getScorersForTeamSimplified(teamId1, teamId2, teamScore1, teamScore2, _competitionId);
-                getScorersForTeamSimplified(teamId2, teamId1, teamScore2, teamScore1, _competitionId);
+                List<Scorer> team1Scorers = getScorersForTeamSimplified(
+                        teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId);
+                List<Scorer> team2Scorers = getScorersForTeamSimplified(
+                        teamId2, teamId1, teamScore2, teamScore1, _competitionId, (int) _roundId);
+                batchedScorers.addAll(team1Scorers);
+                batchedScorers.addAll(team2Scorers);
+                String aiTactic1 = getManagerTacticCached(teamId1);
+                String aiTactic2 = getManagerTacticCached(teamId2);
+                batchedLineups.add(new LineupRatingService.AiLineupInput(
+                        teamId1, aiTactic1, starterSlotsCache.get(teamId1),
+                        substitutionsCache.get(teamId1), team1Scorers));
+                batchedLineups.add(new LineupRatingService.AiLineupInput(
+                        teamId2, aiTactic2, starterSlotsCache.get(teamId2),
+                        substitutionsCache.get(teamId2), team2Scorers));
+                RoundContext activeContext = roundContext.get();
+                PersonalizedTactic team1Tactic = activeContext != null
+                        ? activeContext.tacticsByTeam().get(teamId1) : null;
+                PersonalizedTactic team2Tactic = activeContext != null
+                        ? activeContext.tacticsByTeam().get(teamId2) : null;
+                batchedPlayerStats.add(new PlayerMatchStatService.TeamMatchInput(
+                        teamId1, bestElevenCache.getOrDefault(teamId1, List.of()), team1Tactic));
+                batchedPlayerStats.add(new PlayerMatchStatService.TeamMatchInput(
+                        teamId2, bestElevenCache.getOrDefault(teamId2, List.of()), team2Tactic));
                 tScorers += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
@@ -483,7 +607,10 @@ public class MatchRoundSimulator {
                 tMorale += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
-                europeanCoefficientService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                if (competitionTypeId == 4 || competitionTypeId == 5) {
+                    europeanCoefficientService.awardCoefficientPoints(
+                            _competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
+                }
                 tCoeff += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
@@ -511,6 +638,10 @@ public class MatchRoundSimulator {
             // Two-leg: leg 1 is recorded but does NOT advance anyone; leg 2 aggregates
             // both legs and decides the tie (extra time + penalties on level aggregate).
             String koScoreSuffix = "";
+            Long resultWinnerId = teamScore1 == teamScore2
+                    ? null
+                    : (teamScore1 > teamScore2 ? teamId1 : teamId2);
+            String resultDecidedBy = resultWinnerId == null ? null : "NORMAL";
             if (knockout && !_isInteractivePending) {
                 int legNumber = match.getLegNumber();
                 long tieId = match.getTieId();
@@ -533,23 +664,30 @@ public class MatchRoundSimulator {
                     // First leg: stash the score, decide nothing yet.
                     firstLegScores.put(tieId, new int[]{teamScore1, teamScore2});
                     koScoreSuffix = " (1st leg)";
+                    resultWinnerId = null;
+                    resultDecidedBy = "FIRST_LEG";
                 } else if (legNumber == 2 && tieId != 0 && leg1 != null) {
                     // Second leg: team1 here hosted leg 2 (= tie side B); team2 hosted leg 1 (= side A).
                     int aggA = leg1[0] + teamScore2; // side A: leg-1 home goals + leg-2 away goals
                     int aggB = leg1[1] + teamScore1; // side B: leg-1 away goals + leg-2 home goals
                     var d = decideTie(teamId2, teamPower2, teamId1, teamPower1, aggA, aggB);
                     winnerId = d.teamAWon() ? teamId2 : teamId1;
+                    resultDecidedBy = d.penalties() ? "PENALTIES"
+                            : d.extraTime() ? "EXTRA_TIME" : "AGGREGATE";
                     koScoreSuffix = " (agg " + aggA + "-" + aggB
                             + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
                 } else {
                     // Single-leg knockout (or a leg-2 that lost its leg-1 record — decide on this match).
                     var d = decideTie(teamId1, teamPower1, teamId2, teamPower2, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
+                    resultDecidedBy = d.penalties() ? "PENALTIES"
+                            : d.extraTime() ? "EXTRA_TIME" : "NORMAL";
                     if (d.penalties()) koScoreSuffix = " (pens)";
                     else if (d.extraTime()) koScoreSuffix = " (a.e.t.)";
                 }
 
                 if (winnerId != null) {
+                    resultWinnerId = winnerId;
                     // National cup: propagate the winner into the pre-created bracket slot.
                     // For LoC/Stars Cup we keep the legacy CompetitionTeamInfo flow below.
                     if (cachedCupCompIds != null && cachedCupCompIds.contains(_competitionId)
@@ -570,7 +708,7 @@ public class MatchRoundSimulator {
 
             // Persist the score on the match row so a later second leg (different
             // calendar day / simulateRound call) can aggregate with this result.
-            if (!_isInteractivePending && match.getTieId() != 0) {
+            if (!_isInteractivePending) {
                 match.setTeam1Score(teamScore1);
                 match.setTeam2Score(teamScore2);
                 competitionTeamInfoMatchRepository.save(match);
@@ -587,27 +725,49 @@ public class MatchRoundSimulator {
                 competitionTeamInfoDetail.setTeamName1(roundTeamName(teamId1));
                 competitionTeamInfoDetail.setTeamName2(roundTeamName(teamId2));
                 competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);
+                competitionTeamInfoDetail.setWinnerTeamId(resultWinnerId);
+                competitionTeamInfoDetail.setDecidedBy(resultDecidedBy);
                 competitionTeamInfoDetail.setSeasonNumber(Long.parseLong(getCurrentSeason()));
                 competitionTeamInfoDetail.setLegNumber(match.getLegNumber());
+                competitionTeamInfoDetail.setMatchIndex(match.getMatchIndex());
+                competitionTeamInfoDetail.setDay(match.getDay());
+                competitionTeamInfoDetail.setTieId(match.getTieId());
                 competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
                 tDetail += System.nanoTime() - _tsDetail;
             }
 
             // Match day income for home team (team1) — competition cached for the round
             long _tsFin = System.nanoTime();
-            String compName = roundCompetitionName != null && !roundCompetitionName.isEmpty()
-                    ? roundCompetitionName : "Match";
-            financeService.processMatchDayIncome(teamId1, Integer.parseInt(getCurrentSeason()),
-                    match.getDay(), teamId2, compName);
+            String compName = !competitionName.isEmpty() ? competitionName : "Match";
+            batchedMatchdayIncome.add(new FinanceService.MatchDayIncomeInput(
+                    teamId1, match.getDay(), teamId2, compName));
             tFinance += System.nanoTime() - _tsFin;
         }
 
         long _tLoopDone = System.nanoTime();
 
         // Batch save all collected AI match data at once
+        long _tsScorerBatch = System.nanoTime();
+        if (!batchedScorers.isEmpty()) scorerRepository.saveAll(batchedScorers);
+        if (!batchedLineups.isEmpty()) {
+            lineupRatingService.persistPlayerRatingsBatch(
+                    _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                    batchedLineups);
+        }
+        if (!batchedPlayerStats.isEmpty()) {
+            playerMatchStatService.recordRealMatchesForTeams(
+                    batchedPlayerStats, _competitionId, Integer.parseInt(getCurrentSeason()));
+        }
+        tScorers += System.nanoTime() - _tsScorerBatch;
+        long _tsFinanceBatch = System.nanoTime();
+        if (!batchedMatchdayIncome.isEmpty()) {
+            financeService.processMatchDayIncomeBatch(
+                    Integer.parseInt(getCurrentSeason()), batchedMatchdayIncome);
+        }
+        tFinance += System.nanoTime() - _tsFinanceBatch;
         if (!batchedInjuries.isEmpty()) injuryRepository.saveAll(batchedInjuries);
-        if (!batchedInjuredPlayers.isEmpty()) humanRepository.saveAll(batchedInjuredPlayers);
-        if (!batchedManagers.isEmpty()) humanRepository.saveAll(batchedManagers);
+        // Players and managers came from this transaction's round preload; their morale,
+        // fitness, injury status and reputation changes are flushed by JPA dirty checking.
 
         long _tBatchDone = System.nanoTime();
 
@@ -634,13 +794,8 @@ public class MatchRoundSimulator {
         }
 
         } finally {
-            // Clear per-round caches so they don't leak across simulateRound calls.
-            roundPlayersByTeam = null;
-            roundInjuredIdsByTeam = null;
-            roundTeamsById = null;
-            roundCompetition = null;
-            roundCompetitionName = null;
-            roundCompetitionTypeId = 0L;
+            // Managed entities must never leak into the next task executed by this worker.
+            roundContext.remove();
         }
     }
 
@@ -657,10 +812,14 @@ public class MatchRoundSimulator {
     private void updateTeamWithSimpleMorale(long teamId, long competitionId, int scoreHome, int scoreAway,
                                             double teamPowerDifference, Random random) {
         // 1. Update standings (same as updateTeamSimple)
-        TeamCompetitionDetail team = teamCompetitionDetailRepository.findFirstByTeamIdAndCompetitionId(teamId, competitionId);
+        RoundContext context = roundContext.get();
+        TeamCompetitionDetail team = context != null
+                ? context.competitionDetailsByTeam().get(teamId)
+                : teamCompetitionDetailRepository.findFirstByTeamIdAndCompetitionId(teamId, competitionId);
         if (team == null) {
             team = new TeamCompetitionDetail();
             team.setTeamId(teamId);
+            if (context != null) context.competitionDetailsByTeam().put(teamId, team);
         }
 
         String result;
@@ -686,7 +845,9 @@ public class MatchRoundSimulator {
         team.setGames(team.getGames() + 1);
         if (team.getForm().length() > 5)
             team.setForm(team.getForm().substring(team.getForm().length() - 5));
-        teamCompetitionDetailRepository.save(team);
+        // Existing standings rows are managed by the round preload. Only a newly-created
+        // fallback row needs an explicit persist call.
+        if (team.getId() == 0) teamCompetitionDetailRepository.save(team);
 
         // 2. Morale with bench tracking for AI teams — use cached players from start of round
         double baseMoraleChange = teamPostMatchService.calculateMoraleChangeForTeamDifference(result, teamPowerDifference);
@@ -754,7 +915,7 @@ public class MatchRoundSimulator {
 
             player.setMorale(Math.min(100D, Math.max(0D, player.getMorale() + moraleChange)));
         }
-        humanRepository.saveAll(allPlayers);
+        // allPlayers are managed entities loaded at the start of this transaction.
     }
 
     /**
@@ -765,7 +926,8 @@ public class MatchRoundSimulator {
      * per-round caches are warm.
      */
     public void processInjuriesForTeam(long teamId) {
-        Random random = this.random;
+        if (availabilityDisabled()) return;
+        Random random = threadRandom.get();
         List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
 
         Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
@@ -802,6 +964,8 @@ public class MatchRoundSimulator {
                     injury.setSeverity("Serious");
                     injury.setDaysRemaining(random.nextInt(inj.getSeriousMinDays(), inj.getSeriousMaxDays() + 1));
                 }
+                injuryTimelineService.scheduleFromCurrentDate(
+                        injury, Integer.parseInt(getCurrentSeason()), injury.getDaysRemaining());
 
                 injuryRepository.save(injury);
 
@@ -818,6 +982,7 @@ public class MatchRoundSimulator {
      */
     private void processInjuriesForTeamBatched(long teamId, Random random,
                                                List<Injury> batchedInjuries, List<Human> batchedInjuredPlayers) {
+        if (availabilityDisabled()) return;
         // Use per-round caches when available (populated at start of simulateRound)
         List<Human> players = roundPlayers(teamId);
         Set<Long> injuredPlayerIds = roundInjuredIds(teamId);
@@ -853,6 +1018,8 @@ public class MatchRoundSimulator {
                     injury.setSeverity("Serious");
                     injury.setDaysRemaining(random.nextInt(inj.getSeriousMinDays(), inj.getSeriousMaxDays() + 1));
                 }
+                injuryTimelineService.scheduleFromCurrentDate(
+                        injury, Integer.parseInt(getCurrentSeason()), injury.getDaysRemaining());
 
                 batchedInjuries.add(injury);
                 player.setCurrentStatus("Injured - " + injuryType);
@@ -872,8 +1039,13 @@ public class MatchRoundSimulator {
         Team team2 = roundTeam(teamId2);
         if (team1 == null || team2 == null) return;
 
-        List<Human> managers1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
-        List<Human> managers2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
+        RoundContext context = roundContext.get();
+        List<Human> managers1 = context != null
+                ? context.managersByTeam().getOrDefault(teamId1, List.of())
+                : humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE);
+        List<Human> managers2 = context != null
+                ? context.managersByTeam().getOrDefault(teamId2, List.of())
+                : humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE);
 
         if (!managers1.isEmpty()) {
             double change = matchSimulationService.calculateMatchRepChange(score1, score2, team1.getReputation(), team2.getReputation());
@@ -909,21 +1081,25 @@ public class MatchRoundSimulator {
         // Get and cache manager's preferred tactic
         String tactic = getManagerTacticCached(teamId);
 
-        // Select the best 11 with their assigned tactic slots (for familiarity)
-        List<TacticController.StarterSlot> starters = tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
+        // AI simulation only needs match data, not the nation/face/UI enrichment performed by
+        // TacticController. Select from the already batch-loaded squad and create compact views.
+        FormationEvaluationSquad evaluationSquad = formationSquadCache.computeIfAbsent(
+                teamId, this::loadFormationEvaluationSquad);
+        List<FormationEvaluationStarter> selected =
+                selectFormationStarters(evaluationSquad, tactic);
+        List<TacticController.StarterSlot> starters = selected.stream()
+                .map(starter -> new TacticController.StarterSlot(
+                        toMatchPlayerView(starter.player()), starter.usedPosition()))
+                .toList();
+        starterSlotsCache.put(teamId, starters);
         bestElevenCache.put(teamId, starters.stream().map(TacticController.StarterSlot::player).toList());
 
         // Also pre-cache substitutions (will be needed by getScorersForTeamSimplified)
-        List<PlayerView> subs = tacticController.getSubstitutions(String.valueOf(teamId), tactic);
+        List<PlayerView> subs = selectMatchSubstitutes(evaluationSquad, selected, tactic);
         substitutionsCache.put(teamId, subs);
 
-        // Batch-load skills for the starters (1 query). Players without a skills row
-        // (youth placeholders, data gaps) fall back to their generic rating as the base.
-        List<Long> ids = starters.stream().map(s -> s.player().getId()).toList();
-        Map<Long, PlayerSkills> skillsById = new HashMap<>();
-        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) {
-            skillsById.put(s.getPlayerId(), s);
-        }
+        // Skills were loaded once for the entire squad during formation ranking.
+        Map<Long, PlayerSkills> skillsById = evaluationSquad.skillsByPlayerId();
 
         double rating = 0;
         for (TacticController.StarterSlot slot : starters) {
@@ -983,10 +1159,19 @@ public class MatchRoundSimulator {
     /** Evaluate the best-eleven match values for a team under a given formation (used position kept
      *  for position familiarity). Shared by the profile build and the formation ranking. */
     private List<TacticalScoreService.StarterValue> starterValues(long teamId, String formation) {
-        List<TacticController.StarterSlot> starters = tacticController.getBestElevenWithSlots(String.valueOf(teamId), formation);
-        List<Long> ids = starters.stream().map(s -> s.player().getId()).toList();
-        Map<Long, PlayerSkills> skillsById = new HashMap<>();
-        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skillsById.put(s.getPlayerId(), s);
+        List<TacticController.StarterSlot> starters = starterSlotsCache.get(teamId);
+        FormationEvaluationSquad evaluationSquad = formationSquadCache.computeIfAbsent(
+                teamId, this::loadFormationEvaluationSquad);
+        if (starters == null) {
+            starters = selectFormationStarters(evaluationSquad, formation).stream()
+                    .map(starter -> new TacticController.StarterSlot(
+                            toMatchPlayerView(starter.player()), starter.usedPosition()))
+                    .toList();
+            starterSlotsCache.put(teamId, starters);
+            bestElevenCache.put(teamId, starters.stream()
+                    .map(TacticController.StarterSlot::player).toList());
+        }
+        Map<Long, PlayerSkills> skillsById = evaluationSquad.skillsByPlayerId();
         // §D: per-player role + instructions from the saved tactic count in the two-axis value too.
         Map<Long, FormationData> savedById = savedRoleData(teamId);
 
@@ -1076,7 +1261,7 @@ public class MatchRoundSimulator {
         List<Integer> scores = tacticalScoreService.score(
                 p1, teamTacticVector(teamId1, p1, pt1),
                 p2, teamTacticVector(teamId2, p2, pt2),
-                this.random);
+                threadRandom.get());
         return new TwoAxisResult(scores.get(0), scores.get(1),
                 p1.attack() + p1.defense(), p2.attack() + p2.defense());
     }
@@ -1096,7 +1281,7 @@ public class MatchRoundSimulator {
             return new MatchOutcome(r.score1(), r.score2(), r.power1(), r.power2());
         }
         double hp = getSimpleTeamRating(homeTeamId), ap = getSimpleTeamRating(awayTeamId);
-        List<Integer> s = matchSimulationService.calculateScores(hp, ap);
+        List<Integer> s = matchSimulationService.calculateScores(hp, ap, threadRandom.get());
         return new MatchOutcome(s.get(0), s.get(1), hp, ap);
     }
 
@@ -1106,6 +1291,7 @@ public class MatchRoundSimulator {
      *  scalar resolver. "A" is the side whose aggregate is {@code aggA}. */
     private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver.TieDecision decideTie(
             long teamIdA, double powerA, long teamIdB, double powerB, int aggA, int aggB) {
+        Random random = threadRandom.get();
         if (engineConfig.getTacticalModel().isEnabled()) {
             TacticalScoreService.TeamProfile pA = scaleProfile(teamTacticalProfile(teamIdA), teamTalkFactor(teamIdA));
             TacticalScoreService.TeamProfile pB = scaleProfile(teamTacticalProfile(teamIdB), teamTalkFactor(teamIdB));
@@ -1135,14 +1321,26 @@ public class MatchRoundSimulator {
     public void invalidateRatingCache(long teamId) {
         simpleRatingCache.remove(teamId);
         bestElevenCache.remove(teamId);
+        starterSlotsCache.remove(teamId);
         substitutionsCache.remove(teamId);
         managerTacticCache.remove(teamId);
         profileCache.remove(teamId);
+        formationSquadCache.remove(teamId);
+        formationValueCache.remove(teamId);
         // Deliberately KEEP tacticVectorCache + wideShareCache: the AI manager's tactic choice is
-        // expensive (ranking 900 settings against an opponent panel) and stable across a season — it
+        // stable across a season — it
         // does not need re-deriving after every training session (~88×/season). These are cleared only
         // at season transition via invalidateAllRatingCaches(). Match strength still refreshes because
         // the rating/profile caches above are dropped.
+    }
+
+    private void invalidateMatchdayLineupCaches(long teamId) {
+        simpleRatingCache.remove(teamId);
+        bestElevenCache.remove(teamId);
+        starterSlotsCache.remove(teamId);
+        substitutionsCache.remove(teamId);
+        profileCache.remove(teamId);
+        wideShareCache.remove(teamId);
     }
 
     /** Drop ALL cached AI ratings — used at season transition (ageing + mass
@@ -1150,11 +1348,14 @@ public class MatchRoundSimulator {
     public void invalidateAllRatingCaches() {
         simpleRatingCache.clear();
         bestElevenCache.clear();
+        starterSlotsCache.clear();
         substitutionsCache.clear();
         managerTacticCache.clear();
         profileCache.clear();
         tacticVectorCache.clear();
         wideShareCache.clear();
+        formationSquadCache.clear();
+        formationValueCache.clear();
     }
 
     /** Test-only: expose the (cached) AI base rating so tests can prove the cache
@@ -1207,16 +1408,200 @@ public class MatchRoundSimulator {
 
     /** The base squad value (attack + defense, pre-coaching) a formation yields for a team. */
     private double formationBaseValue(long teamId, String formation) {
-        TacticalScoreService.TeamProfile p = tacticalScoreService.profile(starterValues(teamId, formation));
-        return p.attack() + p.defense();
+        return formationValueCache
+                .computeIfAbsent(teamId, ignored -> new HashMap<>())
+                .computeIfAbsent(formation, ignored -> calculateFormationBaseValue(teamId, formation));
     }
+
+    /**
+     * Fast formation-only evaluation. The old path called TacticController for every candidate
+     * formation; that controller intentionally enriches every PlayerView with nation/face/UI data,
+     * which caused hundreds of redundant queries per team and pegged a CPU during matchdays.
+     *
+     * <p>This path loads players and skills once, selects the same natural-position-first XI, and
+     * evaluates the exact PlayerValue/TacticalScore formula. The selected lineup is then reused for
+     * scoring, analytics, and the historical match snapshot.
+     */
+    private double calculateFormationBaseValue(long teamId, String formation) {
+        FormationEvaluationSquad squad = formationSquadCache.computeIfAbsent(
+                teamId, this::loadFormationEvaluationSquad);
+        if (squad.players().isEmpty()) return 0;
+
+        List<FormationEvaluationStarter> selected = selectFormationStarters(squad, formation);
+        List<TacticalScoreService.StarterValue> values = new ArrayList<>();
+        for (FormationEvaluationStarter starter : selected) {
+            Human player = starter.player();
+            PlayerSkills skills = squad.skillsByPlayerId().get(player.getId());
+            double value = skills != null
+                    ? playerValueService.evaluatePlayer(
+                            skills, player.getPosition(), starter.usedPosition(),
+                            player.getMorale(), player.getFitness())
+                    : playerValueService.evaluatePlayer(
+                            player.getRating(), player.getPosition(), starter.usedPosition(),
+                            player.getMorale(), player.getFitness());
+            double[] aptitudes = TacticalScoreService.playerAptitudes(skills, player.getFitness());
+            values.add(new TacticalScoreService.StarterValue(
+                    starter.usedPosition(), value, aptitudes[0], aptitudes[1], aptitudes[2]));
+        }
+
+        TacticalScoreService.TeamProfile profile = tacticalScoreService.profile(values);
+        return profile.attack() + profile.defense();
+    }
+
+    private List<FormationEvaluationStarter> selectFormationStarters(
+            FormationEvaluationSquad squad, String formation) {
+        List<String> requiredSlots = new ArrayList<>();
+        tacticService.getRoomInTeamByTactic(formation).entrySet().stream()
+                .sorted(Comparator.comparingInt(entry ->
+                        tacticService.getValueForTacticDisplay(entry.getKey())))
+                .forEach(entry -> {
+                    for (int i = 0; i < entry.getValue(); i++) requiredSlots.add(entry.getKey());
+                });
+
+        Set<Long> unavailableIds = roundUnavailableIds(squad.teamId());
+        List<Human> remaining = squad.players().stream()
+                .filter(player -> !unavailableIds.contains(player.getId()))
+                .collect(Collectors.toCollection(ArrayList::new));
+        List<FormationEvaluationStarter> selected = new ArrayList<>();
+        List<String> unfilledSlots = new ArrayList<>();
+
+        // Preserve owner/board XI locks. The UI controller applies the same locks; keeping them in
+        // this compact selector avoids a performance regression changing the team that takes field.
+        for (Map.Entry<Long, String> lock : squad.lockedPositionByPlayerId().entrySet()) {
+            Human lockedPlayer = remaining.stream()
+                    .filter(player -> player.getId() == lock.getKey())
+                    .findFirst()
+                    .orElse(null);
+            if (lockedPlayer == null) continue;
+            remaining.remove(lockedPlayer);
+            selected.add(new FormationEvaluationStarter(lockedPlayer, lock.getValue()));
+            requiredSlots.remove(lock.getValue());
+        }
+
+        for (String slot : requiredSlots) {
+            Human bestNatural = remaining.stream()
+                    .filter(player -> slot.equals(player.getPosition()))
+                    .max(Comparator.comparingDouble(this::formationAptness))
+                    .orElse(null);
+            if (bestNatural == null) {
+                unfilledSlots.add(slot);
+            } else {
+                remaining.remove(bestNatural);
+                selected.add(new FormationEvaluationStarter(bestNatural, slot));
+            }
+        }
+
+        remaining.sort(Comparator.comparingDouble(this::formationAptness).reversed());
+        for (int i = 0; i < unfilledSlots.size() && i < remaining.size(); i++) {
+            selected.add(new FormationEvaluationStarter(remaining.get(i), unfilledSlots.get(i)));
+        }
+        return selected;
+    }
+
+    private List<PlayerView> selectMatchSubstitutes(
+            FormationEvaluationSquad squad,
+            List<FormationEvaluationStarter> starters,
+            String formation) {
+        Set<Long> starterIds = starters.stream()
+                .map(starter -> starter.player().getId())
+                .collect(Collectors.toSet());
+        Set<Long> unavailableIds = roundUnavailableIds(squad.teamId());
+        List<Human> remaining = squad.players().stream()
+                .filter(player -> !unavailableIds.contains(player.getId()))
+                .filter(player -> !starterIds.contains(player.getId()))
+                .collect(Collectors.toCollection(ArrayList::new));
+        List<PlayerView> selected = new ArrayList<>();
+
+        List<String> preferredPositions = new ArrayList<>();
+        tacticService.getSubstitutionsInTeamByTactic(formation).entrySet().stream()
+                .sorted(Comparator.comparingInt(entry ->
+                        tacticService.getValueForTacticDisplay(entry.getKey())))
+                .forEach(entry -> {
+                    for (int i = 0; i < entry.getValue(); i++) {
+                        preferredPositions.add(entry.getKey());
+                    }
+                });
+
+        for (String position : preferredPositions) {
+            if (selected.size() >= 5) break;
+            Human best = remaining.stream()
+                    .filter(player -> position.equals(player.getPosition()))
+                    .max(Comparator.comparingDouble(this::formationAptness))
+                    .orElse(null);
+            if (best != null) {
+                remaining.remove(best);
+                selected.add(toMatchPlayerView(best));
+            }
+        }
+        remaining.sort(Comparator.comparingDouble(this::formationAptness).reversed());
+        for (Human player : remaining) {
+            if (selected.size() >= 5) break;
+            selected.add(toMatchPlayerView(player));
+        }
+        return selected;
+    }
+
+    private PlayerView toMatchPlayerView(Human player) {
+        PlayerView view = new PlayerView();
+        view.setId(player.getId());
+        view.setAge(player.getAge());
+        view.setPosition(player.getPosition());
+        view.setRating(player.getRating());
+        view.setName(player.getName());
+        view.setMorale(player.getMorale());
+        view.setFitness(player.getFitness());
+        return view;
+    }
+
+    private FormationEvaluationSquad loadFormationEvaluationSquad(long teamId) {
+        List<Human> players;
+        RoundContext context = roundContext.get();
+        if (context != null && context.playersByTeam().containsKey(teamId)) {
+            players = context.playersByTeam().get(teamId);
+        } else {
+            players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
+        }
+
+        // Cache the stable squad and skills, not today's availability. Injuries
+        // and bans are filtered when each matchday XI is selected.
+        List<Human> squad = players.stream()
+                .filter(player -> !player.isRetired())
+                .toList();
+        List<Long> playerIds = squad.stream().map(Human::getId).toList();
+        Map<Long, PlayerSkills> skillsByPlayerId = playerSkillsRepository.findAllByPlayerIdIn(playerIds)
+                .stream().collect(Collectors.toMap(PlayerSkills::getPlayerId, skills -> skills));
+        Map<Long, String> lockedPositionByPlayerId = new HashMap<>();
+        for (CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(teamId)) {
+            String position = TacticService.getBasePosition(
+                    tacticService.getPositionFromIndex(lock.positionIndex()));
+            lockedPositionByPlayerId.putIfAbsent(lock.playerId(), position);
+        }
+        return new FormationEvaluationSquad(
+                teamId, squad, skillsByPlayerId, lockedPositionByPlayerId);
+    }
+
+    private double formationAptness(Human player) {
+        return player.getRating() * playerValueService.fitnessFactor(player.getFitness());
+    }
+
+    private record FormationEvaluationSquad(
+            long teamId,
+            List<Human> players,
+            Map<Long, PlayerSkills> skillsByPlayerId,
+            Map<Long, String> lockedPositionByPlayerId) {}
+
+    private record FormationEvaluationStarter(Human player, String usedPosition) {}
 
     /** Team-level team-talk multiplier (centered on 1.0): a better man-manager rallies the squad
      *  to extract a little more team power. Quality is read from the manager's reputation and
      *  mapped via {@code MatchEngineConfig.TeamTalk}. Deterministic; neutral 1.0 when the team has
      *  no manager or team talk is disabled. */
     private double teamTalkFactor(long teamId) {
-        double reputation = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+        RoundContext context = roundContext.get();
+        List<Human> managers = context != null
+                ? context.managersByTeam().getOrDefault(teamId, List.of())
+                : humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        double reputation = managers
                 .stream()
                 .filter(m -> !m.isRetired())
                 .findFirst()
@@ -1232,22 +1617,26 @@ public class MatchRoundSimulator {
      * Creates Scorer entries for ALL players who played (appearances).
      * Weighted goal distribution by position. Batch saves.
      */
-    private void getScorersForTeamSimplified(long teamId1, long teamId2, int teamScore, int opponentScore, long competitionId) {
+    private List<Scorer> getScorersForTeamSimplified(long teamId1, long teamId2,
+                                                      int teamScore, int opponentScore,
+                                                      long competitionId, int roundNumber) {
 
         // 1. Reuse cached best 11 + substitutions (already loaded by getSimpleTeamRating)
         List<PlayerView> playerViews = bestElevenCache.getOrDefault(teamId1, List.of());
         List<PlayerView> substitutionViews = substitutionsCache.getOrDefault(teamId1, List.of());
 
-        if (playerViews.isEmpty()) return;
+        if (playerViews.isEmpty()) return List.of();
 
         String currentSeason = getCurrentSeason();
         // Use per-round caches when this is the simulateRound's competition (the common case).
         // Falls through to repository lookups only for ad-hoc callers.
         long competitionTypeId;
         String competitionName;
-        if (roundCompetition != null && roundCompetition.getId() == competitionId) {
-            competitionTypeId = roundCompetitionTypeId;
-            competitionName = roundCompetitionName;
+        RoundContext context = roundContext.get();
+        if (context != null && context.competition() != null
+                && context.competition().getId() == competitionId) {
+            competitionTypeId = context.competitionTypeId();
+            competitionName = context.competitionName();
         } else {
             Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
             competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
@@ -1262,6 +1651,7 @@ public class MatchRoundSimulator {
             Scorer scorer = new Scorer();
             scorer.setPlayerId(pv.getId());
             scorer.setSeasonNumber(Integer.parseInt(currentSeason));
+            scorer.setRoundNumber(roundNumber);
             scorer.setTeamId(teamId1);
             scorer.setOpponentTeamId(teamId2);
             scorer.setPosition(pv.getPosition());
@@ -1283,6 +1673,7 @@ public class MatchRoundSimulator {
             Scorer scorer = new Scorer();
             scorer.setPlayerId(pv.getId());
             scorer.setSeasonNumber(Integer.parseInt(currentSeason));
+            scorer.setRoundNumber(roundNumber);
             scorer.setTeamId(teamId1);
             scorer.setOpponentTeamId(teamId2);
             scorer.setPosition(pv.getPosition());
@@ -1300,11 +1691,11 @@ public class MatchRoundSimulator {
         }
 
         // 2. Simulate substitutions (0..max-1 subs enter the match)
-        Random random = this.random;
+        Random random = threadRandom.get();
         int subMaxExcl = engineConfig.getEvents().getSubInsertionsExclusiveMax();
         int substitutesDone = random.nextInt(0, Math.min(subMaxExcl, substitutions.size() + 1));
         if (!substitutions.isEmpty()) {
-            Collections.shuffle(substitutions);
+            Collections.shuffle(substitutions, random);
             for (int i = 0; i < Math.min(substitutesDone, substitutions.size()); i++) {
                 possibleScorers.add(substitutions.get(i));
             }
@@ -1349,6 +1740,23 @@ public class MatchRoundSimulator {
                 for (int i = 0; i < teamScore; i++) {
                     Scorer selected = distribution.sample();
                     selected.setGoals(selected.getGoals() + 1);
+                    if (random.nextDouble() < engineConfig.getEvents().getAssistProbability()) {
+                        List<Pair<Scorer, Double>> assistCandidates = possibleScorers.stream()
+                                .filter(player -> player.getPlayerId() != selected.getPlayerId())
+                                .filter(player -> !"GK".equals(player.getPosition()))
+                                .map(player -> new Pair<>(player, simplifiedAssistWeight(player)))
+                                .filter(pair -> pair.getValue() > 0)
+                                .toList();
+                        if (!assistCandidates.isEmpty()) {
+                            try {
+                                Scorer assister =
+                                        new EnumeratedDistribution<>(assistCandidates).sample();
+                                assister.setAssists(assister.getAssists() + 1);
+                            } catch (Exception ignored) {
+                                // A malformed position weight must not abort the match.
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1356,19 +1764,24 @@ public class MatchRoundSimulator {
         // 4. Assign match performance ratings (1-10 scale)
         matchSimulationService.assignMatchRatings(possibleScorers, teamScore, opponentScore);
 
-        // 5. Batch leaderboard lookup (1 query instead of N individual findByPlayerId calls)
-        List<Long> playerIds = possibleScorers.stream().map(Scorer::getPlayerId).toList();
-        List<ScorerLeaderboardEntry> leaderboardEntries = scorerLeaderboardRepository.findAllByPlayerIdIn(playerIds);
-        Map<Long, ScorerLeaderboardEntry> leaderboardMap = new HashMap<>();
-        for (ScorerLeaderboardEntry lb : leaderboardEntries) {
-            leaderboardMap.put(lb.getPlayerId(), lb);
+        // 5. Leaderboard entries were locked and loaded once for the whole round. Keep the
+        // fallback for direct/ad-hoc calls that do not run inside simulateRound.
+        Map<Long, ScorerLeaderboardEntry> leaderboardMap;
+        if (context != null) {
+            leaderboardMap = context.leaderboardByPlayer();
+        } else {
+            List<Long> playerIds = possibleScorers.stream().map(Scorer::getPlayerId).toList();
+            leaderboardMap = scorerLeaderboardRepository.findAllByPlayerIdIn(playerIds)
+                    .stream()
+                    .collect(Collectors.toMap(
+                            ScorerLeaderboardEntry::getPlayerId, entry -> entry,
+                            (left, right) -> left));
         }
 
         Set<Long> cachedLeagueCompIds = gameStateService.getLeagueCompetitionIdsCached();
         Set<Long> cachedCupCompIds = gameStateService.getCupCompetitionIdsCached();
         Set<Long> cachedSecondLeagueCompIds = gameStateService.getSecondLeagueCompetitionIdsCached();
 
-        List<ScorerLeaderboardEntry> leaderboardToSave = new ArrayList<>();
         for (Scorer scorer : possibleScorers) {
             ScorerLeaderboardEntry lb = leaderboardMap.get(scorer.getPlayerId());
             if (lb != null) {
@@ -1393,18 +1806,26 @@ public class MatchRoundSimulator {
                     lb.setCurrentSeasonSecondLeagueGoals(lb.getCurrentSeasonSecondLeagueGoals() + scorer.getGoals());
                     lb.setCurrentSeasonSecondLeagueGames(lb.getCurrentSeasonSecondLeagueGames() + 1);
                 }
-                leaderboardToSave.add(lb);
             }
         }
 
-        scorerRepository.saveAll(possibleScorers);
-        if (!leaderboardToSave.isEmpty()) scorerLeaderboardRepository.saveAll(leaderboardToSave);
+        // Scorers, lineups and analytics are flushed once at the end of the competition round.
+        // Leaderboard rows are managed entities and are persisted by JPA dirty checking.
+        return possibleScorers;
+    }
 
-        // Analytics Faza 2 — accumulate synthetic per-player stats for this REAL match.
-        // Runs AFTER the scoreline + scorers are persisted; read-only w.r.t. scoring.
-        PersonalizedTactic tactic = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1).orElse(null);
-        playerMatchStatService.recordRealMatchForTeam(
-                teamId1, playerViews, tactic, competitionId, Integer.parseInt(currentSeason));
+    private double simplifiedAssistWeight(Scorer scorer) {
+        Map<String, Double> positionWeights = Map.of(
+                "DL", 0.8,
+                "DR", 0.8,
+                "DC", 0.4,
+                "ML", 2.5,
+                "MR", 2.5,
+                "MC", 2.0,
+                "ST", 1.2);
+        double weight = positionWeights.getOrDefault(scorer.getPosition(), 1.0)
+                * Math.max(scorer.getRating(), 1.0);
+        return scorer.isSubstitute() ? weight / 2.0 : weight;
     }
 
     // ============================================================
@@ -1413,31 +1834,54 @@ public class MatchRoundSimulator {
     // ============================================================
 
     public List<Human> roundPlayers(long teamId) {
-        if (roundPlayersByTeam != null) {
-            return roundPlayersByTeam.getOrDefault(teamId, List.of());
+        RoundContext context = roundContext.get();
+        if (context != null) {
+            return context.playersByTeam().getOrDefault(teamId, List.of());
         }
         return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
     }
 
     public Set<Long> roundInjuredIds(long teamId) {
-        if (roundInjuredIdsByTeam != null) {
-            return roundInjuredIdsByTeam.getOrDefault(teamId, Set.of());
+        if (availabilityDisabled()) return Set.of();
+        RoundContext context = roundContext.get();
+        if (context != null) {
+            return context.injuredIdsByTeam().getOrDefault(teamId, Set.of());
         }
         return injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
                 .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
     }
 
+    /** Players unavailable for the current competition: injuries plus active bans. */
+    public Set<Long> roundUnavailableIds(long teamId) {
+        if (availabilityDisabled()) return Set.of();
+        Set<Long> unavailable = new HashSet<>(roundInjuredIds(teamId));
+        RoundContext context = roundContext.get();
+        if (context != null) {
+            unavailable.addAll(context.suspendedIdsByTeam().getOrDefault(teamId, Set.of()));
+        } else {
+            unavailable.addAll(suspensionRepository.findAllByTeamIdAndActive(teamId, true)
+                    .stream().map(com.footballmanagergamesimulator.model.Suspension::getPlayerId).toList());
+        }
+        return Set.copyOf(unavailable);
+    }
+
+    private boolean availabilityDisabled() {
+        return gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled();
+    }
+
     public String roundTeamName(long teamId) {
-        if (roundTeamsById != null) {
-            Team t = roundTeamsById.get(teamId);
+        RoundContext context = roundContext.get();
+        if (context != null) {
+            Team t = context.teamsById().get(teamId);
             if (t != null) return t.getName();
         }
         return teamRepository.findNameById(teamId);
     }
 
     public Team roundTeam(long teamId) {
-        if (roundTeamsById != null) {
-            Team t = roundTeamsById.get(teamId);
+        RoundContext context = roundContext.get();
+        if (context != null) {
+            Team t = context.teamsById().get(teamId);
             if (t != null) return t;
         }
         return teamRepository.findById(teamId).orElse(null);

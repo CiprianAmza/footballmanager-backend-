@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.repository;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface CompetitionTeamInfoRepository extends JpaRepository<CompetitionTeamInfo, Long> {
@@ -13,5 +14,7 @@ public interface CompetitionTeamInfoRepository extends JpaRepository<Competition
   List<CompetitionTeamInfo> findAllBySeasonNumber(long seasonNumber);
   List<CompetitionTeamInfo> findAllByTeamIdAndSeasonNumber(long teamId, long seasonNumber);
   List<CompetitionTeamInfo> findAllByCompetitionIdAndSeasonNumber(long competitionId, long seasonNumber);
+  List<CompetitionTeamInfo> findAllByCompetitionIdInAndSeasonNumber(
+          Collection<Long> competitionIds, long seasonNumber);
 
 }

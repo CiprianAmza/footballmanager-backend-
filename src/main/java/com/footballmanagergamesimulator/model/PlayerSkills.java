@@ -11,7 +11,9 @@ import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL;
 @JsonInclude(value = NON_NULL)
 @Data
 @Entity
-@Table(name="playerSkills")
+@Table(name="playerSkills", indexes = {
+        @Index(name = "idx_player_skills_player", columnList = "playerId")
+})
 public class PlayerSkills {
 
   @Id

@@ -13,13 +13,16 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamFacilities;
 import com.footballmanagergamesimulator.repository.CalendarEventRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
+import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -55,8 +58,10 @@ public class CalendarEventDispatcher {
     @Autowired private TeamRepository teamRepository;
     @Autowired private TeamFacilitiesRepository teamFacilitiesRepository;
     @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
-    @Autowired private InjuryRepository injuryRepository;
+    @Autowired private CompetitionRepository competitionRepository;
+    @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
+    @Autowired private UserRepository userRepository;
     @Autowired private HumanService humanService;
 
     @Autowired @Lazy private SeasonTransitionService seasonTransitionService;
@@ -64,6 +69,8 @@ public class CalendarEventDispatcher {
     @Autowired @Lazy private MatchSimulationOrchestrator matchSimulationOrchestrator;
     @Autowired private TransferMarketService transferMarketService;
     @Autowired private FixtureSchedulingService fixtureSchedulingService;
+    @Autowired private EuropeanFixturePreparationService europeanFixturePreparationService;
+    @Autowired private EuropeanDrawService europeanDrawService;
     @Autowired @Lazy private TrainingService trainingService;
     @Autowired @Lazy private YouthAcademyService youthAcademyService;
     @Autowired @Lazy private PressConferenceService pressConferenceService;
@@ -78,6 +85,8 @@ public class CalendarEventDispatcher {
     @Autowired @Lazy private FinanceService financeService;
     @Autowired @Lazy private FriendlyMatchService friendlyMatchService;
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
+    @Autowired private InjuryTimelineService injuryTimelineService;
+    @Autowired private TrainingCadenceService trainingCadenceService;
 
     // Cache of competition IDs all human teams participate in (per season)
     private Set<Long> humanTeamCompetitionIds = null;
@@ -119,10 +128,11 @@ public class CalendarEventDispatcher {
         switch (event.getEventType()) {
             case "TRAINING_SESSION":
                 for (long htId : userContext.getAllHumanTeamIds()) {
-                    trainingService.processTrainingSession(htId, calendar.getSeason());
+                    trainingService.processTrainingSession(
+                            htId, calendar.getSeason(), calendar.getCurrentDay());
                 }
                 // Train AI teams using the original trainPlayer logic
-                trainAllAITeams(calendar.getSeason());
+                trainAllAITeams(calendar.getSeason(), calendar.getCurrentDay());
                 result.put("details", "Training session completed");
                 break;
             case "YOUTH_ACADEMY_REPORT":
@@ -139,6 +149,7 @@ public class CalendarEventDispatcher {
 
                 if (pressCompId > 0 && !humanCompIds.contains(pressCompId)) {
                     result.put("details", "Press conference skipped (not in competition)");
+                    result.put("userRelevant", false);
                     break;
                 }
 
@@ -146,7 +157,9 @@ public class CalendarEventDispatcher {
                 for (long htId : userContext.getAllHumanTeamIds()) {
                     // Check if manager has delegated press conferences to assistant
                     List<Human> humanManagers = humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.MANAGER_TYPE);
-                    if (!humanManagers.isEmpty() && !humanManagers.get(0).isAttendPressConferences()) {
+                    Human currentManager = resolveCurrentManager(htId, humanManagers);
+                    if (currentManager != null
+                            && (!currentManager.isAttendPressConferences() || currentManager.isAlwaysContinue())) {
                         continue;
                     }
 
@@ -165,6 +178,7 @@ public class CalendarEventDispatcher {
 
                 if (pressHumanTeamId == null) {
                     result.put("details", "Press conference skipped (team not playing in this round)");
+                    result.put("userRelevant", false);
                     break;
                 }
 
@@ -206,14 +220,17 @@ public class CalendarEventDispatcher {
                 result.put("details", "International break - players called up");
                 break;
             case "INJURY_UPDATE":
-                processInjuryUpdate();
-                // Also check facility upgrade completion for all human teams
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    facilityUpgradeService.checkUpgradeCompletion(htId, calendar.getCurrentDay(), calendar.getSeason());
-                }
-                // Process completed scouting assignments
-                scoutManagementController.processCompletedAssignments(calendar.getSeason(), calendar.getCurrentDay());
+                // Compatibility for calendars generated before absolute return dates.
+                injuryTimelineService.processRecoveries(calendar.getSeason(), calendar.getCurrentDay());
+                processDailyMaintenance(calendar.getSeason(), calendar.getCurrentDay());
                 result.put("details", "Injuries and facilities updated");
+                break;
+            case "EUROPEAN_DRAW":
+                if (event.getCompetitionId() == null || event.getMatchday() <= 0) {
+                    result.put("details", "European draw skipped: missing competition data");
+                    break;
+                }
+                result.putAll(europeanDrawService.executeDraw(event, calendar));
                 break;
             case "MATCH_LEAGUE":
             case "MATCH_CUP":
@@ -257,8 +274,18 @@ public class CalendarEventDispatcher {
                 } else {
                     result.put("details", "Match day - missing competition data");
                 }
-                // After match, process suspensions
-                suspensionService.processMatchCards(event.getCompetitionId(), event.getMatchday(), calendar.getSeason());
+                // Legacy single-event path uses the same idempotent per-fixture
+                // discipline lifecycle as Continue/Fast Forward.
+                competitionRepository.findById(event.getCompetitionId()).ifPresent(competition -> {
+                    int round = competitionFormat.get((int) competition.getTypeId())
+                            .roundForMatchday(event.getMatchday());
+                    competitionTeamInfoMatchRepository.findAllByCompetitionIdAndRoundAndSeasonNumber(
+                                    event.getCompetitionId(), round, String.valueOf(event.getSeason())).stream()
+                            .filter(fixture -> event.getLegNumber() == 0
+                                    || fixture.getLegNumber() == event.getLegNumber())
+                            .filter(fixture -> fixture.getTeam1Score() >= 0 && fixture.getTeam2Score() >= 0)
+                            .forEach(fixture -> suspensionService.processPlayedFixture(fixture, event.getSeason()));
+                });
                 break;
             case "MATCH_FRIENDLY":
                 List<Map<String, Object>> friendlyResults = friendlyMatchService.simulateFriendliesForDay(
@@ -299,7 +326,7 @@ public class CalendarEventDispatcher {
                 result.put("details", "Season " + event.getSeason() + " initialized - calendar generated");
                 break;
             case "SEASON_END":
-                processSeasonEnd(event.getSeason());
+                processSeasonEnd(event.getSeason(), calendar);
                 result.put("details", "Season " + event.getSeason() + " has ended. AI transfers completed. Transfer window is now open!");
                 result.put("awaitingInput", true);
                 break;
@@ -315,6 +342,28 @@ public class CalendarEventDispatcher {
         }
 
         return result;
+    }
+
+    /** Work that must run once per calendar day but does not need a persisted event row. */
+    public void processDailyMaintenance(int season, int day) {
+        for (long teamId : userContext.getAllHumanTeamIds()) {
+            facilityUpgradeService.checkUpgradeCompletion(teamId, day, season);
+        }
+        scoutManagementController.processCompletedAssignments(season, day);
+    }
+
+    private Human resolveCurrentManager(long teamId, List<Human> managers) {
+        if (managers.isEmpty()) return null;
+        Long linkedManagerId = userRepository.findAllByTeamId(teamId).stream()
+                .map(User::getManagerId)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (linkedManagerId == null) return managers.get(0);
+        return managers.stream()
+                .filter(manager -> manager.getId() == linkedManagerId)
+                .findFirst()
+                .orElse(managers.get(0));
     }
 
     // ============================================================
@@ -371,53 +420,17 @@ public class CalendarEventDispatcher {
         }
     }
 
-    /**
-     * Decrements daysRemaining by 1 for all active injuries. When an injury heals,
-     * the player status is set back to "Available".
-     */
-    private int processInjuryUpdate() {
-        List<Injury> activeInjuries = injuryRepository.findAllByDaysRemainingGreaterThan(0);
-        int healed = 0;
-        List<Human> playersToSave = new ArrayList<>();
-
-        for (Injury injury : activeInjuries) {
-            injury.setDaysRemaining(injury.getDaysRemaining() - 1);
-
-            if (injury.getDaysRemaining() <= 0) {
-                Optional<Human> playerOpt = humanRepository.findById(injury.getPlayerId());
-                if (playerOpt.isPresent()) {
-                    Human player = playerOpt.get();
-                    player.setCurrentStatus("Available");
-                    playersToSave.add(player);
-                    healed++;
-                }
-            }
-        }
-        if (!activeInjuries.isEmpty()) injuryRepository.saveAll(activeInjuries);
-        if (!playersToSave.isEmpty()) humanRepository.saveAll(playersToSave);
-
-        return healed;
-    }
-
     // ============================================================
     //  AI batched training (runs from TRAINING_SESSION case)
     // ============================================================
 
-    private int aiTrainingCounter = 0;
-    // Original: ~11 trainings/season (every 3rd round of 34).
-    // Now: ~265 sessions/season, every 3rd = ~88 trainings/season.
-    // Scale factor = 11/88 ≈ 0.125 to keep same total rating change per season.
-    private static final int AI_TRAINING_FREQUENCY = 3; // every 3rd session (~88/season)
-    private static final double AI_TRAINING_SCALE = 11.0 / 88.0; // ~0.125
-
     /**
      * Trains all AI team players using batch-loaded data.
-     * Runs every 3rd training session with scaled-down rating changes.
+     * Runs only on configured rating-update days (21 days by default).
      * Uses bulk queries instead of per-player/per-team queries (~5 queries total vs ~10,000).
      */
-    private void trainAllAITeams(int season) {
-        aiTrainingCounter++;
-        if (aiTrainingCounter % AI_TRAINING_FREQUENCY != 0) return;
+    private void trainAllAITeams(int season, int currentDay) {
+        if (!trainingCadenceService.isRatingUpdateDay(currentDay)) return;
 
         // 1. Determine which teams are AI teams
         List<Team> allTeams = teamRepository.findAll();
@@ -498,21 +511,8 @@ public class CalendarEventDispatcher {
             double facilityMultiplier = staffMult * 0.6 + facilityBase * 0.4;
 
             PlayerSkills skills = skillsMap.get(player.getId());
-            double ratingBefore = player.getRating();
-
             PlayerSkills changedSkills = humanService.trainPlayerBatch(
                     player, facilities, facilityMultiplier, skills, season, random);
-
-            // Scale down the rating change
-            double ratingChange = player.getRating() - ratingBefore;
-            if (ratingChange != 0) {
-                double scaledRating = ratingBefore + (ratingChange * AI_TRAINING_SCALE);
-                player.setRating(scaledRating);
-                if (scaledRating > player.getBestEverRating()) {
-                    player.setBestEverRating(scaledRating);
-                    player.setSeasonOfBestEverRating(season);
-                }
-            }
 
             modifiedPlayers.add(player);
             if (changedSkills != null) {
@@ -531,7 +531,7 @@ public class CalendarEventDispatcher {
 
     /**
      * Processes SEASON_START event: generates the full season calendar with all fixtures,
-     * training sessions, injury updates, and other periodic events.
+     * training sessions and other periodic events.
      */
     private void processSeasonStart(int season) {
         System.out.println("=== SEASON_START: Generating calendar for season " + season + " ===");
@@ -545,6 +545,9 @@ public class CalendarEventDispatcher {
         } else {
             System.out.println("=== Season " + season + " calendar already exists, skipping generation ===");
         }
+
+        // European fixtures are deliberately not drawn here. Their dedicated
+        // EUROPEAN_DRAW events reveal the pairings seven days before each stage.
     }
 
     /**
@@ -553,14 +556,13 @@ public class CalendarEventDispatcher {
      * The game pauses here so the user can make transfers (days 341-355).
      * The new season is NOT created yet — that happens at SEASON_TRANSITION (day 360).
      */
-    private void processSeasonEnd(int season) {
+    private void processSeasonEnd(int season, GameCalendar calendar) {
         System.out.println("=== SEASON_END: Processing end of season " + season + " ===");
 
         // Phase 1: standings, relegation, AI transfers
         seasonTransitionService.processEndOfSeason(season);
 
         // Set transfer window open on the current calendar
-        GameCalendar calendar = calendarService.getOrCreateCalendar(season);
         calendar.setTransferWindowOpen(true);
         gameCalendarRepository.save(calendar);
 
@@ -587,14 +589,10 @@ public class CalendarEventDispatcher {
             return;
         }
 
-        try {
-            // Phase 2: aging, regens, fixtures, scorers, budget refresh
-            seasonTransitionService.processNewSeasonSetup(season);
-        } catch (Exception e) {
-            System.err.println("=== ERROR in processNewSeasonSetup for season " + season + ": " + e.getMessage());
-            e.printStackTrace();
-            // Continue to create the new calendar anyway so the game doesn't get stuck
-        }
+        // Phase 2: aging, regens, fixtures, scorers, budget refresh. If this
+        // fails, propagate the error and keep the event retryable; never publish
+        // an empty/partial new-season calendar.
+        seasonTransitionService.processNewSeasonSetup(season);
 
         // Create a new GameCalendar for the new season
         GameCalendar newCalendar = new GameCalendar();
@@ -613,6 +611,16 @@ public class CalendarEventDispatcher {
         // Invalidate cached competition IDs since season changed
         invalidateHumanCompetitionsCache();
 
+        // The product calendar contains routine events through day 365, while
+        // the successful season transition happens on day 360. Those remaining
+        // rows can never be reached after the client switches to newSeason, so
+        // archive them explicitly instead of leaving retryable PENDING debris.
+        int skippedEvents = calendarEventRepository.skipPendingEventsAfter(season, 360);
+
         System.out.println("=== Season transition complete. New season " + newSeason + " started. ===");
+        if (skippedEvents > 0) {
+            System.out.println("=== Archived " + skippedEvents
+                    + " unreachable calendar events after season " + season + " transition. ===");
+        }
     }
 }

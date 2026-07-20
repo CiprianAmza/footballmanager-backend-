@@ -9,7 +9,10 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Table(name="teamCompetitionDetail")
+@Table(name="teamCompetitionDetail", indexes = {
+        @Index(name = "idx_tcd_comp_team", columnList = "competitionId,teamId"),
+        @Index(name = "idx_tcd_team_comp", columnList = "teamId,competitionId")
+})
 public class TeamCompetitionDetail {
 
   @Id

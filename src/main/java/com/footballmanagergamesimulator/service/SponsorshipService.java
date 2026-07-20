@@ -3,9 +3,11 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.Sponsorship;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.SponsorshipRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,6 +42,8 @@ public class SponsorshipService {
     private ManagerInboxRepository managerInboxRepository;
     @Autowired
     private FinanceService financeService;
+    @Autowired
+    private RoundRepository roundRepository;
 
     private final Random random = new Random();
 
@@ -57,6 +61,7 @@ public class SponsorshipService {
      * @return list of generated sponsorship offers
      */
     public List<Sponsorship> generateSponsorOffer(long teamId, int season) {
+        expireContractsBeforeSeason(season);
         Team team = teamRepository.findById(teamId).orElse(null);
         if (team == null) {
             return new ArrayList<>();
@@ -154,6 +159,17 @@ public class SponsorshipService {
             return null;
         }
 
+        int currentSeason = currentSeason();
+        if (!"OFFERED".equals(sponsorship.getStatus())
+                || sponsorship.getEndSeason() < currentSeason) {
+            if (sponsorship.getEndSeason() < currentSeason
+                    && !"EXPIRED".equals(sponsorship.getStatus())) {
+                sponsorship.setStatus("EXPIRED");
+                sponsorshipRepository.save(sponsorship);
+            }
+            return null;
+        }
+
         sponsorship.setStatus("ACTIVE");
         sponsorship = sponsorshipRepository.save(sponsorship);
 
@@ -191,6 +207,7 @@ public class SponsorshipService {
      * @param season the current season number
      */
     public void processSeasonSponsorRevenue(long teamId, int season) {
+        expireContractsBeforeSeason(season);
         List<Sponsorship> activeSponsors = sponsorshipRepository.findAllByTeamIdAndStatus(teamId, "ACTIVE");
         Team team = teamRepository.findById(teamId).orElse(null);
         if (team == null) {
@@ -198,15 +215,26 @@ public class SponsorshipService {
         }
 
         for (Sponsorship sponsorship : activeSponsors) {
-            if (season > sponsorship.getEndSeason()) {
-                sponsorship.setStatus("EXPIRED");
-                sponsorshipRepository.save(sponsorship);
-            } else {
+            if (season >= sponsorship.getStartSeason() && season <= sponsorship.getEndSeason()) {
                 financeService.recordTransaction(teamId, season, 0,
                         "SPONSORSHIP", sponsorship.getSponsorName() + " (" + sponsorship.getType() + ") annual revenue",
                         sponsorship.getAnnualValue());
             }
         }
+    }
+
+    /**
+     * Close every active contract and unanswered offer whose final season is
+     * older than the season being entered. This is the authoritative season
+     * boundary operation; it is also safe to call repeatedly.
+     */
+    public int expireContractsBeforeSeason(int season) {
+        List<Sponsorship> expired = sponsorshipRepository
+                .findAllByStatusInAndEndSeasonLessThan(List.of("ACTIVE", "OFFERED"), season);
+        if (expired.isEmpty()) return 0;
+        expired.forEach(sponsorship -> sponsorship.setStatus("EXPIRED"));
+        sponsorshipRepository.saveAll(expired);
+        return expired.size();
     }
 
     // ==================== QUERIES ====================
@@ -218,6 +246,7 @@ public class SponsorshipService {
      * @return list of active sponsorships
      */
     public List<Sponsorship> getActiveSponsors(long teamId) {
+        expireContractsBeforeSeason(currentSeason());
         return sponsorshipRepository.findAllByTeamIdAndStatus(teamId, "ACTIVE");
     }
 
@@ -228,6 +257,11 @@ public class SponsorshipService {
      * @return list of offered sponsorships
      */
     public List<Sponsorship> getOfferedSponsors(long teamId) {
+        expireContractsBeforeSeason(currentSeason());
         return sponsorshipRepository.findAllByTeamIdAndStatus(teamId, "OFFERED");
+    }
+
+    private int currentSeason() {
+        return roundRepository.findById(1L).map(Round::getSeason).map(Math::toIntExact).orElse(1);
     }
 }

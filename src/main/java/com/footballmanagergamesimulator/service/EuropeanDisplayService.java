@@ -66,6 +66,7 @@ public class EuropeanDisplayService {
     @Autowired private ClubCoefficientRepository clubCoefficientRepository;
     @Autowired private TeamRepository teamRepository;
     @Autowired private RoundRepository roundRepository;
+    @Autowired private com.footballmanagergamesimulator.config.EuropeanQualificationPolicy qualificationPolicy;
 
     // ============================================================
     //  Static config + per-rank allocation
@@ -76,17 +77,14 @@ public class EuropeanDisplayService {
         Map<String, Object> summary = new LinkedHashMap<>();
 
         // LoC allocation totals
-        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
-        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
-        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
         int numLeagues = (int) competitionRepository.findAll().stream().filter(c -> c.getTypeId() == 1).count();
         int totalRanks = Math.min(numLeagues, 7);
 
         int totalDirect = 0, totalQualifying = 0, totalPreliminary = 0;
         for (int i = 0; i < totalRanks; i++) {
-            totalDirect += directSpots[i];
-            totalQualifying += qualifyingSpots[i];
-            totalPreliminary += preliminarySpots[i];
+            totalDirect += qualificationPolicy.directForRank(i + 1);
+            totalQualifying += qualificationPolicy.qualifyingForRank(i + 1);
+            totalPreliminary += qualificationPolicy.preliminaryForRank(i + 1);
         }
         int locTotal = totalDirect + totalQualifying + totalPreliminary;
 
@@ -138,25 +136,25 @@ public class EuropeanDisplayService {
      */
     public void assignEuropeanAllocation(Map<String, Object> entry, int rank) {
         // LoC direct + qualifying + preliminary spots per rank (non-increasing)
-        int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
-        int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
-        int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
         // Stars Cup: league spots + 1 cup reserved per nation (non-increasing)
         int[] scLeagueSpots = {1, 1, 1, 1, 0, 0, 0};
         int[] scCupSpots =    {1, 1, 1, 1, 1, 1, 1};
 
         if (rank >= 1 && rank <= 7) {
             int idx = rank - 1;
-            int locTotal = directSpots[idx] + qualifyingSpots[idx] + preliminarySpots[idx];
+            int direct = qualificationPolicy.directForRank(rank);
+            int qualifying = qualificationPolicy.qualifyingForRank(rank);
+            int preliminary = qualificationPolicy.preliminaryForRank(rank);
+            int locTotal = direct + qualifying + preliminary;
             entry.put("locSpots", locTotal);
 
             String locEntry;
-            if (directSpots[idx] > 0 && qualifyingSpots[idx] > 0) {
-                locEntry = directSpots[idx] + " Group Stage + " + qualifyingSpots[idx] + " Qualifying";
-            } else if (preliminarySpots[idx] > 0) {
-                locEntry = preliminarySpots[idx] + " Preliminary Qualifying";
-            } else if (directSpots[idx] > 0) {
-                locEntry = directSpots[idx] + " Group Stage";
+            if (direct > 0 && qualifying > 0) {
+                locEntry = direct + " Group Stage + " + qualifying + " Qualifying Round 2";
+            } else if (preliminary > 0) {
+                locEntry = preliminary + " Qualifying Round 1";
+            } else if (direct > 0) {
+                locEntry = direct + " Group Stage";
             } else {
                 locEntry = "None";
             }

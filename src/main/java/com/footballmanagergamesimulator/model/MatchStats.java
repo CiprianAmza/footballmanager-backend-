@@ -7,6 +7,10 @@ import lombok.Data;
 @Data
 @Table(name = "match_stats", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"competitionId", "seasonNumber", "roundNumber", "team1Id", "team2Id"})
+}, indexes = {
+        @Index(name = "idx_match_stats_comp_season_round", columnList = "competitionId,seasonNumber,roundNumber"),
+        @Index(name = "idx_match_stats_team1_season", columnList = "team1Id,seasonNumber"),
+        @Index(name = "idx_match_stats_team2_season", columnList = "team2Id,seasonNumber")
 })
 public class MatchStats {
 

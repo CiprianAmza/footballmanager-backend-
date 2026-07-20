@@ -60,6 +60,7 @@ public class MatchdayCoordinator {
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private CupBracketService cupBracketService;
     @Autowired private GameStateService gameStateService;
+    @Autowired private EuropeanFixturePreparationService europeanFixturePreparationService;
 
     // ============================================================
     //  Matchday dispatch (calendar-driven). Mirrors {@code simulateRound}
@@ -120,29 +121,21 @@ public class MatchdayCoordinator {
             return;
         }
 
+        // Normal European draws happen at their dedicated EUROPEAN_DRAW calendar
+        // event, seven days earlier. Keep this idempotent call only as a final
+        // safety net for an old save or a postponed draw.
+        if (typeId == 4 || typeId == 5) {
+            europeanFixturePreparationService.prepareMatchday(competitionId, matchday, season);
+        }
+
         // === LoC (typeId 4) ===
         if (typeId == 4) {
             if (fmt.isPreliminaryRound(round)) {
-                var plan = fmt.europeanPlan();
-                if (plan != null) {
-                    // Configurable format: trim with byes (strongest seeds skip the round).
-                    europeanCompetitionService.drawEuropeanPreliminarySeeded(competitionId, round, plan.slots());
-                } else {
-                    fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
-                }
                 matchRoundSimulator.simulateRound(compIdStr, roundStr);
                 europeanCompetitionService.assignLocLosersToStarsCup(competitionId, round);
                 return;
             }
             if (fmt.isGroupRound(round)) {
-                if (fmt.isGroupDrawRound(round)) {
-                    europeanCompetitionService.drawEuropeanGroups(competitionId, round);
-                    europeanCompetitionService.resetEuropeanStats(competitionId);
-                    europeanCompetitionService.generateGroupStageFixtures(competitionId);
-                    for (int md = matchday + 1; md <= matchday + fmt.groupMatchdayCount() - 1; md++) {
-                        fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
-                    }
-                }
                 matchRoundSimulator.simulateRound(compIdStr, roundStr);
                 if (fmt.isQualifyRound(round)) {
                     europeanCompetitionService.qualifyFromGroupStage(competitionId);
@@ -157,14 +150,6 @@ public class MatchdayCoordinator {
         // === Stars Cup (typeId 5) ===
         if (typeId == 5) {
             if (fmt.isGroupRound(round)) {
-                if (fmt.isGroupDrawRound(round)) {
-                    europeanCompetitionService.drawEuropeanGroups(competitionId, round);
-                    europeanCompetitionService.resetEuropeanStats(competitionId);
-                    europeanCompetitionService.generateGroupStageFixtures(competitionId);
-                    for (int md = matchday + 1; md <= matchday + fmt.groupMatchdayCount() - 1; md++) {
-                        fixtureSchedulingService.assignMatchDayForNewRound(competitionId, md, season);
-                    }
-                }
                 matchRoundSimulator.simulateRound(compIdStr, roundStr);
                 if (fmt.isQualifyRound(round)) {
                     europeanCompetitionService.qualifyFromStarsCupGroupStage(competitionId);
@@ -223,22 +208,10 @@ public class MatchdayCoordinator {
                 matchRoundSimulator.simulateRound(compIdStr, roundStr, 1);          // leg 1 only — defers
             } else {
                 matchRoundSimulator.simulateRound(compIdStr, roundStr, 2);          // leg 2 — aggregate + propagate
-                drawNextKnockoutRound(compIdStr, competitionId, round, matchday, season, fmt);
             }
         } else {
             fixtureSchedulingService.getFixturesForRound(compIdStr, roundStr);
             matchRoundSimulator.simulateRound(compIdStr, roundStr, null);
-            drawNextKnockoutRound(compIdStr, competitionId, round, matchday, season, fmt);
-        }
-    }
-
-    private void drawNextKnockoutRound(String compIdStr, long competitionId, int round,
-                                       int matchday, int season,
-                                       com.footballmanagergamesimulator.config.CompetitionFormat fmt) {
-        if (round < fmt.finalRound()) {
-            int nextRound = round + 1;
-            fixtureSchedulingService.getFixturesForRound(compIdStr, String.valueOf(nextRound));
-            fixtureSchedulingService.assignMatchDayForNewRound(competitionId, matchday + 1, season);
         }
     }
 
@@ -376,6 +349,8 @@ public class MatchdayCoordinator {
             result.put("team2Name", detail.getTeamName2());
             result.put("score", detail.getScore());
             result.put("isHome", detail.getTeam1Id() == humanTeamId);
+            result.put("winnerTeamId", detail.getWinnerTeamId());
+            result.put("decidedBy", detail.getDecidedBy());
 
             List<MatchEvent> matchEvents = matchEventRepository
                     .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
@@ -464,6 +439,7 @@ public class MatchdayCoordinator {
         // to say beyond the 90' score). Surfaced to the FE via the commit response.
         String koResultText = null;
         Long winnerId = null; // null → propagation deferred (first leg of a two-leg tie)
+        String decidedBy = teamScore1 == teamScore2 ? null : "NORMAL";
         if (knockout) {
             if (legNumber == 1 && tieId != 0) {
                 // First leg: stash the score on the leg-1 row so leg 2 (a later
@@ -476,6 +452,7 @@ public class MatchdayCoordinator {
                     competitionTeamInfoMatchRepository.save(leg1Row);
                 }
                 koScoreSuffix = " (1st leg)";
+                decidedBy = "FIRST_LEG";
                 koResultText = "First leg — return leg to come";
             } else if (legNumber == 2 && tieId != 0) {
                 // Second leg: persist this leg, aggregate with leg 1, decide. The
@@ -495,6 +472,8 @@ public class MatchdayCoordinator {
                     int aggB = leg1Row.getTeam2Score() + teamScore1;
                     var d = decideTie(session, false, teamPower2, teamPower1, aggA, aggB);
                     winnerId = d.teamAWon() ? teamId2 : teamId1;
+                    decidedBy = d.penalties() ? "PENALTIES"
+                            : d.extraTime() ? "EXTRA_TIME" : "AGGREGATE";
                     koScoreSuffix = " (agg " + aggA + "-" + aggB
                             + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
                     int winnerAgg = d.teamAWon() ? aggA : aggB;
@@ -506,19 +485,26 @@ public class MatchdayCoordinator {
                     // Lost leg-1 record — decide on this match alone (defensive).
                     var d = decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
+                    decidedBy = d.penalties() ? "PENALTIES"
+                            : d.extraTime() ? "EXTRA_TIME" : "NORMAL";
                     koResultText = matchRoundSimulator.roundTeamName(winnerId) + " advance";
                 }
             } else {
-                // Single-leg knockout: decide via extra time / penalties. Keep the
-                // UI's "+1 extra-time winner goal" bump on a level 90' score.
+                // Single-leg knockout: preserve a tied football score when the
+                // decider is penalties; winner/decision are stored separately.
                 if (teamScore1 == teamScore2) {
                     var d = decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
-                    long loserTeamId;
-                    if (d.teamAWon()) { session.bumpHomeScore(); teamScore1++; winnerId = teamId1; loserTeamId = teamId2; }
-                    else              { session.bumpAwayScore(); teamScore2++; winnerId = teamId2; loserTeamId = teamId1; }
-                    appendKnockoutWinnerGoal(_competitionId, season, (int) _roundId, teamId1, teamId2, winnerId, loserTeamId);
-                    if (d.penalties()) koScoreSuffix = " (pens)";
-                    else if (d.extraTime()) koScoreSuffix = " (a.e.t.)";
+                    winnerId = d.teamAWon() ? teamId1 : teamId2;
+                    decidedBy = d.penalties() ? "PENALTIES" : "EXTRA_TIME";
+                    if (d.penalties()) {
+                        koScoreSuffix = " (pens)";
+                    } else {
+                        teamScore1 += d.etA();
+                        teamScore2 += d.etB();
+                        session.applyCommitScore(teamScore1, teamScore2);
+                        resultAdjustedAtCommit = true;
+                        koScoreSuffix = " (a.e.t.)";
+                    }
                     koResultText = matchRoundSimulator.roundTeamName(winnerId)
                             + (d.penalties() ? " win on penalties" : " win after extra time");
                 } else {
@@ -557,8 +543,8 @@ public class MatchdayCoordinator {
         }
 
         // Scorer tracking + match stats from the canonical final state
-        lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId);
-        lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId);
+        lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId);
+        lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId);
         // Per-player lineup ratings for the match statistics view (canonical final tactics).
         lineupRatingService.persistPlayerRatings(_competitionId, season, (int) _roundId, teamId1, tactic1);
         lineupRatingService.persistPlayerRatings(_competitionId, season, (int) _roundId, teamId2, tactic2);
@@ -592,8 +578,26 @@ public class MatchdayCoordinator {
         detail.setTeamName1(matchRoundSimulator.roundTeamName(teamId1));
         detail.setTeamName2(matchRoundSimulator.roundTeamName(teamId2));
         detail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);
+        detail.setWinnerTeamId(winnerId != null
+                ? winnerId
+                : teamScore1 == teamScore2 ? null : (teamScore1 > teamScore2 ? teamId1 : teamId2));
+        detail.setDecidedBy(decidedBy);
         detail.setSeasonNumber((long) season);
         detail.setLegNumber(legNumber);
+        List<CompetitionTeamInfoMatch> persistedFixtures = competitionTeamInfoMatchRepository.findPlayedFixture(
+                _competitionId, _roundId, String.valueOf(season), teamId1, teamId2, legNumber);
+        if (!persistedFixtures.isEmpty()) {
+            CompetitionTeamInfoMatch fixture = persistedFixtures.get(0);
+            fixture.setTeam1Score(teamScore1);
+            fixture.setTeam2Score(teamScore2);
+            competitionTeamInfoMatchRepository.save(fixture);
+            detail.setMatchIndex(fixture.getMatchIndex());
+            detail.setDay(fixture.getDay());
+            detail.setTieId(fixture.getTieId());
+        } else {
+            detail.setMatchIndex(matchIndex);
+            detail.setTieId(tieId);
+        }
         competitionTeamInfoDetailRepository.save(detail);
 
         session.markCommitted();
@@ -607,6 +611,8 @@ public class MatchdayCoordinator {
         result.put("competitionId", _competitionId);
         result.put("matchday", _roundId);
         result.put("season", season);
+        result.put("winnerTeamId", detail.getWinnerTeamId());
+        result.put("decidedBy", decidedBy);
         result.put("manualSubstitutionsApplied", session.hasManualSubstitutions());
         result.put("resultAdjustedAtCommit", resultAdjustedAtCommit);
         // The post-match PC + suspensions + news are wired up by the caller

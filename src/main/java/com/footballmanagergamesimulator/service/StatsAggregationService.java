@@ -1,11 +1,14 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.AwardWeightingConfig;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionHistory;
 import com.footballmanagergamesimulator.model.CompetitionStatLine;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.model.MatchStats;
+import com.footballmanagergamesimulator.model.PlayerSeasonStat;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
@@ -13,9 +16,13 @@ import com.footballmanagergamesimulator.model.TeamDataHubStats;
 import com.footballmanagergamesimulator.model.Transfer;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.MatchStatsRepository;
+import com.footballmanagergamesimulator.repository.PlayerSeasonStatRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -31,6 +38,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +64,396 @@ public class StatsAggregationService {
     @Autowired private MatchStatsRepository matchStatsRepository;
     @Autowired private TransferRepository transferRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
+    @Autowired private PlayerSeasonStatRepository playerSeasonStatRepository;
+    @Autowired private LeagueStrengthService leagueStrengthService;
+    @Autowired private AwardWeightingConfig awardWeightingConfig;
+    @Autowired private CompetitionProgressService competitionProgressService;
+    @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
+    @Autowired private RoundRepository roundRepository;
+
+    private static final Pattern RESULT_SCORE_PATTERN = Pattern.compile("(\\d+)\\s*-\\s*(\\d+)");
+
+    // ==================== GLOBAL SEASON OVERVIEW ====================
+
+    /** Global current-season player rankings for the Overview screen. */
+    public Map<String, Object> getSeasonOverviewStats(int seasonNumber, int requestedLimit) {
+        return getSeasonOverviewStats(seasonNumber, requestedLimit, "LEAGUE");
+    }
+
+    /**
+     * Builds every leaderboard from the same competition scope. This is important:
+     * showing league goals next to cup assists made a perfectly valid dataset look
+     * contradictory in the UI.
+     */
+    public Map<String, Object> getSeasonOverviewStats(int seasonNumber, int requestedLimit,
+                                                       String requestedScope) {
+        int limit = Math.max(1, Math.min(50, requestedLimit));
+        OverviewStatsScope scope = OverviewStatsScope.from(requestedScope);
+        LeagueStrengthService.LeagueStrengthTable leagueStrength = leagueStrengthService.calculate(seasonNumber);
+        List<Scorer> scorers = scorerRepository.findAllBySeasonNumber(seasonNumber).stream()
+                .filter(s -> s.getTeamScore() >= 0 && s.getOpponentTeamId() >= 0)
+                .filter(s -> scope.includes(s.getCompetitionTypeId()))
+                .toList();
+        Map<Long, Integer> competitionTypes = competitionRepository.findAll().stream()
+                .collect(Collectors.toMap(Competition::getId, competition -> (int) competition.getTypeId(),
+                        (left, ignored) -> left));
+        List<PlayerSeasonStat> seasonStats = playerSeasonStatRepository.findAllBySeasonNumber(seasonNumber).stream()
+                .filter(stat -> scope.includes(competitionTypes.getOrDefault(stat.getCompetitionId(), 0)))
+                .toList();
+
+        Set<Long> playerIds = new LinkedHashSet<>();
+        Set<Long> teamIds = new LinkedHashSet<>();
+        scorers.forEach(s -> {
+            playerIds.add(s.getPlayerId());
+            if (s.getTeamId() > 0) teamIds.add(s.getTeamId());
+        });
+        seasonStats.forEach(s -> {
+            playerIds.add(s.getPlayerId());
+            if (s.getTeamId() > 0) teamIds.add(s.getTeamId());
+        });
+
+        Map<Long, Human> humans = humanRepository.findAllById(playerIds).stream()
+                .collect(Collectors.toMap(Human::getId, h -> h));
+        Map<Long, String> teamNames = teamRepository.findAllById(teamIds).stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
+
+        Map<Long, GoldenBootAccumulator> bootByPlayer = new HashMap<>();
+        Map<Long, ScorerAccumulator> scorerByPlayer = new HashMap<>();
+        for (Scorer scorer : scorers) {
+            ScorerAccumulator all = scorerByPlayer.computeIfAbsent(
+                    scorer.getPlayerId(), ignored -> new ScorerAccumulator());
+            all.add(scorer);
+
+            double leagueMultiplier = scope == OverviewStatsScope.LEAGUE
+                    ? leagueStrength.competitionMultiplier(scorer.getCompetitionId())
+                    : 1.0;
+            bootByPlayer.computeIfAbsent(scorer.getPlayerId(), ignored -> new GoldenBootAccumulator())
+                    .add(scorer, leagueMultiplier,
+                            awardWeightingConfig.getGoldenBoot().getGoalWeight(),
+                            awardWeightingConfig.getGoldenBoot().getAssistWeight());
+        }
+
+        List<Map<String, Object>> goldenBoot = bootByPlayer.entrySet().stream()
+                .filter(entry -> entry.getValue().goals > 0)
+                .map(entry -> scoringRow(entry.getKey(), entry.getValue(), humans, teamNames, scope))
+                .sorted(leaderComparator(scope == OverviewStatsScope.LEAGUE ? "awardPoints" : "goals", "goals"))
+                .limit(limit)
+                .collect(Collectors.toCollection(ArrayList::new));
+        addRanks(goldenBoot);
+
+        Map<Long, SeasonStatAccumulator> statsByPlayer = new HashMap<>();
+        for (PlayerSeasonStat stat : seasonStats) {
+            statsByPlayer.computeIfAbsent(stat.getPlayerId(), ignored -> new SeasonStatAccumulator()).add(stat);
+        }
+
+        List<Map<String, Object>> categories = new ArrayList<>();
+        categories.add(scorerCategory("assists", "Most assists", "Assists", scorerByPlayer,
+                humans, teamNames, limit, false));
+        categories.add(scorerCategory("averageRating", "Highest average rating", "Rating", scorerByPlayer,
+                humans, teamNames, limit, true));
+        categories.add(seasonStatCategory("passesCompleted", "Most completed passes", "Passes", statsByPlayer,
+                humans, teamNames, limit, accumulator -> accumulator.passesCompleted));
+        categories.add(seasonStatCategory("chancesCreated", "Most chances created", "Chances", statsByPlayer,
+                humans, teamNames, limit, accumulator -> accumulator.chancesCreated));
+        categories.add(seasonStatCategory("shots", "Most shots", "Shots", statsByPlayer,
+                humans, teamNames, limit, accumulator -> accumulator.shots));
+        categories.add(seasonStatCategory("tackles", "Most tackles", "Tackles", statsByPlayer,
+                humans, teamNames, limit, accumulator -> accumulator.tackles));
+        categories.add(seasonStatCategory("pressures", "Most pressures", "Pressures", statsByPlayer,
+                humans, teamNames, limit, accumulator -> accumulator.pressures));
+        categories.add(seasonStatCategory("defensiveActions", "Most defensive actions", "Actions", statsByPlayer,
+                humans, teamNames, limit, accumulator -> accumulator.defensiveActions));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("season", seasonNumber);
+        result.put("scope", scope.name());
+        result.put("scopeLabel", scope.label);
+        result.put("scoringTitle", scope == OverviewStatsScope.LEAGUE ? "Golden Boot" : "Top scorers");
+        result.put("goldenBoot", goldenBoot);
+        result.put("goldenBootRule", scope == OverviewStatsScope.LEAGUE
+                ? goldenBootRule(leagueStrength)
+                : "Goals scored in " + scope.label.toLowerCase() + "; no league weighting is applied");
+        result.put("goldenBootGoalWeight", awardWeightingConfig.getGoldenBoot().getGoalWeight());
+        result.put("goldenBootAssistWeight", awardWeightingConfig.getGoldenBoot().getAssistWeight());
+        result.put("leagueStrength", leagueStrength);
+        result.put("categoriesScope", scope.label);
+        result.put("categories", categories);
+        return result;
+    }
+
+    /**
+     * Returns the selected club's most productive players for one season. Unlike
+     * the legacy all-player leaderboard, this is built from played match rows, so
+     * assists and average match ratings are real season statistics and placeholder
+     * rows created before kick-off never count as appearances.
+     */
+    public List<Map<String, Object>> getTeamSeasonPlayerStats(long teamId, int seasonNumber,
+                                                               int requestedLimit) {
+        int limit = Math.max(1, Math.min(20, requestedLimit));
+        Map<Long, ScorerAccumulator> byPlayer = new HashMap<>();
+
+        scorerRepository.findAllByTeamIdAndSeasonNumber(teamId, seasonNumber).stream()
+                .filter(scorer -> scorer.getTeamScore() >= 0 && scorer.getOpponentTeamId() >= 0)
+                .forEach(scorer -> byPlayer
+                        .computeIfAbsent(scorer.getPlayerId(), ignored -> new ScorerAccumulator())
+                        .add(scorer));
+
+        if (byPlayer.isEmpty()) return List.of();
+
+        Map<Long, Human> players = humanRepository.findAllById(byPlayer.keySet()).stream()
+                .collect(Collectors.toMap(Human::getId, human -> human));
+        List<Map<String, Object>> rows = byPlayer.entrySet().stream()
+                .map(entry -> {
+                    Human player = players.get(entry.getKey());
+                    ScorerAccumulator stats = entry.getValue();
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("playerId", entry.getKey());
+                    row.put("playerName", player == null ? "Unknown" : player.getName());
+                    row.put("position", player == null ? "" : player.getPosition());
+                    row.put("teamId", teamId);
+                    row.put("appearances", stats.appearances);
+                    row.put("goals", stats.goals);
+                    row.put("assists", stats.assists);
+                    row.put("goalContributions", stats.goals + stats.assists);
+                    row.put("averageRating", round(stats.ratingTotal / stats.appearances, 2));
+                    return row;
+                })
+                .sorted(leaderComparator("goalContributions", "averageRating"))
+                .limit(limit)
+                .collect(Collectors.toCollection(ArrayList::new));
+        addRanks(rows);
+        return rows;
+    }
+
+    private Map<String, Object> scoringRow(long playerId, GoldenBootAccumulator value,
+                                           Map<Long, Human> humans, Map<Long, String> teamNames,
+                                           OverviewStatsScope scope) {
+        Map<String, Object> row = identityRow(playerId, value.teamId, value.teamName, humans, teamNames);
+        row.put("appearances", value.appearances);
+        row.put("goals", value.goals);
+        row.put("assists", value.assists);
+        row.put("firstLeagueGoals", value.firstLeagueGoals);
+        row.put("secondLeagueGoals", value.secondLeagueGoals);
+        row.put("weightedGoalPoints", scope == OverviewStatsScope.LEAGUE
+                ? round(value.weightedGoalPoints, 1) : (double) value.goals);
+        row.put("weightedAssistPoints", scope == OverviewStatsScope.LEAGUE
+                ? round(value.weightedAssistPoints, 1) : 0.0);
+        row.put("awardPoints", scope == OverviewStatsScope.LEAGUE
+                ? round(value.awardPoints, 1) : (double) value.goals);
+        // Backward-compatible field for older frontends; now represents the full
+        // Golden Boot score (goals + assists), not the retired L1/L2 goal formula.
+        row.put("weightedGoals", scope == OverviewStatsScope.LEAGUE
+                ? round(value.awardPoints, 1) : (double) value.goals);
+        return row;
+    }
+
+    private String goldenBootRule(LeagueStrengthService.LeagueStrengthTable table) {
+        List<String> bands = new ArrayList<>();
+        int minimum = 1;
+        for (LeagueStrengthService.RankMultiplierTier tier : table.tiers()) {
+            bands.add("ranks " + minimum + "-" + tier.maximumRank() + " ×" + formatWeight(tier.multiplier()));
+            minimum = tier.maximumRank() + 1;
+        }
+        bands.add("remaining leagues ×" + formatWeight(table.defaultMultiplier()));
+        return "Points = league multiplier × (goals × "
+                + formatWeight(awardWeightingConfig.getGoldenBoot().getGoalWeight())
+                + " + assists × "
+                + formatWeight(awardWeightingConfig.getGoldenBoot().getAssistWeight())
+                + "). League strength: " + String.join(", ", bands) + ".";
+    }
+
+    private String formatWeight(double value) {
+        return value == Math.rint(value)
+                ? String.valueOf((int) value)
+                : String.valueOf(value);
+    }
+
+    private enum OverviewStatsScope {
+        LEAGUE("Domestic leagues"),
+        CUP("Domestic cups"),
+        EUROPEAN("European competitions"),
+        ALL("All competitions");
+
+        private final String label;
+
+        OverviewStatsScope(String label) {
+            this.label = label;
+        }
+
+        static OverviewStatsScope from(String value) {
+            if (value == null || value.isBlank()) return LEAGUE;
+            try {
+                return valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                return LEAGUE;
+            }
+        }
+
+        boolean includes(int competitionTypeId) {
+            return switch (this) {
+                case LEAGUE -> competitionTypeId == 1 || competitionTypeId == 3;
+                case CUP -> competitionTypeId == 2 || competitionTypeId == 6;
+                case EUROPEAN -> competitionTypeId == 4 || competitionTypeId == 5;
+                case ALL -> competitionTypeId > 0;
+            };
+        }
+    }
+
+    private Map<String, Object> scorerCategory(String key, String title, String unit,
+                                                Map<Long, ScorerAccumulator> values,
+                                                Map<Long, Human> humans, Map<Long, String> teamNames,
+                                                int limit, boolean averageRating) {
+        List<Map<String, Object>> leaders = values.entrySet().stream()
+                .filter(entry -> averageRating
+                        ? entry.getValue().appearances > 0
+                        : entry.getValue().assists > 0)
+                .map(entry -> {
+                    ScorerAccumulator accumulator = entry.getValue();
+                    Map<String, Object> row = identityRow(entry.getKey(), accumulator.teamId,
+                            accumulator.teamName, humans, teamNames);
+                    row.put("appearances", accumulator.appearances);
+                    row.put("value", averageRating
+                            ? round(accumulator.ratingTotal / accumulator.appearances, 2)
+                            : accumulator.assists);
+                    row.put("per90", averageRating ? null
+                            : round((double) accumulator.assists / Math.max(1, accumulator.appearances), 2));
+                    return row;
+                })
+                .sorted(leaderComparator("value", "appearances"))
+                .limit(limit)
+                .collect(Collectors.toCollection(ArrayList::new));
+        addRanks(leaders);
+        return category(key, title, unit, leaders);
+    }
+
+    private Map<String, Object> seasonStatCategory(String key, String title, String unit,
+                                                    Map<Long, SeasonStatAccumulator> values,
+                                                    Map<Long, Human> humans, Map<Long, String> teamNames,
+                                                    int limit,
+                                                    java.util.function.ToDoubleFunction<SeasonStatAccumulator> getter) {
+        List<Map<String, Object>> leaders = values.entrySet().stream()
+                .map(entry -> {
+                    SeasonStatAccumulator accumulator = entry.getValue();
+                    double value = getter.applyAsDouble(accumulator);
+                    Map<String, Object> row = identityRow(entry.getKey(), accumulator.teamId,
+                            null, humans, teamNames);
+                    row.put("appearances", accumulator.appearances);
+                    row.put("minutes", accumulator.minutes);
+                    row.put("value", round(value, 1));
+                    row.put("per90", accumulator.minutes > 0 ? round(value * 90.0 / accumulator.minutes, 2) : 0.0);
+                    return row;
+                })
+                .filter(row -> ((Number) row.get("value")).doubleValue() > 0)
+                .sorted(leaderComparator("value", "appearances"))
+                .limit(limit)
+                .collect(Collectors.toCollection(ArrayList::new));
+        addRanks(leaders);
+        return category(key, title, unit, leaders);
+    }
+
+    private Map<String, Object> category(String key, String title, String unit,
+                                          List<Map<String, Object>> leaders) {
+        Map<String, Object> category = new LinkedHashMap<>();
+        category.put("key", key);
+        category.put("title", title);
+        category.put("unit", unit);
+        category.put("leaders", leaders);
+        return category;
+    }
+
+    private Map<String, Object> identityRow(long playerId, long fallbackTeamId, String fallbackTeamName,
+                                             Map<Long, Human> humans, Map<Long, String> teamNames) {
+        Human human = humans.get(playerId);
+        long teamId = human != null && human.getTeamId() != null ? human.getTeamId() : fallbackTeamId;
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("playerId", playerId);
+        row.put("playerName", human == null ? "Unknown" : human.getName());
+        row.put("teamId", teamId);
+        row.put("teamName", teamNames.getOrDefault(teamId,
+                fallbackTeamName == null || fallbackTeamName.isBlank() ? "Free agent" : fallbackTeamName));
+        return row;
+    }
+
+    private Comparator<Map<String, Object>> leaderComparator(String primary, String secondary) {
+        return Comparator.<Map<String, Object>>comparingDouble(
+                        row -> ((Number) row.get(primary)).doubleValue()).reversed()
+                .thenComparing(Comparator.<Map<String, Object>>comparingDouble(
+                        row -> ((Number) row.get(secondary)).doubleValue()).reversed())
+                .thenComparing(row -> String.valueOf(row.get("playerName")));
+    }
+
+    private void addRanks(List<Map<String, Object>> rows) {
+        for (int index = 0; index < rows.size(); index++) rows.get(index).put("rank", index + 1);
+    }
+
+    private static class GoldenBootAccumulator {
+        int appearances;
+        int goals;
+        int assists;
+        int firstLeagueGoals;
+        int secondLeagueGoals;
+        double weightedGoalPoints;
+        double weightedAssistPoints;
+        double awardPoints;
+        long teamId;
+        String teamName;
+
+        void add(Scorer scorer, double leagueMultiplier, double goalWeight, double assistWeight) {
+            appearances++;
+            goals += scorer.getGoals();
+            assists += scorer.getAssists();
+            weightedGoalPoints += scorer.getGoals() * goalWeight * leagueMultiplier;
+            weightedAssistPoints += scorer.getAssists() * assistWeight * leagueMultiplier;
+            awardPoints = weightedGoalPoints + weightedAssistPoints;
+            teamId = scorer.getTeamId();
+            teamName = scorer.getTeamName();
+            if (scorer.getCompetitionTypeId() == 1) firstLeagueGoals += scorer.getGoals();
+            else if (scorer.getCompetitionTypeId() == 3) secondLeagueGoals += scorer.getGoals();
+        }
+    }
+
+    private static class ScorerAccumulator {
+        int appearances;
+        int goals;
+        int assists;
+        double ratingTotal;
+        long teamId;
+        String teamName;
+
+        void add(Scorer scorer) {
+            appearances++;
+            goals += scorer.getGoals();
+            assists += scorer.getAssists();
+            ratingTotal += scorer.getRating();
+            teamId = scorer.getTeamId();
+            teamName = scorer.getTeamName();
+        }
+    }
+
+    private static class SeasonStatAccumulator {
+        int appearances;
+        int minutes;
+        long teamId;
+        double passesCompleted;
+        double chancesCreated;
+        double shots;
+        double tackles;
+        double pressures;
+        double defensiveActions;
+
+        void add(PlayerSeasonStat stat) {
+            appearances += stat.getAppearances();
+            minutes += stat.getMinutes();
+            teamId = stat.getTeamId();
+            passesCompleted += stat.getPassesCompleted();
+            chancesCreated += stat.getChancesCreated();
+            shots += stat.getShots();
+            tackles += stat.getTackles();
+            pressures += stat.getPressures();
+            defensiveActions += stat.getDefensiveActions();
+        }
+    }
 
     // ==================== TEAM DATA HUB ====================
 
@@ -187,7 +586,8 @@ public class StatsAggregationService {
         }
 
         // League averages: compute from all teams in the same season
-        List<Scorer> allSeasonScorers = scorerRepository.findAllBySeasonNumber(seasonNumber);
+        List<Scorer> allSeasonScorers =
+                scorerRepository.findAllBySeasonNumberAndRoundNumberGreaterThan(seasonNumber, 0);
         double leagueTotalRating = 0;
         int leagueTotalRatingCount = 0;
         int leagueTotalAssists = 0;
@@ -826,7 +1226,7 @@ public class StatsAggregationService {
         Map<String, Object> byType = new LinkedHashMap<>();
         Map<Integer, List<Scorer>> byCompType = allScorers.stream()
                 .collect(Collectors.groupingBy(Scorer::getCompetitionTypeId));
-        String[] typeNames = {"", "League", "Cup", "Second League", "League of Champions", "Stars Cup"};
+        String[] typeNames = {"", "League", "Cup", "Second League", "League of Champions", "Stars Cup", "Super Cup"};
         for (Map.Entry<Integer, List<Scorer>> e : byCompType.entrySet()) {
             int typeId = e.getKey();
             List<Scorer> typeScorers = e.getValue();
@@ -872,16 +1272,87 @@ public class StatsAggregationService {
     /**
      * Per-(competition, season) team record (matches/W/D/L/goals), so League / Cup /
      * LoC / Stars Cup are never summed together the way the manager snapshot does.
-     * Matches are reconstructed from the Scorer rows (same technique as
-     * {@link #getTeamDataHubStats}) grouped by competition+season. League position is
-     * attached only on league-type lines (typeId 1 or 3), read from the live standings.
+     * Matches are read from the persisted competition results and only fall back
+     * to Scorer rows for old/incomplete data. League position is
+     * attached only on league-type lines (typeId 1 or 3): archived seasons use
+     * CompetitionHistory.lastPosition, while the in-progress season uses the live standings.
      */
     public List<CompetitionStatLine> getTeamCompetitionBreakdown(long teamId) {
         List<Scorer> teamScorers = scorerRepository.findAllByTeamId(teamId);
+        String teamName = teamRepository.findById(teamId).map(Team::getName).orElse("Unknown");
+
+        // Final league positions are immutable season facts. New-season setup
+        // snapshots them into CompetitionHistory before the live standings are
+        // reset, so historical lines must read that snapshot instead of ranking
+        // today's TeamCompetitionDetail table.
+        Map<String, Integer> archivedLeaguePositions = competitionHistoryRepository
+                .findByTeamId(teamId).stream()
+                .filter(h -> h.getCompetitionTypeId() == 1 || h.getCompetitionTypeId() == 3)
+                .filter(h -> h.getLastPosition() > 0)
+                .collect(Collectors.toMap(
+                        h -> h.getCompetitionId() + "|" + h.getSeasonNumber(),
+                        h -> Math.toIntExact(h.getLastPosition()),
+                        (first, duplicate) -> duplicate));
 
         // (competitionId|season) -> reconstructed unique matches -> [teamScore, opponentScore]
         Map<String, CompetitionStatLine> lines = new LinkedHashMap<>();
         Map<String, Map<String, int[]>> matchesByLine = new LinkedHashMap<>();
+        Map<String, List<int[]>> officialMatchesByLine = new LinkedHashMap<>();
+        Set<String> archivedKeys = new java.util.HashSet<>();
+        Map<Long, Competition> competitionCache = new HashMap<>();
+
+        // Seed completed seasons from their immutable snapshots. This also keeps
+        // 0-0 cup appearances visible when no scorer row exists.
+        for (CompetitionHistory history : competitionHistoryRepository.findByTeamId(teamId)) {
+            String key = history.getCompetitionId() + "|" + history.getSeasonNumber();
+            CompetitionStatLine line = new CompetitionStatLine(history.getCompetitionId(),
+                    (int) history.getCompetitionTypeId(), history.getCompetitionName(),
+                    (int) history.getSeasonNumber());
+            line.setMatches(history.getGames());
+            line.setWins(history.getWins());
+            line.setDraws(history.getDraws());
+            line.setLosses(history.getLoses());
+            line.setGoalsFor(history.getGoalsFor());
+            line.setGoalsAgainst(history.getGoalsAgainst());
+            if (history.getCompetitionTypeId() == 1 || history.getCompetitionTypeId() == 3)
+                line.setLeaguePosition((int) history.getLastPosition());
+            lines.put(key, line);
+            archivedKeys.add(key);
+        }
+
+        // Seed every current competition from entries, even before the first
+        // match or after a scoreless match.
+        long currentSeason = roundRepository.findById(1L).map(r -> r.getSeason()).orElse(1L);
+        for (var entry : competitionTeamInfoRepository.findAllByTeamIdAndSeasonNumber(teamId, currentSeason)) {
+            Competition competition = competitionCache.computeIfAbsent(entry.getCompetitionId(),
+                    id -> competitionRepository.findById(id).orElse(null));
+            if (competition == null) continue;
+            String key = competition.getId() + "|" + currentSeason;
+            lines.putIfAbsent(key, new CompetitionStatLine(competition.getId(), (int) competition.getTypeId(),
+                    competition.getName(), (int) currentSeason));
+        }
+
+        // A scorer row represents a player's contribution, not a fixture. Some
+        // European qualifiers (and all 0-0 matches) legitimately have no such
+        // row. Persisted CompetitionTeamInfoDetail scores are therefore the
+        // source of truth for the team record shown on My Manager.
+        for (CompetitionTeamInfoDetail result : competitionTeamInfoDetailRepository.findAllByTeamId(teamId)) {
+            int[] score = parseOfficialScore(result.getScore());
+            if (score == null) continue;
+
+            Competition competition = competitionCache.computeIfAbsent(result.getCompetitionId(),
+                    id -> competitionRepository.findById(id).orElse(null));
+            if (competition == null) continue;
+
+            int teamScore = result.getTeam1Id() == teamId ? score[0] : score[1];
+            int opponentScore = result.getTeam1Id() == teamId ? score[1] : score[0];
+            String lineKey = result.getCompetitionId() + "|" + result.getSeasonNumber();
+            lines.putIfAbsent(lineKey, new CompetitionStatLine(
+                    competition.getId(), (int) competition.getTypeId(), competition.getName(),
+                    (int) result.getSeasonNumber()));
+            officialMatchesByLine.computeIfAbsent(lineKey, ignored -> new ArrayList<>())
+                    .add(new int[]{teamScore, opponentScore});
+        }
 
         String lastMatchKey = "";
         int matchCounter = 0;
@@ -890,6 +1361,7 @@ public class StatsAggregationService {
             if (s.getTeamScore() < 0 || s.getOpponentTeamId() < 0) continue;
 
             String lineKey = s.getCompetitionId() + "|" + s.getSeasonNumber();
+            if (archivedKeys.contains(lineKey)) continue;
             lines.computeIfAbsent(lineKey, k -> new CompetitionStatLine(
                     s.getCompetitionId(), s.getCompetitionTypeId(), s.getCompetitionName(), s.getSeasonNumber()));
 
@@ -906,24 +1378,76 @@ public class StatsAggregationService {
 
         for (Map.Entry<String, CompetitionStatLine> e : lines.entrySet()) {
             CompetitionStatLine line = e.getValue();
-            for (int[] scores : matchesByLine.getOrDefault(e.getKey(), Map.of()).values()) {
-                int ts = scores[0], os = scores[1];
-                line.setMatches(line.getMatches() + 1);
-                line.setGoalsFor(line.getGoalsFor() + ts);
-                line.setGoalsAgainst(line.getGoalsAgainst() + os);
-                if (ts > os) line.setWins(line.getWins() + 1);
-                else if (ts == os) line.setDraws(line.getDraws() + 1);
-                else line.setLosses(line.getLosses() + 1);
+            line.setTeamId(teamId);
+            line.setTeamName(teamName);
+            List<int[]> officialMatches = officialMatchesByLine.get(e.getKey());
+            if (officialMatches != null && !officialMatches.isEmpty()) {
+                resetTeamRecord(line);
+                for (int[] scores : officialMatches) applyTeamResult(line, scores);
+            } else {
+                for (int[] scores : matchesByLine.getOrDefault(e.getKey(), Map.of()).values()) {
+                    applyTeamResult(line, scores);
+                }
             }
             if (line.getCompetitionTypeId() == 1 || line.getCompetitionTypeId() == 3) {
-                line.setLeaguePosition(computeLeaguePosition(teamId, line.getCompetitionId()));
+                Integer archivedPosition = archivedLeaguePositions.get(e.getKey());
+                line.setLeaguePosition(archivedPosition != null
+                        ? archivedPosition
+                        : computeLeaguePosition(teamId, line.getCompetitionId()));
             }
+            applyCompetitionProgress(line, teamId);
         }
 
         return lines.values().stream()
                 .sorted(Comparator.comparingInt(CompetitionStatLine::getSeasonNumber).reversed()
                         .thenComparingInt(CompetitionStatLine::getCompetitionTypeId))
                 .toList();
+    }
+
+    private int[] parseOfficialScore(String score) {
+        if (score == null || score.isBlank()) return null;
+        Matcher matcher = RESULT_SCORE_PATTERN.matcher(score);
+        if (!matcher.find()) return null;
+        return new int[]{Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2))};
+    }
+
+    private void resetTeamRecord(CompetitionStatLine line) {
+        line.setMatches(0);
+        line.setWins(0);
+        line.setDraws(0);
+        line.setLosses(0);
+        line.setGoalsFor(0);
+        line.setGoalsAgainst(0);
+    }
+
+    private void applyTeamResult(CompetitionStatLine line, int[] scores) {
+        int teamScore = scores[0];
+        int opponentScore = scores[1];
+        line.setMatches(line.getMatches() + 1);
+        line.setGoalsFor(line.getGoalsFor() + teamScore);
+        line.setGoalsAgainst(line.getGoalsAgainst() + opponentScore);
+        if (teamScore > opponentScore) line.setWins(line.getWins() + 1);
+        else if (teamScore == opponentScore) line.setDraws(line.getDraws() + 1);
+        else line.setLosses(line.getLosses() + 1);
+    }
+
+    private void applyCompetitionProgress(CompetitionStatLine line, long teamId) {
+        Map<String, Object> progress = competitionProgressService.teamProgress(
+                teamId, line.getCompetitionId(), line.getSeasonNumber());
+        if (progress.isEmpty()) return;
+        line.setEntryRound(numberAsLong(progress.get("entryRound")));
+        line.setEntryStage((String) progress.get("entryStage"));
+        line.setCurrentRound(numberAsLong(progress.get("currentRound")));
+        line.setCurrentStage((String) progress.get("currentStage"));
+        line.setStageReached((String) progress.get("stageReached"));
+        line.setStatus((String) progress.get("status"));
+        line.setStatusLabel((String) progress.get("statusLabel"));
+        line.setEliminatedByTeamId(numberAsLong(progress.get("eliminatedByTeamId")));
+        line.setEliminatedByTeamName((String) progress.get("eliminatedByTeamName"));
+    }
+
+    private Long numberAsLong(Object value) {
+        return value instanceof Number number ? number.longValue() : null;
     }
 
     /** Live standings position of a team in a competition (1-based). Returns null if not found. */

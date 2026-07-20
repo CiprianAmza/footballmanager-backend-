@@ -22,6 +22,9 @@ import java.util.stream.Collectors;
 @Service
 public class FixtureSchedulingService {
 
+    /** European draws are published one week before the first match of the stage. */
+    public static final int EUROPEAN_DRAW_LEAD_DAYS = 7;
+
     @Autowired
     private CompetitionRepository competitionRepository;
 
@@ -51,6 +54,9 @@ public class FixtureSchedulingService {
     @Autowired
     private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
 
+    @Autowired
+    private CompetitionProgressService competitionProgressService;
+
     private String currentSeasonStr() {
         return roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
     }
@@ -64,9 +70,18 @@ public class FixtureSchedulingService {
      * Guarded against duplicate fixture generation (idempotent on re-entry).
      */
     public void getFixturesForRound(String competitionId, String roundId) {
+        getFixturesForRound(competitionId, roundId, Integer.parseInt(currentSeasonStr()));
+    }
+
+    /**
+     * Explicit-season variant used while a new season is being prepared.
+     * Keeping the target season as an argument prevents the globally visible
+     * Round from being advanced before the transition transaction commits.
+     */
+    public void getFixturesForRound(String competitionId, String roundId, int season) {
         long _competitionId = Long.parseLong(competitionId);
         long _roundId = Long.parseLong(roundId);
-        String currentSeasonStr = currentSeasonStr();
+        String currentSeasonStr = String.valueOf(season);
 
         List<Long> participants = getParticipants(_competitionId, _roundId, currentSeasonStr);
 
@@ -255,7 +270,8 @@ public class FixtureSchedulingService {
                 case 4: // LoC (Champions League equivalent)
                     // Matchday count comes from the derived format plan so a shape
                     // change (totalTeams/groups/qualifyPerGroup) adapts the calendar.
-                    // Default 40/4×4 = 11 rounds: 0-1 preliminary, 2-7 groups, 8-10 KO.
+                    // Default tiered 21-team field = 11 rounds: 0-1 qualifiers,
+                    // 2-7 groups and 8-10 knockout.
                     com.footballmanagergamesimulator.config.EuropeanFormatPlan locPlan =
                             competitionFormat.get(4).europeanPlan();
                     int locRounds = locPlan != null ? locPlan.totalRounds() : 11;
@@ -270,9 +286,16 @@ public class FixtureSchedulingService {
                     // rounds: 1-6 groups, 7 playoff, 8-10 QF/SF/Final.
                     int scRounds = competitionFormat.get(5).finalRound();
                     matchDays = scRounds == 10
-                            ? new int[]{42, 60, 84, 112, 147, 175, 220, 252, 295, 325}
-                            : generateEuropeanMatchDays(scRounds, 42, 325);
+                            // The group draw needs the LoC qualifying-round losers.
+                            // LoC Q2 is played on day 38, so day 46 is the earliest
+                            // match date that still permits a full seven-day draw window.
+                            ? new int[]{46, 64, 88, 116, 151, 179, 220, 252, 295, 325}
+                            : generateEuropeanMatchDays(scRounds, 46, 325);
                     eventType = "MATCH_EUROPEAN";
+                    break;
+                case 6: // Domestic Super Cup — one final near the season start
+                    matchDays = new int[]{32};
+                    eventType = "MATCH_CUP";
                     break;
                 default:
                     continue;
@@ -293,6 +316,10 @@ public class FixtureSchedulingService {
                 int matchdayNo = i + 1;
                 int roundNo = compFmt.roundForMatchday(matchdayNo);
                 boolean twoLeg = (compTypeId == 4 || compTypeId == 5) && compFmt.isTwoLeg(roundNo);
+
+                if ((compTypeId == 4 || compTypeId == 5) && requiresEuropeanDraw(compFmt, roundNo)) {
+                    addEuropeanDraw(allEvents, comp, season, matchDays[i], matchdayNo, roundNo);
+                }
 
                 // Leg 1 (or the single match for non-two-leg rounds).
                 addMatchAndPressConf(allEvents, allMatchDays, comp, season, eventType,
@@ -333,7 +360,8 @@ public class FixtureSchedulingService {
         // After saving all events, auto-schedule friendly matches with opponents
         // (done after bulk save below since we need the calendar events saved first)
 
-        // 3. Generate daily events (training and injury updates)
+        // 3. Generate training events. Injury recovery is resolved from the absolute
+        // return date when the calendar advances, so it needs no daily event rows.
         Set<Integer> restDays = new HashSet<>();
         for (int matchDay : allMatchDays) {
             restDays.add(matchDay + 1);
@@ -352,17 +380,6 @@ public class FixtureSchedulingService {
                 training.setPriority(10);
                 allEvents.add(training);
             }
-
-            // Injury update (morning, every day)
-            CalendarEvent injury = new CalendarEvent();
-            injury.setSeason(season);
-            injury.setDay(day);
-            injury.setPhase("MORNING");
-            injury.setEventType("INJURY_UPDATE");
-            injury.setStatus("PENDING");
-            injury.setTitle("Injury & Fitness Update");
-            injury.setPriority(1);
-            allEvents.add(injury);
         }
 
         // 4. Generate periodic events
@@ -516,6 +533,29 @@ public class FixtureSchedulingService {
         allEvents.add(pressConf);
     }
 
+    /** Only actual draw stages get an event; later group matchdays reuse the group draw. */
+    private boolean requiresEuropeanDraw(CompetitionFormat format, int round) {
+        return !format.isGroupRound(round) || format.isGroupDrawRound(round);
+    }
+
+    private void addEuropeanDraw(List<CalendarEvent> allEvents, Competition competition,
+                                 int season, int matchDay, int matchdayNo, int round) {
+        CalendarEvent draw = new CalendarEvent();
+        draw.setSeason(season);
+        draw.setDay(Math.max(1, matchDay - EUROPEAN_DRAW_LEAD_DAYS));
+        draw.setPhase("MORNING");
+        draw.setEventType("EUROPEAN_DRAW");
+        draw.setCompetitionId(competition.getId());
+        draw.setMatchday(matchdayNo);
+        draw.setLegNumber(0);
+        draw.setStatus("PENDING");
+        draw.setTitle(competition.getName() + " - "
+                + competitionProgressService.roundLabel(competition.getId(), round, season) + " Draw");
+        draw.setDescription("The draw takes place seven days before the first match of the stage.");
+        draw.setPriority(0);
+        allEvents.add(draw);
+    }
+
     /**
      * Spreads {@code numMatchdays} European matchdays evenly across [startDay, endDay].
      * Used when a configurable LoC shape produces a round count other than the
@@ -541,22 +581,32 @@ public class FixtureSchedulingService {
      * Looks up the pre-scheduled calendar day from CalendarEvent.
      */
     public void assignMatchDayForNewRound(long competitionId, int matchday, int season) {
-        // Look up the calendar day from the CalendarEvent that was pre-generated
-        List<CalendarEvent> events = calendarEventRepository.findBySeasonAndCompetitionIdAndMatchday(
-                season, competitionId, matchday);
+        List<CalendarEvent> matchEvents = calendarEventRepository
+                .findBySeasonAndCompetitionIdAndMatchday(season, competitionId, matchday).stream()
+                .filter(event -> "MATCH_LEAGUE".equals(event.getEventType())
+                        || "MATCH_CUP".equals(event.getEventType())
+                        || "MATCH_EUROPEAN".equals(event.getEventType()))
+                .sorted(Comparator.comparingInt(CalendarEvent::getLegNumber)
+                        .thenComparingInt(CalendarEvent::getDay))
+                .toList();
+        if (matchEvents.isEmpty()) return;
 
-        int calendarDay = 0;
-        for (CalendarEvent event : events) {
-            String type = event.getEventType();
-            if ("MATCH_LEAGUE".equals(type) || "MATCH_CUP".equals(type) || "MATCH_EUROPEAN".equals(type)) {
-                calendarDay = event.getDay();
-                break;
-            }
-        }
+        int typeId = competitionRepository.findById(competitionId)
+                .map(c -> (int) c.getTypeId()).orElse(1);
+        int round = competitionFormat.get(typeId).roundForMatchday(matchday);
+        List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(
+                        competitionId, round, String.valueOf(season));
 
-        if (calendarDay > 0) {
-            assignMatchDay(competitionId, season, matchday, calendarDay);
+        Map<Integer, Integer> dayByLeg = matchEvents.stream().collect(Collectors.toMap(
+                CalendarEvent::getLegNumber,
+                CalendarEvent::getDay,
+                Math::min));
+        int fallbackDay = matchEvents.get(0).getDay();
+        for (CompetitionTeamInfoMatch match : matches) {
+            match.setDay(dayByLeg.getOrDefault(match.getLegNumber(), fallbackDay));
         }
+        if (!matches.isEmpty()) competitionTeamInfoMatchRepository.saveAll(matches);
     }
 
     /**
@@ -645,16 +695,6 @@ public class FixtureSchedulingService {
     private List<CalendarEvent> generateTransferWindowEvents(int season) {
         List<CalendarEvent> events = new ArrayList<>();
 
-        CalendarEvent summerOpen = new CalendarEvent();
-        summerOpen.setSeason(season);
-        summerOpen.setDay(341);
-        summerOpen.setPhase("MORNING");
-        summerOpen.setEventType("TRANSFER_WINDOW_OPEN");
-        summerOpen.setStatus("PENDING");
-        summerOpen.setTitle("Transfer Window Opens");
-        summerOpen.setPriority(1);
-        events.add(summerOpen);
-
         CalendarEvent summerClose = new CalendarEvent();
         summerClose.setSeason(season);
         summerClose.setDay(355);
@@ -667,7 +707,7 @@ public class FixtureSchedulingService {
 
         CalendarEvent winterOpen = new CalendarEvent();
         winterOpen.setSeason(season);
-        winterOpen.setDay(201);
+        winterOpen.setDay(154);
         winterOpen.setPhase("MORNING");
         winterOpen.setEventType("TRANSFER_WINDOW_OPEN");
         winterOpen.setStatus("PENDING");
@@ -677,7 +717,7 @@ public class FixtureSchedulingService {
 
         CalendarEvent winterClose = new CalendarEvent();
         winterClose.setSeason(season);
-        winterClose.setDay(210);
+        winterClose.setDay(185);
         winterClose.setPhase("MORNING");
         winterClose.setEventType("TRANSFER_WINDOW_CLOSE");
         winterClose.setStatus("PENDING");
@@ -776,9 +816,10 @@ public class FixtureSchedulingService {
                             || "MATCH_CUP".equals(e.getEventType())
                             || "MATCH_EUROPEAN".equals(e.getEventType())))
                 .toList();
-        for (CalendarEvent e : events) {
-            assignMatchDay(competitionId, season, e.getMatchday(), e.getDay());
-        }
+        events.stream()
+                .map(CalendarEvent::getMatchday)
+                .distinct()
+                .forEach(matchday -> assignMatchDayForNewRound(competitionId, matchday, season));
     }
 
     /**

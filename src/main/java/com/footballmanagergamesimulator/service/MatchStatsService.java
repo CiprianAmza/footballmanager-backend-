@@ -61,10 +61,8 @@ public class MatchStatsService {
             double homePower, double awayPower,
             PersonalizedTactic homeTactic, PersonalizedTactic awayTactic) {
 
-        // Rebalanced 2026: every stat is now ~70% deterministic from team-power
-        // ratio and ~30% noise. Old version had σ values that overwhelmed the
-        // power signal, so two top teams looked statistically the same as two
-        // relegation candidates. Now squad value visibly drives the line.
+        // Team power drives the central tendency, while match-control, tempo and
+        // team-specific noise create the long tails seen in real matches.
         Random rng = this.random;
         MatchStats stats = new MatchStats();
         stats.setCompetitionId(competitionId);
@@ -111,25 +109,28 @@ public class MatchStatsService {
         stats.setHomePassAccuracy(clamp((int) homePassAcc, 55, 96));
         stats.setAwayPassAccuracy(clamp((int) awayPassAcc, 55, 96));
 
-        // --- SHOTS ---
-        double homeBaseShots = sc.getShotsBase() + homeRatio * sc.getShotsEdgeScale()
-                + homeGoals * sc.getShotsGoalsBonus() + rng.nextGaussian() * 1.0;
-        double awayBaseShots = sc.getShotsBase() + (1 - homeRatio) * sc.getShotsEdgeScale()
-                + awayGoals * sc.getShotsGoalsBonus() + rng.nextGaussian() * 1.0;
-        homeBaseShots += getAttackingMentalityShotBonus(homeTactic);
-        awayBaseShots += getAttackingMentalityShotBonus(awayTactic);
-        int homeShots = clamp((int) homeBaseShots, 2, 30);
-        int awayShots = clamp((int) awayBaseShots, 2, 30);
+        // --- SHOTS / CHANCE QUALITY ---
+        // Goals no longer add synthetic shots or a hard xG floor. We sample a
+        // match script, then condition each chance on its already-decided outcome.
+        double shotControlShare = clamp(homeRatio + rng.nextGaussian() * sc.getShotsControlNoiseSigma(), 0.03, 0.97);
+        double tempoMultiplier = logNormalMultiplier(rng, sc.getShotsTempoNoiseSigma());
+        double homeShotMean = Math.max(0.2,
+                (sc.getShotsBase() + shotControlShare * sc.getShotsEdgeScale()
+                        + getAttackingMentalityShotBonus(homeTactic))
+                        * tempoMultiplier * logNormalMultiplier(rng, sc.getShotsTeamNoiseSigma()));
+        double awayShotMean = Math.max(0.2,
+                (sc.getShotsBase() + (1 - shotControlShare) * sc.getShotsEdgeScale()
+                        + getAttackingMentalityShotBonus(awayTactic))
+                        * tempoMultiplier * logNormalMultiplier(rng, sc.getShotsTeamNoiseSigma()));
+        int homeShots = Math.max(homeGoals, poisson(rng, homeShotMean, sc.getShotsMax()));
+        int awayShots = Math.max(awayGoals, poisson(rng, awayShotMean, sc.getShotsMax()));
         stats.setHomeShots(homeShots);
         stats.setAwayShots(awayShots);
 
-        // Shots on target
-        double homeSoTRate = sc.getShotsOnTargetBase() + edge * sc.getShotsOnTargetEdgeSpan()
-                + rng.nextDouble() * sc.getShotsOnTargetNoise();
-        double awaySoTRate = sc.getShotsOnTargetBase() - edge * sc.getShotsOnTargetEdgeSpan()
-                + rng.nextDouble() * sc.getShotsOnTargetNoise();
-        int homeSoT = Math.max(homeGoals, clamp((int) (homeShots * homeSoTRate), 0, homeShots));
-        int awaySoT = Math.max(awayGoals, clamp((int) (awayShots * awaySoTRate), 0, awayShots));
+        ChanceLine homeChanceLine = generateChanceLine(homeShots, homeGoals, homeRatio, null, rng);
+        ChanceLine awayChanceLine = generateChanceLine(awayShots, awayGoals, 1 - homeRatio, null, rng);
+        int homeSoT = homeChanceLine.shotsOnTarget();
+        int awaySoT = awayChanceLine.shotsOnTarget();
         stats.setHomeShotsOnTarget(homeSoT);
         stats.setAwayShotsOnTarget(awaySoT);
 
@@ -197,25 +198,13 @@ public class MatchStatsService {
         stats.setHomeSaves(Math.max(0, awaySoT - awayGoals));
         stats.setAwaySaves(Math.max(0, homeSoT - homeGoals));
 
-        // --- BIG CHANCES ---
-        int homeBigChances = Math.max(homeGoals, clamp((int) (homeSoT * sc.getBigChancesSoTRatio() + rng.nextGaussian() * 0.8), 0, 8));
-        int awayBigChances = Math.max(awayGoals, clamp((int) (awaySoT * sc.getBigChancesSoTRatio() + rng.nextGaussian() * 0.8), 0, 8));
-        stats.setHomeBigChances(homeBigChances);
-        stats.setAwayBigChances(awayBigChances);
-        stats.setHomeBigChancesMissed(Math.max(0, homeBigChances - homeGoals));
-        stats.setAwayBigChancesMissed(Math.max(0, awayBigChances - awayGoals));
-
-        // --- xG ---
-        double homeXg = homeBigChances * sc.getXgPerBigChance()
-                + (homeSoT - homeGoals) * sc.getXgPerSotMiss()
-                + (homeShots - homeSoT) * sc.getXgPerWideShot()
-                + rng.nextGaussian() * 0.08;
-        double awayXg = awayBigChances * sc.getXgPerBigChance()
-                + (awaySoT - awayGoals) * sc.getXgPerSotMiss()
-                + (awayShots - awaySoT) * sc.getXgPerWideShot()
-                + rng.nextGaussian() * 0.08;
-        stats.setHomeXg(Math.max(0, (int) (homeXg * 100)));
-        stats.setAwayXg(Math.max(0, (int) (awayXg * 100)));
+        // --- BIG CHANCES / xG ---
+        stats.setHomeBigChances(homeChanceLine.bigChances());
+        stats.setAwayBigChances(awayChanceLine.bigChances());
+        stats.setHomeBigChancesMissed(homeChanceLine.bigChancesMissed());
+        stats.setAwayBigChancesMissed(awayChanceLine.bigChancesMissed());
+        stats.setHomeXg(homeChanceLine.xgHundredths());
+        stats.setAwayXg(awayChanceLine.xgHundredths());
 
         // --- CROSSES ---
         int homeCrosses = clamp((int) (18 + rng.nextGaussian() * 2 + homeCorners * 0.5), 5, 40);
@@ -344,21 +333,18 @@ public class MatchStatsService {
         stats.setHomeSaves(Math.max(0, liveData.getAwayShotsOnTarget() - liveData.getAwayScore()));
         stats.setAwaySaves(Math.max(0, liveData.getHomeShotsOnTarget() - liveData.getHomeScore()));
 
-        // Big chances
-        int hbc = liveData.getHomeScore() + clamp((int) (rng.nextDouble() * 3), 0, 4);
-        int abc = liveData.getAwayScore() + clamp((int) (rng.nextDouble() * 3), 0, 4);
-        stats.setHomeBigChances(hbc);
-        stats.setAwayBigChances(abc);
-        stats.setHomeBigChancesMissed(Math.max(0, hbc - liveData.getHomeScore()));
-        stats.setAwayBigChancesMissed(Math.max(0, abc - liveData.getAwayScore()));
-
-        // xG
-        double hxg = hbc * 0.35 + (liveData.getHomeShotsOnTarget() - liveData.getHomeScore()) * 0.12
-                + (liveData.getHomeShots() - liveData.getHomeShotsOnTarget()) * 0.05 + rng.nextGaussian() * 0.15;
-        double axg = abc * 0.35 + (liveData.getAwayShotsOnTarget() - liveData.getAwayScore()) * 0.12
-                + (liveData.getAwayShots() - liveData.getAwayShotsOnTarget()) * 0.05 + rng.nextGaussian() * 0.15;
-        stats.setHomeXg(Math.max(0, (int) (hxg * 100)));
-        stats.setAwayXg(Math.max(0, (int) (axg * 100)));
+        // Big chances and xG use the same per-shot model as instant matches,
+        // while preserving the shot/on-target counts narrated by the live engine.
+        ChanceLine homeChanceLine = generateChanceLine(liveData.getHomeShots(), liveData.getHomeScore(),
+                homeRatio, liveData.getHomeShotsOnTarget(), rng);
+        ChanceLine awayChanceLine = generateChanceLine(liveData.getAwayShots(), liveData.getAwayScore(),
+                1 - homeRatio, liveData.getAwayShotsOnTarget(), rng);
+        stats.setHomeBigChances(homeChanceLine.bigChances());
+        stats.setAwayBigChances(awayChanceLine.bigChances());
+        stats.setHomeBigChancesMissed(homeChanceLine.bigChancesMissed());
+        stats.setAwayBigChancesMissed(awayChanceLine.bigChancesMissed());
+        stats.setHomeXg(homeChanceLine.xgHundredths());
+        stats.setAwayXg(awayChanceLine.xgHundredths());
 
         // Crosses
         int hc = clamp((int) (18 + rng.nextGaussian() * 4 + liveData.getHomeCorners() * 0.5), 5, 40);
@@ -498,7 +484,160 @@ public class MatchStatsService {
         };
     }
 
+    private ChanceLine generateChanceLine(int requestedShots, int goals, double powerShare,
+                                          Integer fixedShotsOnTarget, Random rng) {
+        MatchEngineConfig.Stats sc = engineConfig.getStats();
+        int shots = Math.max(requestedShots, goals);
+        if (shots == 0) return new ChanceLine(0, 0, 0, 0);
+
+        double bigChanceRate = clamp(sc.getXgBigChanceRate()
+                + (powerShare - 0.5) * sc.getXgBigChancePowerSpan(), 0.02, 0.18);
+        ChanceSample selectedSample = null;
+        double bestScorelineProbability = -1;
+        int attempts = Math.max(1, sc.getXgScorelineResampleAttempts());
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            ChanceSample candidate = sampleChanceSet(shots, Math.min(goals, shots), bigChanceRate, rng);
+            double probability = exactGoalCountProbability(candidate.chances(), Math.min(goals, shots));
+            if (probability > bestScorelineProbability) {
+                selectedSample = candidate;
+                bestScorelineProbability = probability;
+            }
+            if (probability >= sc.getXgScorelineProbabilityFloor()) {
+                selectedSample = candidate;
+                break;
+            }
+        }
+
+        boolean[] goalShot = selectedSample.goalShots();
+        double[] chances = selectedSample.chances();
+        boolean[] bigChance = selectedSample.bigChances();
+        double totalXg = selectedSample.totalXg();
+
+        int bigChances = 0;
+        int bigChanceGoals = 0;
+        for (int i = 0; i < shots; i++) {
+            if (!bigChance[i]) continue;
+            bigChances++;
+            if (goalShot[i]) bigChanceGoals++;
+        }
+
+        int shotsOnTarget;
+        if (fixedShotsOnTarget != null) {
+            shotsOnTarget = clamp(fixedShotsOnTarget, goals, shots);
+        } else {
+            double baseOnTargetRate = clamp(sc.getShotsOnTargetBase()
+                    + (powerShare - 0.5) * sc.getShotsOnTargetEdgeSpan()
+                    + rng.nextGaussian() * sc.getShotsOnTargetNoise(), 0.12, 0.70);
+            shotsOnTarget = goals;
+            for (int i = 0; i < shots; i++) {
+                if (goalShot[i]) continue;
+                double shotOnTargetChance = clamp(baseOnTargetRate + (chances[i] - 0.10) * 0.45,
+                        0.08, 0.85);
+                if (rng.nextDouble() < shotOnTargetChance) shotsOnTarget++;
+            }
+        }
+
+        return new ChanceLine(shotsOnTarget, bigChances,
+                Math.max(0, bigChances - bigChanceGoals), Math.max(0, (int) Math.round(totalXg * 100)));
+    }
+
+    private ChanceSample sampleChanceSet(int shots, int goals, double bigChanceRate, Random rng) {
+        boolean[] goalShots = selectOutcomeSlots(shots, goals, rng);
+        double[] chances = new double[shots];
+        boolean[] bigChances = new boolean[shots];
+        double totalXg = 0;
+        for (int i = 0; i < shots; i++) {
+            ChanceQuality chance = sampleChanceQuality(bigChanceRate, goalShots[i], rng);
+            chances[i] = chance.xg();
+            bigChances[i] = chance.big();
+            totalXg += chance.xg();
+        }
+        return new ChanceSample(goalShots, chances, bigChances, totalXg);
+    }
+
+    /**
+     * Draw chance quality conditional on the result of the shot. If the base
+     * chance distribution is f(p), Bayes gives f(p | goal) proportional to
+     * p*f(p), and f(p | miss) proportional to (1-p)*f(p). Rejection sampling
+     * applies exactly those likelihood weights. This keeps a low-xG wonder goal
+     * possible, while making six such goals in one match appropriately remote.
+     */
+    private ChanceQuality sampleChanceQuality(double bigChanceRate, boolean goal, Random rng) {
+        while (true) {
+            ChanceQuality candidate = sampleBaseChanceQuality(bigChanceRate, rng);
+            double outcomeLikelihood = goal ? candidate.xg() : 1.0 - candidate.xg();
+            if (rng.nextDouble() < outcomeLikelihood) return candidate;
+        }
+    }
+
+    private ChanceQuality sampleBaseChanceQuality(double bigChanceRate, Random rng) {
+        MatchEngineConfig.Stats sc = engineConfig.getStats();
+        boolean big = rng.nextDouble() < bigChanceRate;
+        double xg = big
+                ? sc.getXgBigMin() + Math.pow(rng.nextDouble(), 1.5)
+                        * (sc.getXgBigMax() - sc.getXgBigMin())
+                : sc.getXgRegularMin() + Math.pow(rng.nextDouble(), 2.0)
+                        * (sc.getXgRegularMax() - sc.getXgRegularMin());
+        return new ChanceQuality(xg, big);
+    }
+
+    private boolean[] selectOutcomeSlots(int shots, int goals, Random rng) {
+        boolean[] goalShot = new boolean[shots];
+        int goalsLeft = goals;
+        for (int i = 0; i < shots && goalsLeft > 0; i++) {
+            int slotsLeft = shots - i;
+            if (rng.nextInt(slotsLeft) < goalsLeft) {
+                goalShot[i] = true;
+                goalsLeft--;
+            }
+        }
+        return goalShot;
+    }
+
+    /** Exact Poisson-binomial probability for scoring precisely {@code goals} from these shots. */
+    private double exactGoalCountProbability(double[] chances, int goals) {
+        if (goals < 0 || goals > chances.length) return 0;
+        double[] probabilities = new double[goals + 1];
+        probabilities[0] = 1.0;
+        int processed = 0;
+        for (double chance : chances) {
+            int upper = Math.min(++processed, goals);
+            for (int scored = upper; scored >= 1; scored--) {
+                probabilities[scored] = probabilities[scored] * (1.0 - chance)
+                        + probabilities[scored - 1] * chance;
+            }
+            probabilities[0] *= 1.0 - chance;
+        }
+        return probabilities[goals];
+    }
+
+    private double logNormalMultiplier(Random rng, double sigma) {
+        return Math.exp(rng.nextGaussian() * sigma - 0.5 * sigma * sigma);
+    }
+
+    private int poisson(Random rng, double mean, int max) {
+        double limit = Math.exp(-mean);
+        double product = 1.0;
+        int count = 0;
+        do {
+            count++;
+            product *= rng.nextDouble();
+        } while (product > limit && count <= max);
+        return Math.min(count - 1, max);
+    }
+
+    private double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
     }
+
+    private record ChanceQuality(double xg, boolean big) {}
+
+    private record ChanceSample(boolean[] goalShots, double[] chances,
+                                boolean[] bigChances, double totalXg) {}
+
+    private record ChanceLine(int shotsOnTarget, int bigChances, int bigChancesMissed, int xgHundredths) {}
 }

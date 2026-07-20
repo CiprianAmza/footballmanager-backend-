@@ -44,4 +44,25 @@ class CompetitionFormatConfigTest {
         assertEquals(2, f.encountersFor(8));
         assertEquals(2, f.encountersFor(13));
     }
+
+    @Test
+    void leagueOfChampionsUsesTieredTwentyOneClubAccess() {
+        CompetitionFormat format = config.get(4);
+        EuropeanFormatPlan plan = format.europeanPlan();
+        assertNotNull(plan);
+        assertEquals(21, plan.totalTeams());
+        assertEquals(2, plan.preliminaryRounds());
+        assertEquals(2, plan.stageForRound(0).bracketSize(), "two clubs enter qualifying round one");
+        assertEquals(8, plan.stageForRound(1).bracketSize(), "winner plus seven clubs enter round two");
+        assertEquals(16, plan.stageForRound(2).bracketSize(), "twelve direct plus four winners enter groups");
+        assertEquals(2, plan.groupStartRound());
+        assertEquals(10, plan.finalRound());
+    }
+
+    @Test
+    void superCupIsSingleMatchKnockoutFormat() {
+        CompetitionFormat format = config.get(6);
+        assertEquals(CompetitionFormat.Kind.KNOCKOUT, format.kind());
+        assertFalse(format.isTwoLeg(1));
+    }
 }

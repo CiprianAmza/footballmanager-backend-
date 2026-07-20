@@ -150,7 +150,12 @@ public class LoanController {
             loan.setParentTeamName(parentTeam.getName());
             loan.setLoanTeamId(userContext.getTeamId(request));
             loan.setLoanTeamName(humanTeam.getName());
-            loan.setSeasonNumber((int) round.getSeason());
+            // The normal transfer window is at the end of the current season;
+            // the loan therefore belongs to the season that is about to start.
+            int loanSeason = (int) round.getSeason() + 1;
+            loan.setSeasonNumber(loanSeason);
+            loan.setStartSeason(loanSeason);
+            loan.setEndSeason(loanSeason);
             loan.setStatus("active");
             loan.setLoanFee(loanFee);
             loan.setBuyOptionFee(buyOptionFee);

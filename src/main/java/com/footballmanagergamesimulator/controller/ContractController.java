@@ -17,6 +17,9 @@ import java.util.stream.Collectors;
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class ContractController {
 
+    static final double MIN_WAGE_FACTOR = 0.60;
+    static final double MAX_WAGE_FACTOR = 1.40;
+
     @Autowired
     private HumanRepository humanRepository;
 
@@ -41,67 +44,51 @@ public class ContractController {
     }
 
     /**
-     * Calculate a player's wage demand based on rating, age, and market value.
-     * Higher-rated players demand more. Young stars with high potential demand premium.
-     * Unhappy players demand more. Players who want to leave demand much more.
+     * Renewal demands are anchored to the existing contract. Performance,
+     * potential, age and morale can move the request, but never outside ±40%.
+     * Package-private so the negotiation rule can be unit tested directly.
      */
-    private long calculateWageDemand(Human player) {
-        double rating = player.getRating();
+    long calculateWageDemand(Human player) {
+        long currentWage = player.getWage();
+        if (currentWage <= 0) {
+            return com.footballmanagergamesimulator.service.WageService.baseWage(player.getRating());
+        }
+
+        double multiplier = 1.0;
         int age = player.getAge();
+        if (age <= 22 && player.getPotentialAbility() > player.getRating() + 10) multiplier += 0.08;
+        else if (age >= 33) multiplier -= 0.12;
+        else if (age >= 30) multiplier -= 0.05;
 
-        // Base wage from rating (shared curve — same one squad generation uses)
-        long baseWage = com.footballmanagergamesimulator.service.WageService.baseWage(rating);
+        if (player.getMorale() < 60) multiplier += 0.10;
+        else if (player.getMorale() >= 90) multiplier -= 0.03;
+        if (player.isWantsTransfer()) multiplier += 0.15;
 
-        // Age modifier: young talents with high potential demand a premium
-        double ageMultiplier;
-        if (age <= 22 && player.getPotentialAbility() > rating + 10) {
-            ageMultiplier = 1.2; // young stars know their worth
-        } else if (age <= 25) {
-            ageMultiplier = 1.1;
-        } else if (age <= 29) {
-            ageMultiplier = 1.0;
-        } else if (age <= 32) {
-            ageMultiplier = 0.85;
-        } else {
-            ageMultiplier = 0.7;
-        }
-
-        // Morale modifier: unhappy players demand more
-        double moraleMultiplier = 1.0;
-        if (player.getMorale() < 60) moraleMultiplier = 1.3;
-        else if (player.getMorale() < 80) moraleMultiplier = 1.1;
-
-        // Transfer request: players wanting to leave demand huge wages to stay
-        if (player.isWantsTransfer()) moraleMultiplier *= 1.5;
-
-        // Playing time multiplier: players who played many matches demand more (50%-250% premium)
-        double playingTimeMultiplier = 1.0;
         int matchesPlayed = player.getSeasonMatchesPlayed();
-        if (matchesPlayed >= 30) {
-            playingTimeMultiplier = 2.5; // 250% more - undisputed starter
-        } else if (matchesPlayed >= 20) {
-            playingTimeMultiplier = 1.8; // 80% more - regular starter
-        } else if (matchesPlayed >= 10) {
-            playingTimeMultiplier = 1.5; // 50% more - rotation player
-        }
+        if (matchesPlayed >= 30) multiplier += 0.15;
+        else if (matchesPlayed >= 20) multiplier += 0.10;
+        else if (matchesPlayed >= 10) multiplier += 0.05;
+        else if (matchesPlayed <= 3) multiplier -= 0.05;
 
-        // Squad ranking multiplier: top 3 players by rating demand 2x
-        double squadRankMultiplier = 1.0;
-        if (player.getTeamId() != null) {
-            List<Human> teamPlayers = humanRepository.findAllByTeamIdAndTypeId(player.getTeamId(), 1);
-            teamPlayers.sort((a, b) -> Double.compare(b.getRating(), a.getRating()));
-            for (int i = 0; i < Math.min(3, teamPlayers.size()); i++) {
-                if (teamPlayers.get(i).getId() == player.getId()) {
-                    squadRankMultiplier = 2.0;
-                    break;
-                }
-            }
-        }
+        long minimum = Math.round(currentWage * MIN_WAGE_FACTOR);
+        long maximum = Math.round(currentWage * MAX_WAGE_FACTOR);
+        long demanded = Math.round(currentWage * multiplier);
+        return Math.max(minimum, Math.min(maximum, demanded));
+    }
 
-        // Never below current wage * 0.9
-        long demanded = (long) (baseWage * ageMultiplier * moraleMultiplier
-                * Math.max(playingTimeMultiplier, squadRankMultiplier));
-        return Math.max(demanded, (long) (player.getWage() * 0.9));
+    @GetMapping("/demand/{playerId}")
+    public ResponseEntity<?> getRenewalDemand(@PathVariable long playerId) {
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player == null || player.isRetired()) {
+            return ResponseEntity.notFound().build();
+        }
+        long currentWage = player.getWage();
+        return ResponseEntity.ok(Map.of(
+                "currentWage", currentWage,
+                "minimumWage", Math.round(currentWage * MIN_WAGE_FACTOR),
+                "wageDemand", calculateWageDemand(player),
+                "maximumWage", Math.round(currentWage * MAX_WAGE_FACTOR)
+        ));
     }
 
     @PostMapping("/renew")
@@ -141,16 +128,6 @@ public class ContractController {
         boolean wageAcceptable = newWage >= wageDemand;
         boolean durationAcceptable = newEndSeason >= minDuration;
 
-        // Negotiation: if within 80% of demand, 50% chance of acceptance
-        boolean negotiated = false;
-        if (!wageAcceptable && newWage >= (long) (wageDemand * 0.8) && durationAcceptable) {
-            Random random = new Random();
-            if (random.nextDouble() < 0.5) {
-                wageAcceptable = true;
-                negotiated = true;
-            }
-        }
-
         if (wageAcceptable && durationAcceptable) {
             long oldWage = player.getWage();
             player.setContractEndSeason(newEndSeason);
@@ -170,7 +147,6 @@ public class ContractController {
             }
 
             String msg = player.getName() + " has accepted the new contract until Season " + newEndSeason + ".";
-            if (negotiated) msg += " (After some negotiation, the player agreed to a slightly lower wage.)";
 
             return ResponseEntity.ok(Map.of(
                     "success", true,
@@ -187,10 +163,6 @@ public class ContractController {
             if (!durationAcceptable) {
                 reason.append(" Contract must extend to at least Season ").append(minDuration).append(".");
             }
-
-            // Rejected contract can lower morale
-            player.setMorale(Math.max(0, player.getMorale() - 3));
-            humanRepository.save(player);
 
             return ResponseEntity.ok(Map.of(
                     "success", false,

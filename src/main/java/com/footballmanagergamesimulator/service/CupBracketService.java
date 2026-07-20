@@ -43,6 +43,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class CupBracketService {
+    @Autowired private CompetitionProgressService competitionProgressService;
+    @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
 
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private TeamRepository teamRepository;
@@ -379,8 +381,7 @@ public class CupBracketService {
 
     /**
      * Cups overview — sister endpoint to /leaguesOverview, one row per national cup
-     * with its current state: which round just played, how many teams remain, and
-     * either the last completed round's results or the upcoming round's pairings.
+     * with its current state: which round is active and its pairings/results.
      */
     public Map<String, Object> getCupsOverview() {
         int currentSeason = currentSeason();
@@ -421,9 +422,11 @@ public class CupBracketService {
                     .toList();
             int lastPlayedRound = details.stream().mapToInt(d -> (int) d.getRoundId()).max().orElse(0);
             cupInfo.put("lastPlayedRound", lastPlayedRound);
-            cupInfo.put("currentRoundName", roundDisplayName(lastPlayedRound > 0 ? lastPlayedRound : 1, totalRounds, matches));
 
             int focusRound = lastPlayedRound > 0 && lastPlayedRound < totalRounds ? lastPlayedRound + 1 : Math.max(1, lastPlayedRound);
+            cupInfo.put("currentRoundName", competitionProgressService != null
+                    ? competitionProgressService.roundLabel(cup.getId(), focusRound, currentSeason)
+                    : roundDisplayName(focusRound, totalRounds, matches));
             List<Map<String, Object>> roundMatches = new ArrayList<>();
             Set<Long> teamIdsInRound = new HashSet<>();
             for (CompetitionTeamInfoMatch m : matches) {
@@ -484,10 +487,14 @@ public class CupBracketService {
     public Map<String, Object> getCupBracket(long cupId, int season) {
         String seasonStr = String.valueOf(season);
 
-        List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository.findAll().stream()
-                .filter(m -> m.getCompetitionId() == cupId && seasonStr.equals(m.getSeasonNumber()))
-                .sorted(Comparator.comparingLong(CompetitionTeamInfoMatch::getRound)
-                        .thenComparingInt(CompetitionTeamInfoMatch::getMatchIndex))
+        List<CompetitionTeamInfoMatch> matches = competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndSeasonNumberOrderByRoundAscMatchIndexAsc(cupId, seasonStr);
+        List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndSeasonNumber(cupId, season).stream()
+                .sorted(Comparator.comparingLong(CompetitionTeamInfoDetail::getRoundId)
+                        .thenComparingInt(d -> d.getMatchIndex() <= 0 ? Integer.MAX_VALUE : d.getMatchIndex())
+                        .thenComparingInt(CompetitionTeamInfoDetail::getLegNumber)
+                        .thenComparingLong(CompetitionTeamInfoDetail::getId))
                 .toList();
 
         Set<Long> teamIds = new HashSet<>();
@@ -495,36 +502,76 @@ public class CupBracketService {
             if (m.getTeam1Id() > 0) teamIds.add(m.getTeam1Id());
             if (m.getTeam2Id() > 0) teamIds.add(m.getTeam2Id());
         }
+        for (CompetitionTeamInfoDetail d : details) {
+            if (d.getTeam1Id() > 0) teamIds.add(d.getTeam1Id());
+            if (d.getTeam2Id() > 0) teamIds.add(d.getTeam2Id());
+        }
         Map<Long, String> teamNames = teamRepository.findAllById(teamIds).stream()
                 .collect(Collectors.toMap(Team::getId, Team::getName));
 
-        List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository.findAll().stream()
-                .filter(d -> d.getCompetitionId() == cupId && d.getSeasonNumber() == season)
-                .toList();
-        Map<String, String> scoreByKey = new HashMap<>();
+        Map<String, CompetitionTeamInfoDetail> resultByKey = new HashMap<>();
         for (CompetitionTeamInfoDetail d : details) {
-            scoreByKey.put(d.getCompetitionId() + "-" + d.getRoundId() + "-"
-                    + d.getTeam1Id() + "-" + d.getTeam2Id(), d.getScore());
+            resultByKey.put(bracketKey(d.getRoundId(), d.getTeam1Id(), d.getTeam2Id(), d.getLegNumber()), d);
         }
 
         Map<Long, List<Map<String, Object>>> matchesByRound = new LinkedHashMap<>();
         for (CompetitionTeamInfoMatch m : matches) {
+            CompetitionTeamInfoDetail played = resultByKey.get(
+                    bracketKey(m.getRound(), m.getTeam1Id(), m.getTeam2Id(), m.getLegNumber()));
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("matchIndex", m.getMatchIndex());
             entry.put("day", m.getDay());
+            entry.put("legNumber", m.getLegNumber());
+            entry.put("tieId", m.getTieId());
             entry.put("team1Id", m.getTeam1Id());
             entry.put("team2Id", m.getTeam2Id());
             entry.put("team1Name", m.getTeam1Id() > 0 ? teamNames.getOrDefault(m.getTeam1Id(), "?") : null);
             entry.put("team2Name", m.getTeam2Id() > 0 ? teamNames.getOrDefault(m.getTeam2Id(), "?") : null);
-            String key = m.getCompetitionId() + "-" + m.getRound() + "-" + m.getTeam1Id() + "-" + m.getTeam2Id();
-            entry.put("score", scoreByKey.get(key));
+            entry.put("score", played == null ? null : played.getScore());
+            entry.put("winnerTeamId", played == null ? null : played.getWinnerTeamId());
+            entry.put("qualifiedTeamId", played == null || "FIRST_LEG".equals(played.getDecidedBy())
+                    ? null : played.getWinnerTeamId());
+            entry.put("decidedBy", played == null ? null : played.getDecidedBy());
             matchesByRound.computeIfAbsent(m.getRound(), k -> new ArrayList<>()).add(entry);
+        }
+
+        // CompetitionTeamInfoMatch is working-season state and is cleared at
+        // season rollover.  Historical brackets are therefore reconstructed
+        // directly from the durable result rows. Older saves do not have
+        // matchIndex/day yet; their deterministic database order is used as a
+        // best-effort slot until newly played seasons contain exact coordinates.
+        if (matches.isEmpty()) {
+            Map<Long, Integer> fallbackIndexes = new HashMap<>();
+            for (CompetitionTeamInfoDetail d : details) {
+                int fallback = fallbackIndexes.merge(d.getRoundId(), 1, Integer::sum);
+                int matchIndex = d.getMatchIndex() > 0 ? d.getMatchIndex() : fallback;
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("matchIndex", matchIndex);
+                entry.put("day", d.getDay());
+                entry.put("legNumber", d.getLegNumber());
+                entry.put("tieId", d.getTieId());
+                entry.put("team1Id", d.getTeam1Id());
+                entry.put("team2Id", d.getTeam2Id());
+                entry.put("team1Name", d.getTeamName1() == null || d.getTeamName1().isBlank()
+                        ? teamNames.getOrDefault(d.getTeam1Id(), "?") : d.getTeamName1());
+                entry.put("team2Name", d.getTeamName2() == null || d.getTeamName2().isBlank()
+                        ? teamNames.getOrDefault(d.getTeam2Id(), "?") : d.getTeamName2());
+                entry.put("score", d.getScore());
+                entry.put("winnerTeamId", d.getWinnerTeamId());
+                entry.put("qualifiedTeamId", "FIRST_LEG".equals(d.getDecidedBy())
+                        ? null : d.getWinnerTeamId());
+                entry.put("decidedBy", d.getDecidedBy());
+                matchesByRound.computeIfAbsent(d.getRoundId(), k -> new ArrayList<>()).add(entry);
+            }
         }
 
         List<Map<String, Object>> rounds = new ArrayList<>();
         for (Map.Entry<Long, List<Map<String, Object>>> e : matchesByRound.entrySet()) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("round", e.getKey());
+            r.put("roundLabel", competitionProgressService != null
+                    ? competitionProgressService.roundLabel(cupId, e.getKey(), season)
+                    : roundDisplayName(e.getKey().intValue(), matchesByRound.size(), matches));
             r.put("matches", e.getValue());
             rounds.add(r);
         }
@@ -536,6 +583,10 @@ public class CupBracketService {
         result.put("season", season);
         result.put("rounds", rounds);
         return result;
+    }
+
+    private String bracketKey(long round, long team1Id, long team2Id, int legNumber) {
+        return round + ":" + team1Id + ":" + team2Id + ":" + legNumber;
     }
 
     /**
@@ -553,6 +604,7 @@ public class CupBracketService {
             return result;
         }
         result.put("typeId", comp.getTypeId());
+        long currentSeason = currentSeason();
 
         if (comp.getTypeId() == 2) {
             int numTeams = competitionDisplayService.getTeamCountForCompetition(competitionId);
@@ -571,13 +623,18 @@ public class CupBracketService {
             result.put("groupRounds", 6);
             result.put("playoffRound", 7);
         } else if (comp.getTypeId() == 4) {
-            result.put("totalRounds", 10);
-            result.put("groupRounds", 7);
-            result.put("qualifyingRounds", 1);
-            result.put("preliminaryRounds", 1);
+            var plan = competitionFormat.get(4).europeanPlan();
+            result.put("totalRounds", plan != null ? plan.totalRounds() : 11);
+            result.put("groupRounds", plan != null ? plan.groupRounds() : 6);
+            result.put("qualifyingRounds", plan != null ? plan.preliminaryRounds() : 2);
+            result.put("preliminaryRounds", 0);
+        } else if (comp.getTypeId() == 6) {
+            result.put("totalRounds", 1);
         } else {
             result.put("totalRounds", 0);
         }
+        result.put("stages", competitionProgressService == null
+                ? List.of() : competitionProgressService.stages(competitionId, currentSeason));
         return result;
     }
 }

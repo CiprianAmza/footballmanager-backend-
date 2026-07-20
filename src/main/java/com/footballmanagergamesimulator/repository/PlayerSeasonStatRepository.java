@@ -13,4 +13,7 @@ public interface PlayerSeasonStatRepository extends JpaRepository<PlayerSeasonSt
 
     /** All accumulated stats for a (competition, season) — used to build percentile peer pools. */
     List<PlayerSeasonStat> findAllByCompetitionIdAndSeasonNumber(long competitionId, int seasonNumber);
+
+    /** All competitions for one season — used by the global Overview statistics page. */
+    List<PlayerSeasonStat> findAllBySeasonNumber(int seasonNumber);
 }

@@ -21,7 +21,11 @@ import lombok.Data;
  */
 @Entity
 @Data
-@Table(name = "player_season_stat")
+@Table(name = "player_season_stat", indexes = {
+        @Index(name = "idx_pss_comp_season", columnList = "competitionId,seasonNumber"),
+        @Index(name = "idx_pss_player_season", columnList = "playerId,seasonNumber"),
+        @Index(name = "idx_pss_team_season", columnList = "teamId,seasonNumber")
+})
 public class PlayerSeasonStat {
 
     @Id
@@ -53,4 +57,10 @@ public class PlayerSeasonStat {
     private double passesAttempted;
     @Column(name = "passes_completed")
     private double passesCompleted;
+    /** Key passes / chances created while the player was on the pitch. */
+    @Column(name = "chances_created")
+    private double chancesCreated;
+    /** Successful take-ons. Used together with chances created for the entertainment award. */
+    @Column(name = "dribbles_completed")
+    private double dribblesCompleted;
 }

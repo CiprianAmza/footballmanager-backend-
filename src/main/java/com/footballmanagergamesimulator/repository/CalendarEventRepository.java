@@ -11,6 +11,8 @@ import java.util.List;
 
 public interface CalendarEventRepository extends JpaRepository<CalendarEvent, Long> {
 
+    List<CalendarEvent> findAllBySeason(int season);
+
     List<CalendarEvent> findAllBySeasonAndDay(int season, int day);
 
     List<CalendarEvent> findAllBySeasonAndDayAndPhase(int season, int day, String phase);
@@ -44,4 +46,19 @@ public interface CalendarEventRepository extends JpaRepository<CalendarEvent, Lo
     @Transactional
     @Query("UPDATE CalendarEvent e SET e.status = 'PENDING' WHERE e.id = :id AND e.status = 'PROCESSING'")
     int releaseEvent(@Param("id") long id);
+
+    // Once SEASON_TRANSITION has successfully created the next season, events
+    // scheduled later in the old 365-day calendar are no longer reachable.
+    @Modifying
+    @Transactional
+    @Query("""
+            UPDATE CalendarEvent e
+               SET e.status = 'SKIPPED'
+             WHERE e.season = :season
+               AND e.day > :transitionDay
+               AND e.status = 'PENDING'
+            """)
+    int skipPendingEventsAfter(
+            @Param("season") int season,
+            @Param("transitionDay") int transitionDay);
 }

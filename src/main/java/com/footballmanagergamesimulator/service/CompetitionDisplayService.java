@@ -53,6 +53,8 @@ public class CompetitionDisplayService {
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private RoundRepository roundRepository;
     @Autowired private EuropeanCoefficientService europeanCoefficientService;
+    @Autowired private com.footballmanagergamesimulator.config.EuropeanQualificationPolicy qualificationPolicy;
+    @Autowired private CompetitionProgressService competitionProgressService;
 
     private String currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
@@ -140,17 +142,13 @@ public class CompetitionDisplayService {
         List<Integer> starsCup = new ArrayList<>();
 
         if (rank >= 1 && rank <= 7) {
-            int[] directSpots =      {3, 3, 2, 2, 1, 1, 0};
-            int[] qualifyingSpots =  {1, 1, 1, 1, 2, 1, 0};
-            int[] preliminarySpots = {0, 0, 0, 0, 0, 0, 2};
             int[][] starsCupPositions = {{4}, {4}, {3}, {3}, {}, {}, {}};
 
-            int idx = rank - 1;
             int pos = 0;
-            for (int i = 0; i < directSpots[idx]; i++) locGroup.add(++pos);
-            for (int i = 0; i < qualifyingSpots[idx]; i++) locQualifying.add(++pos);
-            for (int i = 0; i < preliminarySpots[idx]; i++) locPreliminary.add(++pos);
-            for (int p : starsCupPositions[idx]) starsCup.add(p + 1);
+            for (int i = 0; i < qualificationPolicy.directForRank(rank); i++) locGroup.add(++pos);
+            for (int i = 0; i < qualificationPolicy.qualifyingForRank(rank); i++) locQualifying.add(++pos);
+            for (int i = 0; i < qualificationPolicy.preliminaryForRank(rank); i++) locPreliminary.add(++pos);
+            for (int p : starsCupPositions[rank - 1]) starsCup.add(p + 1);
         }
 
         zones.put("locGroup", locGroup);
@@ -263,6 +261,8 @@ public class CompetitionDisplayService {
             comp.put("competitionId", competition.getId());
             comp.put("name", competition.getName());
             comp.put("typeId", competition.getTypeId());
+            comp.putAll(competitionProgressService.teamProgress(
+                    teamId, competition.getId(), curSeason));
 
             if (competition.getTypeId() == 1 || competition.getTypeId() == 3) {
                 TeamCompetitionDetail detail = teamCompetitionDetailRepository
@@ -297,14 +297,11 @@ public class CompetitionDisplayService {
                 }
             }
 
-            if (competition.getTypeId() == 2 || competition.getTypeId() == 5) {
+            // Legacy numeric fields remain for old clients, but display text and
+            // lifecycle state now always come from CompetitionProgressService.
+            if (competition.getTypeId() == 2 || competition.getTypeId() == 4
+                    || competition.getTypeId() == 5 || competition.getTypeId() == 6)
                 comp.put("cupRound", cti.getRound());
-            }
-
-            if (competition.getTypeId() == 4) {
-                comp.put("groupNumber", cti.getGroupNumber());
-                comp.put("cupRound", cti.getRound());
-            }
 
             result.add(comp);
         }
@@ -347,10 +344,7 @@ public class CompetitionDisplayService {
             int rank = sortedLeagueIds.indexOf(comp.getId()) + 1;
 
             if (rank >= 1 && rank <= 7) {
-                int[] directSpotsDisplay =      {3, 3, 2, 2, 1, 1, 0};
-                int[] qualifyingSpotsDisplay =  {1, 1, 1, 1, 2, 1, 0};
-                int[] preliminarySpotsDisplay = {0, 0, 0, 0, 0, 0, 2};
-                locSpots = directSpotsDisplay[rank - 1] + qualifyingSpotsDisplay[rank - 1] + preliminarySpotsDisplay[rank - 1];
+                locSpots = qualificationPolicy.totalForRank(rank);
 
                 int[][] starsCupPositions = {
                     {4, 5},     // Rank 1: 5th-6th

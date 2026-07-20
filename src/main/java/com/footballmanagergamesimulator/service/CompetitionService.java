@@ -13,7 +13,7 @@ public class CompetitionService {
     /**
      * Generate realistic player attributes based on position and overall rating.
      * Each position has a profile defining which attributes should be high/medium/low.
-     * The rating (1-100 scale) determines the base quality level, which maps to 1-20 attributes.
+     * The rating (1-300 scale) determines the base quality level, which maps to 1-20 attributes.
      *
      * Profile tiers for each attribute:
      *   HIGH   = core attribute for position (e.g., finishing for ST)

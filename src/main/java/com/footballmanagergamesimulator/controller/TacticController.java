@@ -17,6 +17,7 @@ import com.fasterxml.jackson.core.type.TypeReference;     // <--- ACESTA ESTE IM
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.parameters.P;
 import org.springframework.web.bind.annotation.*;
 
@@ -54,6 +55,8 @@ public class TacticController {
     com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
     @Autowired
     com.footballmanagergamesimulator.service.NationService nationService;
+    @Autowired @Lazy
+    com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -712,8 +715,7 @@ public class TacticController {
      */
     private List<StarterSlot> selectStarterSlots(Team team, Map<String, Integer> tacticFormat) {
 
-        Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(team.getId(), 0)
-                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+        Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(team.getId());
 
         // Owner XI-locking: pin players to their slots before the aptness fill, so the locked XI
         // propagates to the match engine (this method is the canonical starter source) as well as
@@ -724,7 +726,8 @@ public class TacticController {
         for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(team.getId())) {
             if (lockedPlayerIds.contains(lock.playerId())) continue;
             Human locked = humanRepository.findById(lock.playerId()).orElse(null);
-            if (locked == null || locked.getTeamId() == null || locked.getTeamId() != team.getId()) continue;
+            if (locked == null || locked.getTeamId() == null || locked.getTeamId() != team.getId()
+                    || unavailableIds.contains(locked.getId())) continue;
             String slotPos = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
             slots.add(new StarterSlot(adaptPlayer(locked, team), slotPos));
             lockedPlayerIds.add(locked.getId());
@@ -733,7 +736,7 @@ public class TacticController {
 
         List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
                 .stream()
-                .filter(player -> !injuredIds.contains(player.getId()))
+                .filter(player -> !unavailableIds.contains(player.getId()))
                 .filter(player -> !lockedPlayerIds.contains(player.getId()))
                 .toList();
         List<PlayerView> players = allPlayers.stream().map(player -> adaptPlayer(player, team)).toList();
@@ -806,11 +809,10 @@ public class TacticController {
 
     private List<PlayerView> getBestSubstitutions(Team team, Map<String, Integer> substitutionFormat, List<PlayerView> playersInFirstEleven) {
 
-        Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(team.getId(), 0)
-                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+        Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(team.getId());
         List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
                 .stream()
-                .filter(player -> !injuredIds.contains(player.getId()))
+                .filter(player -> !unavailableIds.contains(player.getId()))
                 .toList();
         List<PlayerView> players = allPlayers.stream().map(player -> adaptPlayer(player, team)).toList();
         Map<String, List<PlayerView>> positionToPlayers = new HashMap<>();
@@ -871,11 +873,13 @@ public class TacticController {
         playerView.setPosition(human.getPosition());
         playerView.setRating(human.getRating());
         playerView.setName(human.getName());
+        playerView.setTeamId(team.getId());
         playerView.setTeamName(team.getName());
         playerView.setMorale(human.getMorale());
         playerView.setFitness(human.getFitness());
         playerView.setSalary(human.getSalary());
         playerView.setCurrentStatus(human.getCurrentStatus());
+        playerView.setAgreedPlayingTime(human.getAgreedPlayingTime());
         playerView.setContractEndSeason(human.getContractEndSeason());
         playerView.setWage(human.getWage());
         playerView.setReleaseClause(human.getReleaseClause());
@@ -935,7 +939,8 @@ public class TacticController {
     }
 
     @GetMapping("/getTeamRatingByManagerTacticForCompetitionId/{competitionId}")
-    public List<ManagerTeamTacticView> getTeamRatingByManagerTacticForCompetitionId(long competitionId) {
+    public List<ManagerTeamTacticView> getTeamRatingByManagerTacticForCompetitionId(
+            @PathVariable(name = "competitionId") long competitionId) {
 
         return getCurrentTeamSkillsAccordingToManagerFavoriteTactic(competitionId);
     }
@@ -1026,11 +1031,10 @@ public class TacticController {
         int[] gridIndices = tacticService.getFormationGridIndices(tactic);
 
         // Get all available (non-injured) players
-        Set<Long> injuredIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
-                .stream().map(Injury::getPlayerId).collect(Collectors.toSet());
+        Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(teamId);
         List<Human> availablePlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
                 .stream()
-                .filter(p -> !p.isRetired() && !injuredIds.contains(p.getId()))
+                .filter(p -> !p.isRetired() && !unavailableIds.contains(p.getId()))
                 .sorted((a, b) -> Double.compare(b.getRating(), a.getRating()))
                 .collect(Collectors.toList());
 

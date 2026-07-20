@@ -15,12 +15,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/match")
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class MatchController {
+
+    private static final Pattern SCORE_PAIR = Pattern.compile("(\\d+)\\s*-\\s*(\\d+)");
 
     @Autowired
     CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
@@ -89,6 +93,110 @@ public class MatchController {
                 .findAllBySeasonNumberAndTeamId(String.valueOf(season), teamId);
 
         return matchService.getCalendarEntries(matches, teamId, season);
+    }
+
+    /**
+     * Complete head-to-head history between two teams, including penalty/extra
+     * time decisions. The client uses the chronological meetings both for the
+     * H2H panel and for real form/evolution charts.
+     */
+    @GetMapping("/h2h/{teamA}/{teamB}")
+    public Map<String, Object> getHeadToHead(
+            @PathVariable long teamA,
+            @PathVariable long teamB) {
+
+        String teamAName = teamRepository.findNameById(teamA);
+        String teamBName = teamRepository.findNameById(teamB);
+        Map<Long, String> competitionNames = competitionRepository.findAll().stream()
+                .collect(Collectors.toMap(Competition::getId, Competition::getName));
+
+        int teamAWins = 0;
+        int teamBWins = 0;
+        int draws = 0;
+        int teamAGoals = 0;
+        int teamBGoals = 0;
+        List<Map<String, Object>> meetings = new ArrayList<>();
+
+        for (CompetitionTeamInfoDetail detail
+                : competitionTeamInfoDetailRepository.findAllHeadToHead(teamA, teamB)) {
+            Matcher scoreMatcher = SCORE_PAIR.matcher(
+                    detail.getScore() == null ? "" : detail.getScore());
+            if (!scoreMatcher.find()) continue;
+
+            int homeGoals = Integer.parseInt(scoreMatcher.group(1));
+            int awayGoals = Integer.parseInt(scoreMatcher.group(2));
+            boolean teamAHome = detail.getTeam1Id() == teamA;
+            int goalsA = teamAHome ? homeGoals : awayGoals;
+            int goalsB = teamAHome ? awayGoals : homeGoals;
+            teamAGoals += goalsA;
+            teamBGoals += goalsB;
+
+            Long winnerId = detail.getWinnerTeamId();
+            if (winnerId == null && homeGoals != awayGoals) {
+                winnerId = homeGoals > awayGoals ? detail.getTeam1Id() : detail.getTeam2Id();
+            }
+            String teamAResult;
+            if (winnerId == null) {
+                draws++;
+                teamAResult = "D";
+            } else if (winnerId == teamA) {
+                teamAWins++;
+                teamAResult = "W";
+            } else {
+                teamBWins++;
+                teamAResult = "L";
+            }
+
+            Map<String, Object> meeting = new LinkedHashMap<>();
+            meeting.put("competitionId", detail.getCompetitionId());
+            meeting.put("competitionName", competitionNames.getOrDefault(
+                    detail.getCompetitionId(), "Competition " + detail.getCompetitionId()));
+            meeting.put("seasonNumber", detail.getSeasonNumber());
+            meeting.put("roundNumber", detail.getRoundId());
+            meeting.put("homeTeamId", detail.getTeam1Id());
+            meeting.put("homeTeamName", detail.getTeam1Id() == teamA ? teamAName : teamBName);
+            meeting.put("awayTeamId", detail.getTeam2Id());
+            meeting.put("awayTeamName", detail.getTeam2Id() == teamA ? teamAName : teamBName);
+            meeting.put("score", detail.getScore());
+            meeting.put("winnerTeamId", winnerId);
+            meeting.put("decidedBy", detail.getDecidedBy());
+            meeting.put("teamAResult", teamAResult);
+            meeting.put("teamAGoals", goalsA);
+            meeting.put("teamBGoals", goalsB);
+            meetings.add(meeting);
+        }
+
+        List<String> teamAForm = meetings.stream()
+                .limit(5)
+                .map(m -> String.valueOf(m.get("teamAResult")))
+                .toList();
+        List<String> teamBForm = meetings.stream()
+                .limit(5)
+                .map(m -> oppositeResult(String.valueOf(m.get("teamAResult"))))
+                .toList();
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("teamAId", teamA);
+        response.put("teamAName", teamAName);
+        response.put("teamBId", teamB);
+        response.put("teamBName", teamBName);
+        response.put("teamAWins", teamAWins);
+        response.put("teamBWins", teamBWins);
+        response.put("draws", draws);
+        response.put("teamAGoals", teamAGoals);
+        response.put("teamBGoals", teamBGoals);
+        response.put("teamAForm", teamAForm);
+        response.put("teamBForm", teamBForm);
+        response.put("meetings", meetings);
+        return response;
+    }
+
+    private String oppositeResult(String result) {
+        return switch (result) {
+            case "W" -> "L";
+            case "L" -> "W";
+            default -> "D";
+        };
     }
 
     @GetMapping("/matchEvents/{competitionId}/{season}/{round}/{teamId1}/{teamId2}")
@@ -288,11 +396,11 @@ public class MatchController {
 
         // Player ratings from Scorer records
         List<Scorer> homeScorers = scorerRepository
-                .findAllByCompetitionIdAndSeasonNumberAndTeamIdAndOpponentTeamId(
-                        competitionId, season, teamId1, teamId2);
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamIdAndOpponentTeamId(
+                        competitionId, season, round, teamId1, teamId2);
         List<Scorer> awayScorers = scorerRepository
-                .findAllByCompetitionIdAndSeasonNumberAndTeamIdAndOpponentTeamId(
-                        competitionId, season, teamId2, teamId1);
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamIdAndOpponentTeamId(
+                        competitionId, season, round, teamId2, teamId1);
 
         List<MatchSummaryView.PlayerRating> homeRatings = homeScorers.stream()
                 .map(s -> {
@@ -384,8 +492,16 @@ public class MatchController {
         view.setAwayTeamName(teamRepository.findNameById(teamId2));
 
         Map<Long, String> nationNameCache = new HashMap<>();
-        view.setHomeLineup(toLineup(competitionId, season, round, teamId1, nationNameCache));
-        view.setAwayLineup(toLineup(competitionId, season, round, teamId2, nationNameCache));
+        List<MatchLineupRatingView.PlayerLine> homeLineup =
+                toLineup(competitionId, season, round, teamId1, nationNameCache);
+        List<MatchLineupRatingView.PlayerLine> awayLineup =
+                toLineup(competitionId, season, round, teamId2, nationNameCache);
+        view.setHomeLineup(homeLineup);
+        view.setAwayLineup(awayLineup);
+        view.setHomeFormation(homeLineup.stream().map(MatchLineupRatingView.PlayerLine::getFormation)
+                .filter(Objects::nonNull).findFirst().orElse(""));
+        view.setAwayFormation(awayLineup.stream().map(MatchLineupRatingView.PlayerLine::getFormation)
+                .filter(Objects::nonNull).findFirst().orElse(""));
         return view;
     }
 
@@ -400,12 +516,32 @@ public class MatchController {
             line.setPlayerId(r.getPlayerId());
             line.setPlayerName(r.getPlayerName());
             line.setPosition(r.getPosition());
+            line.setPositionIndex(r.getPositionIndex());
+            line.setFormation(r.getFormation());
+            line.setRole(r.getRole());
+            line.setDuty(r.getDuty());
+            line.setSubstitute(r.isSubstitute());
             line.setRating(r.getRating());
+            line.setPerformanceRating(r.getPerformanceRating());
+            line.setGoals(r.getGoals());
+            line.setAssists(r.getAssists());
             line.setAge(r.getAge());
             line.setNationId(r.getNationId());
             line.setNationName(nationNameCache.computeIfAbsent(r.getNationId(), this::resolveNationName));
+            line.setBaseFaceId(r.getBaseFaceId());
+            line.setSkinTone(r.getSkinTone());
+            line.setHairStyle(r.getHairStyle());
+            line.setHairColor(r.getHairColor());
+            line.setEyeColor(r.getEyeColor());
+            line.setFaceShape(r.getFaceShape());
+            line.setNoseShape(r.getNoseShape());
+            line.setEyeShape(r.getEyeShape());
+            line.setMouthShape(r.getMouthShape());
+            line.setBrowShape(r.getBrowShape());
+            line.setSpecies(r.getSpecies());
             return line;
-        }).collect(Collectors.toList());
+        }).sorted(Comparator.comparingInt(MatchLineupRatingView.PlayerLine::getPositionIndex))
+                .collect(Collectors.toList());
     }
 
     /** Nation name = first word of that nation's League competition name; "International" fallback. */
@@ -535,9 +671,13 @@ public class MatchController {
         int matchday = session.getRound();
         int season = session.getSeason();
 
-        // Suspensions for the competition+round (now that all scores + cards
-        // are persisted for this match too).
-        try { suspensionService.processMatchCards(compId, matchday, season); }
+        // The old ban applies to this match; serve it before creating any new
+        // ban from cards received today, which starts with the next fixture.
+        try {
+            suspensionService.processPlayedFixture(
+                    compId, season, matchday, session.getTeamId1(), session.getTeamId2(),
+                    session.getDeferredLegNumber());
+        }
         catch (Exception ex) { /* non-fatal */ }
 
         // Post-match press conference for the manager that watched, if they

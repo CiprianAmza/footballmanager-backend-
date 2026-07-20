@@ -71,4 +71,29 @@ This project is a personal educational initiative inspired by the Football Manag
 
 <img width="1512" height="857" alt="image" src="https://github.com/user-attachments/assets/5b737987-ad1c-4699-973c-d37c3b81ac5c" />
 
+## Automated testing
+
+Fast unit tests:
+
+```bash
+mvn test
+```
+
+Standard integration suite:
+
+```bash
+mvn verify
+```
+
+Full career simulation through the real calendar, every competition and three
+season transitions:
+
+```bash
+mvn verify -Pcareer
+```
+
+Use `-Dcareer.seasons=2` for the shorter two-season variant. The accepted range
+is deliberately limited to 2–3 seasons. A run writes its audit report to
+`target/full-career-simulation.md`.
+
 

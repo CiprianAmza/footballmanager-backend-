@@ -1,10 +1,16 @@
 package com.footballmanagergamesimulator.controller;
 
+import com.footballmanagergamesimulator.frontend.TransferOfferView;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.user.UserContext;
+import com.footballmanagergamesimulator.service.TransferOfferLifecycleService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -51,14 +57,27 @@ public class TransferOfferController {
     @Autowired
     com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
 
+    @Autowired
+    TransferOfferLifecycleService transferOfferLifecycleService;
+
     private final Random random = new Random();
 
     @GetMapping("/incoming/{teamId}")
-    public List<TransferOffer> getIncomingOffers(@PathVariable(name = "teamId") long teamId) {
-        return transferOfferRepository.findAllByToTeamIdAndStatus(teamId, "pending");
+    @Transactional
+    public List<TransferOfferView> getIncomingOffers(@PathVariable(name = "teamId") long teamId) {
+        List<TransferOffer> offers = transferOfferRepository.findAllByToTeamIdAndStatus(teamId, "pending");
+        Set<Long> playerIds = offers.stream().map(TransferOffer::getPlayerId).collect(java.util.stream.Collectors.toSet());
+        Map<Long, Human> players = humanRepository.findAllById(playerIds).stream()
+                .collect(java.util.stream.Collectors.toMap(Human::getId, player -> player));
+        offers = removeStaleOffers(offers, players);
+        int currentSeason = roundRepository.findById(1L).map(round -> (int) round.getSeason()).orElse(1);
+        return offers.stream()
+                .map(offer -> TransferOfferView.from(offer, players.get(offer.getPlayerId()), currentSeason))
+                .toList();
     }
 
     @GetMapping("/outgoing/{teamId}")
+    @Transactional
     public List<TransferOffer> getOutgoingOffers(@PathVariable(name = "teamId") long teamId) {
         List<TransferOffer> pending = transferOfferRepository.findAllByFromTeamIdAndStatus(teamId, "pending");
         List<TransferOffer> negotiating = transferOfferRepository.findAllByFromTeamIdAndStatus(teamId, "negotiating");
@@ -67,7 +86,11 @@ public class TransferOfferController {
         all.addAll(pending);
         all.addAll(negotiating);
         all.addAll(counter);
-        return all;
+        Set<Long> playerIds = all.stream().map(TransferOffer::getPlayerId)
+                .collect(java.util.stream.Collectors.toSet());
+        Map<Long, Human> players = humanRepository.findAllById(playerIds).stream()
+                .collect(java.util.stream.Collectors.toMap(Human::getId, player -> player));
+        return removeStaleOffers(all, players);
     }
 
     @GetMapping("/history/{teamId}/{season}")
@@ -87,6 +110,7 @@ public class TransferOfferController {
     }
 
     @PostMapping("/makeOffer")
+    @Transactional
     public ResponseEntity<?> makeOffer(HttpServletRequest request, @RequestBody Map<String, Object> body) {
         if (!competitionController.isTransferWindowOpen()) {
             return ResponseEntity.badRequest().body("Transfer window is not open. You can only make offers during the transfer window (end of season).");
@@ -95,7 +119,8 @@ public class TransferOfferController {
         long playerId = ((Number) body.get("playerId")).longValue();
         long offerAmount = ((Number) body.get("offerAmount")).longValue();
 
-        Optional<Human> playerOpt = humanRepository.findById(playerId);
+        // Lock ownership until the offer response and any immediate transfer finish.
+        Optional<Human> playerOpt = humanRepository.findByIdForUpdate(playerId);
         if (playerOpt.isEmpty()) {
             return ResponseEntity.badRequest().body("Player not found");
         }
@@ -155,6 +180,7 @@ public class TransferOfferController {
             offer.setStatus("accepted");
             transferOfferRepository.save(offer);
             executeTransfer(player, sellingTeam, humanTeam, offerAmount, season);
+            transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
             sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Release Clause Triggered",
                     "Your offer of " + offerAmount + " has triggered the release clause for " +
                     player.getName() + ". The transfer is complete!",
@@ -168,6 +194,7 @@ public class TransferOfferController {
             offer.setStatus("accepted");
             transferOfferRepository.save(offer);
             executeTransfer(player, sellingTeam, humanTeam, offerAmount, season);
+            transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
             sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Accepted",
                     sellingTeam.getName() + " have accepted your offer of " + offerAmount +
                     " for " + player.getName() + ". The transfer is complete!",
@@ -195,10 +222,13 @@ public class TransferOfferController {
     }
 
     @PostMapping("/respond/{offerId}")
+    @Transactional
     public ResponseEntity<?> respondToOffer(HttpServletRequest request,
                                             @PathVariable(name = "offerId") long offerId,
                                             @RequestBody Map<String, Object> body) {
-        Optional<TransferOffer> offerOpt = transferOfferRepository.findById(offerId);
+        // Lock the offer too: reject/counter/accept requests for the same row cannot
+        // race while the player ownership lock protects competing offer rows.
+        Optional<TransferOffer> offerOpt = transferOfferRepository.findByIdForUpdate(offerId);
         if (offerOpt.isEmpty()) {
             return ResponseEntity.badRequest().body("Offer not found");
         }
@@ -209,6 +239,23 @@ public class TransferOfferController {
         int season = (int) round.getSeason();
         long humanTeamId = userContext.getTeamId(request);
 
+        if (offer.getToTeamId() != humanTeamId || !"incoming".equalsIgnoreCase(offer.getDirection())) {
+            return ResponseEntity.status(403).body("This offer does not belong to your team");
+        }
+        if (!"pending".equalsIgnoreCase(offer.getStatus())) {
+            return ResponseEntity.status(409).body("This offer is no longer active");
+        }
+
+        Human lockedPlayer = humanRepository.findByIdForUpdate(offer.getPlayerId()).orElse(null);
+        if (lockedPlayer == null) {
+            transferOfferLifecycleService.removeActiveOffersForPlayer(offer.getPlayerId());
+            return ResponseEntity.status(409).body("Player is no longer available");
+        }
+        if (!Objects.equals(lockedPlayer.getTeamId(), offer.getToTeamId())) {
+            transferOfferLifecycleService.removeActiveOffersForPlayer(lockedPlayer.getId());
+            return ResponseEntity.status(409).body("The player has already left the selling club");
+        }
+
         // Accepting an incoming offer (or a counter that the AI then accepts) sells one of our
         // players → guard with canSellPlayers. Owner can lock the squad down.
         if (("accept".equals(action) || "counter".equals(action)) && !coachPermissionService.canSellPlayers(humanTeamId)) {
@@ -216,67 +263,64 @@ public class TransferOfferController {
         }
 
         if ("accept".equals(action)) {
-            offer.setStatus("accepted");
-            transferOfferRepository.save(offer);
-
-            Human player = humanRepository.findById(offer.getPlayerId()).orElse(null);
             Team fromTeam = teamRepository.findById(offer.getFromTeamId()).orElse(null);
             Team toTeam = teamRepository.findById(offer.getToTeamId()).orElse(null);
 
-            if (player != null && fromTeam != null && toTeam != null) {
-                // For incoming offers: fromTeam is the buyer (AI), toTeam is seller (human)
-                executeTransfer(player, toTeam, fromTeam, offer.getOfferAmount(), season);
-                sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Completed",
-                        "You have sold " + player.getName() + " to " + fromTeam.getName() +
-                        " for " + offer.getOfferAmount() + ".",
-                        "transfer");
+            if (fromTeam == null || toTeam == null) {
+                return ResponseEntity.status(409).body("Team is no longer available");
             }
+
+            // For incoming offers: fromTeam is the buyer (AI), toTeam is seller (human).
+            executeTransfer(lockedPlayer, toTeam, fromTeam, offer.getOfferAmount(), season);
+            offer.setStatus("accepted");
+            transferOfferRepository.save(offer);
+            transferOfferLifecycleService.removeActiveOffersForPlayer(lockedPlayer.getId());
+            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Completed",
+                    "You have sold " + lockedPlayer.getName() + " to " + fromTeam.getName() +
+                    " for " + offer.getOfferAmount() + ".",
+                    "transfer");
         } else if ("reject".equals(action)) {
             offer.setStatus("rejected");
             transferOfferRepository.save(offer);
 
             // Player whose transfer was rejected gets a morale penalty (they wanted to leave)
-            Human rejectedPlayer = humanRepository.findById(offer.getPlayerId()).orElse(null);
-            if (rejectedPlayer != null) {
-                double moralePenalty = -(5 + random.nextDouble() * 5); // -5 to -10
-                rejectedPlayer.setMorale(rejectedPlayer.getMorale() + moralePenalty);
-                rejectedPlayer.setMorale(Math.min(rejectedPlayer.getMorale(), 100D));
-                rejectedPlayer.setMorale(Math.max(rejectedPlayer.getMorale(), 0D));
-                humanRepository.save(rejectedPlayer);
+            double moralePenalty = -(5 + random.nextDouble() * 5); // -5 to -10
+            lockedPlayer.setMorale(lockedPlayer.getMorale() + moralePenalty);
+            lockedPlayer.setMorale(Math.min(lockedPlayer.getMorale(), 100D));
+            lockedPlayer.setMorale(Math.max(lockedPlayer.getMorale(), 0D));
+            humanRepository.save(lockedPlayer);
 
-                sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Player Unhappy",
-                        rejectedPlayer.getName() + " is unhappy that their transfer to " +
-                        offer.getFromTeamName() + " was rejected. Their morale has dropped.",
-                        "morale");
-            }
+            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Player Unhappy",
+                    lockedPlayer.getName() + " is unhappy that their transfer to " +
+                    offer.getFromTeamName() + " was rejected. Their morale has dropped.",
+                    "morale");
         } else if ("counter".equals(action)) {
             long counterAmount = ((Number) body.get("counterAmount")).longValue();
             offer.setAskingPrice(counterAmount);
             offer.setStatus("negotiating");
 
             long playerValue = calculateTransferValue(
-                    humanRepository.findById(offer.getPlayerId()).map(Human::getAge).orElse(25),
-                    humanRepository.findById(offer.getPlayerId()).map(Human::getPosition).orElse("MC"),
-                    humanRepository.findById(offer.getPlayerId()).map(Human::getRating).orElse(50.0)
+                    lockedPlayer.getAge(), lockedPlayer.getPosition(), lockedPlayer.getRating()
             );
 
             // AI re-evaluates: if counter <= value * 1.3, they accept
             if (counterAmount <= (long)(playerValue * 1.3)) {
-                offer.setStatus("accepted");
-                offer.setOfferAmount(counterAmount);
-                transferOfferRepository.save(offer);
-
-                Human player = humanRepository.findById(offer.getPlayerId()).orElse(null);
                 Team fromTeam = teamRepository.findById(offer.getFromTeamId()).orElse(null);
                 Team toTeam = teamRepository.findById(offer.getToTeamId()).orElse(null);
 
-                if (player != null && fromTeam != null && toTeam != null) {
-                    executeTransfer(player, toTeam, fromTeam, counterAmount, season);
-                    sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Completed",
-                            "Your counter-offer has been accepted! " + player.getName() +
-                            " has been sold to " + fromTeam.getName() + " for " + counterAmount + ".",
-                            "transfer");
+                if (fromTeam == null || toTeam == null) {
+                    return ResponseEntity.status(409).body("Team is no longer available");
                 }
+
+                executeTransfer(lockedPlayer, toTeam, fromTeam, counterAmount, season);
+                offer.setStatus("accepted");
+                offer.setOfferAmount(counterAmount);
+                transferOfferRepository.save(offer);
+                transferOfferLifecycleService.removeActiveOffersForPlayer(lockedPlayer.getId());
+                sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Completed",
+                        "Your counter-offer has been accepted! " + lockedPlayer.getName() +
+                        " has been sold to " + fromTeam.getName() + " for " + counterAmount + ".",
+                        "transfer");
             } else {
                 offer.setStatus("rejected");
                 transferOfferRepository.save(offer);
@@ -349,7 +393,89 @@ public class TransferOfferController {
         return available;
     }
 
+    /**
+     * Server-side transfer-market page. This avoids loading and rendering every
+     * player in the game and keeps scouting estimates stable across refreshes.
+     */
+    @GetMapping("/availablePlayersPage/{teamId}")
+    public Map<String, Object> getAvailablePlayersPage(
+            @PathVariable(name = "teamId") long teamId,
+            @RequestParam(name = "position", required = false) String position,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "50") int size,
+            @RequestParam(name = "sort", defaultValue = "rating") String sort,
+            @RequestParam(name = "direction", defaultValue = "desc") String direction) {
+
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(10, Math.min(100, size));
+        Set<String> allowedSorts = Set.of("rating", "age", "transferValue", "name", "position");
+        String sortField = allowedSorts.contains(sort) ? sort : "rating";
+        Sort.Direction sortDirection = "asc".equalsIgnoreCase(direction)
+                ? Sort.Direction.ASC : Sort.Direction.DESC;
+        PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(sortDirection, sortField));
+
+        Page<Human> playerPage = position == null || position.isBlank() || "ALL".equals(position)
+                ? humanRepository.findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNot(
+                        1L, teamId, pageable)
+                : humanRepository.findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNotAndPosition(
+                        1L, teamId, position, pageable);
+
+        int season = (int) roundRepository.findById(1L).orElse(new Round()).getSeason();
+        Set<Long> alreadyTransferredIds = transferRepository.findAllBySeasonNumber(season).stream()
+                .map(Transfer::getPlayerId)
+                .collect(java.util.stream.Collectors.toSet());
+        Map<Long, Team> teams = teamRepository.findAllById(playerPage.getContent().stream()
+                        .map(Human::getTeamId)
+                        .filter(Objects::nonNull)
+                        .collect(java.util.stream.Collectors.toSet()))
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(Team::getId, team -> team));
+
+        TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
+        int scoutingLevel = Math.max(1, Math.min(20,
+                facilities != null ? facilities.getScoutingLevel() : 1));
+        int errorMargin = (20 - scoutingLevel) * 3;
+        int scoutingAccuracy = scoutingLevel * 5;
+
+        List<Map<String, Object>> content = new ArrayList<>();
+        for (Human player : playerPage.getContent()) {
+            if (alreadyTransferredIds.contains(player.getId())) continue;
+            Team team = teams.get(player.getTeamId());
+            if (team == null) continue;
+
+            Random stableScoutingRandom =
+                    new Random(Objects.hash(teamId, player.getId(), season));
+            double noise = errorMargin > 0
+                    ? stableScoutingRandom.nextDouble() * 2 * errorMargin - errorMargin
+                    : 0;
+            Map<String, Object> playerInfo = new LinkedHashMap<>();
+            playerInfo.put("id", player.getId());
+            playerInfo.put("name", player.getName());
+            playerInfo.put("position", player.getPosition());
+            playerInfo.put("age", player.getAge());
+            playerInfo.put("estimatedRating", Math.max(1, Math.round(player.getRating() + noise)));
+            playerInfo.put("scoutingAccuracy", scoutingAccuracy);
+            playerInfo.put("teamId", team.getId());
+            playerInfo.put("teamName", team.getName());
+            playerInfo.put("transferValue",
+                    calculateTransferValue(player.getAge(), player.getPosition(), player.getRating()));
+            content.add(playerInfo);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("content", content);
+        result.put("page", playerPage.getNumber());
+        result.put("size", playerPage.getSize());
+        result.put("totalElements", Math.max(0,
+                playerPage.getTotalElements() - alreadyTransferredIds.size()));
+        result.put("totalPages", playerPage.getTotalPages());
+        return result;
+    }
+
     private void executeTransfer(Human player, Team sellingTeam, Team buyingTeam, long fee, int season) {
+        if (!Objects.equals(player.getTeamId(), sellingTeam.getId())) {
+            throw new IllegalStateException("Player no longer belongs to the selling club");
+        }
         long playerWage = player.getWage();
 
         // Calculate sell-on fee before changing ownership
@@ -407,6 +533,23 @@ public class TransferOfferController {
         transfer.setSellOnFeePaid(sellOnFee);
         transfer.setSellOnRecipientTeamId(sellOnRecipientTeamId);
         transferRepository.save(transfer);
+    }
+
+    private List<TransferOffer> removeStaleOffers(List<TransferOffer> offers,
+                                                  Map<Long, Human> players) {
+        Set<Long> stalePlayerIds = offers.stream()
+                .filter(offer -> {
+                    Human player = players.get(offer.getPlayerId());
+                    return player == null || player.isRetired()
+                            || !Objects.equals(player.getTeamId(), offer.getToTeamId());
+                })
+                .map(TransferOffer::getPlayerId)
+                .collect(java.util.stream.Collectors.toSet());
+        transferOfferLifecycleService.removeActiveOffersForPlayers(stalePlayerIds);
+        if (stalePlayerIds.isEmpty()) return offers;
+        return offers.stream()
+                .filter(offer -> !stalePlayerIds.contains(offer.getPlayerId()))
+                .toList();
     }
 
     private void sendInboxMessage(long teamId, int season, int roundNumber, String title, String content, String category) {
@@ -497,6 +640,7 @@ public class TransferOfferController {
         player.setConsecutiveBenched(0);
         player.setMorale(75);
         humanRepository.save(player);
+        transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
 
         team.setSalaryBudget(team.getSalaryBudget() + offeredWage);
         teamRepository.save(team);

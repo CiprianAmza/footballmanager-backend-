@@ -5,7 +5,9 @@ import lombok.Data;
 
 @Entity
 @Data
-@Table(name = "game_calendar")
+@Table(name = "game_calendar", indexes = {
+        @Index(name = "idx_game_calendar_season", columnList = "season")
+})
 public class GameCalendar {
 
     @Id

@@ -2,7 +2,11 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.CompetitionHistory;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
+import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +34,8 @@ class EuropeanCompetitionServiceTest {
 
     private EuropeanCompetitionService service;
     private CompetitionRepository competitionRepository;
+    private CompetitionHistoryRepository competitionHistoryRepository;
+    private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
 
     private static final long CUP_ID = 100L;
     private static final long STARS_CUP_ID = 200L;
@@ -40,7 +46,11 @@ class EuropeanCompetitionServiceTest {
     void setUp() throws Exception {
         service = new EuropeanCompetitionService();
         competitionRepository = mock(CompetitionRepository.class);
+        competitionHistoryRepository = mock(CompetitionHistoryRepository.class);
+        competitionTeamInfoDetailRepository = mock(CompetitionTeamInfoDetailRepository.class);
         inject("competitionRepository", competitionRepository);
+        inject("competitionHistoryRepository", competitionHistoryRepository);
+        inject("competitionTeamInfoDetailRepository", competitionTeamInfoDetailRepository);
         // Round classification is config-driven; wire the real registry.
         inject("competitionFormat", new CompetitionFormatConfig());
 
@@ -137,6 +147,44 @@ class EuropeanCompetitionServiceTest {
         assertFalse(service.isKnockoutRound(999L, 5));
     }
 
+    @Test
+    void cupWinner_usesPersistedChampionInsteadOfAggregateCupPoints() {
+        CompetitionHistory champion = new CompetitionHistory();
+        champion.setId(10L);
+        champion.setCompetitionId(CUP_ID);
+        champion.setSeasonNumber(13L);
+        champion.setTeamId(86L);
+        champion.setLastPosition(1L);
+
+        CompetitionHistory otherTeam = new CompetitionHistory();
+        otherTeam.setId(11L);
+        otherTeam.setCompetitionId(CUP_ID);
+        otherTeam.setSeasonNumber(13L);
+        otherTeam.setTeamId(69L);
+        otherTeam.setLastPosition(3L);
+        otherTeam.setPoints(9); // More aggregate points than the actual champion.
+        champion.setPoints(8);
+
+        when(competitionHistoryRepository.findByCompetitionId(CUP_ID))
+                .thenReturn(List.of(otherTeam, champion));
+
+        assertEquals(86L, service.resolveCupWinnerTeamId(CUP_ID, 13L));
+        verifyNoInteractions(competitionTeamInfoDetailRepository);
+    }
+
+    @Test
+    void cupWinner_fallsBackToWinnerOfHighestCompletedKnockoutRound() {
+        when(competitionHistoryRepository.findByCompetitionId(CUP_ID)).thenReturn(List.of());
+
+        CompetitionTeamInfoDetail semiFinal = completedResult(4, 30, 10L, 20L);
+        CompetitionTeamInfoDetail finalResult = completedResult(5, 40, 86L, 69L);
+        when(competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndSeasonNumber(CUP_ID, 13L))
+                .thenReturn(List.of(semiFinal, finalResult));
+
+        assertEquals(86L, service.resolveCupWinnerTeamId(CUP_ID, 13L));
+    }
+
     // ---------------- helpers ----------------
 
     private static Competition competition(long id, long typeId) {
@@ -144,6 +192,18 @@ class EuropeanCompetitionServiceTest {
         c.setId(id);
         c.setTypeId(typeId);
         return c;
+    }
+
+    private static CompetitionTeamInfoDetail completedResult(
+            long round, int day, long winnerTeamId, long loserTeamId) {
+        CompetitionTeamInfoDetail detail = new CompetitionTeamInfoDetail();
+        detail.setRoundId(round);
+        detail.setDay(day);
+        detail.setTeam1Id(winnerTeamId);
+        detail.setTeam2Id(loserTeamId);
+        detail.setWinnerTeamId(winnerTeamId);
+        detail.setDecidedBy("NORMAL");
+        return detail;
     }
 
     private void inject(String fieldName, Object value) throws Exception {

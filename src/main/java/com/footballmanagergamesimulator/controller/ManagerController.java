@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.CompetitionStatLine;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.ManagerHistory;
 import com.footballmanagergamesimulator.model.Round;
@@ -13,8 +14,11 @@ import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.StatsAggregationService;
+import com.footballmanagergamesimulator.user.User;
+import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -45,6 +49,9 @@ public class ManagerController {
 
     @Autowired
     private StatsAggregationService statsAggregationService;
+
+    @Autowired
+    private UserRepository userRepository;
 
     /**
      * Full career history for a specific manager
@@ -91,9 +98,17 @@ public class ManagerController {
 
         // Live current-season snapshot (only if manager has a team and is not retired).
         // Produced as a Map shaped like a ManagerHistory row so the same UI template renders it.
+        Map<Long, List<CompetitionStatLine>> competitionBreakdownByTeam = new HashMap<>();
         Map<String, Object> currentSeason = null;
-        if (currentTeam != null && !manager.isRetired()) {
-            currentSeason = buildCurrentSeasonSnapshot(manager, currentTeam);
+        int activeSeasonNumber = roundRepository.findById(1L)
+                .map(round -> (int) round.getSeason()).orElse(1);
+        boolean activeSeasonAlreadyArchived = history.stream()
+                .anyMatch(entry -> entry.getSeasonNumber() == activeSeasonNumber);
+        if (currentTeam != null && !manager.isRetired() && !activeSeasonAlreadyArchived) {
+            List<CompetitionStatLine> currentTeamBreakdown = statsAggregationService
+                    .getTeamCompetitionBreakdown(currentTeam.getId());
+            competitionBreakdownByTeam.put(currentTeam.getId(), currentTeamBreakdown);
+            currentSeason = buildCurrentSeasonSnapshot(manager, currentTeam, currentTeamBreakdown);
         }
 
         // Summary stats: include the live season so the badges update mid-season.
@@ -137,12 +152,161 @@ public class ManagerController {
         if (currentSeason != null) timeline.add(currentSeason);
         profile.put("history", timeline);
         profile.put("currentSeason", currentSeason); // also exposed separately for explicit consumers
+        // Outcomes follow the manager's actual club in each season. Reading only
+        // the current club would attach seasons from before the manager joined.
+        List<CompetitionStatLine> careerBreakdown = new ArrayList<>();
+        for (ManagerHistory season : history) {
+            competitionBreakdownByTeam.computeIfAbsent(season.getTeamId(),
+                            statsAggregationService::getTeamCompetitionBreakdown).stream()
+                    .filter(line -> line.getSeasonNumber() == season.getSeasonNumber())
+                    .forEach(careerBreakdown::add);
+        }
+        if (currentSeason != null && currentTeam != null) {
+            int liveSeason = ((Number) currentSeason.get("seasonNumber")).intValue();
+            competitionBreakdownByTeam.getOrDefault(currentTeam.getId(), List.of()).stream()
+                    .filter(line -> line.getSeasonNumber() == liveSeason)
+                    .forEach(careerBreakdown::add);
+        }
+        careerBreakdown.sort(Comparator.comparingInt(CompetitionStatLine::getSeasonNumber).reversed()
+                .thenComparing(CompetitionStatLine::getCompetitionName));
+        profile.put("competitionBreakdown", careerBreakdown);
+        profile.put("trophies", buildTrophyCabinet(history, currentSeason, currentTeamBreakdown(
+                currentTeam, currentSeason, competitionBreakdownByTeam)));
+        profile.put("clubs", buildClubHistory(history, currentSeason, currentTeam));
 
         return profile;
     }
 
+    private List<CompetitionStatLine> currentTeamBreakdown(
+            Team currentTeam,
+            Map<String, Object> currentSeason,
+            Map<Long, List<CompetitionStatLine>> competitionBreakdownByTeam) {
+        if (currentTeam == null || currentSeason == null) return List.of();
+        int season = ((Number) currentSeason.get("seasonNumber")).intValue();
+        return competitionBreakdownByTeam.getOrDefault(currentTeam.getId(), List.of()).stream()
+                .filter(line -> line.getSeasonNumber() == season)
+                .toList();
+    }
+
+    /**
+     * Aggregated honours belong to the manager, not to their current club. The
+     * completed-season history is the source of truth; competitions already
+     * won during a live season are included as well.
+     */
+    private List<Map<String, Object>> buildTrophyCabinet(
+            List<ManagerHistory> history,
+            Map<String, Object> currentSeason,
+            List<CompetitionStatLine> liveCompetitionBreakdown) {
+        Map<String, SortedSet<Integer>> seasonsByTrophy = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (ManagerHistory season : history) {
+            for (String trophy : trophyNames(season.getTrophiesWon())) {
+                seasonsByTrophy.computeIfAbsent(trophy, ignored -> new TreeSet<>())
+                        .add(season.getSeasonNumber());
+            }
+        }
+
+        if (currentSeason != null) {
+            int seasonNumber = ((Number) currentSeason.get("seasonNumber")).intValue();
+            for (CompetitionStatLine line : liveCompetitionBreakdown) {
+                boolean leagueWinner = (line.getCompetitionTypeId() == 1 || line.getCompetitionTypeId() == 3)
+                        && Integer.valueOf(1).equals(line.getLeaguePosition());
+                boolean knockoutWinner = line.getCompetitionTypeId() != 1
+                        && line.getCompetitionTypeId() != 3
+                        && "WINNER".equalsIgnoreCase(line.getStatus());
+                if (leagueWinner || knockoutWinner) {
+                    seasonsByTrophy.computeIfAbsent(line.getCompetitionName(), ignored -> new TreeSet<>())
+                            .add(seasonNumber);
+                }
+            }
+        }
+
+        List<Map<String, Object>> trophies = new ArrayList<>();
+        seasonsByTrophy.forEach((name, seasons) -> {
+            Map<String, Object> trophy = new LinkedHashMap<>();
+            trophy.put("name", name);
+            trophy.put("count", seasons.size());
+            trophy.put("seasons", seasons);
+            trophy.put("lastWonSeason", seasons.isEmpty() ? null : seasons.last());
+            trophies.add(trophy);
+        });
+        trophies.sort(Comparator
+                .<Map<String, Object>>comparingInt(trophy -> (int) trophy.get("count"))
+                .reversed()
+                .thenComparing(trophy -> String.valueOf(trophy.get("name"))));
+        return trophies;
+    }
+
+    /** One concise row for every club the manager has actually coached. */
+    private List<Map<String, Object>> buildClubHistory(
+            List<ManagerHistory> history,
+            Map<String, Object> currentSeason,
+            Team currentTeam) {
+        Map<Long, List<ManagerHistory>> historyByTeam = history.stream()
+                .collect(Collectors.groupingBy(ManagerHistory::getTeamId, LinkedHashMap::new, Collectors.toList()));
+        if (currentTeam != null) historyByTeam.computeIfAbsent(currentTeam.getId(), ignored -> new ArrayList<>());
+
+        int activeSeason = roundRepository.findById(1L).map(round -> (int) round.getSeason()).orElse(1);
+        List<Map<String, Object>> clubs = new ArrayList<>();
+        for (Map.Entry<Long, List<ManagerHistory>> entry : historyByTeam.entrySet()) {
+            long teamId = entry.getKey();
+            List<ManagerHistory> records = entry.getValue().stream()
+                    .sorted(Comparator.comparingInt(ManagerHistory::getSeasonNumber))
+                    .toList();
+            boolean current = currentTeam != null && currentTeam.getId() == teamId;
+            boolean includeLive = current && currentSeason != null;
+
+            SortedSet<Integer> seasons = records.stream()
+                    .map(ManagerHistory::getSeasonNumber)
+                    .collect(Collectors.toCollection(TreeSet::new));
+            if (includeLive) seasons.add(((Number) currentSeason.get("seasonNumber")).intValue());
+
+            Map<String, Object> club = new LinkedHashMap<>();
+            club.put("teamId", teamId);
+            club.put("teamName", current
+                    ? currentTeam.getName()
+                    : records.isEmpty() ? "Unknown" : records.get(records.size() - 1).getTeamName());
+            club.put("current", current);
+            club.put("firstSeason", seasons.isEmpty() ? activeSeason : seasons.first());
+            club.put("lastSeason", seasons.isEmpty() ? activeSeason : seasons.last());
+            club.put("seasons", seasons.size());
+            club.put("games", records.stream().mapToInt(ManagerHistory::getGamesPlayed).sum()
+                    + liveInt(currentSeason, includeLive, "gamesPlayed"));
+            club.put("wins", records.stream().mapToInt(ManagerHistory::getWins).sum()
+                    + liveInt(currentSeason, includeLive, "wins"));
+            club.put("draws", records.stream().mapToInt(ManagerHistory::getDraws).sum()
+                    + liveInt(currentSeason, includeLive, "draws"));
+            club.put("losses", records.stream().mapToInt(ManagerHistory::getLosses).sum()
+                    + liveInt(currentSeason, includeLive, "losses"));
+
+            List<String> clubTrophies = records.stream()
+                    .flatMap(record -> trophyNames(record.getTrophiesWon()).stream())
+                    .toList();
+            club.put("trophies", clubTrophies.size());
+            club.put("trophyNames", clubTrophies);
+            clubs.add(club);
+        }
+        clubs.sort(Comparator
+                .<Map<String, Object>, Boolean>comparing(club -> Boolean.TRUE.equals(club.get("current")))
+                .reversed()
+                .thenComparing(club -> (int) club.get("firstSeason")));
+        return clubs;
+    }
+
+    private int liveInt(Map<String, Object> currentSeason, boolean include, String key) {
+        return include && currentSeason.get(key) instanceof Number number ? number.intValue() : 0;
+    }
+
+    private List<String> trophyNames(String trophiesWon) {
+        if (trophiesWon == null || trophiesWon.isBlank()) return List.of();
+        return Arrays.stream(trophiesWon.split(","))
+                .map(String::trim)
+                .filter(name -> !name.isBlank())
+                .toList();
+    }
+
     /** Compute a synthetic ManagerHistory-shaped map for the season currently in progress. */
-    private Map<String, Object> buildCurrentSeasonSnapshot(Human manager, Team team) {
+    private Map<String, Object> buildCurrentSeasonSnapshot(Human manager, Team team,
+                                                            List<CompetitionStatLine> competitionBreakdown) {
         int currentSeason = roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
 
         List<TeamCompetitionDetail> teamDetails = teamCompetitionDetailRepository.findAll().stream()
@@ -180,7 +344,8 @@ public class ManagerController {
         snapshot.put("inProgress", true); // flag the frontend can use to style differently
         // Per-competition breakdown (League/Cup/LoC/Stars Cup kept separate); the mixed
         // gamesPlayed/wins/... fields above are intentionally left untouched for back-compat.
-        snapshot.put("competitionBreakdown", statsAggregationService.getTeamCompetitionBreakdown(team.getId()));
+        snapshot.put("competitionBreakdown", competitionBreakdown.stream()
+                .filter(line -> line.getSeasonNumber() == currentSeason).toList());
         return snapshot;
     }
 
@@ -296,6 +461,35 @@ public class ManagerController {
         return manager.isWatchGoalHighlights() ? "GOALS_ONLY" : "NONE";
     }
 
+    /** Current first-team manager used by club overview pages. */
+    @GetMapping("/current/team/{teamId}")
+    public Map<String, Object> getCurrentTeamManager(@PathVariable long teamId) {
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team == null) return Map.of("found", false, "error", "Team not found");
+
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        if (managers.isEmpty()) {
+            return Map.of("found", false, "teamId", teamId, "teamName", team.getName());
+        }
+
+        Human manager = resolveCurrentManager(teamId, managers);
+        boolean humanControlled = userRepository.findAllByTeamId(teamId).stream()
+                .map(User::getManagerId)
+                .filter(Objects::nonNull)
+                .anyMatch(managerId -> managerId == manager.getId());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("found", true);
+        result.put("managerId", manager.getId());
+        result.put("managerName", manager.getName());
+        result.put("teamId", team.getId());
+        result.put("teamName", team.getName());
+        result.put("reputation", manager.getManagerReputation());
+        result.put("retired", manager.isRetired());
+        result.put("humanControlled", humanControlled);
+        return result;
+    }
+
     /**
      * Get manager responsibilities/preferences for human team manager
      */
@@ -305,12 +499,13 @@ public class ManagerController {
         if (managers.isEmpty()) {
             return Map.of("error", "No manager found");
         }
-        Human manager = managers.get(0);
+        Human manager = resolveCurrentManager(teamId, managers);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("attendPressConferences", manager.isAttendPressConferences());
         result.put("viewFullMatch", manager.isViewFullMatch());
         result.put("watchGoalHighlights", manager.isWatchGoalHighlights());
         result.put("matchHighlightsLevel", effectiveHighlightsLevel(manager));
+        result.put("alwaysContinue", manager.isAlwaysContinue());
         return result;
     }
 
@@ -318,12 +513,15 @@ public class ManagerController {
      * Update manager responsibilities/preferences
      */
     @PostMapping("/responsibilities/{teamId}")
-    public Map<String, Object> updateResponsibilities(@PathVariable long teamId, @RequestBody Map<String, Object> body) {
+    @Transactional
+    public synchronized Map<String, Object> updateResponsibilities(
+            @PathVariable long teamId,
+            @RequestBody Map<String, Object> body) {
         List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
         if (managers.isEmpty()) {
             return Map.of("error", "No manager found");
         }
-        Human manager = managers.get(0);
+        Human manager = resolveCurrentManager(teamId, managers);
 
         if (body.containsKey("attendPressConferences")) {
             manager.setAttendPressConferences((Boolean) body.get("attendPressConferences"));
@@ -345,6 +543,9 @@ public class ManagerController {
                 manager.setWatchGoalHighlights(!"NONE".equals(level));
             }
         }
+        if (body.containsKey("alwaysContinue")) {
+            manager.setAlwaysContinue(Boolean.TRUE.equals(body.get("alwaysContinue")));
+        }
 
         humanRepository.save(manager);
 
@@ -354,7 +555,23 @@ public class ManagerController {
         result.put("viewFullMatch", manager.isViewFullMatch());
         result.put("watchGoalHighlights", manager.isWatchGoalHighlights());
         result.put("matchHighlightsLevel", effectiveHighlightsLevel(manager));
+        result.put("alwaysContinue", manager.isAlwaysContinue());
         return result;
+    }
+
+    private Human resolveCurrentManager(long teamId, List<Human> managers) {
+        Long linkedManagerId = userRepository.findAllByTeamId(teamId).stream()
+                .map(User::getManagerId)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (linkedManagerId != null) {
+            return managers.stream()
+                    .filter(manager -> manager.getId() == linkedManagerId)
+                    .findFirst()
+                    .orElse(managers.get(0));
+        }
+        return managers.get(0);
     }
 
     /**

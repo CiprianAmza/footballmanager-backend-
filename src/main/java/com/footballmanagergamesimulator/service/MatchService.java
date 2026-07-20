@@ -7,13 +7,14 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
-import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class MatchService {
@@ -58,11 +59,11 @@ public class MatchService {
             String score = "-";
             if (competitionTeamInfoDetail != null) {
                 score = competitionTeamInfoDetail.getScore();
+                scheduleView.setWinnerTeamId(competitionTeamInfoDetail.getWinnerTeamId());
+                scheduleView.setDecidedBy(competitionTeamInfoDetail.getDecidedBy());
 
                 if (scheduleView.getHomeOrAway().equals("A")) {
-                    String[] values = score.split("-");
-                    ArrayUtils.reverse(values);
-                    score = values[0] + "-" + values[1];
+                    score = reverseScore(score);
                 }
             }
             scheduleView.setScore(score);
@@ -152,19 +153,19 @@ public class MatchService {
 
                 // Adjust score so it's always from our team's perspective
                 if (entry.getHomeOrAway().equals("A")) {
-                    String[] values = score.split("-");
-                    ArrayUtils.reverse(values);
-                    adjustedScore = values[0] + "-" + values[1];
+                    adjustedScore = reverseScore(score);
                 }
 
                 entry.setScore(adjustedScore);
                 entry.setStatus("played");
 
                 // Determine W/D/L
-                String[] parts = adjustedScore.split("-");
-                int teamGoals = Integer.parseInt(parts[0].trim());
-                int oppGoals = Integer.parseInt(parts[1].trim());
-                if (teamGoals > oppGoals) entry.setResultOutcome("W");
+                Matcher scoreMatcher = SCORE_PATTERN.matcher(adjustedScore);
+                int teamGoals = scoreMatcher.matches() ? Integer.parseInt(scoreMatcher.group(1)) : 0;
+                int oppGoals = scoreMatcher.matches() ? Integer.parseInt(scoreMatcher.group(2)) : 0;
+                if (detail.getWinnerTeamId() != null) {
+                    entry.setResultOutcome(detail.getWinnerTeamId() == teamId ? "W" : "L");
+                } else if (teamGoals > oppGoals) entry.setResultOutcome("W");
                 else if (teamGoals < oppGoals) entry.setResultOutcome("L");
                 else entry.setResultOutcome("D");
             } else {
@@ -186,6 +187,15 @@ public class MatchService {
         if (name == null || name.isEmpty()) return "???";
         // Take first 3 characters, uppercase
         return name.substring(0, Math.min(3, name.length())).toUpperCase();
+    }
+
+    private static final Pattern SCORE_PATTERN =
+            Pattern.compile("^\\s*(\\d+)\\s*-\\s*(\\d+)(.*)$");
+
+    private String reverseScore(String score) {
+        Matcher matcher = SCORE_PATTERN.matcher(score);
+        if (!matcher.matches()) return score;
+        return matcher.group(2) + " - " + matcher.group(1) + matcher.group(3);
     }
 
     private String mapCompetitionType(long typeId) {

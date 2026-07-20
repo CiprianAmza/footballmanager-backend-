@@ -12,9 +12,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Analytics Faza 2 — accumulates deterministic synthetic per-player tallies across the
@@ -45,6 +47,10 @@ public class PlayerMatchStatService {
     /** A volume of attempted passes per 90 for an all-20 player (scaled by Pass% attribute average). */
     private static final double BASE_PASS_VOLUME = 70.0;
 
+    /** One team's starters and tactic for a match in the same competition round. */
+    public record TeamMatchInput(long teamId, List<PlayerView> startingXI,
+                                 PersonalizedTactic tacticOrNull) {}
+
     /**
      * Records ONE played match for every starter on {@code startingXI}: appearances+1,
      * minutes+90 and the per-match synthetic tally added to each accumulator. All upserts
@@ -56,62 +62,93 @@ public class PlayerMatchStatService {
     public void recordRealMatchForTeam(long teamId, List<PlayerView> startingXI,
                                        PersonalizedTactic tacticOrNull,
                                        long competitionId, int seasonNumber) {
-        if (startingXI == null || startingXI.isEmpty()) return;
+        recordRealMatchesForTeams(
+                List.of(new TeamMatchInput(teamId, startingXI, tacticOrNull)),
+                competitionId, seasonNumber);
+    }
 
-        MatchEngineConfig.Analytics cfg = engineConfig.getAnalytics();
-        String pressKey = pressingKey(tacticOrNull);
-        double defActionMult = defensiveActionMultiplier(tacticOrNull);
+    /**
+     * Round-level variant: all skills and all existing season rows are loaded once, then every
+     * participating player's counters are flushed in one repository call. This replaces two
+     * queries plus one save per team in the AI simulation path.
+     */
+    public void recordRealMatchesForTeams(List<TeamMatchInput> matches,
+                                          long competitionId, int seasonNumber) {
+        if (matches == null || matches.isEmpty()) return;
 
-        // Batch-load skills for all starters (1 query) and existing rows for this comp+season.
-        List<Long> playerIds = new ArrayList<>(startingXI.size());
-        for (PlayerView pv : startingXI) playerIds.add(pv.getId());
+        Set<Long> requestedPlayerIds = matches.stream()
+                .filter(input -> input != null && input.startingXI() != null)
+                .flatMap(input -> input.startingXI().stream())
+                .filter(java.util.Objects::nonNull)
+                .map(PlayerView::getId)
+                .collect(Collectors.toSet());
+        if (requestedPlayerIds.isEmpty()) return;
 
         Map<Long, PlayerSkills> skillsByPlayer = new HashMap<>();
-        for (PlayerSkills ps : playerSkillsRepository.findAllByPlayerIdIn(playerIds)) {
+        for (PlayerSkills ps : playerSkillsRepository
+                .findAllByPlayerIdIn(new ArrayList<>(requestedPlayerIds))) {
             skillsByPlayer.put(ps.getPlayerId(), ps);
         }
+        Map<Long, PlayerSeasonStat> existingByPlayer = playerSeasonStatRepository
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, seasonNumber)
+                .stream()
+                .filter(row -> requestedPlayerIds.contains(row.getPlayerId()))
+                .collect(Collectors.toMap(
+                        PlayerSeasonStat::getPlayerId,
+                        row -> row,
+                        (left, right) -> left));
 
-        List<PlayerSeasonStat> toSave = new ArrayList<>(startingXI.size());
-        for (PlayerView pv : startingXI) {
-            long playerId = pv.getId();
-            PlayerSkills skills = skillsByPlayer.get(playerId);
+        MatchEngineConfig.Analytics cfg = engineConfig.getAnalytics();
+        Map<Long, PlayerSeasonStat> toSaveByPlayer = new LinkedHashMap<>();
+        for (TeamMatchInput input : matches) {
+            if (input == null || input.startingXI() == null || input.startingXI().isEmpty()) continue;
+            String pressKey = pressingKey(input.tacticOrNull());
+            double defActionMult = defensiveActionMultiplier(input.tacticOrNull());
 
-            PlayerSeasonStat row = playerSeasonStatRepository
-                    .findByPlayerIdAndCompetitionIdAndSeasonNumber(playerId, competitionId, seasonNumber)
-                    .orElseGet(() -> {
-                        PlayerSeasonStat fresh = new PlayerSeasonStat();
-                        fresh.setPlayerId(playerId);
-                        fresh.setCompetitionId(competitionId);
-                        fresh.setSeasonNumber(seasonNumber);
-                        return fresh;
-                    });
+            for (PlayerView pv : input.startingXI()) {
+                if (pv == null) continue;
+                long playerId = pv.getId();
+                PlayerSkills skills = skillsByPlayer.get(playerId);
 
-            row.setTeamId(teamId); // latest team the player turned out for
-            row.setAppearances(row.getAppearances() + 1);
-            row.setMinutes(row.getMinutes() + 90);
+                PlayerSeasonStat row = existingByPlayer.get(playerId);
+                if (row == null) {
+                    row = new PlayerSeasonStat();
+                    row.setPlayerId(playerId);
+                    row.setCompetitionId(competitionId);
+                    row.setSeasonNumber(seasonNumber);
+                    existingByPlayer.put(playerId, row);
+                }
 
-            // Per-match synthetic tally (= per-90 since a start is 90'), tactic-modulated.
-            double defensiveActions = AnalyticsFormula.synthesize("Defensive Actions", skills, cfg, pressKey) * defActionMult;
-            double pressures = AnalyticsFormula.synthesize("Pressures", skills, cfg, pressKey);
-            double counterpressures = AnalyticsFormula.synthesize("Counterpressures", skills, cfg, pressKey);
-            double tackles = AnalyticsFormula.synthesize("Pressure Regains", skills, cfg, pressKey) * defActionMult;
-            double shots = AnalyticsFormula.synthesize("Expected Goals", skills, cfg, pressKey);
-            double passPct = AnalyticsFormula.synthesize("Pass %", skills, cfg, pressKey); // 40..99
-            double passesAttempted = BASE_PASS_VOLUME * (passPct / 100.0);
-            double passesCompleted = passesAttempted * (passPct / 100.0);
+                row.setTeamId(input.teamId()); // latest team the player turned out for
+                row.setAppearances(row.getAppearances() + 1);
+                row.setMinutes(row.getMinutes() + 90);
 
-            row.setDefensiveActions(row.getDefensiveActions() + defensiveActions);
-            row.setPressures(row.getPressures() + pressures);
-            row.setCounterpressures(row.getCounterpressures() + counterpressures);
-            row.setTackles(row.getTackles() + tackles);
-            row.setShots(row.getShots() + shots);
-            row.setPassesAttempted(row.getPassesAttempted() + passesAttempted);
-            row.setPassesCompleted(row.getPassesCompleted() + passesCompleted);
+                // Per-match synthetic tally (= per-90 since a start is 90'), tactic-modulated.
+                double defensiveActions = AnalyticsFormula.synthesize("Defensive Actions", skills, cfg, pressKey) * defActionMult;
+                double pressures = AnalyticsFormula.synthesize("Pressures", skills, cfg, pressKey);
+                double counterpressures = AnalyticsFormula.synthesize("Counterpressures", skills, cfg, pressKey);
+                double tackles = AnalyticsFormula.synthesize("Pressure Regains", skills, cfg, pressKey) * defActionMult;
+                double shots = AnalyticsFormula.synthesize("Expected Goals", skills, cfg, pressKey);
+                double passPct = AnalyticsFormula.synthesize("Pass %", skills, cfg, pressKey); // 40..99
+                double passesAttempted = BASE_PASS_VOLUME * (passPct / 100.0);
+                double passesCompleted = passesAttempted * (passPct / 100.0);
+                double chancesCreated = chancesCreatedPer90(skills);
+                double dribblesCompleted = dribblesCompletedPer90(skills, input.tacticOrNull());
 
-            toSave.add(row);
+                row.setDefensiveActions(row.getDefensiveActions() + defensiveActions);
+                row.setPressures(row.getPressures() + pressures);
+                row.setCounterpressures(row.getCounterpressures() + counterpressures);
+                row.setTackles(row.getTackles() + tackles);
+                row.setShots(row.getShots() + shots);
+                row.setPassesAttempted(row.getPassesAttempted() + passesAttempted);
+                row.setPassesCompleted(row.getPassesCompleted() + passesCompleted);
+                row.setChancesCreated(row.getChancesCreated() + chancesCreated);
+                row.setDribblesCompleted(row.getDribblesCompleted() + dribblesCompleted);
+                toSaveByPlayer.put(playerId, row);
+            }
         }
 
-        playerSeasonStatRepository.saveAll(toSave);
+        playerSeasonStatRepository.saveAll(toSaveByPlayer.values());
     }
 
     // ------------------------------------------------------------------
@@ -145,5 +182,36 @@ public class PlayerMatchStatService {
         if ("High".equalsIgnoreCase(line)) m *= 1.10;
         else if ("Deep".equalsIgnoreCase(line)) m *= 0.92;
         return m;
+    }
+
+    /**
+     * Key-pass volume per 90. A maxed creative player approaches 4.5 chances per
+     * full match, while average players remain around one to two. Kept deterministic
+     * like the other accumulated analytics and based on the four attributes most
+     * directly involved in seeing and executing a final pass.
+     */
+    static double chancesCreatedPer90(PlayerSkills skills) {
+        double weighted = AnalyticsFormula.attributeValue(skills, "Vision") * 0.35
+                + AnalyticsFormula.attributeValue(skills, "Passing") * 0.30
+                + AnalyticsFormula.attributeValue(skills, "Technique") * 0.20
+                + AnalyticsFormula.attributeValue(skills, "Decisions") * 0.15;
+        double normalized = Math.max(0.0, Math.min(1.0, weighted / 20.0));
+        return 4.5 * Math.pow(normalized, 1.55);
+    }
+
+    /**
+     * Successful take-ons per 90. Technique and agility make an attempted dribble
+     * more likely to succeed, while the team instruction changes its volume.
+     */
+    static double dribblesCompletedPer90(PlayerSkills skills, PersonalizedTactic tactic) {
+        double weighted = AnalyticsFormula.attributeValue(skills, "Dribbling") * 0.42
+                + AnalyticsFormula.attributeValue(skills, "Technique") * 0.23
+                + AnalyticsFormula.attributeValue(skills, "Agility") * 0.20
+                + AnalyticsFormula.attributeValue(skills, "Flair") * 0.15;
+        double normalized = Math.max(0.0, Math.min(1.0, weighted / 20.0));
+        double instructionMultiplier = 1.0;
+        if (tactic != null && "More".equalsIgnoreCase(tactic.getDribbling())) instructionMultiplier = 1.22;
+        if (tactic != null && "Less".equalsIgnoreCase(tactic.getDribbling())) instructionMultiplier = 0.72;
+        return 7.0 * Math.pow(normalized, 1.60) * instructionMultiplier;
     }
 }

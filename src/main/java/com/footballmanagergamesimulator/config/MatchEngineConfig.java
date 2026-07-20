@@ -732,10 +732,13 @@ public class MatchEngineConfig {
         private double passAccuracyNoiseSigma = 1.5;
         private double passAccuracyKeepBallBonus = 3.0;
         private double passAccuracyLongBallPenalty = -5.0;
-        /** Shots: base + edge*scale + goals*goalsBonus. */
-        private double shotsBase = 6.0;
-        private double shotsEdgeScale = 16.0;
-        private double shotsGoalsBonus = 1.5;
+        /** Shot volume: power-controlled mean plus shared/side-specific over-dispersion. */
+        private double shotsBase = 5.0;
+        private double shotsEdgeScale = 15.0;
+        private double shotsControlNoiseSigma = 0.12;
+        private double shotsTempoNoiseSigma = 0.22;
+        private double shotsTeamNoiseSigma = 0.28;
+        private int shotsMax = 40;
         /** Shots-on-target rate: base ± edge*span ± noise. */
         private double shotsOnTargetBase = 0.40;
         private double shotsOnTargetEdgeSpan = 0.10;
@@ -779,12 +782,16 @@ public class MatchEngineConfig {
         private double crossAccuracyBase = 0.28;
         private double crossAccuracyEdgeScale = 0.08;
         private double crossAccuracyNoise = 0.08;
-        /** Big chances = max(homeGoals, clamp((int)(homeSoT * ratio ...))). */
-        private double bigChancesSoTRatio = 0.6;
-        /** xG weights for big chance / SoT-miss / wide shot. */
-        private double xgPerBigChance = 0.35;
-        private double xgPerSotMiss = 0.12;
-        private double xgPerWideShot = 0.05;
+        /** Per-shot xG mixture. Goals do not impose a minimum xG. */
+        private double xgBigChanceRate = 0.08;
+        private double xgBigChancePowerSpan = 0.06;
+        private double xgRegularMin = 0.01;
+        private double xgRegularMax = 0.24;
+        private double xgBigMin = 0.30;
+        private double xgBigMax = 0.75;
+        /** Reject statistically absurd score/xG combinations, without a hard xG-per-goal floor. */
+        private double xgScorelineProbabilityFloor = 0.0001;
+        private int xgScorelineResampleAttempts = 25;
         /** Tactical possession bonus deltas (applied in getTacticalPossessionBonus). */
         private double tacticalPossessionKeepBall = 5.0;
         private double tacticalPossessionFreeBallEarly = -3.0;
@@ -826,8 +833,14 @@ public class MatchEngineConfig {
         public void setShotsBase(double v) { this.shotsBase = v; }
         public double getShotsEdgeScale() { return shotsEdgeScale; }
         public void setShotsEdgeScale(double v) { this.shotsEdgeScale = v; }
-        public double getShotsGoalsBonus() { return shotsGoalsBonus; }
-        public void setShotsGoalsBonus(double v) { this.shotsGoalsBonus = v; }
+        public double getShotsControlNoiseSigma() { return shotsControlNoiseSigma; }
+        public void setShotsControlNoiseSigma(double v) { this.shotsControlNoiseSigma = v; }
+        public double getShotsTempoNoiseSigma() { return shotsTempoNoiseSigma; }
+        public void setShotsTempoNoiseSigma(double v) { this.shotsTempoNoiseSigma = v; }
+        public double getShotsTeamNoiseSigma() { return shotsTeamNoiseSigma; }
+        public void setShotsTeamNoiseSigma(double v) { this.shotsTeamNoiseSigma = v; }
+        public int getShotsMax() { return shotsMax; }
+        public void setShotsMax(int v) { this.shotsMax = v; }
         public double getShotsOnTargetBase() { return shotsOnTargetBase; }
         public void setShotsOnTargetBase(double v) { this.shotsOnTargetBase = v; }
         public double getShotsOnTargetEdgeSpan() { return shotsOnTargetEdgeSpan; }
@@ -890,14 +903,22 @@ public class MatchEngineConfig {
         public void setCrossAccuracyEdgeScale(double v) { this.crossAccuracyEdgeScale = v; }
         public double getCrossAccuracyNoise() { return crossAccuracyNoise; }
         public void setCrossAccuracyNoise(double v) { this.crossAccuracyNoise = v; }
-        public double getBigChancesSoTRatio() { return bigChancesSoTRatio; }
-        public void setBigChancesSoTRatio(double v) { this.bigChancesSoTRatio = v; }
-        public double getXgPerBigChance() { return xgPerBigChance; }
-        public void setXgPerBigChance(double v) { this.xgPerBigChance = v; }
-        public double getXgPerSotMiss() { return xgPerSotMiss; }
-        public void setXgPerSotMiss(double v) { this.xgPerSotMiss = v; }
-        public double getXgPerWideShot() { return xgPerWideShot; }
-        public void setXgPerWideShot(double v) { this.xgPerWideShot = v; }
+        public double getXgBigChanceRate() { return xgBigChanceRate; }
+        public void setXgBigChanceRate(double v) { this.xgBigChanceRate = v; }
+        public double getXgBigChancePowerSpan() { return xgBigChancePowerSpan; }
+        public void setXgBigChancePowerSpan(double v) { this.xgBigChancePowerSpan = v; }
+        public double getXgRegularMin() { return xgRegularMin; }
+        public void setXgRegularMin(double v) { this.xgRegularMin = v; }
+        public double getXgRegularMax() { return xgRegularMax; }
+        public void setXgRegularMax(double v) { this.xgRegularMax = v; }
+        public double getXgBigMin() { return xgBigMin; }
+        public void setXgBigMin(double v) { this.xgBigMin = v; }
+        public double getXgBigMax() { return xgBigMax; }
+        public void setXgBigMax(double v) { this.xgBigMax = v; }
+        public double getXgScorelineProbabilityFloor() { return xgScorelineProbabilityFloor; }
+        public void setXgScorelineProbabilityFloor(double v) { this.xgScorelineProbabilityFloor = v; }
+        public int getXgScorelineResampleAttempts() { return xgScorelineResampleAttempts; }
+        public void setXgScorelineResampleAttempts(int v) { this.xgScorelineResampleAttempts = v; }
         public double getTacticalPossessionKeepBall() { return tacticalPossessionKeepBall; }
         public void setTacticalPossessionKeepBall(double v) { this.tacticalPossessionKeepBall = v; }
         public double getTacticalPossessionFreeBallEarly() { return tacticalPossessionFreeBallEarly; }

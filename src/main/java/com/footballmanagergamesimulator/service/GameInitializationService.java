@@ -1,9 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
-import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Round;
-import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamFacilities;
@@ -13,7 +11,6 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
-import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -22,11 +19,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * One-time game initialization on cold start: creates the persistent Round
@@ -72,7 +73,6 @@ public class GameInitializationService {
     @Autowired private TeamRepository teamRepository;
     @Autowired private TeamFacilitiesRepository teamFacilitiesRepository;
     @Autowired private HumanRepository humanRepository;
-    @Autowired private ScorerRepository scorerRepository;
     @Autowired private ScorerLeaderboardRepository scorerLeaderboardRepository;
     @Autowired private BootstrapService bootstrapService;
     @Autowired private FixtureSchedulingService fixtureSchedulingService;
@@ -83,6 +83,7 @@ public class GameInitializationService {
     @Autowired @Lazy private StaffService staffService;
     @Autowired @Lazy private NewSeasonSetupProcessor newSeasonSetupProcessor;
     @Autowired private PrebuiltDataService prebuiltDataService;
+    @Autowired private SuperCupService superCupService;
 
     /**
      * Resume-aware initialization. If a Round row already exists, returns it
@@ -92,6 +93,7 @@ public class GameInitializationService {
     public Round initializeRound() {
         Optional<Round> existing = roundRepository.findById(1L);
         if (existing.isPresent()) {
+            superCupService.ensureCompetitions();
             Round round = existing.get();
             System.out.println("=== Resuming from season " + round.getSeason()
                     + ", round " + round.getRound() + " ===");
@@ -102,6 +104,7 @@ public class GameInitializationService {
         if (usePrebuiltData && !rebuildPrebuiltData && prebuiltDataService.snapshotExists()) {
             System.out.println("=== Loading pre-built data from " + prebuiltDataService.snapshotFile() + " ===");
             prebuiltDataService.restore();
+            superCupService.ensureCompetitions();
             return roundRepository.findById(1L).orElseThrow(() ->
                     new IllegalStateException("Pre-built snapshot contained no Round — delete "
                             + prebuiltDataService.snapshotFile() + " and regenerate"));
@@ -115,6 +118,7 @@ public class GameInitializationService {
 
         competitionTeamInfoRepository.deleteAll();
         bootstrapService.initialization();
+        superCupService.ensureCompetitions();
 
         Set<Long> leagueCompetitionIds = new HashSet<>(competitionRepository.findIdsByTypeId(1));
         Set<Long> secondLeagueCompetitionIds = competitionRepository.findIdsByTypeId(3);
@@ -201,53 +205,40 @@ public class GameInitializationService {
     }
 
     private void initializeScorersForAllPlayers(Round round) {
-        List<Team> allTeams = teamRepository.findAll();
-        for (Team team : allTeams) {
-            List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
-            List<CompetitionTeamInfo> competitions = competitionTeamInfoRepository.findAllByTeamIdAndSeasonNumber(team.getId(), round.getSeason());
+        List<Human> players = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
+        Map<Long, String> teamNames = teamRepository.findAll().stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName, (left, right) -> left));
+        // Cold initialization normally sees an empty leaderboard. Use the ordinary unlocked
+        // findAll query here because this method runs during @PostConstruct, before a request
+        // transaction exists; findAllByPlayerIdIn deliberately takes a pessimistic write lock.
+        Map<Long, ScorerLeaderboardEntry> existing = scorerLeaderboardRepository.findAll().stream()
+                .collect(Collectors.toMap(
+                        ScorerLeaderboardEntry::getPlayerId,
+                        entry -> entry,
+                        (left, right) -> left,
+                        HashMap::new));
 
-            for (Human human : allPlayers) {
-                for (CompetitionTeamInfo competitionTeamInfo : competitions) {
-                    Scorer scorer = new Scorer();
-                    scorer.setPlayerId(human.getId());
-                    scorer.setSeasonNumber((int) round.getSeason());
-                    scorer.setTeamId(team.getId());
-                    scorer.setOpponentTeamId(-1);
-                    scorer.setPosition(human.getPosition());
-                    scorer.setTeamScore(-1);
-                    scorer.setOpponentScore(-1);
-                    scorer.setCompetitionId(competitionTeamInfo.getCompetitionId());
-                    Long typeId = competitionRepository.findTypeIdById(competitionTeamInfo.getCompetitionId());
-                    scorer.setCompetitionTypeId(typeId != null ? typeId.intValue() : 0);
-                    scorer.setTeamName(team.getName());
-                    scorer.setOpponentTeamName(null);
-                    scorer.setCompetitionName(competitionRepository.findNameById(competitionTeamInfo.getCompetitionId()));
-                    scorer.setRating(human.getRating());
-                    scorer.setGoals(0);
-                    scorerRepository.save(scorer);
-                }
-
-                if (scorerLeaderboardRepository.findByPlayerId(human.getId()).isEmpty()) {
-                    ScorerLeaderboardEntry scorerLeaderboardEntry = new ScorerLeaderboardEntry();
-                    scorerLeaderboardEntry.setPlayerId(human.getId());
-                    scorerLeaderboardEntry.setAge(human.getAge());
-                    scorerLeaderboardEntry.setName(human.getName());
-                    scorerLeaderboardEntry.setGoals(0);
-                    scorerLeaderboardEntry.setMatches(0);
-                    scorerLeaderboardEntry.setCurrentRating(human.getRating());
-                    scorerLeaderboardEntry.setBestEverRating(human.getRating());
-                    scorerLeaderboardEntry.setSeasonOfBestEverRating((int) round.getSeason());
-                    scorerLeaderboardEntry.setPosition(human.getPosition());
-                    scorerLeaderboardEntry.setTeamId(human.getTeamId());
-                    scorerLeaderboardEntry.setTeamName(team.getName());
-                    scorerLeaderboardRepository.save(scorerLeaderboardEntry);
-                }
-
-                Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
-                ScorerLeaderboardEntry scorerLeaderboardEntry =
-                        NewSeasonSetupProcessor.resetCurrentSeasonStats(optionalScorerLeaderboardEntry);
-                scorerLeaderboardRepository.save(scorerLeaderboardEntry);
+        List<ScorerLeaderboardEntry> leaderboardEntries = new ArrayList<>(players.size());
+        for (Human player : players) {
+            ScorerLeaderboardEntry entry = existing.get(player.getId());
+            if (entry == null) {
+                entry = new ScorerLeaderboardEntry();
+                entry.setPlayerId(player.getId());
+                entry.setGoals(0);
+                entry.setMatches(0);
+                entry.setBestEverRating(player.getRating());
+                entry.setSeasonOfBestEverRating((int) round.getSeason());
             }
+            entry.setAge(player.getAge());
+            entry.setName(player.getName());
+            entry.setCurrentRating(player.getRating());
+            entry.setPosition(player.getPosition());
+            entry.setTeamId(player.getTeamId() == null ? 0L : player.getTeamId());
+            entry.setTeamName(teamNames.getOrDefault(entry.getTeamId(), "Free Agent"));
+            entry.setActive(!player.isRetired());
+            NewSeasonSetupProcessor.resetCurrentSeasonStats(entry);
+            leaderboardEntries.add(entry);
         }
+        scorerLeaderboardRepository.saveAll(leaderboardEntries);
     }
 }

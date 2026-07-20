@@ -29,14 +29,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * End-to-end validation of the configurable League of Champions (typeId 4) entry
- * + preliminary trim. Seeds a 40-team field at round 0 and runs the real
- * preliminary dispatch (seeded draw with byes + match simulation + winner
- * propagation), asserting the field is trimmed to exactly the 16 group-stage
- * slots and that the group draw forms 4 groups of 4 — i.e. the variable-format
- * pipeline wired in Increment 1 actually runs through the live engine.
+ * + tiered qualification. Seeds 2 first-round, 7 second-round and 12 direct
+ * group entrants, then runs the real draws and winner propagation.
  */
 @SpringBootTest
-@DisplayName("Configurable LoC — 40 entrants trim through preliminaries to 16 group slots")
+@DisplayName("Configurable LoC — 21 tiered entrants produce 16 group-stage clubs")
 class LeagueOfChampionsConfigurableIT {
 
     @Autowired private EuropeanCompetitionService europeanCompetitionService;
@@ -71,25 +68,26 @@ class LeagueOfChampionsConfigurableIT {
     }
 
     @Test
-    void fortyEntrantsTrimToSixteenThroughPreliminaries() {
-        // Seed 40 distinct teams at the first preliminary round (round 0).
+    void tieredEntrantsProduceSixteenGroupTeams() {
         List<Long> teamIds = teamRepository.findAll().stream()
                 .sorted(Comparator.comparingLong(Team::getId))
-                .map(Team::getId).limit(40).toList();
-        assertEquals(40, teamIds.size(), "bootstrap must provide at least 40 teams");
-        for (long teamId : teamIds) seedLocEntry(teamId, 0L);
+                .map(Team::getId).limit(21).toList();
+        assertEquals(21, teamIds.size(), "bootstrap must provide at least 21 teams");
+        teamIds.subList(0, 2).forEach(teamId -> seedLocEntry(teamId, 0L));
+        teamIds.subList(2, 9).forEach(teamId -> seedLocEntry(teamId, 1L));
+        teamIds.subList(9, 21).forEach(teamId -> seedLocEntry(teamId, 2L));
 
         // Group-stage size from the production LoC format (single source of truth).
         var locFmt = competitionFormat.get(4);
         int slots = locFmt.groupCount() * locFmt.groupSize();
 
-        // Round 0: 40 teams, eliminate min(24,20)=20 → no byes, 20 ties → 20 winners.
+        // Round 0: two clubs play for one place in round 1.
         europeanCompetitionService.drawEuropeanPreliminarySeeded(locId, 0L, slots);
         competitionController.simulateRound(String.valueOf(locId), "0");
-        assertEquals(20, participantsAtRound(1L),
-                "after prelim round 0, exactly 20 teams should reach round 1");
+        assertEquals(8, participantsAtRound(1L),
+                "round-one winner must join the seven round-two entrants");
 
-        // Round 1: 20 teams, eliminate min(4,10)=4 → 12 byes + 8 play → 16 reach the group draw.
+        // Round 1: eight clubs produce four winners who join 12 direct entrants.
         europeanCompetitionService.drawEuropeanPreliminarySeeded(locId, 1L, slots);
         competitionController.simulateRound(String.valueOf(locId), "1");
         assertEquals(16, participantsAtRound(2L),

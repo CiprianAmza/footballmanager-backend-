@@ -102,6 +102,8 @@ class PlayerMatchStatServiceTest {
         assertThat(row.getPressures()).isGreaterThan(0.0);
         assertThat(row.getDefensiveActions()).isGreaterThan(0.0);
         assertThat(row.getPassesAttempted()).isGreaterThanOrEqualTo(row.getPassesCompleted());
+        assertThat(row.getChancesCreated()).isGreaterThan(0.0);
+        assertThat(row.getDribblesCompleted()).isGreaterThan(0.0);
 
         // Capture the single-match value before the upsert (the in-memory repo returns the SAME
         // mutable row instance, so `row` would otherwise alias the post-increment value).
@@ -130,6 +132,26 @@ class PlayerMatchStatServiceTest {
                 .orElseThrow().getPressures();
 
         assertThat(highPressures).isGreaterThan(lowPressures);
+    }
+
+    @Test
+    void moreDribblingInstruction_recordsMoreCompletedDribblesThanLess() {
+        PlayerSkills skills = uniformSkills(4L, 16, "AML");
+        when(skillsRepo.findAllByPlayerIdIn(any())).thenReturn(List.of(skills));
+        PersonalizedTactic more = tactic("Standard");
+        more.setDribbling("More");
+        PersonalizedTactic less = tactic("Standard");
+        less.setDribbling("Less");
+
+        statService.recordRealMatchForTeam(1L, List.of(view(4L, "AML")), more, COMP, SEASON);
+        double moreValue = statRepo.findByPlayerIdAndCompetitionIdAndSeasonNumber(4L, COMP, SEASON)
+                .orElseThrow().getDribblesCompleted();
+        statRepo.clear();
+        statService.recordRealMatchForTeam(1L, List.of(view(4L, "AML")), less, COMP, SEASON);
+        double lessValue = statRepo.findByPlayerIdAndCompetitionIdAndSeasonNumber(4L, COMP, SEASON)
+                .orElseThrow().getDribblesCompleted();
+
+        assertThat(moreValue).isGreaterThan(lessValue);
     }
 
     @Test
@@ -180,6 +202,11 @@ class PlayerMatchStatServiceTest {
                 if (s.getCompetitionId() == competitionId && s.getSeasonNumber() == seasonNumber) out.add(s);
             }
             return out;
+        }
+
+        @Override
+        public List<PlayerSeasonStat> findAllBySeasonNumber(int seasonNumber) {
+            return store.values().stream().filter(row -> row.getSeasonNumber() == seasonNumber).toList();
         }
 
         @Override

@@ -7,8 +7,11 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionType;
 import com.footballmanagergamesimulator.service.CompetitionDisplayService;
 import com.footballmanagergamesimulator.service.CompetitionQueryService;
+import com.footballmanagergamesimulator.service.CompetitionProgressService;
+import com.footballmanagergamesimulator.service.CompetitionOverviewService;
 import com.footballmanagergamesimulator.service.CupBracketService;
 import com.footballmanagergamesimulator.service.EuropeanDisplayService;
+import com.footballmanagergamesimulator.service.EuropeanDrawService;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.GameStateService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
@@ -40,6 +43,9 @@ public class CompetitionController {
     private final MatchSimulationOrchestrator matchSimulationOrchestrator;
     private final TransferMarketService transferMarketService;
     private final UserContext userContext;
+    private final CompetitionProgressService competitionProgressService;
+    private final CompetitionOverviewService competitionOverviewService;
+    private final EuropeanDrawService europeanDrawService;
 
     public CompetitionController(CompetitionDisplayService competitionDisplayService,
                                  CompetitionQueryService competitionQueryService,
@@ -49,7 +55,10 @@ public class CompetitionController {
                                  GameStateService gameStateService,
                                  MatchSimulationOrchestrator matchSimulationOrchestrator,
                                  TransferMarketService transferMarketService,
-                                 UserContext userContext) {
+                                 UserContext userContext,
+                                 CompetitionProgressService competitionProgressService,
+                                 CompetitionOverviewService competitionOverviewService,
+                                 EuropeanDrawService europeanDrawService) {
         this.competitionDisplayService = competitionDisplayService;
         this.competitionQueryService = competitionQueryService;
         this.cupBracketService = cupBracketService;
@@ -59,6 +68,9 @@ public class CompetitionController {
         this.matchSimulationOrchestrator = matchSimulationOrchestrator;
         this.transferMarketService = transferMarketService;
         this.userContext = userContext;
+        this.competitionProgressService = competitionProgressService;
+        this.competitionOverviewService = competitionOverviewService;
+        this.europeanDrawService = europeanDrawService;
     }
 
     // ============================================================
@@ -158,6 +170,33 @@ public class CompetitionController {
     @GetMapping("/getTeamCompetitions/{teamId}")
     public List<Map<String, Object>> getTeamCompetitions(@PathVariable long teamId) {
         return competitionDisplayService.getTeamCompetitions(teamId);
+    }
+
+    @GetMapping("/{competitionId}/{season}/stages")
+    public List<Map<String, Object>> getCompetitionStages(@PathVariable long competitionId,
+                                                           @PathVariable long season) {
+        return competitionProgressService.stages(competitionId, season);
+    }
+
+    @GetMapping("/{competitionId}/{season}/team/{teamId}/progress")
+    public Map<String, Object> getTeamProgress(@PathVariable long competitionId,
+                                               @PathVariable long season,
+                                               @PathVariable long teamId) {
+        return competitionProgressService.teamProgress(teamId, competitionId, season);
+    }
+
+    @GetMapping("/{competitionId}/{season}/overview")
+    public Map<String, Object> getCompetitionOverview(@PathVariable long competitionId,
+                                                      @PathVariable int season,
+                                                      @RequestParam(required = false) Long teamId) {
+        return competitionOverviewService.overview(competitionId, season, teamId);
+    }
+
+    @GetMapping("/europeanDraws/{competitionId}/{season}")
+    public List<Map<String, Object>> getEuropeanDraws(@PathVariable long competitionId,
+                                                       @PathVariable int season) {
+        europeanDrawService.ensureDrawEventsForSeason(season);
+        return europeanDrawService.drawStates(competitionId, season);
     }
 
     // ============================================================

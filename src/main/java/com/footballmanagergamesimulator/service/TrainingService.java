@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.TrainingSchedule;
 import com.footballmanagergamesimulator.config.FacilityTraining;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.model.TeamFacilities;
 import com.footballmanagergamesimulator.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,12 @@ public class TrainingService {
     TeamFacilitiesRepository teamFacilitiesRepository;
     @Autowired
     MatchEngineConfig engineConfig;
+    @Autowired
+    TrainingCadenceService trainingCadenceService;
+    @Autowired
+    InjuryTimelineService injuryTimelineService;
+    @Autowired(required = false)
+    GameplayFeatureConfig gameplayFeatures;
 
     private static final String[] TRAINING_INJURY_TYPES = {
             "Muscle Strain", "Twisted Ankle", "Minor Knock", "Hamstring Tweak", "Bruised Shin"
@@ -68,6 +75,10 @@ public class TrainingService {
     );
 
     public void processTrainingSession(long teamId, int season) {
+        processTrainingSession(teamId, season, injuryTimelineService.currentDate().day());
+    }
+
+    public void processTrainingSession(long teamId, int season, int currentDay) {
 
         Random random = new Random();
 
@@ -78,7 +89,8 @@ public class TrainingService {
                 .collect(Collectors.toList());
 
         // Get currently injured player IDs
-        Set<Long> injuredPlayerIds = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
+        Set<Long> injuredPlayerIds = availabilityDisabled() ? Set.of()
+                : injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)
                 .stream()
                 .map(Injury::getPlayerId)
                 .collect(Collectors.toSet());
@@ -91,6 +103,17 @@ public class TrainingService {
         // source: config + FacilityTraining, age-based youth vs senior level).
         TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
         MatchEngineConfig.Training trainingCfg = engineConfig.getTraining();
+        boolean updateRatings = trainingCadenceService.isRatingUpdateDay(currentDay);
+
+        // Development runs once per cadence block and uses one IN query instead
+        // of one PlayerSkills lookup for every player in every daily session.
+        Map<Long, PlayerSkills> skillsByPlayer = new HashMap<>();
+        if (updateRatings) {
+            List<Long> playerIds = players.stream().map(Human::getId).toList();
+            for (PlayerSkills skills : playerSkillsRepository.findAllByPlayerIdIn(playerIds)) {
+                skillsByPlayer.put(skills.getPlayerId(), skills);
+            }
+        }
 
         List<Human> modifiedPlayers = new ArrayList<>();
         List<PlayerSkills> modifiedSkills = new ArrayList<>();
@@ -109,58 +132,54 @@ public class TrainingService {
             if (trainingCfg.isScaleFitnessGain()) fitnessGain *= facilityFactor;
             player.setFitness(Math.min(100.0, player.getFitness() + fitnessGain));
 
-            // Determine effective training focus for this player (individual overrides team)
-            Set<String> effectiveFocusAttrs = getEffectiveFocusAttrs(player, focusAttrs);
+            if (updateRatings) {
+                Set<String> effectiveFocusAttrs = getEffectiveFocusAttrs(player, focusAttrs);
+                PlayerSkills skills = skillsByPlayer.get(player.getId());
+                if (skills != null) {
+                    boolean attributeChanged = trainAttributes(
+                            player, skills, effectiveFocusAttrs, random, facilityFactor);
 
-            // Train individual attributes
-            Optional<PlayerSkills> skillsOpt = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId());
-            if (skillsOpt.isPresent()) {
-                PlayerSkills skills = skillsOpt.get();
-                boolean attributeChanged = trainAttributes(player, skills, effectiveFocusAttrs, random, facilityFactor);
+                    if (attributeChanged) {
+                        double newRating = PlayerSkillsService.computeOverallRating(skills);
+                        if (player.getPotentialAbility() > 0) {
+                            newRating = Math.min(newRating, player.getPotentialAbility());
+                        }
+                        newRating = Math.max(1.0, newRating);
+                        player.setRating(newRating);
 
-                if (attributeChanged) {
-                    // Recompute overall rating from updated attributes
-                    double newRating = PlayerSkillsService.computeOverallRating(skills);
-                    // Cap at potential ability
-                    if (player.getPotentialAbility() > 0) {
-                        newRating = Math.min(newRating, player.getPotentialAbility());
+                        if (newRating > player.getBestEverRating()) {
+                            player.setBestEverRating(newRating);
+                            player.setSeasonOfBestEverRating(season);
+                        }
+                        modifiedSkills.add(skills);
                     }
-                    newRating = Math.max(1.0, newRating);
-                    player.setRating(newRating);
+                } else {
+                    // Fallback: old-style rating-only training.
+                    double ratingChange = calculateDevelopmentChange(player, random);
+                    if (ratingChange != 0) {
+                        double newRating = player.getRating() + ratingChange;
+                        if (ratingChange > 0 && player.getPotentialAbility() > 0) {
+                            newRating = Math.min(newRating, player.getPotentialAbility());
+                        }
+                        newRating = Math.max(newRating, 1.0);
+                        player.setRating(newRating);
 
-                    if (newRating > player.getBestEverRating()) {
-                        player.setBestEverRating(newRating);
-                        player.setSeasonOfBestEverRating(season);
-                    }
-                    modifiedSkills.add(skills);
-                }
-            } else {
-                // Fallback: old-style rating-only training
-                double ratingChange = calculateDevelopmentChange(player, random);
-                if (ratingChange != 0) {
-                    double newRating = player.getRating() + ratingChange;
-                    if (ratingChange > 0 && player.getPotentialAbility() > 0) {
-                        newRating = Math.min(newRating, player.getPotentialAbility());
-                    }
-                    newRating = Math.max(newRating, 1.0);
-                    player.setRating(newRating);
-
-                    if (newRating > player.getBestEverRating()) {
-                        player.setBestEverRating(newRating);
-                        player.setSeasonOfBestEverRating(season);
+                        if (newRating > player.getBestEverRating()) {
+                            player.setBestEverRating(newRating);
+                            player.setSeasonOfBestEverRating(season);
+                        }
                     }
                 }
             }
 
             // Very small chance (1%) of training injury
-            if (random.nextDouble() < 0.01) {
+            if (!availabilityDisabled() && random.nextDouble() < 0.01) {
                 Injury injury = new Injury();
                 injury.setPlayerId(player.getId());
                 injury.setTeamId(teamId);
                 injury.setInjuryType(TRAINING_INJURY_TYPES[random.nextInt(TRAINING_INJURY_TYPES.length)]);
                 injury.setSeverity("Minor");
-                injury.setDaysRemaining(random.nextInt(3, 15)); // 3-14 days
-                injury.setSeasonNumber(season);
+                injuryTimelineService.schedule(injury, season, currentDay, random.nextInt(3, 15));
                 injuryRepository.save(injury);
 
                 player.setCurrentStatus("Injured");
@@ -174,9 +193,15 @@ public class TrainingService {
             playerSkillsRepository.saveAll(modifiedSkills);
         }
 
-        // Training recomputed player ratings — drop this team's cached AI base
-        // rating so its match power reflects the new values from the next match.
-        matchSimulationOrchestrator.invalidateRatingCache(teamId);
+        if (updateRatings) {
+            // Training recomputed player ratings — drop this team's cached AI base
+            // rating so its match power reflects the new values from the next match.
+            matchSimulationOrchestrator.invalidateRatingCache(teamId);
+        }
+    }
+
+    private boolean availabilityDisabled() {
+        return gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled();
     }
 
     /**

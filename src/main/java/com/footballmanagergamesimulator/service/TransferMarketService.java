@@ -76,7 +76,7 @@ public class TransferMarketService {
     /** AI team submits one offer per position slot for the best matching
      *  player on each human-owned squad. Persists a TransferOffer and an
      *  inbox notification for the human manager. */
-    public void generateAiOffersForHumanPlayers(Team aiTeam, BuyPlanTransferView buyPlanTransferView) {
+    public synchronized void generateAiOffersForHumanPlayers(Team aiTeam, BuyPlanTransferView buyPlanTransferView) {
         if (buyPlanTransferView == null) return;
         // An owner who has barred buying binds the AI coach too — no AI offers for this club.
         if (!coachPermissionService.canBuyPlayers(aiTeam.getId())) return;
@@ -99,10 +99,14 @@ public class TransferMarketService {
                     // 30 = scaled-up 10 for the 1-300 rating range.
                     if (player.getRating() < clubPlan.getMinRating() - 30) continue;
 
-                    // Check if there's already a pending offer for this player this season
-                    List<TransferOffer> existingOffers = transferOfferRepository
-                            .findAllByPlayerIdAndSeasonNumberAndStatusNot(player.getId(), season, "rejected");
-                    if (!existingOffers.isEmpty()) continue;
+                    // Different clubs may compete for one player, but the same club cannot
+                    // create duplicate active offers when parallel competitions are processed.
+                    if (transferOfferRepository
+                            .existsByPlayerIdAndFromTeamIdAndSeasonNumberAndStatusIn(
+                                    player.getId(), aiTeam.getId(), season,
+                                    List.of("pending", "negotiating", "counter", "accepted"))) {
+                        continue;
+                    }
 
                     long transferValue = TransferValueCalculator.calculate(
                             player.getAge(), player.getPosition(), player.getRating());

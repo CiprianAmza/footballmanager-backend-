@@ -40,6 +40,8 @@ public class YouthAcademyService {
     StaffService staffService;
     @Autowired
     GameLock gameLock;
+    @Autowired
+    ScorerLeaderboardSyncService scorerLeaderboardSyncService;
 
     private static final String[] POSITIONS = {"GK", "DC", "DL", "WBL", "DR", "WBR", "MC", "DM", "ML", "AML", "MR", "AMR", "AMC", "ST"};
     private static final int[] POSITION_WEIGHTS = {5, 14, 8, 5, 8, 5, 11, 7, 8, 6, 8, 6, 9, 14};
@@ -54,21 +56,7 @@ public class YouthAcademyService {
         int hoydQuality = staffService.getHOYDQuality(teamId);
 
         for (int i = 0; i < count; i++) {
-            YouthPlayer yp = new YouthPlayer();
-            yp.setTeamId(teamId);
-            yp.setName(compositeNameGenerator.generateName(1L));
-            yp.setAge(random.nextInt(15, 19));
-            int basePotential = generateWeightedPotential(random);
-            // HOYD quality bonus: up to +10 potential for top HOYD (quality 20)
-            int hoydBonus = (int) (hoydQuality * 0.5);
-            yp.setPotentialAbility(Math.min(99, basePotential + hoydBonus));
-            yp.setCurrentAbility((int) (yp.getPotentialAbility() * random.nextDouble(0.3, 0.6)));
-            yp.setPosition(generateWeightedPosition(random));
-            yp.setPotential(categorizePotential(yp.getPotentialAbility()));
-            yp.setStatus("IN_ACADEMY");
-            yp.setSeasonJoined(season);
-            yp.setDaysInAcademy(0);
-
+            YouthPlayer yp = createProspect(teamId, season, random, hoydQuality);
             youthPlayerRepository.save(yp);
             newProspects.add(yp);
         }
@@ -90,6 +78,31 @@ public class YouthAcademyService {
         inbox.setCreatedAt(System.currentTimeMillis());
 
         managerInboxRepository.save(inbox);
+    }
+
+    /**
+     * Creates an unsaved academy prospect using the same rules as the regular
+     * youth report. Package visibility lets the season-end minimum-squad
+     * service batch-persist emergency academy graduates without duplicating
+     * the academy quality model.
+     */
+    YouthPlayer createProspect(long teamId, int season, Random random, int hoydQuality) {
+        YouthPlayer prospect = new YouthPlayer();
+        prospect.setTeamId(teamId);
+        prospect.setName(compositeNameGenerator.generateName(1L));
+        prospect.setAge(random.nextInt(15, 19));
+        int basePotential = generateWeightedPotential(random);
+        // HOYD quality bonus: up to +10 potential for top HOYD (quality 20)
+        int hoydBonus = (int) (hoydQuality * 0.5);
+        prospect.setPotentialAbility(Math.min(99, basePotential + hoydBonus));
+        prospect.setCurrentAbility((int) (prospect.getPotentialAbility()
+                * random.nextDouble(0.3, 0.6)));
+        prospect.setPosition(generateWeightedPosition(random));
+        prospect.setPotential(categorizePotential(prospect.getPotentialAbility()));
+        prospect.setStatus("IN_ACADEMY");
+        prospect.setSeasonJoined(season);
+        prospect.setDaysInAcademy(0);
+        return prospect;
     }
 
     public Human promoteToFirstTeam(long youthPlayerId, long teamId) {
@@ -180,6 +193,10 @@ public class YouthAcademyService {
         relation.setSeasonNumber(currentSeason);
         relation.setRating(human.getRating());
         teamPlayerHistoricalRelationRepository.save(relation);
+
+        // A promoted academy player can enter the next match immediately; make
+        // sure the denormalized Golden Boot row exists before that simulation.
+        scorerLeaderboardSyncService.trackNewPlayer(human);
 
         // Update team salary budget
         Team team = teamRepository.findById(teamId).orElse(null);

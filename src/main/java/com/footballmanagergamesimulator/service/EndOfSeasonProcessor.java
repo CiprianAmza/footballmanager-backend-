@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.model.ClubCoefficient;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionHistory;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Loan;
@@ -13,6 +14,7 @@ import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.model.Transfer;
 import com.footballmanagergamesimulator.repository.ClubCoefficientRepository;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
@@ -39,6 +41,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -77,6 +80,7 @@ public class EndOfSeasonProcessor {
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private CompetitionHistoryRepository competitionHistoryRepository;
+    @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
     @Autowired private TransferRepository transferRepository;
     @Autowired private LoanRepository loanRepository;
     @Autowired private HumanRepository humanRepository;
@@ -92,6 +96,8 @@ public class EndOfSeasonProcessor {
     @Autowired private SeasonObjectiveService seasonObjectiveService;
     @Autowired private FinanceService financeService;
     @Autowired @Lazy private MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired private SuperCupService superCupService;
+    @Autowired private TransferOfferLifecycleService transferOfferLifecycleService;
 
     /** Dedup flags — owned by the processor so re-entry protection lives next
      *  to the body that needs it. {@link #reset()} clears them at new-season setup. */
@@ -125,8 +131,14 @@ public class EndOfSeasonProcessor {
         inProgress = true;
         try {
             System.out.println("=== processEndOfSeason: season " + season + " ===");
+            superCupService.ensureCompetitions();
 
             List<Long> teamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
+            // User membership is stable for this pipeline. Resolve it once:
+            // calling isHumanTeam() inside the transfer/loan loops executes a
+            // repository query each time and, in this large transaction, makes
+            // Hibernate auto-flush thousands of managed entities repeatedly.
+            Set<Long> humanTeamIds = new HashSet<>(userContext.getAllHumanTeamIds());
 
             // Final standings, relegation/promotion
             Set<Long> leagueCompetitionIds = competitionRepository.findIdsByTypeId(1);
@@ -168,6 +180,7 @@ public class EndOfSeasonProcessor {
             teamCompetitionDetailRepository.saveAll(newTcds);
 
             List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
+            snapshotFinalStandings(allComps, teamCompetitionDetails, currentSeason);
             // Pre-resolve every team once so the standings comparator's reputation
             // tiebreaker is a map lookup instead of a per-comparison findById (N+1).
             Map<Long, Team> teamsById = teamRepository.findAll().stream()
@@ -235,7 +248,7 @@ public class EndOfSeasonProcessor {
             // AI transfer market
             List<PlayerTransferView> playersForTransferMarket = new ArrayList<>();
             for (Long teamId : teamIds) {
-                if (userContext.isHumanTeam(teamId)) continue;
+                if (humanTeamIds.contains(teamId)) continue;
                 // Read-only lookup — reuse the preloaded map; preserve the new Team() fallback.
                 Team team = teamsById.getOrDefault(teamId, new Team());
                 playersForTransferMarket.addAll(compositeTransferStrategy.playersToSell(team, humanRepository, tacticService.getMinimumPositionNeeded()));
@@ -251,7 +264,7 @@ public class EndOfSeasonProcessor {
 
             Map<PlayerTransferView, List<BuyPlanTransferView>> buyPlan = new HashMap<>();
             for (Long teamId : teamIds) {
-                if (userContext.isHumanTeam(teamId)) continue;
+                if (humanTeamIds.contains(teamId)) continue;
                 // Read-only lookup — reuse the preloaded map; preserve the new Team() fallback.
                 Team team = teamsById.getOrDefault(teamId, new Team());
                 BuyPlanTransferView buyPlanTransferView = compositeTransferStrategy.playersToBuy(team, humanRepository, tacticService.getMaximumPositionAllowed());
@@ -336,7 +349,7 @@ public class EndOfSeasonProcessor {
             // so the deterministic id-ordered list must be preserved.
             List<Team> allTeams = teamRepository.findAll();
             for (Long teamId : teamIds) {
-                if (userContext.isHumanTeam(teamId)) continue;
+                if (humanTeamIds.contains(teamId)) continue;
                 List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L);
                 if (players.size() <= 18) continue;
                 double avgRating = players.stream().mapToDouble(Human::getRating).average().orElse(0);
@@ -348,7 +361,7 @@ public class EndOfSeasonProcessor {
                 for (int i = 0; i < loansToMake; i++) {
                     Human loanPlayer = loanCandidates.get(i);
                     List<Team> potentialTeams = allTeams.stream()
-                            .filter(t -> t.getId() != teamId && !userContext.isHumanTeam(t.getId()))
+                            .filter(t -> t.getId() != teamId && !humanTeamIds.contains(t.getId()))
                             .collect(Collectors.toList());
                     if (potentialTeams.isEmpty()) continue;
                     Team loanTeam = potentialTeams.get(loanRandom.nextInt(potentialTeams.size()));
@@ -368,7 +381,10 @@ public class EndOfSeasonProcessor {
                     loan.setParentTeamName(parentTeam.getName());
                     loan.setLoanTeamId(loanTeam.getId());
                     loan.setLoanTeamName(loanTeam.getName());
-                    loan.setSeasonNumber(currentSeasonInt);
+                    int loanSeason = currentSeasonInt + 1;
+                    loan.setSeasonNumber(loanSeason);
+                    loan.setStartSeason(loanSeason);
+                    loan.setEndSeason(loanSeason);
                     loan.setStatus("active");
                     loan.setLoanFee(loanFee);
                     loanRepository.save(loan);
@@ -387,7 +403,7 @@ public class EndOfSeasonProcessor {
                             .append(" → ").append(transfer.getBuyTeamName())
                             .append(" (").append(String.format("%,d", transfer.getPlayerTransferValue())).append(")\n");
                 }
-                for (long htId : userContext.getAllHumanTeamIds()) {
+                for (long htId : humanTeamIds) {
                     ManagerInbox inbox = new ManagerInbox();
                     inbox.setTeamId(htId);
                     inbox.setSeasonNumber(currentSeasonInt);
@@ -412,6 +428,109 @@ public class EndOfSeasonProcessor {
         }
     }
 
+    /**
+     * Persist the completed table while it is still intact. The season-summary
+     * screen is available before the user starts the next season, so deferring
+     * this snapshot to new-season setup left it empty at the exact moment it was
+     * needed. The guard also makes end-of-season retries idempotent.
+     */
+    private void snapshotFinalStandings(
+            List<Competition> competitions,
+            List<TeamCompetitionDetail> details,
+            long season) {
+        if (!competitionHistoryRepository.findAllBySeasonNumber(season).isEmpty()) return;
+
+        Map<Long, Competition> competitionsById = competitions.stream()
+                .collect(Collectors.toMap(Competition::getId, competition -> competition));
+        Map<Long, List<TeamCompetitionDetail>> detailsByCompetition = details.stream()
+                .collect(Collectors.groupingBy(detail -> (long) detail.getCompetitionId()));
+        List<CompetitionHistory> history = new ArrayList<>();
+
+        for (Map.Entry<Long, List<TeamCompetitionDetail>> entry : detailsByCompetition.entrySet()) {
+            Competition competition = competitionsById.get(entry.getKey());
+            if (competition == null) continue;
+            List<TeamCompetitionDetail> standings = new ArrayList<>(entry.getValue());
+            if (competition.getTypeId() == 2 || competition.getTypeId() == 4
+                    || competition.getTypeId() == 5 || competition.getTypeId() == 6) {
+                sortCupFinish(standings, competition.getId(), season);
+            } else {
+                standings.sort((left, right) -> {
+                    if (left.getPoints() != right.getPoints())
+                        return Integer.compare(right.getPoints(), left.getPoints());
+                    if (left.getGoalDifference() != right.getGoalDifference())
+                        return Integer.compare(right.getGoalDifference(), left.getGoalDifference());
+                    return Integer.compare(right.getGoalsFor(), left.getGoalsFor());
+                });
+            }
+
+            for (int index = 0; index < standings.size(); index++) {
+                TeamCompetitionDetail detail = standings.get(index);
+                CompetitionHistory snapshot = new CompetitionHistory();
+                snapshot.setTeamId(detail.getTeamId());
+                snapshot.setCompetitionId(detail.getCompetitionId());
+                snapshot.setSeasonNumber(season);
+                snapshot.setCompetitionTypeId(competition.getTypeId());
+                snapshot.setCompetitionName(competition.getName());
+                snapshot.setGames(detail.getGames());
+                snapshot.setWins(detail.getWins());
+                snapshot.setDraws(detail.getDraws());
+                snapshot.setLoses(detail.getLoses());
+                snapshot.setGoalsFor(detail.getGoalsFor());
+                snapshot.setGoalsAgainst(detail.getGoalsAgainst());
+                snapshot.setGoalDifference(detail.getGoalDifference());
+                snapshot.setPoints(detail.getPoints());
+                snapshot.setForm(detail.getForm());
+                snapshot.setLastPosition(index + 1L);
+                history.add(snapshot);
+            }
+        }
+        competitionHistoryRepository.saveAll(history);
+    }
+
+    private void sortCupFinish(
+            List<TeamCompetitionDetail> standings,
+            long competitionId,
+            long season) {
+        List<CompetitionTeamInfoDetail> matches =
+                competitionTeamInfoDetailRepository.findAllByCompetitionIdAndSeasonNumber(
+                        competitionId, season);
+        if (matches.isEmpty()) {
+            standings.sort((left, right) -> Integer.compare(right.getPoints(), left.getPoints()));
+            return;
+        }
+
+        long finalRound = matches.stream()
+                .mapToLong(CompetitionTeamInfoDetail::getRoundId)
+                .max().orElse(0);
+        CompetitionTeamInfoDetail finalDecision = matches.stream()
+                .filter(match -> match.getRoundId() == finalRound && match.getWinnerTeamId() != null)
+                .findFirst().orElse(null);
+        Long winnerId = finalDecision != null ? finalDecision.getWinnerTeamId() : null;
+        Long runnerUpId = null;
+        if (finalDecision != null) {
+            runnerUpId = finalDecision.getTeam1Id() == winnerId
+                    ? finalDecision.getTeam2Id() : finalDecision.getTeam1Id();
+        }
+        final Long finalWinnerId = winnerId;
+        final Long finalRunnerUpId = runnerUpId;
+
+        Map<Long, Long> roundReached = new HashMap<>();
+        for (CompetitionTeamInfoDetail match : matches) {
+            roundReached.merge(match.getTeam1Id(), match.getRoundId(), Math::max);
+            roundReached.merge(match.getTeam2Id(), match.getRoundId(), Math::max);
+        }
+        standings.sort((left, right) -> {
+            int leftRank = Objects.equals(left.getTeamId(), finalWinnerId) ? 0
+                    : Objects.equals(left.getTeamId(), finalRunnerUpId) ? 1 : 2;
+            int rightRank = Objects.equals(right.getTeamId(), finalWinnerId) ? 0
+                    : Objects.equals(right.getTeamId(), finalRunnerUpId) ? 1 : 2;
+            if (leftRank != rightRank) return Integer.compare(leftRank, rightRank);
+            return Long.compare(
+                    roundReached.getOrDefault(right.getTeamId(), 0L),
+                    roundReached.getOrDefault(left.getTeamId(), 0L));
+        });
+    }
+
     // ============================================================
     //  Contract expiries — players whose contracts ended this season leave
     //  (human teams via inbox + budget update; AI teams 50/50 auto-renew)
@@ -420,6 +539,7 @@ public class EndOfSeasonProcessor {
     public void handleContractExpiries(int newSeason) {
         Random random = new Random();
         List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
+        Set<Long> humanTeamIds = new HashSet<>(userContext.getAllHumanTeamIds());
 
         for (Human player : allPlayers) {
             if (player.isRetired()) continue;
@@ -427,7 +547,7 @@ public class EndOfSeasonProcessor {
             if (player.getContractEndSeason() <= 0) continue;
             if (player.getContractEndSeason() > newSeason) continue;
 
-            if (userContext.isHumanTeam(player.getTeamId())) {
+            if (humanTeamIds.contains(player.getTeamId())) {
                 ManagerInbox inbox = new ManagerInbox();
                 inbox.setTeamId(player.getTeamId());
                 inbox.setSeasonNumber(newSeason);
@@ -448,6 +568,7 @@ public class EndOfSeasonProcessor {
                 player.setTeamId(null);
                 player.setContractEndSeason(0);
                 humanRepository.save(player);
+                transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
             } else {
                 // AI team: 50% auto-renew, 50% free agent
                 if (random.nextBoolean()) {
@@ -457,6 +578,7 @@ public class EndOfSeasonProcessor {
                 } else {
                     player.setTeamId(null);
                     humanRepository.save(player);
+                    transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
                 }
             }
         }

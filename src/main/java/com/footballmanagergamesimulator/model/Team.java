@@ -39,6 +39,14 @@ public class Team {
   private Long strategy;
 
   /**
+   * Prevents a struggling club from replacing a newly appointed AI manager
+   * again on the very next calendar tick. Zero means no mid-season change has
+   * been made yet; a club may perform at most one such change per season.
+   */
+  @Column(columnDefinition = "int default 0")
+  private int lastMidSeasonManagerChangeSeason;
+
+  /**
    * Stadium information
    */
   @Column(columnDefinition = "int default 30000")

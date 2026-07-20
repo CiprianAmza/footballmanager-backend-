@@ -13,6 +13,9 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -105,6 +108,7 @@ public class GameController {
     @Autowired InjuryRepository injuryRepository;
     @Autowired SuspensionRepository suspensionRepository;
     @Autowired LoanRepository loanRepository;
+    @Autowired AdminPlayerMovementRepository adminPlayerMovementRepository;
     @Autowired TransferOfferRepository transferOfferRepository;
     @Autowired PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired TrainingScheduleRepository trainingScheduleRepository;
@@ -122,9 +126,16 @@ public class GameController {
     @Autowired YouthPlayerRepository youthPlayerRepository;
     @Autowired PlayerInteractionRepository playerInteractionRepository;
     @Autowired AwardRepository awardRepository;
+    @Autowired AwardOverrideRepository awardOverrideRepository;
     @Autowired UserRepository userRepository;
     @Autowired StadiumRepository stadiumRepository;
     @Autowired FinancialRecordRepository financialRecordRepository;
+    @Autowired MatchStatsRepository matchStatsRepository;
+    @Autowired PlayerSeasonStatRepository playerSeasonStatRepository;
+    @Autowired com.footballmanagergamesimulator.config.GameplayFeatureConfig gameplayFeatures;
+    @Autowired GameStateService gameStateService;
+    @Autowired GameLock gameLock;
+    @Autowired FastForwardService fastForwardService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -488,12 +499,12 @@ public class GameController {
         long humanTeamId = userContext.getTeamId(request);
 
         // 1. Final league standings per competition
-        List<CompetitionHistory> allHistory = competitionHistoryRepository.findAll().stream()
-                .filter(h -> h.getSeasonNumber() == season)
-                .toList();
+        List<CompetitionHistory> allHistory = competitionHistoryRepository.findAllBySeasonNumber(season);
         List<Competition> competitions = competitionRepository.findAll();
         Map<Long, String> compNames = competitions.stream()
                 .collect(Collectors.toMap(Competition::getId, Competition::getName, (a, b) -> a));
+        Map<Long, String> teamNames = teamRepository.findAll().stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName, (a, b) -> a));
 
         List<Map<String, Object>> standings = new ArrayList<>();
         Set<Long> processedComps = new HashSet<>();
@@ -514,8 +525,7 @@ public class GameController {
                 Map<String, Object> t = new LinkedHashMap<>();
                 t.put("position", ch.getLastPosition());
                 t.put("teamId", ch.getTeamId());
-                Team team = teamRepository.findById(ch.getTeamId()).orElse(null);
-                t.put("teamName", team != null ? team.getName() : "Unknown");
+                t.put("teamName", teamNames.getOrDefault(ch.getTeamId(), "Unknown"));
                 t.put("games", ch.getGames());
                 t.put("wins", ch.getWins());
                 t.put("draws", ch.getDraws());
@@ -533,7 +543,8 @@ public class GameController {
         summary.put("standings", standings);
 
         // 2. Top scorers (from Scorer table aggregated by season)
-        List<Scorer> seasonScorers = scorerRepository.findAllBySeasonNumber(season);
+        List<Scorer> seasonScorers =
+                scorerRepository.findAllBySeasonNumberAndRoundNumberGreaterThan(season, 0);
         Map<Long, Map<String, Object>> playerGoals = new LinkedHashMap<>();
         for (Scorer s : seasonScorers) {
             Map<String, Object> entry = playerGoals.computeIfAbsent(s.getPlayerId(), k -> {
@@ -553,16 +564,21 @@ public class GameController {
             entry.put("games", (int) entry.get("games") + 1);
             entry.put("totalRating", (double) entry.get("totalRating") + s.getRating());
         }
+        Map<Long, Human> playersById = humanRepository.findAllById(playerGoals.keySet()).stream()
+                .collect(Collectors.toMap(Human::getId, player -> player));
+        for (Map<String, Object> playerStats : playerGoals.values()) {
+            int games = (int) playerStats.get("games");
+            if (games > 0) {
+                playerStats.put("avgRating",
+                        Math.round(((double) playerStats.get("totalRating") / games) * 100.0) / 100.0);
+            }
+            playerStats.remove("totalRating");
+            Human player = playersById.get((long) playerStats.get("playerId"));
+            playerStats.put("playerName", player != null ? player.getName() : "Unknown");
+            playerStats.put("position", player != null ? player.getPosition() : "");
+            playerStats.put("age", player != null ? player.getAge() : 0);
+        }
         List<Map<String, Object>> topScorers = playerGoals.values().stream()
-                .peek(m -> {
-                    int games = (int) m.get("games");
-                    if (games > 0) m.put("avgRating", Math.round(((double) m.get("totalRating") / games) * 100.0) / 100.0);
-                    m.remove("totalRating");
-                    Human player = humanRepository.findById((long) m.get("playerId")).orElse(null);
-                    m.put("playerName", player != null ? player.getName() : "Unknown");
-                    m.put("position", player != null ? player.getPosition() : "");
-                    m.put("age", player != null ? player.getAge() : 0);
-                })
                 .sorted((a, b) -> Integer.compare((int) b.get("goals"), (int) a.get("goals")))
                 .limit(20)
                 .toList();
@@ -681,8 +697,21 @@ public class GameController {
     @GetMapping("/export")
     public Map<String, Object> exportGame() {
         Map<String, Object> save = new LinkedHashMap<>();
-        save.put("saveVersion", 1);
+        save.put("saveVersion", 5);
         save.put("savedAt", System.currentTimeMillis());
+
+        Round activeRound = gameStateService.getRound();
+        List<GameCalendar> activeCalendars = gameCalendarRepository.findBySeason((int) activeRound.getSeason());
+        if (!activeCalendars.isEmpty()) {
+            GameCalendar activeCalendar = activeCalendars.get(0);
+            Map<String, Object> activeGame = new LinkedHashMap<>();
+            activeGame.put("season", activeRound.getSeason());
+            activeGame.put("day", activeCalendar.getCurrentDay());
+            activeGame.put("phase", activeCalendar.getCurrentPhase());
+            activeGame.put("dateDisplay", calendarService.getDateDisplay(activeCalendar.getCurrentDay()));
+            activeGame.put("seasonPhase", activeCalendar.getSeasonPhase());
+            save.put("activeGame", activeGame);
+        }
 
         // Core state
         save.put("rounds", roundRepository.findAll());
@@ -712,11 +741,14 @@ public class GameController {
         save.put("scorers", scorerRepository.findAll());
         save.put("scorerLeaderboard", scorerLeaderboardRepository.findAll());
         save.put("matchEvents", matchEventRepository.findAll());
+        save.put("matchStats", matchStatsRepository.findAll());
+        save.put("playerSeasonStats", playerSeasonStatRepository.findAll());
 
         // Transfers & contracts
         save.put("transfers", transferRepository.findAll());
         save.put("transferOffers", transferOfferRepository.findAll());
         save.put("loans", loanRepository.findAll());
+        save.put("adminPlayerMovements", adminPlayerMovementRepository.findAll());
 
         // Game features
         save.put("injuries", injuryRepository.findAll());
@@ -725,6 +757,7 @@ public class GameController {
         save.put("boardRequests", boardRequestRepository.findAll());
         save.put("facilityUpgrades", facilityUpgradeRepository.findAll());
         save.put("awards", awardRepository.findAll());
+        save.put("awardOverrides", awardOverrideRepository.findAll());
         save.put("seasonObjectives", seasonObjectiveRepository.findAll());
         save.put("managerHistories", managerHistoryRepository.findAll());
         save.put("managerInbox", managerInboxRepository.findAll());
@@ -744,6 +777,21 @@ public class GameController {
     @Transactional
     public Map<String, Object> importGame(@RequestBody Map<String, Object> save) {
         Map<String, Object> result = new LinkedHashMap<>();
+        if (!(save.get("rounds") instanceof List<?> rounds) || rounds.isEmpty()
+                || !(save.get("gameCalendars") instanceof List<?> calendars) || calendars.isEmpty()) {
+            result.put("success", false);
+            result.put("error", "Invalid save: rounds and gameCalendars are required");
+            return result;
+        }
+
+        if (fastForwardService.isRunning()) {
+            result.put("success", false);
+            result.put("error", "Cancel the active fast-forward job before loading a game");
+            return result;
+        }
+
+        gameLock.lock();
+        boolean unlockAfterTransaction = registerGameLockReleaseAfterTransaction();
         try {
             // Disable referential integrity and truncate all tables
             entityManager.createNativeQuery("SET REFERENTIAL_INTEGRITY FALSE").executeUpdate();
@@ -782,15 +830,19 @@ public class GameController {
             importNative(save, "scorers", "SCORER");
             importNative(save, "scorerLeaderboard", "SCORER_LEADERBOARD_ENTRY");
             importNative(save, "matchEvents", "MATCH_EVENT");
+            importNative(save, "matchStats", "MATCH_STATS");
+            importNative(save, "playerSeasonStats", "PLAYER_SEASON_STAT");
             importNative(save, "transfers", "TRANSFER");
             importNative(save, "transferOffers", "TRANSFER_OFFER");
             importNative(save, "loans", "LOAN");
+            importNative(save, "adminPlayerMovements", "ADMIN_PLAYER_MOVEMENT");
             importNative(save, "injuries", "INJURY");
             importNative(save, "suspensions", "SUSPENSION");
             importNative(save, "sponsorships", "SPONSORSHIP");
             importNative(save, "boardRequests", "BOARD_REQUEST");
             importNative(save, "facilityUpgrades", "FACILITY_UPGRADE");
             importNative(save, "awards", "AWARD");
+            importNative(save, "awardOverrides", "AWARD_OVERRIDE");
             importNative(save, "seasonObjectives", "SEASON_OBJECTIVE");
             importNative(save, "managerHistories", "MANAGER_HISTORY");
             importNative(save, "managerInbox", "MANAGER_INBOX");
@@ -802,29 +854,114 @@ public class GameController {
             importNative(save, "financialRecords", "FINANCIAL_RECORD");
             importNative(save, "users", "USERS");
 
-            // Reset identity sequences to max(id)+1 for all tables
-            for (Object row : tables) {
-                String tableName = row instanceof Object[] ? (String) ((Object[]) row)[0] : (String) row;
-                try {
-                    entityManager.createNativeQuery(
-                            "ALTER TABLE \"" + tableName + "\" ALTER COLUMN ID RESTART WITH " +
-                            "(SELECT COALESCE(MAX(ID), 0) + 1 FROM \"" + tableName + "\")").executeUpdate();
-                } catch (Exception ignored) {
-                    // Table might not have an ID column, skip
-                }
+            // Loading an older save must respect the currently selected game
+            // mode. Keep historical rows, but make every player selectable.
+            if (gameplayFeatures.isPlayerAvailabilityDisabled()) {
+                entityManager.createNativeQuery("UPDATE SUSPENSION SET ACTIVE = FALSE").executeUpdate();
+                entityManager.createNativeQuery("UPDATE INJURY SET DAYS_REMAINING = 0").executeUpdate();
+                entityManager.createNativeQuery("UPDATE HUMAN SET CURRENT_STATUS = 'Available' "
+                        + "WHERE LOWER(CURRENT_STATUS) LIKE 'injur%'").executeUpdate();
             }
+
+            // Only IDENTITY columns support ALTER COLUMN ... RESTART. Trying
+            // that statement on a SEQUENCE-backed primary key marks the whole
+            // transaction rollback-only even when the exception is caught.
+            @SuppressWarnings("unchecked")
+            List<Object> identityTables = entityManager.createNativeQuery("""
+                    SELECT TABLE_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = 'PUBLIC' AND COLUMN_NAME = 'ID' AND IS_IDENTITY = 'YES'
+                    """).getResultList();
+            for (Object row : identityTables) {
+                String tableName = row instanceof Object[] ? (String) ((Object[]) row)[0] : (String) row;
+                Number maxId = (Number) entityManager.createNativeQuery(
+                        "SELECT COALESCE(MAX(ID), 0) FROM \"" + tableName + "\"").getSingleResult();
+                entityManager.createNativeQuery("ALTER TABLE \"" + tableName
+                        + "\" ALTER COLUMN ID RESTART WITH " + (maxId.longValue() + 1)).executeUpdate();
+            }
+            resetSequence("CTI_SEQ", "COMPETITION_TEAM_INFO");
+            resetSequence("SCORER_SEQ", "SCORER");
+            resetSequence("PLAYER_SKILLS_SEQ", "PLAYER_SKILLS");
+            resetSequence("TPHR_SEQ", "TEAM_PLAYER_HISTORICAL_RELATION");
 
             entityManager.flush();
             entityManager.clear();
 
             result.put("success", true);
             result.put("message", "Game loaded successfully");
+            appendRestoredGameSummary(result);
         } catch (Exception e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             result.put("success", false);
             result.put("error", e.getMessage());
             e.printStackTrace();
+        } finally {
+            if (!unlockAfterTransaction) {
+                gameLock.unlock();
+            }
         }
         return result;
+    }
+
+    private boolean registerGameLockReleaseAfterTransaction() {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return false;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                gameStateService.reloadAfterImport();
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                gameLock.unlock();
+            }
+        });
+        return true;
+    }
+
+    private void appendRestoredGameSummary(Map<String, Object> result) {
+        Round restoredRound = roundRepository.findById(1L)
+                .orElseThrow(() -> new IllegalStateException("Imported save contains no Round row"));
+        int season = (int) restoredRound.getSeason();
+        GameCalendar calendar = gameCalendarRepository.findBySeason(season).stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Imported save contains no calendar for season " + season));
+
+        result.put("season", season);
+        result.put("day", calendar.getCurrentDay());
+        result.put("phase", calendar.getCurrentPhase());
+        result.put("dateDisplay", calendarService.getDateDisplay(calendar.getCurrentDay()));
+        result.put("seasonPhase", calendar.getSeasonPhase());
+
+        List<Map<String, Object>> profiles = new ArrayList<>();
+        for (User user : userRepository.findAll()) {
+            Map<String, Object> profile = new LinkedHashMap<>();
+            profile.put("userId", user.getId());
+            profile.put("username", user.getUsername());
+            profile.put("teamId", user.getTeamId());
+            profile.put("managerId", user.getManagerId());
+            profile.put("fired", user.isFired());
+
+            if (user.getTeamId() != null) {
+                teamRepository.findById(user.getTeamId())
+                        .ifPresent(team -> profile.put("teamName", team.getName()));
+            }
+            if (user.getManagerId() != null) {
+                humanRepository.findById(user.getManagerId())
+                        .ifPresent(manager -> profile.put("managerName", manager.getName()));
+            }
+            profiles.add(profile);
+        }
+        result.put("profiles", profiles);
+    }
+
+    private void resetSequence(String sequenceName, String tableName) {
+        Number maxId = (Number) entityManager.createNativeQuery(
+                "SELECT COALESCE(MAX(ID), 0) FROM \"" + tableName + "\"").getSingleResult();
+        entityManager.createNativeQuery("ALTER SEQUENCE " + sequenceName
+                + " RESTART WITH " + (maxId.longValue() + 1)).executeUpdate();
     }
 
     // Global JSON property name -> SQL column name overrides
@@ -839,7 +976,11 @@ public class GameController {
             Map.entry("AWARD", Map.of("value", "AWARD_VALUE")),
             Map.entry("BOARD_REQUEST", Map.of("day", "REQUEST_DAY", "status", "REQUEST_STATUS")),
             Map.entry("CALENDAR_EVENT", Map.of("day", "EVENT_DAY", "status", "EVENT_STATUS")),
-            Map.entry("COMPETITION_TEAM_INFO_MATCH", Map.of("day", "MATCH_DAY")),
+            Map.entry("COMPETITION_TEAM_INFO_MATCH", Map.of(
+                    "day", "MATCH_DAY",
+                    "team1Score", "TEAM1_SCORE",
+                    "team2Score", "TEAM2_SCORE")),
+            Map.entry("COMPETITION_TEAM_INFO_DETAIL", Map.of("day", "MATCH_DAY")),
             Map.entry("FINANCIAL_RECORD", Map.of("day", "RECORD_DAY")),
             Map.entry("MATCH_EVENT", Map.of("minute", "EVENT_MINUTE")),
             Map.entry("PLAYER_INTERACTION", Map.of("day", "INTERACTION_DAY")),
@@ -914,9 +1055,20 @@ public class GameController {
 
             if (columns.isEmpty()) continue;
 
-            String sql = "INSERT INTO " + tableName + " (" +
-                    String.join(", ", columns) + ") VALUES (" +
-                    columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ")";
+            // The active user can be recreated by the authentication context
+            // while a large save is being imported. Importing USERS with an
+            // idempotent H2 MERGE avoids a duplicate-primary-key failure and
+            // still restores every value from the save.
+            String sql;
+            if ("USERS".equals(tableName)) {
+                sql = "MERGE INTO " + tableName + " (" + String.join(", ", columns)
+                        + ") KEY(ID) VALUES ("
+                        + columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ")";
+            } else {
+                sql = "INSERT INTO " + tableName + " (" + String.join(", ", columns)
+                        + ") VALUES ("
+                        + columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ")";
+            }
 
             jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
             for (int i = 0; i < values.size(); i++) {

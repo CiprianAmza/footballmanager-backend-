@@ -1,29 +1,28 @@
 package com.footballmanagergamesimulator.controller;
 
-import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.ScorerEntry;
 import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
 import com.footballmanagergamesimulator.model.TeamDataHubStats;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.frontend.PlayerAnalyticsView;
 import com.footballmanagergamesimulator.service.PlayerAnalyticsService;
 import com.footballmanagergamesimulator.service.StatsAggregationService;
 import com.footballmanagergamesimulator.service.StatsService;
+import com.footballmanagergamesimulator.service.LeagueStrengthService;
+import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * REST endpoints for player + team stats. Heavy aggregations and leaderboard
@@ -37,10 +36,10 @@ public class StatsController {
 
     @Autowired ScorerRepository scorerRepository;
     @Autowired StatsService statsService;
-    @Autowired HumanRepository humanRepository;
-    @Autowired ScorerLeaderboardRepository scorerLeaderboardRepository;
     @Autowired StatsAggregationService statsAggregationService;
     @Autowired PlayerAnalyticsService playerAnalyticsService;
+    @Autowired LeagueStrengthService leagueStrengthService;
+    @Autowired ScorerLeaderboardSyncService scorerLeaderboardSyncService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -73,7 +72,8 @@ public class StatsController {
 
     @GetMapping(value = "/getStats/all3/{seasonNumber}")
     public List<Map<Integer, ScorerEntry>> getStatsForSeason(@PathVariable int seasonNumber) {
-        return groupAndMap(scorerRepository.findAllBySeasonNumber(seasonNumber));
+        return groupAndMap(
+                scorerRepository.findAllBySeasonNumberAndRoundNumberGreaterThan(seasonNumber, 0));
     }
 
     /** Shared helper for the three list endpoints above. Groups scorers by player
@@ -92,21 +92,31 @@ public class StatsController {
 
     @GetMapping("/playerStats/leaderboard")
     public Map<Long, ScorerLeaderboardEntry> getPlayerStatsForAllPlayers() {
-        List<Human> allPlayers = humanRepository.findAll();
-        Map<Long, ScorerLeaderboardEntry> playerToScorerLeaderboard = new HashMap<>();
-
-        for (Human player : allPlayers) {
-            Optional<ScorerLeaderboardEntry> entryOpt = scorerLeaderboardRepository.findByPlayerId(player.getId());
-            if (entryOpt.isPresent()) {
-                ScorerLeaderboardEntry entry = entryOpt.get();
-                entry.setActive(!player.isRetired());
-                playerToScorerLeaderboard.put(player.getId(), entry);
-            }
-        }
-        return playerToScorerLeaderboard;
+        return scorerLeaderboardSyncService.synchronizeAllPlayers();
     }
 
     // ==================== AGGREGATED VIEWS (delegated to StatsAggregationService) ====================
+
+    @GetMapping("/overview/{seasonNumber}")
+    public Map<String, Object> getSeasonOverviewStats(@PathVariable int seasonNumber,
+                                                       @RequestParam(defaultValue = "10") int limit,
+                                                       @RequestParam(defaultValue = "LEAGUE") String scope) {
+        return statsAggregationService.getSeasonOverviewStats(seasonNumber, limit, scope);
+    }
+
+    /** Compact current-season leaderboard for the Home screen of one club. */
+    @GetMapping("/team/{teamId}/season/{seasonNumber}")
+    public List<Map<String, Object>> getTeamSeasonPlayerStats(@PathVariable long teamId,
+                                                              @PathVariable int seasonNumber,
+                                                              @RequestParam(defaultValue = "3") int limit) {
+        return statsAggregationService.getTeamSeasonPlayerStats(teamId, seasonNumber, limit);
+    }
+
+    /** Domestic championship quality ranking used by the global award weights. */
+    @GetMapping("/league-strength/{seasonNumber}")
+    public LeagueStrengthService.LeagueStrengthTable getLeagueStrength(@PathVariable int seasonNumber) {
+        return leagueStrengthService.calculate(seasonNumber);
+    }
 
     @GetMapping(value = "/teamDataHub/{teamId}/{seasonNumber}")
     public TeamDataHubStats getTeamDataHubStats(@PathVariable long teamId, @PathVariable int seasonNumber) {
@@ -164,7 +174,8 @@ public class StatsController {
     /**
      * GET /stats/team/{teamId}/competitionBreakdown
      * Per-(competition, season) team record — League / Cup / LoC / Stars Cup kept
-     * separate instead of summed together. League position only on league lines.
+     * separate instead of summed together. League position only on league lines;
+     * completed seasons return their archived final position.
      */
     @GetMapping("/team/{teamId}/competitionBreakdown")
     public List<com.footballmanagergamesimulator.model.CompetitionStatLine> getTeamCompetitionBreakdown(@PathVariable long teamId) {

@@ -40,6 +40,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -107,6 +109,11 @@ public class NewSeasonSetupProcessor {
     @Lazy @Autowired private SeasonObjectiveService seasonObjectiveService;
     @Lazy @Autowired private EndOfSeasonProcessor endOfSeasonProcessor;
     @Lazy @Autowired private MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired private SuperCupService superCupService;
+    @Autowired private SponsorshipService sponsorshipService;
+    @Autowired private MinimumSquadService minimumSquadService;
+    @Autowired private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
+    @Lazy @Autowired private AdminTransferService adminTransferService;
 
     private long currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).orElse(1L);
@@ -118,16 +125,15 @@ public class NewSeasonSetupProcessor {
 
     @Transactional
     public synchronized void process(int season) {
-        // Mutate the cached Round so getCurrentSeason() helper (used downstream
-        // by getFixturesForRound) sees the new season. Using a freshly loaded
-        // entity would leave the cache stale and fixture generation would write
-        // rows under the OLD season number.
-        Round round = gameStateService.getRound();
+        Round cachedRound = gameStateService.getRound();
+        Round round = roundRepository.findById(cachedRound.getId()).orElseThrow();
         // Guard: if round.season already moved past this season, skip (prevents double transition)
         if (round.getSeason() > season) {
             System.out.println("=== processNewSeasonSetup: season " + season + " already transitioned (current=" + round.getSeason() + "), skipping ===");
             return;
         }
+        long oldSeason = round.getSeason();
+        int newSeason = Math.toIntExact(oldSeason + 1);
         System.out.println("=== processNewSeasonSetup: transitioning from season " + season + " ===");
 
         // Note: refreshTeamBudgets is called in processEndOfSeason before AI transfers
@@ -144,21 +150,20 @@ public class NewSeasonSetupProcessor {
         Map<Long, List<TeamCompetitionDetail>> detailsByCompetition = teamCompetitionDetailRepository.findAll()
                 .stream()
                 .collect(Collectors.groupingBy(tcd -> (long) tcd.getCompetitionId()));
-        for (Long competitionId : competitions)
-            saveHistoricalValues(competitionId, round.getSeason(),
-                    detailsByCompetition.getOrDefault(competitionId, List.of()));
-        saveAllPlayerTeamHistoricalRelations(round.getSeason());
+        snapshotHistoricalValues(competitions, oldSeason, detailsByCompetition);
+        saveAllPlayerTeamHistoricalRelations(oldSeason);
 
         // Return loaned players (handles buy obligations and salary adjustments)
-        processLoanReturns((int) round.getSeason());
+        processLoanReturns((int) oldSeason);
+
+        // Execute Admin movements scheduled for this exact season boundary only
+        // after older loans have returned and before contract expiries are applied.
+        adminTransferService.executeScheduledForSeason(newSeason);
 
         resetCompetitionData();
-        removeCompetitionData(round.getSeason() + 1);
+        superCupService.prepareSeason(newSeason);
+        removeCompetitionData((long) newSeason);
         addImprovementToOverachievers();
-
-        round.setRound(1);
-        round.setSeason(round.getSeason() + 1);
-        roundRepository.save(round);
 
         humanService.addOneYearToAge();
         humanService.retirePlayers();
@@ -168,10 +173,12 @@ public class NewSeasonSetupProcessor {
 
         // Collect regens across ALL teams, then flush via saveAll once per repository.
         // currentSeason is hoisted out of the per-team loop (was a findById(1L) per call).
-        long regenSeason = round.getSeason();
+        long regenSeason = newSeason;
         List<Human> newRegens = new ArrayList<>();
+        Map<Long, TeamFacilities> facilitiesByTeam = teamFacilitiesRepository.findAll().stream()
+                .collect(Collectors.toMap(TeamFacilities::getTeamId, facility -> facility));
         for (Long teamId : teamIds) {
-            TeamFacilities teamFacilities = teamFacilitiesRepository.findByTeamId(teamId);
+            TeamFacilities teamFacilities = facilitiesByTeam.get(teamId);
             if (teamFacilities != null)
                 humanService.collectRegens(teamFacilities, teamId, regenSeason, newRegens);
         }
@@ -184,104 +191,60 @@ public class NewSeasonSetupProcessor {
         playerSkillsRepository.saveAll(newRegenSkills);
         teamPlayerHistoricalRelationRepository.saveAll(newRegenRelations);
 
-        for (long teamId : teamIds) {
-            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-            for (Human human : players) {
-                long seasonCreated = human.getSeasonCreated();
-                if (round.getSeason() - seasonCreated <= 2 && seasonCreated != 1L)
-                    human.setCurrentStatus("Junior");
-                else if (round.getSeason() - seasonCreated <= 6 && seasonCreated != 1L)
-                    human.setCurrentStatus("Intermediate");
-                else
-                    human.setCurrentStatus("Senior");
-                human.setTransferValue(TransferValueCalculator.calculate(human.getAge(), human.getPosition(), human.getRating()));
-                human.setSeasonMatchesPlayed(0);
-                human.setConsecutiveBenched(0);
-                // Fresh start: 50% chance to reset wantsTransfer
-                if (human.isWantsTransfer() && new Random().nextDouble() < 0.5) {
-                    human.setWantsTransfer(false);
-                    human.setMorale(Math.min(100, human.getMorale() + 10));
-                }
+        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
+        Random seasonResetRandom = new Random();
+        for (Human human : allPlayers) {
+            long seasonCreated = human.getSeasonCreated();
+            if (newSeason - seasonCreated <= 2 && seasonCreated != 1L)
+                human.setCurrentStatus("Junior");
+            else if (newSeason - seasonCreated <= 6 && seasonCreated != 1L)
+                human.setCurrentStatus("Intermediate");
+            else
+                human.setCurrentStatus("Senior");
+            human.setTransferValue(TransferValueCalculator.calculate(human.getAge(), human.getPosition(), human.getRating()));
+            human.setSeasonMatchesPlayed(0);
+            human.setConsecutiveBenched(0);
+            if (human.isWantsTransfer() && seasonResetRandom.nextDouble() < 0.5) {
+                human.setWantsTransfer(false);
+                human.setMorale(Math.min(100, human.getMorale() + 10));
             }
-            humanRepository.saveAll(players);
         }
+        humanRepository.saveAll(allPlayers);
 
         // Clear derby cache for new season
         teamPostMatchService.clearDerbyCache();
 
-        endOfSeasonProcessor.handleContractExpiries((int) round.getSeason());
-        scoutManagementController.processExpiredContracts((int) round.getSeason());
-        seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
+        endOfSeasonProcessor.handleContractExpiries(newSeason);
+        scoutManagementController.processExpiredContracts(newSeason);
+        // Contracts and retirements are now final for the boundary. Promote
+        // academy players only at this point, so every club starts the season
+        // with at least 18 permanent first-team players.
+        minimumSquadService.ensureMinimumSquads(newSeason);
+        int expiredSponsorships = sponsorshipService.expireContractsBeforeSeason(newSeason);
+        if (expiredSponsorships > 0) {
+            System.out.println("=== Expired " + expiredSponsorships
+                    + " sponsorship contract(s)/offer(s) before season " + newSeason + " ===");
+        }
+        seasonObjectiveService.generateSeasonObjectives(newSeason);
 
         // Generate league fixtures for new season
         Set<Long> newLeagueCompIds = competitionRepository.findIdsByTypeId(1);
         Set<Long> newSecondLeagueCompIds = competitionRepository.findIdsByTypeId(3);
         newLeagueCompIds.addAll(newSecondLeagueCompIds);
         for (Long competitionId : newLeagueCompIds)
-            fixtureSchedulingService.getFixturesForRound(String.valueOf(competitionId), "1");
+            fixtureSchedulingService.getFixturesForRound(String.valueOf(competitionId), "1", newSeason);
 
-        // Initialize scorers for all players in the new season (batch optimized)
-        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
-        Map<Long, List<Human>> playersByTeam = allPlayers.stream()
-                .collect(Collectors.groupingBy(h -> h.getTeamId() != null ? h.getTeamId() : 0L));
-
-        List<CompetitionTeamInfo> allNewCompTeamInfos = competitionTeamInfoRepository
-                .findAllBySeasonNumber(round.getSeason());
-        Map<Long, List<CompetitionTeamInfo>> compsByTeam = allNewCompTeamInfos.stream()
-                .collect(Collectors.groupingBy(CompetitionTeamInfo::getTeamId));
-
-        Map<Long, String> compNameCache = new HashMap<>();
-        Map<Long, Integer> compTypeIdCache = new HashMap<>();
-        for (CompetitionTeamInfo cti : allNewCompTeamInfos) {
-            long cId = cti.getCompetitionId();
-            compNameCache.computeIfAbsent(cId, id -> competitionRepository.findNameById(id));
-            compTypeIdCache.computeIfAbsent(cId, id -> {
-                Long typeId = competitionRepository.findTypeIdById(id);
-                return typeId != null ? typeId.intValue() : 0;
-            });
-        }
-
-        Map<Long, String> teamNameCache = new HashMap<>();
-        List<Scorer> allNewScorers = new ArrayList<>();
-        List<ScorerLeaderboardEntry> leaderboardUpdates = new ArrayList<>();
-
-        for (Map.Entry<Long, List<Human>> entry : playersByTeam.entrySet()) {
-            long teamId = entry.getKey();
-            if (teamId == 0L) continue;
-            List<Human> players = entry.getValue();
-            List<CompetitionTeamInfo> teamComps = compsByTeam.getOrDefault(teamId, List.of());
-            String teamName = teamNameCache.computeIfAbsent(teamId, id -> {
-                Team t = teamRepository.findById(id).orElse(null);
-                return t != null ? t.getName() : "Unknown";
-            });
-
-            for (Human human : players) {
-                for (CompetitionTeamInfo cti : teamComps) {
-                    Scorer scorer = new Scorer();
-                    scorer.setPlayerId(human.getId());
-                    scorer.setSeasonNumber((int) round.getSeason());
-                    scorer.setTeamId(teamId);
-                    scorer.setOpponentTeamId(-1);
-                    scorer.setPosition(human.getPosition());
-                    scorer.setTeamScore(-1);
-                    scorer.setOpponentScore(-1);
-                    scorer.setCompetitionId(cti.getCompetitionId());
-                    scorer.setCompetitionTypeId(compTypeIdCache.getOrDefault(cti.getCompetitionId(), 0));
-                    scorer.setTeamName(teamName);
-                    scorer.setOpponentTeamName(null);
-                    scorer.setCompetitionName(compNameCache.get(cti.getCompetitionId()));
-                    scorer.setRating(human.getRating());
-                    scorer.setGoals(0);
-                    allNewScorers.add(scorer);
-                }
-
-                Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry = scorerLeaderboardRepository.findByPlayerId(human.getId());
-                if (optionalScorerLeaderboardEntry.isPresent()) {
-                    leaderboardUpdates.add(resetCurrentSeasonStats(optionalScorerLeaderboardEntry));
-                }
-            }
-        }
-        scorerRepository.saveAll(allNewScorers);
+        // Scorer rows are real match appearances, never season-start placeholders.
+        // First create/backfill entries for regens and academy promotions, then
+        // reset the auxiliary leaderboard in one query + one batch save.
+        // Reload because the minimum-squad service may just have promoted new
+        // academy players after the earlier allPlayers snapshot.
+        scorerLeaderboardSyncService.synchronizeAllPlayers();
+        List<Long> playerIds = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE)
+                .stream().map(Human::getId).toList();
+        List<ScorerLeaderboardEntry> leaderboardUpdates =
+                scorerLeaderboardRepository.findAllByPlayerIdIn(playerIds);
+        leaderboardUpdates.forEach(NewSeasonSetupProcessor::resetCurrentSeasonStats);
         scorerLeaderboardRepository.saveAll(leaderboardUpdates);
 
         // Reset end-of-season idempotency guard so next season can process again
@@ -290,14 +253,52 @@ public class NewSeasonSetupProcessor {
         // Rebuild cup brackets for the new season — based on last season's standings.
         // This wipes whatever cup CompetitionTeamInfo/Match rows the legacy per-league
         // loop wrote earlier and replaces them with a proper full bracket.
-        regenerateAllCupBrackets((int) round.getSeason());
+        regenerateAllCupBrackets(newSeason);
 
         // Ageing, retirements, overachiever rewards and the pre-season training
         // boost all recomputed player ratings — drop every cached AI base rating so
         // the new season starts from current squad strength.
         matchSimulationOrchestrator.invalidateAllRatingCaches();
 
-        System.out.println("=== NEW SEASON " + round.getSeason() + " STARTED ===");
+        // Publish the new season only after every setup write succeeded. The
+        // in-memory Round is updated after commit, keeping concurrent reads on
+        // the fully valid previous season during this transaction.
+        round.setRound(1);
+        round.setSeason(newSeason);
+        roundRepository.save(round);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                gameStateService.publishRoundState(1, newSeason);
+            }
+        });
+
+        System.out.println("=== NEW SEASON " + newSeason + " STARTED ===");
+    }
+
+    private void snapshotHistoricalValues(
+            Set<Long> competitionIds,
+            long season,
+            Map<Long, List<TeamCompetitionDetail>> detailsByCompetition) {
+        if (!competitionHistoryRepository.findAllBySeasonNumber(season).isEmpty()) return;
+
+        List<CompetitionHistory> snapshots = new ArrayList<>();
+        for (Long competitionId : competitionIds) {
+            List<TeamCompetitionDetail> standings = new ArrayList<>(
+                    detailsByCompetition.getOrDefault(competitionId, List.of()));
+            standings.sort(this::compareStandings);
+            for (int i = 0; i < standings.size(); i++) {
+                snapshots.add(adaptCompetitionHistory(standings.get(i), season, i + 1L));
+            }
+        }
+        competitionHistoryRepository.saveAll(snapshots);
+    }
+
+    private int compareStandings(TeamCompetitionDetail left, TeamCompetitionDetail right) {
+        if (left.getPoints() != right.getPoints()) return Integer.compare(right.getPoints(), left.getPoints());
+        if (left.getGoalDifference() != right.getGoalDifference())
+            return Integer.compare(right.getGoalDifference(), left.getGoalDifference());
+        return Integer.compare(right.getGoalsFor(), left.getGoalsFor());
     }
 
     // ============================================================
@@ -328,6 +329,10 @@ public class NewSeasonSetupProcessor {
         List<Loan> activeLoans = loanRepository.findAllByStatus("active");
 
         for (Loan loan : activeLoans) {
+            // Legacy saves have endSeason=0 and retain the old one-season behaviour.
+            // Multi-season loans stay at the loan club until their final season ends.
+            if (loan.getEndSeason() > 0 && loan.getEndSeason() > season) continue;
+
             Human player = humanRepository.findById(loan.getPlayerId()).orElse(null);
             if (player == null) {
                 loan.setStatus("completed");
@@ -357,6 +362,16 @@ public class NewSeasonSetupProcessor {
                 financeService.recordTransaction(parentTeam.getId(), season, 0,
                         "TRANSFER_SALE", "Obligation to buy exercised: " + player.getName(), fee);
 
+                long parentWageShare = player.getWage() * loan.getParentWageContribution() / 100L;
+                if (parentWageShare > 0) {
+                    loanTeam = teamRepository.findById(loanTeam.getId()).orElse(loanTeam);
+                    parentTeam = teamRepository.findById(parentTeam.getId()).orElse(parentTeam);
+                    loanTeam.setSalaryBudget(loanTeam.getSalaryBudget() + parentWageShare);
+                    parentTeam.setSalaryBudget(Math.max(0, parentTeam.getSalaryBudget() - parentWageShare));
+                    teamRepository.save(loanTeam);
+                    teamRepository.save(parentTeam);
+                }
+
                 loan.setStatus("buy_obligated");
                 loanRepository.save(loan);
 
@@ -380,17 +395,18 @@ public class NewSeasonSetupProcessor {
 
             // Normal loan return: player goes back to parent club
             long playerWage = player.getWage();
+            long loanTeamWageShare = playerWage * (100L - loan.getParentWageContribution()) / 100L;
             player.setTeamId(loan.getParentTeamId());
             player.setSeasonMatchesPlayed(0);
             humanRepository.save(player);
 
             // Adjust salary budgets
             if (loanTeam != null) {
-                loanTeam.setSalaryBudget(loanTeam.getSalaryBudget() - playerWage);
+                loanTeam.setSalaryBudget(Math.max(0, loanTeam.getSalaryBudget() - loanTeamWageShare));
                 teamRepository.save(loanTeam);
             }
             if (parentTeam != null) {
-                parentTeam.setSalaryBudget(parentTeam.getSalaryBudget() + playerWage);
+                parentTeam.setSalaryBudget(parentTeam.getSalaryBudget() + loanTeamWageShare);
                 teamRepository.save(parentTeam);
             }
 
@@ -441,7 +457,10 @@ public class NewSeasonSetupProcessor {
     // ============================================================
 
     public static ScorerLeaderboardEntry resetCurrentSeasonStats(Optional<ScorerLeaderboardEntry> optionalScorerLeaderboardEntry) {
-        ScorerLeaderboardEntry scorerLeaderboardEntry = optionalScorerLeaderboardEntry.get();
+        return resetCurrentSeasonStats(optionalScorerLeaderboardEntry.orElseThrow());
+    }
+
+    public static ScorerLeaderboardEntry resetCurrentSeasonStats(ScorerLeaderboardEntry scorerLeaderboardEntry) {
         scorerLeaderboardEntry.setCurrentSeasonGames(0);
         scorerLeaderboardEntry.setCurrentSeasonGoals(0);
         scorerLeaderboardEntry.setCurrentSeasonLeagueGames(0);
@@ -520,16 +539,15 @@ public class NewSeasonSetupProcessor {
             teamIds.add(tcd.getTeamId());
         }
         List<TeamPlayerHistoricalRelation> relations = new ArrayList<>();
-        for (Long teamId : teamIds) {
-            List<Human> allTeamPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-            for (Human player : allTeamPlayers) {
-                TeamPlayerHistoricalRelation rel = new TeamPlayerHistoricalRelation();
-                rel.setPlayerId(player.getId());
-                rel.setTeamId(teamId);
-                rel.setSeasonNumber(seasonNumber + 1);
-                rel.setRating(player.getRating());
-                relations.add(rel);
-            }
+        List<Human> allTeamPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
+        for (Human player : allTeamPlayers) {
+            if (player.getTeamId() == null || !teamIds.contains(player.getTeamId())) continue;
+            TeamPlayerHistoricalRelation rel = new TeamPlayerHistoricalRelation();
+            rel.setPlayerId(player.getId());
+            rel.setTeamId(player.getTeamId());
+            rel.setSeasonNumber(seasonNumber + 1);
+            rel.setRating(player.getRating());
+            relations.add(rel);
         }
         teamPlayerHistoricalRelationRepository.saveAll(relations);
     }
@@ -599,13 +617,15 @@ public class NewSeasonSetupProcessor {
     public void removeCompetitionData(Long seasonNumber) {
         teamCompetitionDetailRepository.deleteAll();
         List<CompetitionTeamInfo> ctis = competitionTeamInfoRepository.findAllBySeasonNumber(seasonNumber);
+        List<TeamCompetitionDetail> newDetails = new ArrayList<>();
         for (CompetitionTeamInfo team : ctis) {
             TeamCompetitionDetail newTcd = new TeamCompetitionDetail();
             newTcd.setTeamId(team.getTeamId());
             newTcd.setCompetitionId(team.getCompetitionId());
             newTcd.setForm("");
-            teamCompetitionDetailRepository.save(newTcd);
+            newDetails.add(newTcd);
         }
+        teamCompetitionDetailRepository.saveAll(newDetails);
     }
 
     // ============================================================
@@ -619,32 +639,31 @@ public class NewSeasonSetupProcessor {
                 .collect(Collectors.groupingBy(TrainingSchedule::getTeamId,
                         Collectors.averagingInt(TrainingSchedule::getIntensity)));
 
+        Set<Long> eligibleTeamIds = new HashSet<>(teamIds);
         List<Human> playersToSave = new ArrayList<>();
-        for (Long teamId : teamIds) {
+        for (Human player : humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE)) {
+            Long teamId = player.getTeamId();
+            if (teamId == null || !eligibleTeamIds.contains(teamId)) continue;
             double avgIntensity = teamAvgIntensity.getOrDefault(teamId, 0.0);
             if (avgIntensity == 0) continue;
+            if (player.isRetired()) continue;
 
-            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
-            for (Human player : players) {
-                if (player.isRetired()) continue;
+            double baseBoost = 0.5 + (avgIntensity / 100.0) * 1.5;
+            double ageModifier;
+            if (player.getAge() < 23) ageModifier = 1.5;
+            else if (player.getAge() > 30) ageModifier = 0.5;
+            else ageModifier = 1.0;
 
-                double baseBoost = 0.5 + (avgIntensity / 100.0) * 1.5;
-                double ageModifier;
-                if (player.getAge() < 23) ageModifier = 1.5;
-                else if (player.getAge() > 30) ageModifier = 0.5;
-                else ageModifier = 1.0;
-
-                double newRating = player.getRating() + baseBoost * ageModifier;
-                if (player.getPotentialAbility() > 0 && newRating > player.getPotentialAbility()) {
-                    newRating = player.getPotentialAbility();
-                }
-                player.setRating(newRating);
-                if (newRating > player.getBestEverRating()) {
-                    player.setBestEverRating(newRating);
-                    player.setSeasonOfBestEverRating((int) season);
-                }
-                playersToSave.add(player);
+            double newRating = player.getRating() + baseBoost * ageModifier;
+            if (player.getPotentialAbility() > 0 && newRating > player.getPotentialAbility()) {
+                newRating = player.getPotentialAbility();
             }
+            player.setRating(newRating);
+            if (newRating > player.getBestEverRating()) {
+                player.setBestEverRating(newRating);
+                player.setSeasonOfBestEverRating((int) season);
+            }
+            playersToSave.add(player);
         }
         humanRepository.saveAll(playersToSave);
     }

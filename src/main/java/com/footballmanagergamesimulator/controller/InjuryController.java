@@ -1,11 +1,13 @@
 package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.model.Injury;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.service.InjuryTimelineService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -23,14 +25,22 @@ public class InjuryController {
     HumanRepository humanRepository;
     @Autowired
     ScorerRepository scorerRepository;
+    @Autowired
+    InjuryTimelineService injuryTimelineService;
+    @Autowired
+    GameplayFeatureConfig gameplayFeatures;
 
     @GetMapping("/active/{teamId}")
     public List<Map<String, Object>> getActiveInjuries(@PathVariable long teamId) {
+        if (gameplayFeatures.isPlayerAvailabilityDisabled()) return List.of();
 
         List<Injury> activeInjuries = injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0);
         List<Map<String, Object>> result = new ArrayList<>();
+        InjuryTimelineService.GameDate date = injuryTimelineService.currentDate();
 
         for (Injury injury : activeInjuries) {
+            int remaining = injuryTimelineService.remainingDays(injury, date.season(), date.day());
+            if (remaining <= 0) continue;
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("id", injury.getId());
             entry.put("playerId", injury.getPlayerId());
@@ -42,8 +52,10 @@ public class InjuryController {
 
             entry.put("injuryType", injury.getInjuryType());
             entry.put("severity", injury.getSeverity());
-            entry.put("daysRemaining", injury.getDaysRemaining());
+            entry.put("daysRemaining", remaining);
             entry.put("seasonNumber", injury.getSeasonNumber());
+            entry.put("returnDay", injury.getReturnDay());
+            entry.put("returnSeason", injury.getReturnSeason());
 
             result.add(entry);
         }
@@ -56,8 +68,10 @@ public class InjuryController {
 
         List<Injury> allInjuries = injuryRepository.findAllByTeamId(teamId);
         List<Map<String, Object>> result = new ArrayList<>();
+        InjuryTimelineService.GameDate date = injuryTimelineService.currentDate();
 
         for (Injury injury : allInjuries) {
+            int remaining = injuryTimelineService.remainingDays(injury, date.season(), date.day());
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("id", injury.getId());
             entry.put("playerId", injury.getPlayerId());
@@ -68,9 +82,11 @@ public class InjuryController {
 
             entry.put("injuryType", injury.getInjuryType());
             entry.put("severity", injury.getSeverity());
-            entry.put("daysRemaining", injury.getDaysRemaining());
+            entry.put("daysRemaining", remaining);
             entry.put("seasonNumber", injury.getSeasonNumber());
-            entry.put("recovered", injury.getDaysRemaining() <= 0);
+            entry.put("returnDay", injury.getReturnDay());
+            entry.put("returnSeason", injury.getReturnSeason());
+            entry.put("recovered", remaining <= 0);
 
             result.add(entry);
         }
@@ -79,8 +95,23 @@ public class InjuryController {
     }
 
     @GetMapping("/player/{playerId}")
-    public List<Injury> getPlayerInjuries(@PathVariable long playerId) {
-        return injuryRepository.findAllByPlayerId(playerId);
+    public List<Map<String, Object>> getPlayerInjuries(@PathVariable long playerId) {
+        InjuryTimelineService.GameDate date = injuryTimelineService.currentDate();
+        return injuryRepository.findAllByPlayerId(playerId).stream().map(injury -> {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            int remaining = injuryTimelineService.remainingDays(injury, date.season(), date.day());
+            entry.put("id", injury.getId());
+            entry.put("playerId", injury.getPlayerId());
+            entry.put("teamId", injury.getTeamId());
+            entry.put("injuryType", injury.getInjuryType());
+            entry.put("severity", injury.getSeverity());
+            entry.put("daysRemaining", remaining);
+            entry.put("seasonNumber", injury.getSeasonNumber());
+            entry.put("returnDay", injury.getReturnDay());
+            entry.put("returnSeason", injury.getReturnSeason());
+            entry.put("recovered", remaining <= 0);
+            return entry;
+        }).toList();
     }
 
     @GetMapping("/riskAssessment/{teamId}")
@@ -88,6 +119,7 @@ public class InjuryController {
 
         List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
         List<Map<String, Object>> result = new ArrayList<>();
+        InjuryTimelineService.GameDate date = injuryTimelineService.currentDate();
 
         for (Human player : players) {
             if (player.isRetired()) continue;
@@ -160,7 +192,8 @@ public class InjuryController {
             entry.put("currentlyInjured", activeInjury.isPresent());
             if (activeInjury.isPresent()) {
                 entry.put("currentInjuryType", activeInjury.get().getInjuryType());
-                entry.put("currentDaysRemaining", activeInjury.get().getDaysRemaining());
+                entry.put("currentDaysRemaining", injuryTimelineService.remainingDays(
+                        activeInjury.get(), date.season(), date.day()));
             }
 
             // Overall risk

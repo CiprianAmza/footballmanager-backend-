@@ -21,5 +21,8 @@ public class Suspension {
     private String reason; // "RED_CARD", "ACCUMULATED_YELLOWS", "VIOLENT_CONDUCT"
     private int seasonNumber;
     private int dayIssued;
+    /** Match-event that triggered the ban. Used to make card processing idempotent. */
+    @Column(name = "source_match_event_id")
+    private long sourceMatchEventId;
     private boolean active;
 }

@@ -11,6 +11,9 @@ import lombok.Data;
 @Data
 public class CompetitionStatLine {
 
+    private long teamId;
+    private String teamName;
+
     private long competitionId;
     private int competitionTypeId;
     private String competitionName;
@@ -24,6 +27,16 @@ public class CompetitionStatLine {
     private int goalsAgainst;
 
     private Integer leaguePosition; // null on non-league lines
+
+    private Long entryRound;
+    private String entryStage;
+    private Long currentRound;
+    private String currentStage;
+    private String stageReached;
+    private String status;
+    private String statusLabel;
+    private Long eliminatedByTeamId;
+    private String eliminatedByTeamName;
 
     public CompetitionStatLine() {
     }

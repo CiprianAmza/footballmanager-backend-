@@ -3,12 +3,20 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.CompetitionService;
+import com.footballmanagergamesimulator.service.EuropeanFixturePreparationService;
+import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
 import com.footballmanagergamesimulator.service.FinanceService;
 import com.footballmanagergamesimulator.service.HumanService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
+import com.footballmanagergamesimulator.service.AwardService;
+import com.footballmanagergamesimulator.service.ManualCompetitionDrawService;
+import com.footballmanagergamesimulator.service.AdminTransferService;
+import com.footballmanagergamesimulator.service.AdminClubFundingService;
+import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -58,6 +66,20 @@ public class AdminController {
     private com.footballmanagergamesimulator.user.UserRepository userRepository;
     @Autowired
     private com.footballmanagergamesimulator.service.BestTacticService bestTacticService;
+    @Autowired
+    private EuropeanFixturePreparationService europeanFixturePreparationService;
+    @Autowired
+    private EuropeanCompetitionService europeanCompetitionService;
+    @Autowired
+    private AwardService awardService;
+    @Autowired
+    private ManualCompetitionDrawService manualCompetitionDrawService;
+    @Autowired
+    private AdminTransferService adminTransferService;
+    @Autowired
+    private AdminClubFundingService adminClubFundingService;
+    @Autowired
+    private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
 
     private final Random random = new Random();
 
@@ -97,6 +119,254 @@ public class AdminController {
         return (int) roundRepository.findById(1L).orElse(new Round()).getSeason();
     }
 
+    /** Repair a not-yet-drawn Stars Cup field created by the legacy cup-points rule. */
+    @PostMapping("/competitions/repair-stars-cup/{season}")
+    public ResponseEntity<?> repairStarsCupQualification(
+            @PathVariable long season,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        try {
+            return ResponseEntity.ok(europeanCompetitionService
+                    .repairStarsCupDomesticQualifiers(season));
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /** Controlled sources that can be used for an administrative club cash injection. */
+    @GetMapping("/finances/funding-options")
+    public ResponseEntity<?> getFundingOptions(HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        return ResponseEntity.ok(adminClubFundingService.options());
+    }
+
+    /** Controlled reasons available when the admin removes money from a club. */
+    @GetMapping("/finances/withdrawal-options")
+    public ResponseEntity<?> getWithdrawalOptions(HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        return ResponseEntity.ok(adminClubFundingService.withdrawalOptions());
+    }
+
+    /** Credit a club and persist the operation in its normal financial ledger. */
+    @PostMapping("/finances/funding")
+    public ResponseEntity<?> addClubFunding(
+            @RequestBody AdminClubFundingService.FundingCommand command,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        try {
+            return ResponseEntity.ok(adminClubFundingService.addFunding(command));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /** Debit a club and persist the operation as an expense in its financial ledger. */
+    @PostMapping("/finances/withdrawal")
+    public ResponseEntity<?> removeClubFunding(
+            @RequestBody AdminClubFundingService.FundingCommand command,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        try {
+            return ResponseEntity.ok(adminClubFundingService.removeFunding(command));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /** Current Admin transfer queue and completed audit rows. */
+    @GetMapping("/transfers")
+    public ResponseEntity<?> getAdminTransfers(HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        return ResponseEntity.ok(adminTransferService.state());
+    }
+
+    /** Club squad or free-agent candidates for the Admin transfer editor. */
+    @GetMapping("/transfers/players")
+    public ResponseEntity<?> getAdminTransferPlayers(
+            @RequestParam(required = false) Long sourceTeamId,
+            @RequestParam(defaultValue = "false") boolean freeAgents,
+            @RequestParam(required = false) String query,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        try {
+            return ResponseEntity.ok(adminTransferService.playerOptions(sourceTeamId, freeAgents, query));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /** Execute now or durably schedule a permanent transfer, free-agent signing or loan. */
+    @PostMapping("/transfers")
+    public ResponseEntity<?> createAdminTransfer(
+            @RequestBody AdminTransferService.MovementCommand command,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        try {
+            return ResponseEntity.ok(adminTransferService.create(command));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.status(409).body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /** Cancel a movement that has not reached its execution season yet. */
+    @DeleteMapping("/transfers/{movementId}")
+    public ResponseEntity<?> cancelAdminTransfer(
+            @PathVariable long movementId,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        try {
+            return ResponseEntity.ok(adminTransferService.cancel(movementId));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.status(409).body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /** Draw controls for the next unplayed domestic-cup round and every pending European draw. */
+    @GetMapping("/draws")
+    public ResponseEntity<?> getManualDraws(HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        return ResponseEntity.ok(manualCompetitionDrawService.drawStates(getCurrentSeason()));
+    }
+
+    /** Completes a pending draw with the exact pairings/groups selected by the admin. */
+    @PostMapping("/draws/complete")
+    public ResponseEntity<?> completeManualDraw(
+            @RequestBody ManualCompetitionDrawService.DrawCommand command,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        try {
+            return ResponseEntity.ok(manualCompetitionDrawService.complete(command));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.status(409).body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /**
+     * Extend every active player contract for one team or for the whole game.
+     * Existing time is preserved: a Season 6 deal extended by 3 ends in Season 9.
+     * Expired deals restart from the current season.
+     */
+    @PostMapping("/contracts/extend")
+    @Transactional
+    public ResponseEntity<?> extendPlayerContracts(
+            @RequestBody Map<String, Object> body, HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+
+        Object seasonsValue = body.get("seasons");
+        if (!(seasonsValue instanceof Number seasonsNumber)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "seasons is required"));
+        }
+        int seasons = seasonsNumber.intValue();
+        if (seasons < 1 || seasons > 100) {
+            return ResponseEntity.badRequest().body(Map.of("error", "seasons must be between 1 and 100"));
+        }
+
+        boolean allTeams = Boolean.TRUE.equals(body.get("allTeams"));
+        Long teamId = body.get("teamId") instanceof Number teamNumber
+                ? teamNumber.longValue() : null;
+        if (!allTeams && teamId == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "teamId is required when allTeams is false"));
+        }
+
+        String scope;
+        List<Human> candidates;
+        if (allTeams) {
+            scope = "All teams";
+            candidates = humanRepository.findAllByTypeId(1L);
+        } else {
+            Team team = teamRepository.findById(teamId).orElse(null);
+            if (team == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Team not found: " + teamId));
+            }
+            scope = team.getName();
+            candidates = humanRepository.findAllByTeamIdAndTypeId(teamId, 1L);
+        }
+
+        int currentSeason = getCurrentSeason();
+        List<Human> players = candidates.stream()
+                .filter(player -> !player.isRetired())
+                .filter(player -> player.getTeamId() != null && player.getTeamId() > 0)
+                .toList();
+        Set<Long> affectedTeams = new HashSet<>();
+        int preContractsCleared = 0;
+        int earliestNewExpiry = Integer.MAX_VALUE;
+        int latestNewExpiry = 0;
+        for (Human player : players) {
+            int newExpiry = Math.max(currentSeason, player.getContractEndSeason()) + seasons;
+            player.setContractEndSeason(newExpiry);
+            if (player.getPreContractTeamId() > 0) {
+                player.setPreContractTeamId(0);
+                preContractsCleared++;
+            }
+            affectedTeams.add(player.getTeamId());
+            earliestNewExpiry = Math.min(earliestNewExpiry, newExpiry);
+            latestNewExpiry = Math.max(latestNewExpiry, newExpiry);
+        }
+        humanRepository.saveAll(players);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("scope", scope);
+        result.put("seasonsAdded", seasons);
+        result.put("contractsExtended", players.size());
+        result.put("teamsAffected", affectedTeams.size());
+        result.put("preContractsCleared", preContractsCleared);
+        result.put("earliestNewExpiry", players.isEmpty() ? null : earliestNewExpiry);
+        result.put("latestNewExpiry", players.isEmpty() ? null : latestNewExpiry);
+        return ResponseEntity.ok(result);
+    }
+
+    /** Statistical Ballon d'Or ranking and any armed admin winner selection. */
+    @GetMapping("/awards/ballon-dor")
+    public ResponseEntity<?> getBallonDorAdminState(
+            @RequestParam(required = false) Integer season, HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        int selectedSeason = season == null ? getCurrentSeason() : season;
+        if (selectedSeason < 1) {
+            return ResponseEntity.badRequest().body(Map.of("error", "season must be positive"));
+        }
+        return ResponseEntity.ok(awardService.getBallonDorAdminState(selectedSeason));
+    }
+
+    /** Arms or replaces the manual winner for an unfinalised season. */
+    @PostMapping("/awards/ballon-dor/override")
+    public ResponseEntity<?> setBallonDorOverride(
+            @RequestBody Map<String, Object> body, HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        Object winnerValue = body.get("winnerId");
+        if (!(winnerValue instanceof Number winnerNumber)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "winnerId is required"));
+        }
+        int season = body.get("season") instanceof Number seasonNumber
+                ? seasonNumber.intValue() : getCurrentSeason();
+        try {
+            return ResponseEntity.ok(awardService.setBallonDorOverride(
+                    season, winnerNumber.longValue()));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
+    /** Returns winner selection to the statistical recommendation. */
+    @DeleteMapping("/awards/ballon-dor/override")
+    public ResponseEntity<?> clearBallonDorOverride(
+            @RequestParam(required = false) Integer season, HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        int selectedSeason = season == null ? getCurrentSeason() : season;
+        try {
+            return ResponseEntity.ok(awardService.clearBallonDorOverride(selectedSeason));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(Map.of("error", exception.getMessage()));
+        }
+    }
+
     /**
      * Generate a player for a team (or free agent if teamId is 0 or not provided).
      *
@@ -117,17 +387,25 @@ public class AdminController {
             return ResponseEntity.badRequest().body(Map.of("error", "position is required"));
         }
 
-        // Rating is required
-        Number ratingNum = (Number) body.get("rating");
-        if (ratingNum == null) {
+        // Rating is required. Accept the old frontend field name as a temporary
+        // compatibility fallback for clients that still send `overall`.
+        Object ratingValue = body.containsKey("rating") ? body.get("rating") : body.get("overall");
+        if (!(ratingValue instanceof Number ratingNum)) {
             return ResponseEntity.badRequest().body(Map.of("error", "rating is required"));
         }
         double rating = ratingNum.doubleValue();
+        if (!Double.isFinite(rating) || rating < 1) {
+            return ResponseEntity.badRequest().body(Map.of("error", "rating must be at least 1"));
+        }
 
         // Team (optional, 0 or absent = free agent)
         Long teamId = null;
-        if (body.containsKey("teamId")) {
-            long tid = ((Number) body.get("teamId")).longValue();
+        Object teamIdValue = body.get("teamId");
+        if (teamIdValue != null) {
+            if (!(teamIdValue instanceof Number teamIdNum)) {
+                return ResponseEntity.badRequest().body(Map.of("error", "teamId must be a number"));
+            }
+            long tid = teamIdNum.longValue();
             if (tid > 0) {
                 Team team = teamRepository.findById(tid).orElse(null);
                 if (team == null) {
@@ -201,14 +479,11 @@ public class AdminController {
         playerSkills.setPlayerId(player.getId());
         playerSkills.setPosition(position);
         competitionService.generateSkills(playerSkills, rating);
+        PlayerSkillsService.calibrateOverallRating(playerSkills, rating);
         playerSkillsRepository.save(playerSkills);
 
-        // Recompute rating from attributes
-        double computedRating = PlayerSkillsService.computeOverallRating(playerSkills);
-        player.setRating(computedRating);
-        player.setCurrentAbility((int) computedRating);
-        player.setBestEverRating(computedRating);
-        humanRepository.save(player);
+        // The admin-provided rating is authoritative. Skills are calibrated above
+        // so later attribute-based recalculations do not immediately lower it.
 
         // Create historical relation for player career history
         if (teamId != null) {
@@ -219,6 +494,7 @@ public class AdminController {
             relation.setRating(player.getRating());
             teamPlayerHistoricalRelationRepository.save(relation);
         }
+        scorerLeaderboardSyncService.trackNewPlayer(player);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", true);

@@ -120,6 +120,58 @@ public final class EuropeanFormatPlan {
                 slots, qualifiers, p, g, k, List.copyOf(stages));
     }
 
+    /**
+     * Builds a two-tier qualification plan. Unlike the generic trimming plan,
+     * entrants may join at different rounds: round one reduces
+     * {@code firstRoundEntrants} to its winners, those winners join the
+     * {@code secondRoundNewEntrants}, and the resulting winners fill the group
+     * slots left by {@code directGroupEntrants}.
+     */
+    public static EuropeanFormatPlan deriveTiered(int directGroupEntrants,
+                                                   int firstRoundEntrants,
+                                                   int secondRoundNewEntrants,
+                                                   int groupCount,
+                                                   int groupSize,
+                                                   int qualifyPerGroup) {
+        int slots = groupCount * groupSize;
+        int firstWinners = firstRoundEntrants / 2;
+        int secondField = firstWinners + secondRoundNewEntrants;
+        if (firstRoundEntrants <= 0 || firstRoundEntrants % 2 != 0
+                || secondField % 2 != 0
+                || directGroupEntrants + secondField / 2 != slots) {
+            throw new IllegalArgumentException("Tiered European entries do not fill the group stage: direct="
+                    + directGroupEntrants + ", first=" + firstRoundEntrants
+                    + ", secondNew=" + secondRoundNewEntrants + ", slots=" + slots);
+        }
+        int qualifiers = groupCount * qualifyPerGroup;
+        if (!isPowerOfTwo(qualifiers)) {
+            throw new IllegalArgumentException("Knockout qualifiers must be a power of two: " + qualifiers);
+        }
+
+        int groupRounds = (groupSize - 1) * 2;
+        int knockoutRounds = Integer.numberOfTrailingZeros(qualifiers);
+        List<EuropeanStage> stages = new ArrayList<>(2 + groupRounds + knockoutRounds);
+        stages.add(new EuropeanStage(0, 1, EuropeanPhase.PRELIMINARY,
+                firstRoundEntrants, false, false, true, false, 0));
+        stages.add(new EuropeanStage(1, 2, EuropeanPhase.PRELIMINARY,
+                secondField, false, false, true, false, 0));
+        int round = 2;
+        for (int matchday = 0; matchday < groupRounds; matchday++, round++) {
+            stages.add(new EuropeanStage(round, round + 1, EuropeanPhase.GROUP, slots,
+                    matchday == 0, matchday == groupRounds - 1, false, false, 0));
+        }
+        int teams = qualifiers;
+        for (int index = 0; index < knockoutRounds; index++, round++) {
+            int roundsFromFinal = knockoutRounds - index;
+            stages.add(new EuropeanStage(round, round + 1, EuropeanPhase.KNOCKOUT, teams,
+                    false, false, index == 0, roundsFromFinal >= 2, roundsFromFinal));
+            teams /= 2;
+        }
+        return new EuropeanFormatPlan(directGroupEntrants + firstRoundEntrants + secondRoundNewEntrants,
+                groupCount, groupSize, qualifyPerGroup, slots, qualifiers, 2,
+                groupRounds, knockoutRounds, List.copyOf(stages));
+    }
+
     private static boolean isPowerOfTwo(int n) {
         return n > 0 && (n & (n - 1)) == 0;
     }

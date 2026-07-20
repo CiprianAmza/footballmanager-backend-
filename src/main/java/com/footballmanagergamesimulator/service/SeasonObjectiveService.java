@@ -3,11 +3,14 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.SeasonObjective;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.SeasonObjectiveRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -39,6 +42,8 @@ public class SeasonObjectiveService {
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
+    @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
     @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormatConfig;
 
@@ -253,7 +258,25 @@ public class SeasonObjectiveService {
 
                 if (roundReached != null) {
                     objective.setActualValue(roundReached);
-                    objective.setStatus(roundReached >= objective.getTargetValue() ? "achieved" : "failed");
+                    if ("cup_round".equals(objective.getObjectiveType())
+                            && objective.getDescription().toLowerCase().contains("win")) {
+                        int finalRound = competitionTeamInfoMatchRepository
+                                .findDistinctRoundsByCompetitionIdAndSeasonNumber(
+                                        objective.getCompetitionId(), String.valueOf(season))
+                                .stream().mapToInt(Long::intValue).max()
+                                .orElse(objective.getTargetValue());
+                        boolean wonFinal = competitionTeamInfoDetailRepository
+                                .findAllByCompetitionIdAndSeasonNumber(
+                                        objective.getCompetitionId(), season)
+                                .stream()
+                                .filter(detail -> detail.getRoundId() == finalRound)
+                                .map(CompetitionTeamInfoDetail::getWinnerTeamId)
+                                .anyMatch(winner -> winner != null && winner == objective.getTeamId());
+                        objective.setActualValue(wonFinal ? finalRound : roundReached);
+                        objective.setStatus(wonFinal ? "achieved" : "failed");
+                    } else {
+                        objective.setStatus(roundReached >= objective.getTargetValue() ? "achieved" : "failed");
+                    }
                 } else {
                     objective.setActualValue(0);
                     objective.setStatus("failed");

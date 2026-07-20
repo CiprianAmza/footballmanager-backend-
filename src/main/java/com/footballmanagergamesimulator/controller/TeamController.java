@@ -29,7 +29,15 @@ public class TeamController {
     @Autowired
     GameCalendarRepository gameCalendarRepository;
     @Autowired
+    InjuryRepository injuryRepository;
+    @Autowired
+    SuspensionRepository suspensionRepository;
+    @Autowired
     com.footballmanagergamesimulator.service.FinanceService financeService;
+    @Autowired
+    com.footballmanagergamesimulator.service.InjuryTimelineService injuryTimelineService;
+    @Autowired
+    com.footballmanagergamesimulator.config.GameplayFeatureConfig gameplayFeatures;
 
     private static final int[] MONTH_START_DAYS = {1, 32, 62, 93, 123, 154, 185, 213, 244, 274, 305, 335};
 
@@ -84,6 +92,95 @@ public class TeamController {
         List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
 
         return allPlayers;
+    }
+
+    /**
+     * One batched availability response for squad/tactics screens. It explains
+     * why a player cannot be selected and for how long, without a request per
+     * player. A player can have an injury plus competition-specific bans, so
+     * the response deliberately contains one row per reason.
+     */
+    @GetMapping("/availability/{teamId}")
+    public List<Map<String, Object>> getSquadAvailability(@PathVariable long teamId) {
+        if (gameplayFeatures.isPlayerAvailabilityDisabled()) return List.of();
+        Map<Long, Human> playersById = humanRepository
+                .findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(Human::getId, p -> p));
+        Map<Long, String> competitionNames = competitionRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(Competition::getId, Competition::getName));
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        com.footballmanagergamesimulator.service.InjuryTimelineService.GameDate date = injuryTimelineService.currentDate();
+
+        for (Injury injury : injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0)) {
+            int remainingDays = injuryTimelineService.remainingDays(injury, date.season(), date.day());
+            if (remainingDays <= 0) continue;
+            Human player = playersById.get(injury.getPlayerId());
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("playerId", injury.getPlayerId());
+            row.put("playerName", player != null ? player.getName() : "Unknown player");
+            row.put("type", "INJURY");
+            row.put("label", injury.getInjuryType());
+            row.put("severity", injury.getSeverity());
+            row.put("remaining", remainingDays);
+            row.put("remainingUnit", "days");
+            row.put("competitionId", null);
+            row.put("competitionName", "All competitions");
+            row.put("explanation", injury.getInjuryType() + " (" + injury.getSeverity()
+                    + ") — unavailable for approximately " + remainingDays + " more day(s).");
+            result.add(row);
+        }
+
+        Map<String, List<Suspension>> groupedSuspensions = suspensionRepository
+                .findAllByTeamIdAndActive(teamId, true).stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        suspension -> suspension.getPlayerId() + ":"
+                                + suspension.getCompetitionId() + ":" + suspension.getReason(),
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.toList()));
+        for (List<Suspension> suspensionGroup : groupedSuspensions.values()) {
+            Suspension suspension = suspensionGroup.get(0);
+            Human player = playersById.get(suspension.getPlayerId());
+            boolean legacyDuplicates = suspensionGroup.size() > 1
+                    && suspensionGroup.stream().allMatch(item -> item.getSourceMatchEventId() == 0);
+            java.util.stream.IntStream remainingValues = suspensionGroup.stream()
+                    .mapToInt(item -> Math.max(0, item.getMatchesBanned() - item.getMatchesServed()));
+            // Old saves can contain the exact same ban several times because a
+            // fast-forward round was reprocessed. Show that as one ban, not debt.
+            int matchesRemaining = legacyDuplicates
+                    ? remainingValues.max().orElse(0)
+                    : remainingValues.sum();
+            if (matchesRemaining == 0) continue;
+            String competitionName = competitionNames.getOrDefault(
+                    suspension.getCompetitionId(), "Competition " + suspension.getCompetitionId());
+            String reason = switch (suspension.getReason()) {
+                case "RED_CARD" -> "Direct red card";
+                case "ACCUMULATED_YELLOWS" -> "Yellow-card accumulation";
+                case "VIOLENT_CONDUCT" -> "Violent conduct";
+                default -> suspension.getReason() == null
+                        ? "Disciplinary suspension"
+                        : suspension.getReason().replace('_', ' ');
+            };
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("playerId", suspension.getPlayerId());
+            row.put("playerName", player != null ? player.getName() : suspension.getPlayerName());
+            row.put("type", "SUSPENSION");
+            row.put("label", reason);
+            row.put("severity", null);
+            row.put("remaining", matchesRemaining);
+            row.put("remainingUnit", matchesRemaining == 1 ? "match" : "matches");
+            row.put("competitionId", suspension.getCompetitionId());
+            row.put("competitionName", competitionName);
+            row.put("explanation", reason + " — " + matchesRemaining + " match(es) remaining in " + competitionName + ".");
+            result.add(row);
+        }
+
+        result.sort(Comparator
+                .comparing((Map<String, Object> row) -> String.valueOf(row.get("playerName")))
+                .thenComparing(row -> String.valueOf(row.get("type"))));
+        return result;
     }
 
     @GetMapping("/finances/{teamId}")

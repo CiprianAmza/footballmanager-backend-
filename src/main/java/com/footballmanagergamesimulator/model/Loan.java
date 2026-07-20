@@ -19,6 +19,15 @@ public class Loan {
     private long loanTeamId;
     private String loanTeamName;
     private int seasonNumber;
+
+    /** First season in which the player represents the loan club. */
+    @Column(columnDefinition = "int default 0")
+    private int startSeason;
+
+    /** Last season in which the player represents the loan club (inclusive). */
+    @Column(columnDefinition = "int default 0")
+    private int endSeason;
+
     private String status;
     private long loanFee;
 

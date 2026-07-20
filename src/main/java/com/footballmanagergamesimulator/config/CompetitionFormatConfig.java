@@ -39,14 +39,18 @@ public class CompetitionFormatConfig {
         // --- League of Champions (4) — SHAPE ONLY ---
         // Round boundaries (preliminary/group/knockout/final, two-leg, seeded draw)
         // are DERIVED from this shape by EuropeanFormatPlan, so changing totalTeams/
-        // groups/qualifyPerGroup adapts the whole format in one place. With 40 teams,
-        // 4 groups of 4, top 2 → knockout: preliminaries 0-1, groups 2-7, 8 QF,
-        // 9 SF, 10 Final; QF + SF two-leg; preliminary draws coefficient-seeded.
+        // groups/qualifyPerGroup adapts the whole format in one place. With the
+        // 21-team tiered entry, 4 groups of 4 and top 2 → knockout: qualifiers
+        // 0-1, groups 2-7, 8 QF,
+        // 9 SF, 10 Final; QF + SF two-leg; qualifying draws coefficient-seeded.
         // 3rd → Stars Cup playoff (type 5, round 7); preliminary/qualifying losers
         // drop to Stars Cup groups (type 5, round 1).
         byType.put(4, CompetitionFormat.builder(4, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
                 .matchdayToRoundDelta(-1)
-                .totalTeams(40)
+                // 12 clubs enter the groups directly. Two clubs play round 1;
+                // its winner joins seven clubs in round 2, producing the final
+                // four group-stage places (21 clubs participate in total).
+                .tieredEuropeanEntries(12, 2, 7)
                 .groups(4, 4)
                 .qualifyPerGroupToKnockout(2)
                 .groupFixtureRoundOffset(1)
@@ -59,6 +63,9 @@ public class CompetitionFormatConfig {
         // the previous hardcoded values). Per-group routing: 1 winner → knockout,
         // 1 runner-up → playoff. See starsCupFormat for the derivation.
         byType.put(5, starsCupFormat(4, 4, 1, 1));
+
+        // Domestic Super Cup: one single-match final.
+        byType.put(6, CompetitionFormat.builder(6, CompetitionFormat.Kind.KNOCKOUT).build());
     }
 
     /**

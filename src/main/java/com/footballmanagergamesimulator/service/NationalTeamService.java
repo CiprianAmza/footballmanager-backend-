@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.model.Injury;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.NationalTeamCallup;
@@ -44,6 +45,10 @@ public class NationalTeamService {
     private InjuryRepository injuryRepository;
     @Autowired
     private ManagerInboxRepository managerInboxRepository;
+    @Autowired
+    private InjuryTimelineService injuryTimelineService;
+    @Autowired(required = false)
+    private GameplayFeatureConfig gameplayFeatures;
 
     private final Random random = new Random();
 
@@ -74,7 +79,7 @@ public class NationalTeamService {
 
         for (Human player : eligiblePlayers) {
             // Check if player is already injured
-            boolean alreadyInjured = injuryRepository
+            boolean alreadyInjured = !availabilityDisabled() && injuryRepository
                     .findByPlayerIdAndDaysRemainingGreaterThan(player.getId(), 0)
                     .isPresent();
             if (alreadyInjured) {
@@ -98,7 +103,7 @@ public class NationalTeamService {
             }
 
             // 10% chance of injury during international duty
-            if (random.nextDouble() < INJURY_CHANCE) {
+            if (!availabilityDisabled() && random.nextDouble() < INJURY_CHANCE) {
                 int injuryDays = 7 + random.nextInt(15); // 7 to 21 days
                 callup.setInjuredDuringCallup(true);
 
@@ -107,8 +112,7 @@ public class NationalTeamService {
                 injury.setTeamId(player.getTeamId());
                 injury.setInjuryType("INTERNATIONAL_DUTY");
                 injury.setSeverity(injuryDays <= 10 ? "MINOR" : "MODERATE");
-                injury.setDaysRemaining(injuryDays);
-                injury.setSeasonNumber(season);
+                injuryTimelineService.schedule(injury, season, currentDay, injuryDays);
                 injuryRepository.save(injury);
 
                 if (userContext.isHumanTeam(player.getTeamId())) {
@@ -135,6 +139,10 @@ public class NationalTeamService {
         }
 
         return callups;
+    }
+
+    private boolean availabilityDisabled() {
+        return gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled();
     }
 
     // ==================== RETURN PLAYERS ====================

@@ -17,7 +17,8 @@ public class FinancialRecord {
 
     private String category;
     // Categories: MATCH_DAY, TV_INCOME, MERCHANDISING, SPONSORSHIP, TRANSFER_SALE,
-    //             TRANSFER_BUY, WAGES, PRIZE_MONEY, OWNER_INJECTION, LOAN_FEE, SCOUT_COST, OTHER
+    //             TRANSFER_BUY, WAGES, PRIZE_MONEY, OWNER_INJECTION, OWNER_WITHDRAWAL,
+    //             FINES, FINANCIAL_ADJUSTMENT, LOAN_FEE, SCOUT_COST, OTHER
 
     private String description;
     private long amount; // positive = income, negative = expense

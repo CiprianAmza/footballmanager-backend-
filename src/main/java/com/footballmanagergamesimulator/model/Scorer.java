@@ -5,7 +5,11 @@ import lombok.Data;
 
 @Entity
 @Data
-@Table(name="scorer")
+@Table(name="scorer", indexes = {
+        @Index(name = "idx_scorer_comp_season_round", columnList = "competitionId,seasonNumber,roundNumber"),
+        @Index(name = "idx_scorer_player_season", columnList = "playerId,seasonNumber"),
+        @Index(name = "idx_scorer_team_season", columnList = "teamId,seasonNumber")
+})
 public class Scorer {
 
     @Id
@@ -27,6 +31,7 @@ public class Scorer {
 
     private int competitionTypeId;
     private int seasonNumber;
+    private int roundNumber;
 
     private int teamScore;
     private int opponentScore;
