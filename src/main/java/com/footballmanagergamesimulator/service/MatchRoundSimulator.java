@@ -488,12 +488,28 @@ public class MatchRoundSimulator {
                         teamScore2 = scores.get(1);
                     }
 
+                    // The regular-time (90') score, captured before resolveKnockoutMatch
+                    // folds in any extra-time goals — this, not the ET-inclusive score,
+                    // is what the canonical plan stores as score90.
+                    int score90Home = teamScore1;
+                    int score90Away = teamScore2;
+                    com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit planSplit =
+                            com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit
+                                    .regularOnly(score90Home, score90Away);
+
                     if (knockout) {
                         knockoutResolution = resolveKnockoutMatch(
                                 match, teamId1, teamPower1, teamId2, teamPower2,
                                 teamScore1, teamScore2, firstLegScores);
                         teamScore1 = knockoutResolution.score1();
                         teamScore2 = knockoutResolution.score2();
+
+                        // The resolution carries ET goals + shootout per team, already
+                        // oriented to home/away; the split just separates them for the plan.
+                        planSplit = com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit.knockout(
+                                score90Home, score90Away,
+                                knockoutResolution.et1(), knockoutResolution.et2(),
+                                knockoutResolution.penalty1(), knockoutResolution.penalty2());
                     }
 
                     // Canonical pipeline (flag on): build the single MatchPlan event
@@ -506,7 +522,10 @@ public class MatchRoundSimulator {
                                 .competitionFixtureKey(match.getId());
                         List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersist(
                                 fixtureKey, _competitionId, _season, (int) _roundId,
-                                teamId1, teamId2, tactic1, tactic2, teamScore1, teamScore2);
+                                teamId1, teamId2, tactic1, tactic2,
+                                planSplit.score90Home(), planSplit.score90Away(),
+                                planSplit.etHome(), planSplit.etAway(),
+                                planSplit.shootoutHome(), planSplit.shootoutAway());
                         lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId, tallyForTeam(canonicalEvents, teamId1));
                         lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId, tallyForTeam(canonicalEvents, teamId2));
                     } else {
@@ -1300,7 +1319,8 @@ public class MatchRoundSimulator {
             int score1, int score2, String scoreSuffix,
             Long winnerTeamId, String decidedBy,
             Integer penalty1, Integer penalty2,
-            Integer aggregate1, Integer aggregate2) {}
+            Integer aggregate1, Integer aggregate2,
+            Integer et1, Integer et2) {} // extra-time goals for team1/team2, null when no ET
 
     /**
      * Resolve extra time / penalties before scorers, statistics and standings are
@@ -1319,7 +1339,7 @@ public class MatchRoundSimulator {
             firstLegScores.put(tieId, new int[]{score1, score2});
             return new KnockoutMatchResolution(
                     score1, score2, " (1st leg)", null, "FIRST_LEG",
-                    null, null, null, null);
+                    null, null, null, null, null, null);
         }
 
         int[] leg1 = null;
@@ -1354,9 +1374,12 @@ public class MatchRoundSimulator {
                     + (decision.penalties()
                     ? ", pens " + penalty1 + "-" + penalty2
                     : decision.extraTime() ? ", a.e.t." : "") + ")";
+            // team1 = side B, team2 = side A (see orientation above).
+            Integer et1 = decision.extraTime() ? decision.etB() : null;
+            Integer et2 = decision.extraTime() ? decision.etA() : null;
             return new KnockoutMatchResolution(
                     score1, score2, suffix, winner, decidedBy,
-                    penalty1, penalty2, finalAggregate1, finalAggregate2);
+                    penalty1, penalty2, finalAggregate1, finalAggregate2, et1, et2);
         }
 
         // Single-leg knockout, including the defensive fallback for a missing leg 1.
@@ -1371,9 +1394,11 @@ public class MatchRoundSimulator {
         String suffix = decision.penalties()
                 ? " (pens " + penalty1 + "-" + penalty2 + ")"
                 : decision.extraTime() ? " (a.e.t.)" : "";
+        Integer et1 = decision.extraTime() ? decision.etA() : null;
+        Integer et2 = decision.extraTime() ? decision.etB() : null;
         return new KnockoutMatchResolution(
                 score1, score2, suffix, winner, decidedBy,
-                penalty1, penalty2, null, null);
+                penalty1, penalty2, null, null, et1, et2);
     }
 
     /** Resolve a knockout tie's tiebreak (extra time + penalties). Under the two-axis model the

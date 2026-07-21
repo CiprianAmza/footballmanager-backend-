@@ -106,6 +106,30 @@ class MatchPlanIdempotencyTest {
     }
 
     @Test
+    void retryPreservesExtraTimeScoresAndEvents() {
+        // Knockout still level after ET (1-1 at 90, 1-1 in ET), decided 5-4 on
+        // penalties: ET goals AND a shootout coexist; an ET winner would preclude
+        // the shootout.
+        List<MatchEvent> first = service.buildAndPersist("CTIM:77", 100L, 1, 5, 10L, 20L,
+                "4-4-2", "4-4-2", 1, 1, 1, 1, 5, 4);
+        List<MatchEvent> second = service.buildAndPersist("CTIM:77", 100L, 1, 5, 10L, 20L,
+                "4-4-2", "4-4-2", 1, 1, 1, 1, 5, 4);
+
+        assertEquals(first.size(), second.size());
+        MatchPlan plan = planRepository.findByFixtureKey("CTIM:77").orElseThrow();
+        assertEquals(1, plan.getHomeScoreET());
+        assertEquals(1, plan.getAwayScoreET());
+        assertEquals(5, plan.getHomeShootout());
+        assertEquals(4, plan.getAwayShootout());
+        // 2 regular + 2 ET goal slots; the shootout adds none.
+        assertEquals(4, plan.getGoalSlots().size());
+        // 4 goal events persisted (+ any assists), no shootout events, no duplicates.
+        long goalEvents = eventRepository.findByFixtureKey("CTIM:77").stream()
+                .filter(e -> "goal".equals(e.getEventType())).count();
+        assertEquals(4, goalEvents);
+    }
+
+    @Test
     void committedMatch_isTerminalAndNotReExecuted() {
         service.buildAndPersist("CTIM:8", 100L, 1, 5, 10L, 20L,
                 "4-4-2", "4-4-2", 1, 0);

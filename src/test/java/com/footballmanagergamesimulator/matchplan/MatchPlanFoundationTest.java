@@ -65,6 +65,61 @@ class MatchPlanFoundationTest {
         assertEquals(ma, mb);
     }
 
+    // ---------------- knockout: extra time & shootout ----------------
+
+    @Test
+    void singleLegExtraTime_hasEtSlots_noShootout() {
+        // 1-1 after 90, home wins 2-1 with an extra-time goal.
+        MatchPlan plan = planning.plan("fx", 1L, 10L, 20L, 1, 1, 1, 0, -1, -1);
+        assertTrue(plan.hadExtraTime());
+        assertFalse(plan.hadShootout());
+        assertEquals(3, plan.getGoalSlots().size()); // 2 regular + 1 ET, no shootout
+        assertEquals(1, plan.getGoalSlots().stream()
+                .filter(s -> s.getPhase() == GoalPhase.EXTRA_TIME).count());
+        assertEquals(2, plan.getHomeGoals());
+        assertEquals(1, plan.getAwayGoals());
+    }
+
+    @Test
+    void singleLegPenalties_shootoutProducesNoGoalSlots() {
+        // 1-1 after 90 and 0-0 in extra time, decided 5-4 on penalties.
+        MatchPlan plan = planning.plan("fx", 1L, 10L, 20L, 1, 1, 0, 0, 5, 4);
+        assertTrue(plan.hadExtraTime());  // extra time was played (goalless)
+        assertTrue(plan.hadShootout());
+        assertEquals(2, plan.getGoalSlots().size()); // only the two 90' goals
+        assertEquals(1, plan.getHomeGoals());
+        assertEquals(1, plan.getAwayGoals()); // shootout 5-4 excluded from goals
+    }
+
+    @Test
+    void extraTimeGoal_assignedToScoringTeam() {
+        // 0-0 after 90, the only goal is an away extra-time winner.
+        MatchPlan plan = planning.plan("fx", 3L, 10L, 20L, 0, 0, 0, 1, -1, -1);
+        GoalSlot et = plan.getGoalSlots().stream()
+                .filter(s -> s.getPhase() == GoalPhase.EXTRA_TIME).findFirst().orElseThrow();
+        assertEquals(20L, et.getTeamId());
+    }
+
+    @Test
+    void twoLegSecondLeg_usesLegScoreNotAggregate() {
+        // Leg 2 is its own fixture: 2-1 at 90 + a home ET goal. The plan stores
+        // the leg's goals (3-1), never the two-leg aggregate.
+        MatchPlan plan = planning.plan("fx", 5L, 10L, 20L, 2, 1, 1, 0, -1, -1);
+        assertEquals(4, plan.getGoalSlots().size()); // 3 + 1
+        assertEquals(3, plan.getHomeGoals());
+        assertEquals(1, plan.getAwayGoals());
+    }
+
+    @Test
+    void twoLegSecondLegPenalties_noShootoutGoals() {
+        // Leg 2 ends level, extra time goalless, decided on penalties.
+        MatchPlan plan = planning.plan("fx", 6L, 10L, 20L, 0, 0, 0, 0, 3, 2);
+        assertTrue(plan.hadShootout());
+        assertEquals(0, plan.getGoalSlots().size());
+        assertEquals(0, plan.getHomeGoals());
+        assertEquals(0, plan.getAwayGoals());
+    }
+
     // ---------------- resolver ----------------
 
     @Test
