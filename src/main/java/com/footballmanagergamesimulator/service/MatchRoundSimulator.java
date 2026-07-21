@@ -48,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import com.footballmanagergamesimulator.model.MatchEvent;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -89,6 +90,7 @@ public class MatchRoundSimulator {
     @Autowired private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired @Lazy private FinanceService financeService;
     @Autowired private MatchSimulationService matchSimulationService;
+    @Autowired private com.footballmanagergamesimulator.matchplan.MatchPlanService matchPlanService;
     @Autowired private MatchStatsService matchStatsService;
     @Autowired private CompetitionService competitionService;
     @Autowired private TeamPostMatchService teamPostMatchService;
@@ -494,16 +496,28 @@ public class MatchRoundSimulator {
                         teamScore2 = knockoutResolution.score2();
                     }
 
-                    // Full scorer tracking with weighted distribution
-                    lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId);
-                    lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId);
+                    // Canonical pipeline (flag on): build the single MatchPlan event
+                    // timeline first, then project both the display faze and the Scorer
+                    // leaderboard from it so they can never disagree. Flag off: the legacy
+                    // independent RNG distributions run (scorers, then synthetic faze).
+                    int _season = Integer.parseInt(getCurrentSeason());
+                    if (matchPlanService.isEnabled()) {
+                        String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                                .competitionFixtureKey(match.getId());
+                        List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersist(
+                                fixtureKey, _competitionId, _season, (int) _roundId,
+                                teamId1, teamId2, tactic1, tactic2, teamScore1, teamScore2);
+                        lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId, tallyForTeam(canonicalEvents, teamId1));
+                        lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId, tallyForTeam(canonicalEvents, teamId2));
+                    } else {
+                        lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId);
+                        lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId);
+                        matchSimulationService.generateMatchEvents(_competitionId, _season, (int) _roundId,
+                                teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2);
+                    }
                     // Per-player lineup ratings for the match statistics view
-                    lineupRatingService.persistPlayerRatings(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, tactic1);
-                    lineupRatingService.persistPlayerRatings(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId2, tactic2);
-
-                    // Detailed match events (goals, assists, cards, substitutions)
-                    matchSimulationService.generateMatchEvents(_competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2);
+                    lineupRatingService.persistPlayerRatings(_competitionId, _season, (int) _roundId, teamId1, tactic1);
+                    lineupRatingService.persistPlayerRatings(_competitionId, _season, (int) _roundId, teamId2, tactic2);
 
                     // Generate and persist match stats
                     matchStatsService.generateAndSaveMatchStats(
@@ -1268,6 +1282,20 @@ public class MatchRoundSimulator {
     }
 
     /** Canonical knockout result, already aligned to the displayed team1/team2 row. */
+    /** Per-player [goals, assists] for one team, projected from canonical MatchPlan events. */
+    private Map<Long, int[]> tallyForTeam(List<MatchEvent> events, long teamId) {
+        Map<Long, int[]> tally = new HashMap<>();
+        for (MatchEvent e : events) {
+            if (e.getTeamId() != teamId) continue;
+            boolean goal = "goal".equals(e.getEventType());
+            boolean assist = "assist".equals(e.getEventType());
+            if (!goal && !assist) continue;
+            int[] ga = tally.computeIfAbsent(e.getPlayerId(), k -> new int[2]);
+            if (goal) ga[0]++; else ga[1]++;
+        }
+        return tally;
+    }
+
     private record KnockoutMatchResolution(
             int score1, int score2, String scoreSuffix,
             Long winnerTeamId, String decidedBy,

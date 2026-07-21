@@ -21,4 +21,10 @@ public interface MatchEventRepository extends JpaRepository<MatchEvent, Long> {
     List<MatchEvent> findAllByCompetitionIdAndSeasonNumber(long competitionId, int seasonNumber);
 
     List<MatchEvent> findAllBySeasonNumber(int seasonNumber);
+
+    /** Canonical events already persisted for a fixture — used for idempotent replay. */
+    List<MatchEvent> findByFixtureKey(String fixtureKey);
+
+    /** Canonical events in stable timeline order: goal before its optional assist. */
+    List<MatchEvent> findByFixtureKeyOrderBySlotIndexAscEventOrderAsc(String fixtureKey);
 }

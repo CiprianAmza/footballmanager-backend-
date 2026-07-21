@@ -57,7 +57,10 @@ public class MatchEngineConfig {
     private TacticalModel tacticalModel = new TacticalModel();
     private Boardroom boardroom = new Boardroom();
     private Analytics analytics = new Analytics();
+    private MatchPlan matchPlan = new MatchPlan();
 
+    public MatchPlan getMatchPlan() { return matchPlan; }
+    public void setMatchPlan(MatchPlan matchPlan) { this.matchPlan = matchPlan; }
     public Boardroom getBoardroom() { return boardroom; }
     public void setBoardroom(Boardroom boardroom) { this.boardroom = boardroom; }
     public Analytics getAnalytics() { return analytics; }
@@ -541,6 +544,8 @@ public class MatchEngineConfig {
         /** Score multipliers for stamina vs pace inside attacker / fouler picks. */
         private double staminaFactorFloor = 0.5;
         private double staminaFactorRange = 0.5;
+        /** Stamina and pace only influence the scorer pick from this minute on. */
+        private int fatigueScorerMinuteThreshold = 60;
 
         public double getBigChancesBaseline() { return bigChancesBaseline; }
         public void setBigChancesBaseline(double v) { this.bigChancesBaseline = v; }
@@ -558,6 +563,8 @@ public class MatchEngineConfig {
         public void setAttackerPaceRange(double v) { this.attackerPaceRange = v; }
         public double getFoulerPaceInverseBase() { return foulerPaceInverseBase; }
         public void setFoulerPaceInverseBase(double v) { this.foulerPaceInverseBase = v; }
+        public int getFatigueScorerMinuteThreshold() { return fatigueScorerMinuteThreshold; }
+        public void setFatigueScorerMinuteThreshold(int v) { this.fatigueScorerMinuteThreshold = v; }
         public int getSubEarliestMinute() { return subEarliestMinute; }
         public void setSubEarliestMinute(int v) { this.subEarliestMinute = v; }
         public int getSubMinuteBoundary2() { return subMinuteBoundary2; }
@@ -972,6 +979,18 @@ public class MatchEngineConfig {
         public void setExtraTimeExpectedGoals(double v) { this.extraTimeExpectedGoals = v; }
         public double getPenaltyWeakerTeamWinChance() { return penaltyWeakerTeamWinChance; }
         public void setPenaltyWeakerTeamWinChance(double v) { this.penaltyWeakerTeamWinChance = v; }
+    }
+
+    /**
+     * Canonical MatchPlan pipeline (single result -> live/instant executors ->
+     * derived stats). Kept behind a flag while the new path is validated against
+     * the legacy scorer distribution; default off so production is unchanged.
+     */
+    public static class MatchPlan {
+        private boolean enabled = false;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
     }
 
     // ==================== TRAINING (facility-scaled development) ====================

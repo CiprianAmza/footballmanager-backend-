@@ -581,7 +581,7 @@ public class LiveMatchSession {
             if (forcedGoal) attackers = team1HasBall ? team1All : team2All;
             if (attackers.isEmpty()) return;
         }
-        Human attacker = svc.pickWeightedAttacker(attackers, matchStates, random);
+        Human attacker = svc.pickWeightedAttacker(attackers, matchStates, min, random);
         if (team1HasBall) homeShots++; else awayShots++;
 
         double attackRoll = random.nextDouble();
@@ -617,7 +617,7 @@ public class LiveMatchSession {
 
             Human goalAssister = null;
             if (random.nextDouble() < 0.7 && attackers.size() > 1) {
-                goalAssister = svc.pickDifferentPlayer(attackers, attacker, random);
+                goalAssister = svc.pickDifferentPlayer(attackers, attacker, matchStates, random);
                 if (goalAssister != null) {
                     dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
                             min, "assist", goalAssister.getId(), goalAssister.getName(), attackingTeamId, "Assist"));
@@ -700,7 +700,7 @@ public class LiveMatchSession {
             // Corner-header goal — suppressed in pinned mode (goals only land at
             // scheduled minutes, which route through the GOAL branch above).
             if (!pinned && random.nextDouble() < 0.08 && !attackers.isEmpty()) {
-                Human header = svc.pickWeightedAttacker(attackers, matchStates, random);
+                Human header = svc.pickWeightedAttacker(attackers, matchStates, min, random);
                 if (team1HasBall) { homeScore++; homeShotsOnTarget++; homeShots++; }
                 else { awayScore++; awayShotsOnTarget++; awayShots++; }
 

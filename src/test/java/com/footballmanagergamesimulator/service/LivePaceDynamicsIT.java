@@ -77,7 +77,8 @@ class LivePaceDynamicsIT {
         Random rng = new Random(SEED);
         int fastPicks = 0, slowPicks = 0, trials = 20000;
         for (int i = 0; i < trials; i++) {
-            Human picked = liveService.pickWeightedAttacker(List.of(fast, slow), states, rng);
+            // Minute 70 (>= fatigue threshold) so pace influence applies.
+            Human picked = liveService.pickWeightedAttacker(List.of(fast, slow), states, 70, rng);
             if (picked.getId() == FAST_ID) fastPicks++; else slowPicks++;
         }
 

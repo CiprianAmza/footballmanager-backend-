@@ -284,27 +284,37 @@ public class LiveMatchSimulationService {
      */
     Human pickWeightedAttacker(List<Human> players,
                                        Map<Long, PlayerMatchState> states,
+                                       int minute,
                                        Random random) {
         if (players.isEmpty()) return null;
         if (players.size() == 1) return players.get(0);
+
+        // Stamina and pace only matter once legs tire — before this minute the
+        // scorer pick is rating × position × finishing only.
+        boolean fatigueMatters = minute >= engineConfig.getLive().getFatigueScorerMinuteThreshold();
 
         double totalWeight = 0;
         double[] weights = new double[players.size()];
         for (int i = 0; i < players.size(); i++) {
             Human p = players.get(i);
-            double posWeight = getPositionWeight(p.getPosition());
+            int finishing = 0;
             double stamFactor = 1.0;
             double paceFactor = 1.0;
             if (states != null) {
                 PlayerMatchState st = states.get(p.getId());
                 if (st != null) {
-                    stamFactor = staminaFactor(st.currentStamina);
-                    // Pace tilts the shot toward quicker attackers (config-controlled curve).
-                    MatchEngineConfig.Live lv = engineConfig.getLive();
-                    paceFactor = lv.getAttackerPaceFloor() + lv.getAttackerPaceRange() * (st.pace / 20.0);
+                    finishing = st.finishing;
+                    if (fatigueMatters) {
+                        stamFactor = staminaFactor(st.currentStamina);
+                        // Pace tilts the shot toward quicker attackers (config-controlled curve).
+                        MatchEngineConfig.Live lv = engineConfig.getLive();
+                        paceFactor = lv.getAttackerPaceFloor() + lv.getAttackerPaceRange() * (st.pace / 20.0);
+                    }
                 }
             }
-            weights[i] = p.getRating() * posWeight * stamFactor * paceFactor;
+            double posFinish = com.footballmanagergamesimulator.util.PositionScoringWeights
+                    .scorerWeight(p.getPosition(), finishing);
+            weights[i] = p.getRating() * posFinish * stamFactor * paceFactor;
             totalWeight += weights[i];
         }
 
@@ -318,16 +328,6 @@ public class LiveMatchSimulationService {
         return players.get(players.size() - 1);
     }
 
-    private double getPositionWeight(String position) {
-        if (position == null) return 1.0;
-        return switch (position) {
-            case "ST" -> 3.0;
-            case "AMC", "AML", "AMR" -> 2.0;
-            case "MC", "ML", "MR" -> 1.2;
-            case "DC", "DL", "DR", "DM" -> 0.4;
-            default -> 1.0;
-        };
-    }
 
     /** Pick the defender who commits the foul. Weighted inverse to pace —
      *  a slow defender is more likely to mistime a challenge than a quick one
@@ -358,12 +358,25 @@ public class LiveMatchSimulationService {
         return defenders.get(defenders.size() - 1);
     }
 
-    Human pickDifferentPlayer(List<Human> players, Human exclude, Random random) {
+    Human pickDifferentPlayer(List<Human> players, Human exclude,
+                              Map<Long, PlayerMatchState> states, Random random) {
         List<Human> candidates = players.stream()
                 .filter(p -> p.getId() != exclude.getId())
                 .collect(Collectors.toList());
         if (candidates.isEmpty()) return null;
-        return candidates.get(random.nextInt(candidates.size()));
+        // Assist is weighted by position AND creativity: wide/attacking-mid
+        // players create most, then the deeper midfield and striker, defenders
+        // least — each scaled by the player's Passing/Vision.
+        return com.footballmanagergamesimulator.util.PositionScoringWeights.weightedPick(
+                candidates,
+                c -> {
+                    PlayerMatchState st = states != null ? states.get(c.getId()) : null;
+                    int passing = st != null ? st.passing : 0;
+                    int vision = st != null ? st.vision : 0;
+                    return com.footballmanagergamesimulator.util.PositionScoringWeights
+                            .assistWeight(c.getPosition(), passing, vision);
+                },
+                random);
     }
 
     LiveMatchMinute createMinuteEvent(int minute, int homeScore, int awayScore,
@@ -445,6 +458,9 @@ public class LiveMatchSimulationService {
             s.staminaAttr = ps != null ? Math.max(1, ps.getStamina()) : 10;
             s.naturalFitness = ps != null ? Math.max(1, ps.getNaturalFitness()) : 10;
             s.pace = ps != null ? Math.max(1, ps.getPace()) : 10;
+            s.passing = ps != null ? Math.max(1, ps.getPassing()) : 10;
+            s.vision = ps != null ? Math.max(1, ps.getVision()) : 10;
+            s.finishing = ps != null ? Math.max(1, ps.getFinishing()) : 10;
             states.put(p.getId(), s);
         }
     }
@@ -804,6 +820,9 @@ public class LiveMatchSimulationService {
         int staminaAttr;       // 1-20
         int naturalFitness;    // 1-20
         int pace;              // 1-20
+        int passing;           // 1-20
+        int vision;            // 1-20
+        int finishing;         // 1-20
         /** Minute when this player picked up a yellow card; 0 = never. */
         int yellowCardMinute;
         /** Minute when this player was sent off with a red; 0 = never. */

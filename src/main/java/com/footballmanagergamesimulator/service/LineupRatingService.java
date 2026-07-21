@@ -600,6 +600,18 @@ public class LineupRatingService {
      */
     public void getScorersForTeam(long teamId, long opponentTeamId, int teamScore, int opponentScore,
                                   String tactic, long competitionId, int roundNumber) {
+        getScorersForTeam(teamId, opponentTeamId, teamScore, opponentScore,
+                tactic, competitionId, roundNumber, null);
+    }
+
+    /**
+     * @param canonicalTally when non-null, goals/assists are projected from the
+     *        canonical MatchPlan events (playerId -&gt; [goals, assists]) instead of
+     *        being distributed by RNG — the single-source-of-truth path.
+     */
+    public void getScorersForTeam(long teamId, long opponentTeamId, int teamScore, int opponentScore,
+                                  String tactic, long competitionId, int roundNumber,
+                                  java.util.Map<Long, int[]> canonicalTally) {
 
         Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
         long competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
@@ -738,7 +750,44 @@ public class LineupRatingService {
             weightedPlayers.add(new Pair<>(scorer, weight));
         }
 
-        if (!weightedPlayers.isEmpty()) {
+        if (canonicalTally != null) {
+            // Projection path: goals/assists come from the canonical MatchPlan
+            // events. A scorer the plan credited but not already in the lineup
+            // (e.g. a substitute who came on) is added as a Scorer row.
+            for (java.util.Map.Entry<Long, int[]> entry : canonicalTally.entrySet()) {
+                long playerId = entry.getKey();
+                int goals = entry.getValue()[0];
+                int assists = entry.getValue()[1];
+                Scorer row = null;
+                for (Scorer s : possibleScorers) {
+                    if (s.getPlayerId() == playerId) { row = s; break; }
+                }
+                if (row == null) {
+                    Optional<Human> ph = humanRepository.findById(playerId);
+                    if (ph.isEmpty()) continue;
+                    Human player = ph.get();
+                    row = new Scorer();
+                    row.setPlayerId(playerId);
+                    row.setSeasonNumber(gameStateService.currentSeason());
+                    row.setRoundNumber(roundNumber);
+                    row.setTeamId(teamId);
+                    row.setOpponentTeamId(opponentTeamId);
+                    row.setPosition(player.getPosition());
+                    row.setTeamScore(teamScore);
+                    row.setOpponentScore(opponentScore);
+                    row.setCompetitionId(competitionId);
+                    row.setCompetitionTypeId((int) competitionTypeId);
+                    row.setTeamName(teamName);
+                    row.setOpponentTeamName(opponentName);
+                    row.setCompetitionName(competitionName);
+                    row.setRating(player.getRating());
+                    row.setSubstitute(true);
+                    possibleScorers.add(row);
+                }
+                row.setGoals(row.getGoals() + goals);
+                row.setAssists(row.getAssists() + assists);
+            }
+        } else if (!weightedPlayers.isEmpty()) {
             for (int i = 0; i < teamScore; i++) {
                 try {
                     EnumeratedDistribution<Scorer> distribution = new EnumeratedDistribution<>(weightedPlayers);

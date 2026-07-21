@@ -48,6 +48,7 @@ public class MatchSimulationService {
     @Autowired private MatchEventRepository matchEventRepository;
     @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.PlayerSkillsRepository playerSkillsRepository;
     @Autowired private InjuryRepository injuryRepository;
     @Autowired private SuspensionRepository suspensionRepository;
     @Autowired private UserContext userContext;
@@ -526,10 +527,20 @@ public class MatchSimulationService {
         if (team1Outfield.isEmpty()) team1Outfield = new ArrayList<>(team1Players);
         if (team2Outfield.isEmpty()) team2Outfield = new ArrayList<>(team2Players);
 
+        // Batch-load skills once so assist weighting can factor Passing/Vision.
+        List<Long> allPlayerIds = new ArrayList<>();
+        for (Human p : team1Outfield) allPlayerIds.add(p.getId());
+        for (Human p : team2Outfield) allPlayerIds.add(p.getId());
+        Map<Long, com.footballmanagergamesimulator.model.PlayerSkills> skillsCache =
+                playerSkillsRepository.findAllByPlayerIdIn(allPlayerIds).stream()
+                        .collect(Collectors.toMap(
+                                com.footballmanagergamesimulator.model.PlayerSkills::getPlayerId,
+                                ps -> ps, (a, b) -> a));
+
         appendGoalEvents(events, competitionId, seasonNumber, roundNumber, teamId1, teamId2, teamId1,
-                team1GoalMinutes, team1Outfield, tactic1Opt.orElse(null), goalDescriptions, ev, random);
+                team1GoalMinutes, team1Outfield, tactic1Opt.orElse(null), goalDescriptions, ev, skillsCache, random);
         appendGoalEvents(events, competitionId, seasonNumber, roundNumber, teamId1, teamId2, teamId2,
-                team2GoalMinutes, team2Outfield, tactic2Opt.orElse(null), goalDescriptions, ev, random);
+                team2GoalMinutes, team2Outfield, tactic2Opt.orElse(null), goalDescriptions, ev, skillsCache, random);
         return events;
     }
 
@@ -637,10 +648,11 @@ public class MatchSimulationService {
                                   PersonalizedTactic tactic,
                                   String[] goalDescriptions,
                                   MatchEngineConfig.Events ev,
+                                  Map<Long, com.footballmanagergamesimulator.model.PlayerSkills> skillsCache,
                                   Random random) {
         for (int minute : goalMinutes) {
             String description = goalDescriptions[random.nextInt(goalDescriptions.length)];
-            Human scorer = resolveGoalScorer(description, outfieldPlayers, tactic, random);
+            Human scorer = resolveGoalScorer(description, outfieldPlayers, tactic, skillsCache, random);
 
             MatchEvent goalEvent = new MatchEvent();
             goalEvent.setCompetitionId(competitionId);
@@ -661,7 +673,16 @@ public class MatchSimulationService {
                         .filter(p -> p.getId() != scorer.getId())
                         .collect(Collectors.toList());
                 if (!possibleAssisters.isEmpty()) {
-                    Human assister = possibleAssisters.get(random.nextInt(possibleAssisters.size()));
+                    Human assister = com.footballmanagergamesimulator.util.PositionScoringWeights.weightedPick(
+                            possibleAssisters,
+                            p -> {
+                                com.footballmanagergamesimulator.model.PlayerSkills ps = skillsCache.get(p.getId());
+                                int passing = ps != null ? ps.getPassing() : 0;
+                                int vision = ps != null ? ps.getVision() : 0;
+                                return com.footballmanagergamesimulator.util.PositionScoringWeights
+                                        .assistWeight(p.getPosition(), passing, vision);
+                            },
+                            random);
                     MatchEvent assistEvent = new MatchEvent();
                     assistEvent.setCompetitionId(competitionId);
                     assistEvent.setSeasonNumber(seasonNumber);
@@ -687,7 +708,9 @@ public class MatchSimulationService {
      * - Otherwise → random outfield player
      */
     private Human resolveGoalScorer(String goalDescription, List<Human> outfieldPlayers,
-                                    PersonalizedTactic tactic, Random random) {
+                                    PersonalizedTactic tactic,
+                                    Map<Long, com.footballmanagergamesimulator.model.PlayerSkills> skillsCache,
+                                    Random random) {
         if (tactic != null && outfieldPlayers != null && !outfieldPlayers.isEmpty()) {
             Long takerId = null;
             if ("Penalty".equals(goalDescription) && tactic.getPenaltyTakerId() != null) {
@@ -701,9 +724,20 @@ public class MatchSimulationService {
                         .filter(p -> p.getId() == id)
                         .findFirst().orElse(null);
                 if (taker != null) return taker;
-                // Taker not in outfield list (may be injured/subbed) — fallback to random
+                // Taker not in outfield list (may be injured/subbed) — fallback to weighted
             }
         }
-        return outfieldPlayers.get(random.nextInt(outfieldPlayers.size()));
+        // Same position + Finishing weighting as the live engine so watched and
+        // un-watched matches distribute scorers consistently. (No stamina/pace
+        // here: the batch path does not model per-minute fatigue.)
+        return com.footballmanagergamesimulator.util.PositionScoringWeights.weightedPick(
+                outfieldPlayers,
+                p -> {
+                    com.footballmanagergamesimulator.model.PlayerSkills ps = skillsCache.get(p.getId());
+                    int finishing = ps != null ? ps.getFinishing() : 0;
+                    return com.footballmanagergamesimulator.util.PositionScoringWeights
+                            .scorerWeight(p.getPosition(), finishing);
+                },
+                random);
     }
 }

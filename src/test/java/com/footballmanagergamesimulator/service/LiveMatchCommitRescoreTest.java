@@ -76,6 +76,7 @@ class LiveMatchCommitRescoreTest {
         inject(MatchSimulationService.class, matchSimulationService, "engineConfig", engineConfig);
         inject(MatchSimulationService.class, matchSimulationService, "humanRepository", humanRepository);
         inject(MatchSimulationService.class, matchSimulationService, "personalizedTacticRepository", personalizedTacticRepository);
+        inject(MatchSimulationService.class, matchSimulationService, "playerSkillsRepository", playerSkillsRepository);
 
         when(teamRepository.findNameById(HOME_TEAM)).thenReturn("Home FC");
         when(teamRepository.findNameById(AWAY_TEAM)).thenReturn("Away FC");

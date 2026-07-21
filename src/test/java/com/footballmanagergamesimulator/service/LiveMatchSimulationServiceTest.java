@@ -162,7 +162,8 @@ class LiveMatchSimulationServiceTest {
         Random random = new Random(123);
         int trials = 4000;
         for (int i = 0; i < trials; i++) {
-            Human picked = svc.pickWeightedAttacker(List.of(slow, fast), states, random);
+            // Minute 70 (>= fatigue threshold) so pace/stamina influence applies.
+            Human picked = svc.pickWeightedAttacker(List.of(slow, fast), states, 70, random);
             if (picked == fast) fastPicks++;
         }
         // Fast attacker weight ~1.2x slow attacker → ~55% of picks. Allow a
@@ -174,7 +175,7 @@ class LiveMatchSimulationServiceTest {
     @Test
     void pickWeightedAttacker_empty_returnsNull() {
         LiveMatchSimulationService svc = newService();
-        assertNull(svc.pickWeightedAttacker(List.of(), null, new Random(0)));
+        assertNull(svc.pickWeightedAttacker(List.of(), null, 70, new Random(0)));
     }
 
     // ---------------- helpers ----------------

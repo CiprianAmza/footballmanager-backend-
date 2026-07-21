@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.repository;
 
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -9,6 +11,11 @@ import java.util.List;
 import java.util.Optional;
 
 public interface CompetitionTeamInfoMatchRepository extends JpaRepository<CompetitionTeamInfoMatch, Long> {
+
+    /** Serializes canonical plan creation for one real fixture across requests/nodes. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE c.id = :id")
+    Optional<CompetitionTeamInfoMatch> findByIdForUpdate(@Param("id") long id);
 
     List<CompetitionTeamInfoMatch> findAllBySeasonNumber(String seasonNumber);
 
