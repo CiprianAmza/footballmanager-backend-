@@ -36,6 +36,9 @@ public interface HumanRepository extends JpaRepository<Human, Long> {
     // at the start of simulateRound to avoid N+1 across the per-match helpers.
     List<Human> findAllByTeamIdInAndTypeId(Collection<Long> teamIds, long typeId);
 
+    /** Batch lookup for a club's complete payroll (players, manager and staff). */
+    List<Human> findAllByTeamIdIn(Collection<Long> teamIds);
+
     Page<Human> findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNot(
             long typeId, long teamId, Pageable pageable);
 

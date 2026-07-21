@@ -37,4 +37,20 @@ public class CompetitionHistory {
   private int points;
   private String form;
   private long lastPosition;
+
+  /**
+   * Immutable competition-landscape snapshot.  Historical overview pages must
+   * never derive these values from the club's current squad: transfers,
+   * training and ageing would silently rewrite the past.
+   */
+  @Column(columnDefinition = "boolean default false")
+  private boolean landscapeSnapshotCaptured;
+
+  private Double topElevenRating;
+  private Long squadValue;
+  private Long monthlyPayroll;
+  private Long annualPayroll;
+  private Integer reputation;
+  private Integer mediaPrediction;
+  private Long entryRound;
 }

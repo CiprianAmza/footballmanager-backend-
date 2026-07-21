@@ -78,30 +78,46 @@ public class CompetitionOverviewService {
                 .collect(Collectors.groupingBy(Human::getTeamId, Collectors.summingLong(Human::getWage)));
         Map<Long, Long> entryRounds = entries.stream().collect(Collectors.toMap(
                 CompetitionTeamInfo::getTeamId, CompetitionTeamInfo::getRound, Math::min));
+        Map<Long, CompetitionHistory> historicalSnapshots = historyRepository
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, season).stream()
+                .collect(Collectors.toMap(CompetitionHistory::getTeamId, row -> row, (first, ignored) -> first));
 
         List<Map<String, Object>> rows = new ArrayList<>();
         for (long teamId : participantIds) {
             Team team = teams.get(teamId);
             if (team == null) continue;
             List<Human> squad = players.getOrDefault(teamId, List.of());
-            double topEleven = squad.stream().map(Human::getRating)
-                    .sorted(Comparator.reverseOrder()).limit(11)
-                    .mapToDouble(Double::doubleValue).average().orElse(0);
-            long value = squad.stream().mapToLong(Human::getTransferValue).sum();
-            long entryRound = entryRounds.getOrDefault(teamId, 1L);
+            CompetitionHistory historical = historicalSnapshots.get(teamId);
+            boolean useSnapshot = historical != null && historical.isLandscapeSnapshotCaptured();
+            double topEleven = useSnapshot
+                    ? historical.getTopElevenRating()
+                    : squad.stream().map(Human::getRating)
+                            .sorted(Comparator.reverseOrder()).limit(11)
+                            .mapToDouble(Double::doubleValue).average().orElse(0);
+            long value = useSnapshot
+                    ? historical.getSquadValue()
+                    : squad.stream().mapToLong(Human::getTransferValue).sum();
+            long monthlyPayroll = useSnapshot
+                    ? historical.getMonthlyPayroll()
+                    : payrolls.getOrDefault(teamId, 0L);
+            long entryRound = useSnapshot && historical.getEntryRound() != null
+                    ? historical.getEntryRound()
+                    : entryRounds.getOrDefault(teamId, 1L);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("teamId", teamId);
             row.put("teamName", team.getName());
             row.put("color1", team.getColor1());
             row.put("color2", team.getColor2());
-            row.put("monthlyPayroll", payrolls.getOrDefault(teamId, 0L));
-            row.put("annualPayroll", payrolls.getOrDefault(teamId, 0L) * 12);
+            row.put("monthlyPayroll", monthlyPayroll);
+            row.put("annualPayroll", useSnapshot ? historical.getAnnualPayroll() : monthlyPayroll * 12);
             row.put("squadValue", value);
             row.put("topElevenRating", round(topEleven));
-            row.put("reputation", team.getReputation());
+            row.put("reputation", useSnapshot ? historical.getReputation() : team.getReputation());
             row.put("entryRound", entryRound);
             row.put("entryStage", progressService.roundLabel(competitionId, entryRound, season));
             row.put("progress", progressService.teamProgress(teamId, competitionId, season));
+            row.put("landscapeDataSource", useSnapshot ? "HISTORICAL_SNAPSHOT" : "LIVE");
+            if (useSnapshot) row.put("mediaPrediction", historical.getMediaPrediction());
             rows.add(row);
         }
 
@@ -111,12 +127,14 @@ public class CompetitionOverviewService {
         addRank(rows, "reputationRank", r -> ((Number) r.get("reputation")).doubleValue());
         // The media prediction uses the same best-XI strength as match previews,
         // with reputation as a deterministic tie-breaker.
-        List<Map<String, Object>> predicted = new ArrayList<>(rows);
-        predicted.sort(Comparator
-                .comparingDouble((Map<String, Object> r) -> ((Number) r.get("topElevenRating")).doubleValue()).reversed()
-                .thenComparing(Comparator.comparingInt(
-                        (Map<String, Object> r) -> ((Number) r.get("reputation")).intValue()).reversed()));
-        for (int i = 0; i < predicted.size(); i++) predicted.get(i).put("mediaPrediction", i + 1);
+        if (rows.stream().anyMatch(row -> !row.containsKey("mediaPrediction"))) {
+            List<Map<String, Object>> predicted = new ArrayList<>(rows);
+            predicted.sort(Comparator
+                    .comparingDouble((Map<String, Object> r) -> ((Number) r.get("topElevenRating")).doubleValue()).reversed()
+                    .thenComparing(Comparator.comparingInt(
+                            (Map<String, Object> r) -> ((Number) r.get("reputation")).intValue()).reversed()));
+            for (int i = 0; i < predicted.size(); i++) predicted.get(i).put("mediaPrediction", i + 1);
+        }
         rows.sort(Comparator.comparingInt(r -> ((Number) r.get("mediaPrediction")).intValue()));
 
         Map<String, Object> result = new LinkedHashMap<>();

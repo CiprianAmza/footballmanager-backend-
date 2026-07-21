@@ -7,8 +7,9 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.config.CompetitionFormat;
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.repository.ClubCoefficientRepository;
-import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
@@ -25,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Read-only display surface for European competitions — group standings,
@@ -41,9 +44,8 @@ import java.util.Set;
  *       counting leagues.</li>
  *   <li>{@link #assignEuropeanAllocation} — attaches per-rank slot counts to
  *       an output map (used by {@link #getCountryCoefficients}).</li>
- *   <li>{@link #getEuropeanGroups} — per-team group standings; computes live
- *       from match results for the current season, or reads
- *       {@link CompetitionHistory} for past seasons.</li>
+ *   <li>{@link #getEuropeanGroups} — per-team group standings rebuilt from
+ *       the persisted group-stage match results for any season.</li>
  *   <li>{@link #getCountryCoefficients} — leagues ranked by 5-season country
  *       coefficient with their per-season breakdown.</li>
  *   <li>{@link #getClubCoefficients} — per-club 5-season coefficient
@@ -62,11 +64,13 @@ public class EuropeanDisplayService {
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
-    @Autowired private CompetitionHistoryRepository competitionHistoryRepository;
     @Autowired private ClubCoefficientRepository clubCoefficientRepository;
     @Autowired private TeamRepository teamRepository;
     @Autowired private RoundRepository roundRepository;
     @Autowired private com.footballmanagergamesimulator.config.EuropeanQualificationPolicy qualificationPolicy;
+    @Autowired private CompetitionFormatConfig competitionFormatConfig;
+
+    private static final Pattern OFFICIAL_SCORE = Pattern.compile("^\\s*(\\d+)\\s*-\\s*(\\d+)");
 
     // ============================================================
     //  Static config + per-rank allocation
@@ -172,19 +176,43 @@ public class EuropeanDisplayService {
     // ============================================================
 
     /**
-     * Per-team group standings for a European competition + season. Current
-     * season is computed live from match results (rounds 1-6 for Stars Cup,
-     * 2-7 for LoC); past seasons read from {@link CompetitionHistory}.
+     * Per-team group standings for a European competition + season. Both live
+     * and historical tables are rebuilt from the authoritative match rows and
+     * strictly limited to the group rounds declared by {@link CompetitionFormat}.
+     * {@link CompetitionHistory} is deliberately not used here because it is a
+     * whole-competition aggregate (qualifiers + groups + knockout).
      */
     public List<Map<String, Object>> getEuropeanGroups(long competitionId, long season) {
-
-        long currentSeason = Long.parseLong(currentSeason());
-
         // CompetitionTeamInfo persists across seasons, so group assignments are always available
         List<CompetitionTeamInfo> entries = competitionTeamInfoRepository
                 .findAllBySeasonNumber(season).stream()
                 .filter(cti -> cti.getCompetitionId() == competitionId && cti.getGroupNumber() > 0)
                 .toList();
+
+        Competition competition = competitionRepository.findById(competitionId).orElse(null);
+        if (competition == null) return List.of();
+        CompetitionFormat format = competitionFormatConfig.get((int) competition.getTypeId());
+
+        Map<Long, Integer> groupsByTeam = entries.stream().collect(java.util.stream.Collectors.toMap(
+                CompetitionTeamInfo::getTeamId,
+                CompetitionTeamInfo::getGroupNumber,
+                (first, ignored) -> first));
+        Map<Long, GroupStanding> standings = new HashMap<>();
+        groupsByTeam.keySet().forEach(teamId -> standings.put(teamId, new GroupStanding()));
+
+        for (CompetitionTeamInfoDetail match : competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, season)) {
+            if (!format.isGroupRound(match.getRoundId())) continue;
+            Integer homeGroup = groupsByTeam.get(match.getTeam1Id());
+            Integer awayGroup = groupsByTeam.get(match.getTeam2Id());
+            // A group match must involve two members of the same persisted group.
+            // This also protects historical tables from cross-stage/drop-in rows.
+            if (homeGroup == null || !homeGroup.equals(awayGroup)) continue;
+            int[] score = parseOfficialScore(match.getScore());
+            if (score == null) continue;
+            standings.get(match.getTeam1Id()).record(score[0], score[1]);
+            standings.get(match.getTeam2Id()).record(score[1], score[0]);
+        }
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (CompetitionTeamInfo cti : entries) {
@@ -194,74 +222,43 @@ public class EuropeanDisplayService {
             entry.put("teamName", team != null ? team.getName() : "Unknown");
             entry.put("groupNumber", cti.getGroupNumber());
             entry.put("potNumber", cti.getPotNumber());
-
-            if (season == currentSeason) {
-                // Current season: compute group standings from match results (exclude knockout rounds)
-                Competition comp = competitionRepository.findById(competitionId).orElse(null);
-                int groupRoundMin = 2, groupRoundMax = 7; // LoC defaults
-                if (comp != null && comp.getTypeId() == 5) {
-                    groupRoundMin = 1; groupRoundMax = 6; // Stars Cup
-                }
-                int games = 0, wins = 0, draws = 0, loses = 0, goalsFor = 0, goalsAgainst = 0;
-                long teamId = cti.getTeamId();
-                for (int r = groupRoundMin; r <= groupRoundMax; r++) {
-                    List<CompetitionTeamInfoDetail> matchesAsHome = competitionTeamInfoDetailRepository
-                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
-                            .stream().filter(d -> d.getTeam1Id() == teamId).toList();
-                    List<CompetitionTeamInfoDetail> matchesAsAway = competitionTeamInfoDetailRepository
-                            .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, r, season)
-                            .stream().filter(d -> d.getTeam2Id() == teamId).toList();
-                    for (CompetitionTeamInfoDetail d : matchesAsHome) {
-                        if (d.getScore() == null) continue;
-                        String[] parts = d.getScore().split("-");
-                        if (parts.length != 2) continue;
-                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
-                        games++; goalsFor += g1; goalsAgainst += g2;
-                        if (g1 > g2) wins++; else if (g1 < g2) loses++; else draws++;
-                    }
-                    for (CompetitionTeamInfoDetail d : matchesAsAway) {
-                        if (d.getScore() == null) continue;
-                        String[] parts = d.getScore().split("-");
-                        if (parts.length != 2) continue;
-                        int g1 = Integer.parseInt(parts[0].trim()), g2 = Integer.parseInt(parts[1].trim());
-                        games++; goalsFor += g2; goalsAgainst += g1;
-                        if (g2 > g1) wins++; else if (g2 < g1) loses++; else draws++;
-                    }
-                }
-                entry.put("games", games);
-                entry.put("wins", wins);
-                entry.put("draws", draws);
-                entry.put("loses", loses);
-                entry.put("goalsFor", goalsFor);
-                entry.put("goalsAgainst", goalsAgainst);
-                entry.put("goalDifference", goalsFor - goalsAgainst);
-                entry.put("points", wins * 3 + draws);
-            } else {
-                // Previous season: use CompetitionHistory
-                Optional<CompetitionHistory> histOpt = competitionHistoryRepository.findAll().stream()
-                        .filter(h -> h.getTeamId() == cti.getTeamId()
-                                && h.getCompetitionId() == competitionId
-                                && h.getSeasonNumber() == season)
-                        .findFirst();
-                if (histOpt.isPresent()) {
-                    CompetitionHistory hist = histOpt.get();
-                    entry.put("games", hist.getGames());
-                    entry.put("wins", hist.getWins());
-                    entry.put("draws", hist.getDraws());
-                    entry.put("loses", hist.getLoses());
-                    entry.put("goalsFor", hist.getGoalsFor());
-                    entry.put("goalsAgainst", hist.getGoalsAgainst());
-                    entry.put("goalDifference", hist.getGoalDifference());
-                    entry.put("points", hist.getPoints());
-                } else {
-                    entry.put("games", 0); entry.put("wins", 0); entry.put("draws", 0);
-                    entry.put("loses", 0); entry.put("goalsFor", 0); entry.put("goalsAgainst", 0);
-                    entry.put("goalDifference", 0); entry.put("points", 0);
-                }
-            }
+            GroupStanding standing = standings.getOrDefault(cti.getTeamId(), new GroupStanding());
+            entry.put("games", standing.games);
+            entry.put("wins", standing.wins);
+            entry.put("draws", standing.draws);
+            entry.put("loses", standing.losses);
+            entry.put("goalsFor", standing.goalsFor);
+            entry.put("goalsAgainst", standing.goalsAgainst);
+            entry.put("goalDifference", standing.goalsFor - standing.goalsAgainst);
+            entry.put("points", standing.wins * 3 + standing.draws);
             result.add(entry);
         }
         return result;
+    }
+
+    private int[] parseOfficialScore(String score) {
+        if (score == null || score.isBlank()) return null;
+        Matcher matcher = OFFICIAL_SCORE.matcher(score);
+        if (!matcher.find()) return null;
+        return new int[]{Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2))};
+    }
+
+    private static final class GroupStanding {
+        private int games;
+        private int wins;
+        private int draws;
+        private int losses;
+        private int goalsFor;
+        private int goalsAgainst;
+
+        private void record(int scored, int conceded) {
+            games++;
+            goalsFor += scored;
+            goalsAgainst += conceded;
+            if (scored > conceded) wins++;
+            else if (scored < conceded) losses++;
+            else draws++;
+        }
     }
 
     // ============================================================

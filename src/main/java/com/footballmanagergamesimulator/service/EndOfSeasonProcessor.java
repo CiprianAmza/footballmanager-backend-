@@ -98,6 +98,7 @@ public class EndOfSeasonProcessor {
     @Autowired @Lazy private MatchSimulationOrchestrator matchSimulationOrchestrator;
     @Autowired private SuperCupService superCupService;
     @Autowired private TransferOfferLifecycleService transferOfferLifecycleService;
+    @Autowired private CompetitionHistorySnapshotService competitionHistorySnapshotService;
 
     /** Dedup flags — owned by the processor so re-entry protection lives next
      *  to the body that needs it. {@link #reset()} clears them at new-season setup. */
@@ -484,6 +485,7 @@ public class EndOfSeasonProcessor {
                 history.add(snapshot);
             }
         }
+        competitionHistorySnapshotService.capture(history, season);
         competitionHistoryRepository.saveAll(history);
     }
 

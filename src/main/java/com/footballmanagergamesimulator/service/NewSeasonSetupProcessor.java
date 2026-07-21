@@ -115,6 +115,7 @@ public class NewSeasonSetupProcessor {
     @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
     @Autowired private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
     @Lazy @Autowired private AdminTransferService adminTransferService;
+    @Autowired private CompetitionHistorySnapshotService competitionHistorySnapshotService;
 
     private long currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).orElse(1L);
@@ -295,6 +296,7 @@ public class NewSeasonSetupProcessor {
                 snapshots.add(adaptCompetitionHistory(standings.get(i), season, i + 1L));
             }
         }
+        competitionHistorySnapshotService.capture(snapshots, season);
         competitionHistoryRepository.saveAll(snapshots);
     }
 
@@ -580,11 +582,14 @@ public class NewSeasonSetupProcessor {
             return a.getGoalsFor() > b.getGoalsFor() ? -1 : 1;
         });
 
+        List<CompetitionHistory> snapshots = new ArrayList<>();
         for (int i = 0; i < teams.size(); i++) {
             TeamCompetitionDetail team = teams.get(i);
             if (team.getCompetitionId() != competitionId) continue;
-            competitionHistoryRepository.save(adaptCompetitionHistory(team, seasonNumber, 1 + i));
+            snapshots.add(adaptCompetitionHistory(team, seasonNumber, 1 + i));
         }
+        competitionHistorySnapshotService.capture(snapshots, seasonNumber);
+        competitionHistoryRepository.saveAll(snapshots);
     }
 
     private CompetitionHistory adaptCompetitionHistory(TeamCompetitionDetail team, Long seasonNumber, long position) {
