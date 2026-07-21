@@ -13,4 +13,6 @@ public interface AdminPlayerMovementRepository extends JpaRepository<AdminPlayer
             String status, int executionSeason);
 
     boolean existsByPlayerIdAndStatus(long playerId, String status);
+
+    List<AdminPlayerMovement> findAllByPlayerIdAndStatus(long playerId, String status);
 }

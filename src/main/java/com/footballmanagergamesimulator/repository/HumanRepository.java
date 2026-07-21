@@ -42,7 +42,13 @@ public interface HumanRepository extends JpaRepository<Human, Long> {
     Page<Human> findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNot(
             long typeId, long teamId, Pageable pageable);
 
+    Page<Human> findAllByTypeIdAndRetiredFalseAndWillNeverLeaveFalseAndTeamIdIsNotNullAndTeamIdNot(
+            long typeId, long teamId, Pageable pageable);
+
     Page<Human> findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNotAndPosition(
+            long typeId, long teamId, String position, Pageable pageable);
+
+    Page<Human> findAllByTypeIdAndRetiredFalseAndWillNeverLeaveFalseAndTeamIdIsNotNullAndTeamIdNotAndPosition(
             long typeId, long teamId, String position, Pageable pageable);
 
 }

@@ -99,6 +99,7 @@ public class EndOfSeasonProcessor {
     @Autowired private SuperCupService superCupService;
     @Autowired private TransferOfferLifecycleService transferOfferLifecycleService;
     @Autowired private CompetitionHistorySnapshotService competitionHistorySnapshotService;
+    @Autowired private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
 
     /** Dedup flags — owned by the processor so re-entry protection lives next
      *  to the body that needs it. {@link #reset()} clears them at new-season setup. */
@@ -308,6 +309,7 @@ public class EndOfSeasonProcessor {
                 if (transferFee > buyTeam.getTransferBudget()) continue;
 
                 Human human = humanRepository.findById(playerTransferView.getPlayerId()).get();
+                if (human.isWillNeverLeave()) continue;
                 human.setTeamId(buyTeam.getId());
                 human.setSeasonMatchesPlayed(0);
                 human.setConsecutiveBenched(0);
@@ -355,7 +357,8 @@ public class EndOfSeasonProcessor {
                 if (players.size() <= 18) continue;
                 double avgRating = players.stream().mapToDouble(Human::getRating).average().orElse(0);
                 List<Human> loanCandidates = players.stream()
-                        .filter(p -> p.getAge() <= 22 && p.getRating() < avgRating && !p.isRetired())
+                        .filter(p -> p.getAge() <= 22 && p.getRating() < avgRating
+                                && !p.isRetired() && !p.isWillNeverLeave())
                         .collect(Collectors.toList());
                 Collections.shuffle(loanCandidates);
                 int loansToMake = Math.min(loanCandidates.size(), 2);
@@ -548,6 +551,37 @@ public class EndOfSeasonProcessor {
             if (player.getTeamId() == null) continue;
             if (player.getContractEndSeason() <= 0) continue;
             if (player.getContractEndSeason() > newSeason) continue;
+
+            if (player.isWillNeverLeave()) {
+                Long finalTeamId = player.getTeamId();
+                Team team = finalTeamId == null ? null : teamRepository.findById(finalTeamId).orElse(null);
+                if (team != null) {
+                    team.setSalaryBudget(Math.max(0, team.getSalaryBudget() - player.getWage()));
+                    teamRepository.save(team);
+                }
+                if (finalTeamId != null && humanTeamIds.contains(finalTeamId)) {
+                    ManagerInbox inbox = new ManagerInbox();
+                    inbox.setTeamId(finalTeamId);
+                    inbox.setSeasonNumber(newSeason);
+                    inbox.setRoundNumber(1);
+                    inbox.setTitle("Player Retired - Contract Completed");
+                    inbox.setContent(player.getName() + " has retired after completing their final contract with the club.");
+                    inbox.setCategory("contract");
+                    inbox.setRead(false);
+                    inbox.setCreatedAt(System.currentTimeMillis());
+                    managerInboxRepository.save(inbox);
+                }
+                player.setTeamId(null);
+                player.setRetired(true);
+                player.setCurrentStatus("Retired");
+                player.setContractEndSeason(0);
+                player.setPreContractTeamId(0);
+                player.setWantsTransfer(false);
+                humanRepository.save(player);
+                scorerLeaderboardSyncService.trackNewPlayer(player);
+                transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
+                continue;
+            }
 
             if (humanTeamIds.contains(player.getTeamId())) {
                 ManagerInbox inbox = new ManagerInbox();

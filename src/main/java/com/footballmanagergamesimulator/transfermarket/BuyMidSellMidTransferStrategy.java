@@ -38,6 +38,7 @@ public class BuyMidSellMidTransferStrategy extends AbstractTransferStrategy {
 
       List<Human> validThatCouldBeSold = new ArrayList<>();
       for (Human player : players) {
+        if (player.isWillNeverLeave()) continue;
         String basePos = TacticService.getBasePosition(player.getPosition());
         if (minimumPositionNeeded.getOrDefault(basePos, 0) < currentPositionAllocated.getOrDefault(basePos, 0)) {
           validThatCouldBeSold.add(player);
@@ -55,7 +56,9 @@ public class BuyMidSellMidTransferStrategy extends AbstractTransferStrategy {
     private List<PlayerTransferView> fromHumanToPlayerTransferView(Team team, List<Human> players) {
 
       return players.stream()
-        .map(player -> new PlayerTransferView(player.getId(), team.getId(), team.getReputation(), player.getRating(), TacticService.getBasePosition(player.getPosition()), player.getAge()))
+        .map(player -> new PlayerTransferView(player.getId(), team.getId(), team.getReputation(),
+                player.getRating(), TacticService.getBasePosition(player.getPosition()), player.getAge(),
+                player.isWillNeverLeave()))
         .collect(Collectors.toList());
     }
 
@@ -109,5 +112,4 @@ public class BuyMidSellMidTransferStrategy extends AbstractTransferStrategy {
       return buyPlanTransferView;
     }
 }
-
 

@@ -120,6 +120,14 @@ public class Human {
     @Column(columnDefinition = "boolean default false")
     private boolean wantsTransfer; // player has requested a transfer
 
+    /**
+     * Editor-only one-club-player rule. Protected players are excluded from every
+     * transfer, loan, free-agent and pre-contract workflow. If their deal is not
+     * renewed, they retire when it expires instead of joining another club.
+     */
+    @Column(columnDefinition = "boolean default false")
+    private boolean willNeverLeave;
+
     @Column(columnDefinition = "int default 0")
     private int seasonMatchesPlayed; // matches played this season
 

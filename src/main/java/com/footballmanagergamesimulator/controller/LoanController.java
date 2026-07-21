@@ -89,6 +89,9 @@ public class LoanController {
         if (player == null) {
             return ResponseEntity.badRequest().body("Player not found.");
         }
+        if (player.isWillNeverLeave()) {
+            return ResponseEntity.status(409).body("This player will never leave their current club.");
+        }
 
         // Cannot loan your own player
         if (player.getTeamId() == userContext.getTeamId(request)) {
@@ -213,6 +216,9 @@ public class LoanController {
         Human player = humanRepository.findById(loan.getPlayerId()).orElse(null);
         if (player == null) {
             return ResponseEntity.badRequest().body("Player not found");
+        }
+        if (player.isWillNeverLeave()) {
+            return ResponseEntity.status(409).body("This player cannot be signed permanently");
         }
 
         Team buyingTeam = teamRepository.findById(humanTeamId).orElse(null);

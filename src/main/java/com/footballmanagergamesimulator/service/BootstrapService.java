@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -406,6 +407,7 @@ public class BootstrapService {
             player.setContractEndSeason(6);
             player.setWage(WageService.baseWage(seed.rating()));
             player.setReleaseClause(player.getTransferValue() * 2);
+            player.setWillNeverLeave(true);
 
             player = humanRepository.save(player);
             faceGenerator.assignFace(player, nationService.nationIdForTeam(team.getId()));
@@ -445,6 +447,28 @@ public class BootstrapService {
 
     private record SpecialPlayerSeed(String teamName, String playerName, String position,
                                      int age, double rating) {}
+
+    /**
+     * Backfills the editor flag for warm saves and old pre-built snapshots. The
+     * names below are the hand-authored canonical players created by this seed.
+     */
+    public int ensureSpecialPlayersNeverLeave() {
+        Set<String> protectedNames = Set.of(
+                "Kvekrpur", "Dostoievski", "Kabutov", "Mozart",
+                "Shakespeare", "Beethoven", "Rampardos",
+                "Saviola", "Umbreon", "Itexoa");
+        List<Human> changed = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE).stream()
+                .filter(player -> protectedNames.contains(player.getName()))
+                .filter(player -> !player.isWillNeverLeave())
+                .peek(player -> {
+                    player.setWillNeverLeave(true);
+                    player.setWantsTransfer(false);
+                    player.setPreContractTeamId(0);
+                })
+                .toList();
+        if (!changed.isEmpty()) humanRepository.saveAll(changed);
+        return changed.size();
+    }
 
     private void createTeamsAndCompetitions(List<List<String>> teamNames, List<List<Integer>> teamValues,
                                             List<List<Integer>> facilities, int addedModulo, long leagueId, long cupId) {

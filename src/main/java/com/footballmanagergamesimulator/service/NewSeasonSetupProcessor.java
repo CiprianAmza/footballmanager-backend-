@@ -350,7 +350,8 @@ public class NewSeasonSetupProcessor {
             Team parentTeam = teamRepository.findById(loan.getParentTeamId()).orElse(null);
 
             // Check for buy obligation
-            if (loan.isBuyObligatory() && loan.getBuyOptionFee() > 0 && loanTeam != null && parentTeam != null) {
+            if (!player.isWillNeverLeave() && loan.isBuyObligatory() && loan.getBuyOptionFee() > 0
+                    && loanTeam != null && parentTeam != null) {
                 // Obligatory buy: execute permanent transfer
                 long fee = loan.getBuyOptionFee();
 

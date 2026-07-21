@@ -886,7 +886,8 @@ public class MatchRoundSimulator {
                 if (benched >= benchThreshold) moraleChange += benchExtra;
                 // AI players also request transfers when benched too long.
                 // 150 = scaled-up 50 for the 1-300 rating range (mid-tier or better).
-                if (benched >= 3 && player.getRating() > 150 && !player.isWantsTransfer()) {
+                if (benched >= 3 && player.getRating() > 150
+                        && !player.isWantsTransfer() && !player.isWillNeverLeave()) {
                     double demandChance = (benched >= 7) ? demand7 : (benched >= benchThreshold) ? demand5 : demand3;
                     if (random.nextDouble() < demandChance) {
                         player.setWantsTransfer(true);

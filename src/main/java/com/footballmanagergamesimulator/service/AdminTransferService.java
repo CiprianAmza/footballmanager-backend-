@@ -117,6 +117,7 @@ public class AdminTransferService {
 
         return players.stream()
                 .filter(player -> !player.isRetired())
+                .filter(player -> !player.isWillNeverLeave())
                 .filter(player -> normalizedQuery.isEmpty()
                         || player.getName().toLowerCase(Locale.ROOT).contains(normalizedQuery))
                 .sorted(Comparator.comparingDouble(Human::getRating).reversed()
@@ -192,6 +193,20 @@ public class AdminTransferService {
         return movementRepository.save(movement);
     }
 
+    /** Cancels editor-scheduled moves when a player is protected afterwards. */
+    @Transactional
+    public int cancelPendingForPlayer(long playerId) {
+        List<AdminPlayerMovement> pending = movementRepository.findAllByPlayerIdAndStatus(playerId, PENDING);
+        long now = System.currentTimeMillis();
+        for (AdminPlayerMovement movement : pending) {
+            movement.setStatus(CANCELLED);
+            movement.setCompletedAt(now);
+            movement.setFailureReason("Cancelled because player was marked as never leaving");
+        }
+        if (!pending.isEmpty()) movementRepository.saveAll(pending);
+        return pending.size();
+    }
+
     /** Runs during the old -> new season transaction, after due loans returned. */
     @Transactional
     public int executeScheduledForSeason(int newSeason) {
@@ -235,6 +250,9 @@ public class AdminTransferService {
                 .orElseThrow(() -> new IllegalArgumentException("Player not found: " + command.playerId()));
         if (player.isRetired() || player.getTypeId() != TypeNames.PLAYER_TYPE) {
             throw new IllegalArgumentException("Only active players can be moved");
+        }
+        if (player.isWillNeverLeave()) {
+            throw new IllegalArgumentException("Player is editor-protected and will never leave their club");
         }
         if (command.destinationTeamId() == null || command.destinationTeamId() <= 0) {
             throw new IllegalArgumentException("destinationTeamId is required");
@@ -285,6 +303,9 @@ public class AdminTransferService {
         Human player = humanRepository.findById(movement.getPlayerId())
                 .orElseThrow(() -> new IllegalStateException("Player no longer exists"));
         if (player.isRetired()) throw new IllegalStateException("Player has retired");
+        if (player.isWillNeverLeave()) {
+            throw new IllegalStateException("Player is editor-protected and will never leave their club");
+        }
         Team destination = teamRepository.findById(movement.getDestinationTeamId())
                 .orElseThrow(() -> new IllegalStateException("Destination team no longer exists"));
 

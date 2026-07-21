@@ -80,6 +80,8 @@ public class AdminController {
     private AdminClubFundingService adminClubFundingService;
     @Autowired
     private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
+    @Autowired
+    private com.footballmanagergamesimulator.service.TransferOfferLifecycleService transferOfferLifecycleService;
 
     private final Random random = new Random();
 
@@ -223,6 +225,51 @@ public class AdminController {
         } catch (IllegalStateException exception) {
             return ResponseEntity.status(409).body(Map.of("error", exception.getMessage()));
         }
+    }
+
+    /**
+     * Editor-only one-club-player flag. Enabling it also clears any transfer
+     * intent, pre-contract, active offer and scheduled Admin movement.
+     */
+    @PatchMapping("/players/{playerId}/will-never-leave")
+    @Transactional
+    public ResponseEntity<?> updateWillNeverLeave(
+            @PathVariable long playerId,
+            @RequestBody Map<String, Object> body,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        Object value = body.get("willNeverLeave");
+        if (!(value instanceof Boolean enabled)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "willNeverLeave must be true or false"));
+        }
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player == null || player.getTypeId() != 1L) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Player not found"));
+        }
+
+        player.setWillNeverLeave(enabled);
+        int removedOffers = 0;
+        int cancelledMovements = 0;
+        if (enabled) {
+            player.setWantsTransfer(false);
+            player.setPreContractTeamId(0);
+            removedOffers = transferOfferLifecycleService.removeActiveOffersForPlayer(playerId);
+            cancelledMovements = adminTransferService.cancelPendingForPlayer(playerId);
+        }
+        humanRepository.save(player);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("playerId", player.getId());
+        response.put("playerName", player.getName());
+        response.put("willNeverLeave", player.isWillNeverLeave());
+        response.put("removedOffers", removedOffers);
+        response.put("cancelledAdminMovements", cancelledMovements);
+        response.put("message", enabled
+                ? player.getName() + " will stay at the current club and retire when the contract ends."
+                : player.getName() + " is eligible for transfers again.");
+        return ResponseEntity.ok(response);
     }
 
     /** Draw controls for the next unplayed domestic-cup round and every pending European draw. */

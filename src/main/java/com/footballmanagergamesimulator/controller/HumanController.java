@@ -128,6 +128,7 @@ public class HumanController {
         playerView.setWage(player.getWage());
         playerView.setReleaseClause(player.getReleaseClause());
         playerView.setTransferValue(player.getTransferValue());
+        playerView.setWillNeverLeave(player.isWillNeverLeave());
 
         playerView.setWealth(player.getWealth());
         playerView.setSeasonCreated(player.getSeasonCreated());

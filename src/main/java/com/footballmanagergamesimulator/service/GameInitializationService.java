@@ -95,6 +95,11 @@ public class GameInitializationService {
         Optional<Round> existing = roundRepository.findById(1L);
         if (existing.isPresent()) {
             superCupService.ensureCompetitions();
+            int protectedPlayers = bootstrapService.ensureSpecialPlayersNeverLeave();
+            if (protectedPlayers > 0) {
+                System.out.println("=== Protected " + protectedPlayers
+                        + " hand-authored player(s) from transfers ===");
+            }
             Round round = existing.get();
             System.out.println("=== Resuming from season " + round.getSeason()
                     + ", round " + round.getRound() + " ===");
@@ -106,6 +111,7 @@ public class GameInitializationService {
             System.out.println("=== Loading pre-built data from " + prebuiltDataService.snapshotFile() + " ===");
             prebuiltDataService.restore();
             superCupService.ensureCompetitions();
+            bootstrapService.ensureSpecialPlayersNeverLeave();
             newSeasonPlayerReadinessService.resetActiveTeamPlayers();
             return roundRepository.findById(1L).orElseThrow(() ->
                     new IllegalStateException("Pre-built snapshot contained no Round — delete "

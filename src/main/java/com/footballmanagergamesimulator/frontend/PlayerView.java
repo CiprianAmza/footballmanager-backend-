@@ -28,6 +28,7 @@ public class PlayerView {
   private long wage;
   private long releaseClause;
   private long transferValue;
+  private boolean willNeverLeave;
 
   private double fitness;
   private double morale;

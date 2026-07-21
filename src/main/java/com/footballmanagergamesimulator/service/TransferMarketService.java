@@ -59,6 +59,8 @@ public class TransferMarketService {
     public boolean canBeTransfered(PlayerTransferView playerTransferView,
                                    BuyPlanTransferView clubPlan,
                                    TransferPlayer desiredPlayer) {
+        if (playerTransferView.isWillNeverLeave())
+            return false; // editor-protected one-club player
         if (playerTransferView.getAge() > clubPlan.getMaxAge())
             return false; // club does not want to buy player, too old
         if (playerTransferView.getDesiredReputation() - 1000 > clubPlan.getTeamReputation())
@@ -93,6 +95,7 @@ public class TransferMarketService {
             for (TransferPlayer clubPlan : buyPlanTransferView.getPositions()) {
                 for (Human player : humanTeamPlayers) {
                     if (player.isRetired()) continue;
+                    if (player.isWillNeverLeave()) continue;
                     if (player.getPosition() == null || player.getTypeId() != TypeNames.PLAYER_TYPE) continue;
                     if (!player.getPosition().equals(clubPlan.getPosition())) continue;
                     if (player.getAge() > buyPlanTransferView.getMaxAge()) continue;

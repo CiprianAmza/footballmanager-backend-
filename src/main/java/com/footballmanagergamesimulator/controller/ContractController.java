@@ -281,6 +281,10 @@ public class ContractController {
         if (player == null || player.isRetired()) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Player not found or retired"));
         }
+        if (player.isWillNeverLeave()) {
+            return ResponseEntity.status(409).body(Map.of("success", false,
+                    "message", "This player will retire at the end of their current contract"));
+        }
 
         long humanTeamId = userContext.getTeamId(request);
         if (contractsLocked(humanTeamId)) {
@@ -355,6 +359,7 @@ public class ContractController {
 
         return allPlayers.stream()
                 .filter(p -> !p.isRetired())
+                .filter(p -> !p.isWillNeverLeave())
                 .filter(p -> p.getTeamId() != null && p.getTeamId() != teamId && p.getTeamId() != 0L)
                 .filter(p -> p.getContractEndSeason() <= currentSeason)
                 .filter(p -> p.getPreContractTeamId() == 0)

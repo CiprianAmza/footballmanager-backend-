@@ -184,6 +184,23 @@ class AdminTransferServiceTest {
         assertEquals(destination.getId(), player.getTeamId());
     }
 
+    @Test
+    void editorProtectedPlayerCannotBeMovedEvenByAdminTransferQueue() {
+        Team source = team(1, "Source");
+        Team destination = team(2, "Destination");
+        Human player = player(10, source.getId(), 100, 15);
+        player.setWillNeverLeave(true);
+        when(humans.findById(player.getId())).thenReturn(Optional.of(player));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.create(new AdminTransferService.MovementCommand(
+                        "PERMANENT", player.getId(), destination.getId(), 5_000L,
+                        250L, 3, null, null, "NOW", null)));
+
+        assertEquals("Player is editor-protected and will never leave their club", error.getMessage());
+        verify(transfers, never()).save(any());
+    }
+
     private Team team(long id, String name) {
         Team team = new Team();
         team.setId(id);

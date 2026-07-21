@@ -113,6 +113,14 @@ class TransferMarketServiceTest {
         ));
     }
 
+    @Test
+    @DisplayName("canBeTransfered: editor-protected one-club player is never eligible")
+    void canBeTransfered_neverLeavePlayer() {
+        PlayerTransferView player = new PlayerTransferView(
+                1L, 99L, 3000L, 200.0, "ST", 24L, true);
+        assertFalse(svc.canBeTransfered(player, plan(30, 5000L, 7L), target("ST", 150.0)));
+    }
+
     // ============================================================
     //  Helpers
     // ============================================================

@@ -143,6 +143,9 @@ public class TransferOfferController {
         if (player.isRetired()) {
             return ResponseEntity.badRequest().body("Player is retired");
         }
+        if (player.isWillNeverLeave()) {
+            return ResponseEntity.status(409).body("This player will never leave their current club");
+        }
 
         Team humanTeam = teamRepository.findById(humanTeamId).orElse(null);
         if (humanTeam == null) {
@@ -255,6 +258,10 @@ public class TransferOfferController {
             transferOfferLifecycleService.removeActiveOffersForPlayer(lockedPlayer.getId());
             return ResponseEntity.status(409).body("The player has already left the selling club");
         }
+        if (("accept".equals(action) || "counter".equals(action)) && lockedPlayer.isWillNeverLeave()) {
+            transferOfferLifecycleService.removeActiveOffersForPlayer(lockedPlayer.getId());
+            return ResponseEntity.status(409).body("This player will never leave their current club");
+        }
 
         // Accepting an incoming offer (or a counter that the AI then accepts) sells one of our
         // players → guard with canSellPlayers. Owner can lock the squad down.
@@ -364,6 +371,7 @@ public class TransferOfferController {
         for (Human player : allPlayers) {
             if (player.getTeamId() == null || player.getTeamId() == teamId) continue;
             if (player.isRetired()) continue;
+            if (player.isWillNeverLeave()) continue;
             if (player.getTypeId() != 1L) continue; // only players, not managers
             if (alreadyTransferredIds.contains(player.getId())) continue; // already transferred this window
             if (position != null && !position.isEmpty() && !player.getPosition().equals(position)) continue;
@@ -415,9 +423,9 @@ public class TransferOfferController {
         PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(sortDirection, sortField));
 
         Page<Human> playerPage = position == null || position.isBlank() || "ALL".equals(position)
-                ? humanRepository.findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNot(
+                ? humanRepository.findAllByTypeIdAndRetiredFalseAndWillNeverLeaveFalseAndTeamIdIsNotNullAndTeamIdNot(
                         1L, teamId, pageable)
-                : humanRepository.findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNotAndPosition(
+                : humanRepository.findAllByTypeIdAndRetiredFalseAndWillNeverLeaveFalseAndTeamIdIsNotNullAndTeamIdNotAndPosition(
                         1L, teamId, position, pageable);
 
         int season = (int) roundRepository.findById(1L).orElse(new Round()).getSeason();
@@ -473,6 +481,9 @@ public class TransferOfferController {
     }
 
     private void executeTransfer(Human player, Team sellingTeam, Team buyingTeam, long fee, int season) {
+        if (player.isWillNeverLeave()) {
+            throw new IllegalStateException("This player will never leave their current club");
+        }
         if (!Objects.equals(player.getTeamId(), sellingTeam.getId())) {
             throw new IllegalStateException("Player no longer belongs to the selling club");
         }
@@ -540,7 +551,7 @@ public class TransferOfferController {
         Set<Long> stalePlayerIds = offers.stream()
                 .filter(offer -> {
                     Human player = players.get(offer.getPlayerId());
-                    return player == null || player.isRetired()
+                    return player == null || player.isRetired() || player.isWillNeverLeave()
                             || !Objects.equals(player.getTeamId(), offer.getToTeamId());
                 })
                 .map(TransferOffer::getPlayerId)
@@ -575,6 +586,7 @@ public class TransferOfferController {
 
         for (Human player : freeAgents) {
             if (player.isRetired()) continue;
+            if (player.isWillNeverLeave()) continue;
 
             Map<String, Object> info = new LinkedHashMap<>();
             info.put("id", player.getId());
@@ -602,6 +614,9 @@ public class TransferOfferController {
         Human player = humanRepository.findById(playerId).orElse(null);
         if (player == null || player.isRetired()) {
             return ResponseEntity.badRequest().body("Player not found or retired");
+        }
+        if (player.isWillNeverLeave()) {
+            return ResponseEntity.status(409).body("This player is protected from joining another club");
         }
         if (player.getTeamId() != null && player.getTeamId() != 0L) {
             return ResponseEntity.badRequest().body("Player is not a free agent");

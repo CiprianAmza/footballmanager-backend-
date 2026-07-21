@@ -9,14 +9,21 @@ public class PlayerTransferView {
   private String position;
 
   private long age;
+  private boolean willNeverLeave;
 
   public PlayerTransferView(long playerId, long teamId, long desiredReputation, double rating, String position, long age) {
+    this(playerId, teamId, desiredReputation, rating, position, age, false);
+  }
+
+  public PlayerTransferView(long playerId, long teamId, long desiredReputation, double rating,
+                            String position, long age, boolean willNeverLeave) {
     this.playerId = playerId;
     this.teamId = teamId;
     this.desiredReputation = desiredReputation;
     this.rating = rating;
     this.position = position;
     this.age = age;
+    this.willNeverLeave = willNeverLeave;
   }
 
   public long getPlayerId() {
@@ -65,5 +72,13 @@ public class PlayerTransferView {
 
   public void setAge(long age) {
     this.age = age;
+  }
+
+  public boolean isWillNeverLeave() {
+    return willNeverLeave;
+  }
+
+  public void setWillNeverLeave(boolean willNeverLeave) {
+    this.willNeverLeave = willNeverLeave;
   }
 }
