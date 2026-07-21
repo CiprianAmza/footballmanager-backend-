@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.integration;
 
 import com.footballmanagergamesimulator.controller.CompetitionController;
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
+import com.footballmanagergamesimulator.config.EuropeanQualificationPolicy;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
@@ -84,6 +86,8 @@ class SeasonTransitionInvariantsIT {
     @Autowired private RoundRepository roundRepository;
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
+    @Autowired private CompetitionFormatConfig competitionFormatConfig;
+    @Autowired private EuropeanQualificationPolicy europeanQualificationPolicy;
 
     // ============================================================
     //  Order 1 — bootstrap shape sanity
@@ -290,23 +294,31 @@ class SeasonTransitionInvariantsIT {
         assertFalse(locNextSeasonEntries.isEmpty(),
                 "LoC must have qualifiers for next season after processEndOfSeason");
 
-        // Each LoC entry's round must be in {0, 1, 2} (preliminary, qualifying, group stage)
+        // Each LoC entry's round must be in the configured preliminary/group-entry range.
+        int groupStartRound = competitionFormatConfig.get(4).europeanPlan().groupStartRound();
         for (CompetitionTeamInfo cti : locNextSeasonEntries) {
-            assertTrue(cti.getRound() >= 0 && cti.getRound() <= 2,
-                    "LoC qualifier round must be 0/1/2 (got " + cti.getRound() + " for team " + cti.getTeamId() + ")");
+            assertTrue(cti.getRound() >= 0 && cti.getRound() <= groupStartRound,
+                    "LoC qualifier round must be before or at the group stage (got "
+                            + cti.getRound() + " for team " + cti.getTeamId() + ")");
         }
 
-        // Configurable LoC entry: the competition is sized for CompetitionFormat.totalTeams
-        // (default 40) entrants, allocated to leagues by coefficient (layered halving) and
-        // assigned to preliminary rounds — strongest enter at the group draw, weakest play
-        // the first prelim. For the 40 → 16 (4×4) shape the WHOLE field enters at round 0
-        // (the first trim round), so there are no direct-to-group (round 2) entries yet.
-        int expectedTotal = 40; // CompetitionFormatConfig LoC totalTeams
+        // LoC uses the configured tiered entry: direct group entrants, qualifying-round-2
+        // entrants, then qualifying-round-1 entrants. The qualification policy and the
+        // format plan must stay in sync.
+        int expectedTotal = europeanQualificationPolicy.totalEntrants();
+        assertEquals(expectedTotal, competitionFormatConfig.get(4).europeanPlan().totalTeams(),
+                "LoC format and qualification policy must describe the same entrant total");
         assertEquals(expectedTotal, locNextSeasonEntries.size(),
                 "LoC should have exactly " + expectedTotal + " entrants (configurable totalTeams)");
         long atRound0 = locNextSeasonEntries.stream().filter(c -> c.getRound() == 0).count();
-        assertEquals(expectedTotal, atRound0,
-                "for the 40→16 shape every LoC entrant enters at the first preliminary round (round 0), got " + atRound0);
+        long atRound1 = locNextSeasonEntries.stream().filter(c -> c.getRound() == 1).count();
+        long atGroupStage = locNextSeasonEntries.stream().filter(c -> c.getRound() == groupStartRound).count();
+        assertEquals(europeanQualificationPolicy.preliminaryEntrants(), atRound0,
+                "LoC qualifying-round-1 entry count must match the policy");
+        assertEquals(europeanQualificationPolicy.qualifyingEntrants(), atRound1,
+                "LoC qualifying-round-2 entry count must match the policy");
+        assertEquals(europeanQualificationPolicy.directEntrants(), atGroupStage,
+                "LoC direct group-stage entry count must match the policy");
 
         // No duplicates: a team shouldn't be in LoC twice
         Set<Long> locTeams = new HashSet<>();

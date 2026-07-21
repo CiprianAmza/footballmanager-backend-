@@ -556,32 +556,32 @@ class EuropeanCompetitionInvariantsIT {
     // ============================================================
 
     @Test
-    @DisplayName("assignEuropeanAllocation: rank 1 → 4 LoC (3+1 qual) + 2 SC")
+    @DisplayName("assignEuropeanAllocation: rank 1 → 4 LoC (3 group + 1 qualifying round 2) + 2 SC")
     void assignEuropeanAllocation_rank1() {
         Map<String, Object> entry = new LinkedHashMap<>();
         europeanDisplayService.assignEuropeanAllocation(entry, 1);
         assertEquals(4, entry.get("locSpots"));
-        assertEquals("3 Group Stage + 1 Qualifying", entry.get("locEntry"));
+        assertEquals("3 Group Stage + 1 Qualifying Round 2", entry.get("locEntry"));
         assertEquals(2, entry.get("starsCupSpots"));
     }
 
     @Test
-    @DisplayName("assignEuropeanAllocation: rank 5 → 3 LoC (1+2 qual) + 1 SC")
+    @DisplayName("assignEuropeanAllocation: rank 5 → 3 LoC (1 group + 2 qualifying round 2) + 1 SC")
     void assignEuropeanAllocation_rank5() {
         Map<String, Object> entry = new LinkedHashMap<>();
         europeanDisplayService.assignEuropeanAllocation(entry, 5);
         assertEquals(3, entry.get("locSpots"));
-        assertEquals("1 Group Stage + 2 Qualifying", entry.get("locEntry"));
+        assertEquals("1 Group Stage + 2 Qualifying Round 2", entry.get("locEntry"));
         assertEquals(1, entry.get("starsCupSpots"));
     }
 
     @Test
-    @DisplayName("assignEuropeanAllocation: rank 7 → 2 preliminary + 1 SC; rank 8+ → none")
+    @DisplayName("assignEuropeanAllocation: rank 7 → 2 qualifying round 1 + 1 SC; rank 8+ → none")
     void assignEuropeanAllocation_rank7AndBeyond() {
         Map<String, Object> r7 = new LinkedHashMap<>();
         europeanDisplayService.assignEuropeanAllocation(r7, 7);
         assertEquals(2, r7.get("locSpots"));
-        assertEquals("2 Preliminary Qualifying", r7.get("locEntry"));
+        assertEquals("2 Qualifying Round 1", r7.get("locEntry"));
         assertEquals(1, r7.get("starsCupSpots"));
 
         Map<String, Object> r8 = new LinkedHashMap<>();

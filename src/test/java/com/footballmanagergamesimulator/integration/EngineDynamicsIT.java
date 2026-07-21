@@ -61,7 +61,10 @@ import static org.assertj.core.api.Assertions.within;
  */
 @SpringBootTest
 @Transactional
-@TestPropertySource(properties = "bootstrap.seed=20260528")
+@TestPropertySource(properties = {
+        "bootstrap.seed=20260528",
+        "gameplay.player-availability-disabled=false"
+})
 @DisplayName("Engine dynamics on the real pipeline: fitness / morale / injury / training")
 class EngineDynamicsIT {
 

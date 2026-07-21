@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -53,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * round-1 simulation mutates state.
  */
 @SpringBootTest
+@TestPropertySource(properties = "gameplay.player-availability-disabled=false")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @DisplayName("Matchday invariants — round-1 league simulation")
 class MatchdayInvariantsIT {
