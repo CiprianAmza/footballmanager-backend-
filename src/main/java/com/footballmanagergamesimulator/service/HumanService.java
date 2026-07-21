@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.util.ManagerTacticPolicy;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -76,6 +77,8 @@ public class HumanService {
         String[] kit = tacticService.buildManagerTacticKit((int) mgr.getRating(), random);
         mgr.setTacticStyle(kit[0]);
         mgr.setKnownTactics(kit[1]);
+        mgr.setAlwaysUseBestPossibleTactic(
+                ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
         humanRepository.save(mgr);
     }
 

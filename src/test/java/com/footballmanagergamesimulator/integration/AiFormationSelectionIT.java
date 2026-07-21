@@ -46,7 +46,9 @@ class AiFormationSelectionIT {
         Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).get(0);
         double savedOff = manager.getOffensiveAbility();
         double savedDef = manager.getDefensiveAbility();
+        boolean savedAlwaysBest = manager.isAlwaysUseBestPossibleTactic();
         try {
+            setAlwaysBest(manager, false);
             List<String> formations = tacticService.getAllExistingTactics();
             double maxValue = formations.stream()
                     .mapToDouble(f -> matchRoundSimulator.formationBaseValueForTest(teamId, f)).max().orElseThrow();
@@ -66,9 +68,22 @@ class AiFormationSelectionIT {
             assertThat(matchRoundSimulator.formationBaseValueForTest(teamId, poorChoice))
                     .as("hopeless manager picks the value-minimal formation")
                     .isCloseTo(minValue, within(1e-6));
+
+            setAlwaysBest(manager, true);
+            String adaptiveChoice = matchRoundSimulator.chooseFormationForTest(teamId);
+            assertThat(matchRoundSimulator.formationBaseValueForTest(teamId, adaptiveChoice))
+                    .as("always-best trait overrides low coaching ability and preferred shape")
+                    .isCloseTo(maxValue, within(1e-6));
         } finally {
             setSkill(manager, savedOff, savedDef);
+            setAlwaysBest(manager, savedAlwaysBest);
         }
+    }
+
+    private void setAlwaysBest(Human manager, boolean enabled) {
+        manager.setAlwaysUseBestPossibleTactic(enabled);
+        humanRepository.save(manager);
+        matchRoundSimulator.invalidateManagerTacticPolicy(manager.getTeamId());
     }
 
     private void setSkill(Human manager, double off, double def) {

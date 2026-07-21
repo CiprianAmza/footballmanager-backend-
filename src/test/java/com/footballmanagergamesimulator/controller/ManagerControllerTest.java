@@ -57,6 +57,7 @@ class ManagerControllerTest {
         manager.setTypeId(TypeNames.MANAGER_TYPE);
         manager.setTeamId(teamId);
         manager.setName("Ciprian");
+        manager.setAlwaysUseBestPossibleTactic(true);
         Team team = new Team();
         team.setId(teamId);
         team.setName("Sherlock FC");
@@ -83,5 +84,6 @@ class ManagerControllerTest {
         assertEquals(1, profile.get("seasonsManaged"));
         assertEquals(1, breakdown.size());
         assertEquals(13, breakdown.get(0).getSeasonNumber());
+        assertEquals(true, profile.get("alwaysUseBestPossibleTactic"));
     }
 }

@@ -153,6 +153,15 @@ public class Human {
      */
     @Column(length = 200)
     private String knownTactics;
+
+    /**
+     * Editor-controlled AI trait. When enabled, this manager ignores their
+     * preferred shape and tactical comfort level and always selects the
+     * highest-valued formation and tactical setup available to the squad.
+     */
+    @Column(columnDefinition = "boolean default false")
+    private boolean alwaysUseBestPossibleTactic;
+
     private int managerReputation = 500;
 
     /** Total salary the manager has earned across their whole career (accrued monthly). */

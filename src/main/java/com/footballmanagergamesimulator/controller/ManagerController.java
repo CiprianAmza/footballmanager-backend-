@@ -84,6 +84,9 @@ public class ManagerController {
         profile.put("retired", manager.isRetired());
         profile.put("monthlySalary", manager.getSalary());
         profile.put("careerEarnings", manager.getCareerEarnings());
+        profile.put("tacticStyle", manager.getTacticStyle());
+        profile.put("knownTactics", manager.getKnownTactics());
+        profile.put("alwaysUseBestPossibleTactic", manager.isAlwaysUseBestPossibleTactic());
 
         // Current team
         Team currentTeam = null;

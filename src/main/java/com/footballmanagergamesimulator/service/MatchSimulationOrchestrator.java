@@ -96,4 +96,8 @@ public class MatchSimulationOrchestrator {
     public void invalidateAllRatingCaches() {
         matchRoundSimulator.invalidateAllRatingCaches();
     }
+
+    public void invalidateManagerTacticPolicy(long teamId) {
+        matchRoundSimulator.invalidateManagerTacticPolicy(teamId);
+    }
 }

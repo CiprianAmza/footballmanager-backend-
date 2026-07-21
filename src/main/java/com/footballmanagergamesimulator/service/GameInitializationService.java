@@ -14,6 +14,7 @@ import com.footballmanagergamesimulator.repository.ScorerLeaderboardRepository;
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.util.ManagerTacticPolicy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
@@ -101,6 +102,7 @@ public class GameInitializationService {
                         + " hand-authored player(s) from transfers ===");
             }
             Round round = existing.get();
+            applyManagerTacticPolicyDefaultsIfNeeded(round);
             System.out.println("=== Resuming from season " + round.getSeason()
                     + ", round " + round.getRound() + " ===");
             return round;
@@ -113,9 +115,11 @@ public class GameInitializationService {
             superCupService.ensureCompetitions();
             bootstrapService.ensureSpecialPlayersNeverLeave();
             newSeasonPlayerReadinessService.resetActiveTeamPlayers();
-            return roundRepository.findById(1L).orElseThrow(() ->
+            Round restored = roundRepository.findById(1L).orElseThrow(() ->
                     new IllegalStateException("Pre-built snapshot contained no Round — delete "
                             + prebuiltDataService.snapshotFile() + " and regenerate"));
+            applyManagerTacticPolicyDefaultsIfNeeded(restored);
+            return restored;
         }
 
         Round round = new Round();
@@ -153,6 +157,7 @@ public class GameInitializationService {
         newSeasonSetupProcessor.regenerateAllCupBrackets((int) round.getSeason());
 
         backfillManagerCoachingAbilities();
+        applyManagerTacticPolicyDefaultsIfNeeded(round);
 
         // Dump the freshly-generated DB so the next cold start can restore it instead of regenerating.
         if (usePrebuiltData) {
@@ -161,6 +166,32 @@ public class GameInitializationService {
         }
 
         return round;
+    }
+
+    /**
+     * Applies the four requested elite-club defaults once to an existing save.
+     * The marker lives inside the save itself, so an Admin can later disable the
+     * trait without a warm restart silently enabling it again.
+     */
+    public void applyManagerTacticPolicyDefaultsIfNeeded(Round round) {
+        if (round == null || round.isEliteManagerTacticPolicySeeded()) return;
+
+        Map<Long, String> teamNames = teamRepository.findAll().stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName, (left, right) -> left));
+        List<Human> changed = new ArrayList<>();
+        for (Human manager : humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE)) {
+            String teamName = manager.getTeamId() == null ? null : teamNames.get(manager.getTeamId());
+            if (ManagerTacticPolicy.defaultsToBestPossibleTactic(teamName)
+                    && !manager.isAlwaysUseBestPossibleTactic()) {
+                manager.setAlwaysUseBestPossibleTactic(true);
+                changed.add(manager);
+            }
+        }
+        if (!changed.isEmpty()) humanRepository.saveAll(changed);
+        round.setEliteManagerTacticPolicySeeded(true);
+        roundRepository.save(round);
+        System.out.println("=== Elite manager tactic defaults applied to " + changed.size()
+                + " manager(s) ===");
     }
 
     /**
@@ -208,6 +239,8 @@ public class GameInitializationService {
             String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), random);
             manager.setTacticStyle(kit[0]);
             manager.setKnownTactics(kit[1]);
+            manager.setAlwaysUseBestPossibleTactic(
+                    ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
             humanRepository.save(manager);
 
             staffService.generateInitialStaff(team.getId(), 1);

@@ -26,4 +26,8 @@ public class Round {
 
   @Column(name = "manager_age")
   private Integer managerAge;
+
+  /** One-time save migration marker for the elite-manager tactic defaults. */
+  @Column(name = "elite_manager_tactic_policy_seeded", columnDefinition = "boolean default false")
+  private boolean eliteManagerTacticPolicySeeded;
 }

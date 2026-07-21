@@ -26,6 +26,7 @@ import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.util.ManagerTacticPolicy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -374,6 +375,8 @@ public class ManagerCareerService {
                 String[] kit = tacticService.buildManagerTacticKit((int) newManager.getRating(), new Random());
                 newManager.setTacticStyle(kit[0]);
                 newManager.setKnownTactics(kit[1]);
+                newManager.setAlwaysUseBestPossibleTactic(
+                        ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
                 humanRepository.save(newManager);
 
                 System.out.println("=== AI MANAGER FIRED: " + manager.getName() + " from " + team.getName()

@@ -93,6 +93,7 @@ public class GameStateService {
     public synchronized void reloadAfterImport() {
         this.round = roundRepository.findById(1L)
                 .orElseThrow(() -> new IllegalStateException("Imported save contains no Round row"));
+        gameInitializationService.applyManagerTacticPolicyDefaultsIfNeeded(this.round);
         this.cachedLeagueCompIds = null;
         this.cachedCupCompIds = null;
         this.cachedSecondLeagueCompIds = null;

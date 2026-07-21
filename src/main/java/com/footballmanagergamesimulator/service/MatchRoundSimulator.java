@@ -366,10 +366,8 @@ public class MatchRoundSimulator {
                 // (e.g. moments after a resign / job-offer transfer if some path
                 // forgot to spawn a replacement). Default to "442" rather than
                 // crashing the whole round on .get(0).
-                String tactic1 = humanRepository.findAllByTeamIdAndTypeId(teamId1, TypeNames.MANAGER_TYPE)
-                        .stream().findFirst().map(Human::getTacticStyle).orElse("442");
-                String tactic2 = humanRepository.findAllByTeamIdAndTypeId(teamId2, TypeNames.MANAGER_TYPE)
-                        .stream().findFirst().map(Human::getTacticStyle).orElse("442");
+                String tactic1 = getManagerTacticCached(teamId1);
+                String tactic2 = getManagerTacticCached(teamId2);
 
                 teamPower1 = lineupRatingService.getBestElevenRatingByTactic(teamId1, tactic1);
                 teamPower2 = lineupRatingService.getBestElevenRatingByTactic(teamId2, tactic2);
@@ -1219,7 +1217,9 @@ public class MatchRoundSimulator {
         TacticalScoreService.TacticVector cached = tacticVectorCache.get(teamId);
         if (cached != null) return cached;
         double[] coach = coachAbilities(teamId);
-        double pickAbility = (coach[0] + coach[1]) / 2.0;
+        double pickAbility = alwaysUseBestPossibleTactic(teamId)
+                ? 100.0
+                : (coach[0] + coach[1]) / 2.0;
         // AI optimizes against a mirror of its own coached profile (an even, representative matchup).
         PersonalizedTactic chosen = managerTacticService.chooseTactic(profile, profile, pickAbility);
         // Width is a squad-shape identity (invisible against a width-neutral panel), set from the XI shape.
@@ -1374,11 +1374,27 @@ public class MatchRoundSimulator {
     }
 
     private double[] coachAbilities(long teamId) {
-        return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
-                .filter(m -> !m.isRetired())
-                .findFirst()
+        return Optional.ofNullable(tacticalManager(teamId))
                 .map(m -> new double[]{m.getOffensiveAbility(), m.getDefensiveAbility()})
                 .orElse(new double[]{50.0, 50.0});
+    }
+
+    private Human tacticalManager(long teamId) {
+        RoundContext context = roundContext.get();
+        List<Human> managers = context != null
+                ? context.managersByTeam().getOrDefault(teamId, List.of())
+                : humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        if (managers.isEmpty()) return null;
+        if (userContext.isHumanTeam(teamId)) {
+            return resolveCurrentManager(teamId, managers);
+        }
+        return managers.stream().filter(manager -> !manager.isRetired()).findFirst()
+                .orElse(managers.get(0));
+    }
+
+    private boolean alwaysUseBestPossibleTactic(long teamId) {
+        Human manager = tacticalManager(teamId);
+        return manager != null && manager.isAlwaysUseBestPossibleTactic();
     }
 
     public void invalidateRatingCache(long teamId) {
@@ -1395,6 +1411,16 @@ public class MatchRoundSimulator {
         // does not need re-deriving after every training session (~88×/season). These are cleared only
         // at season transition via invalidateAllRatingCaches(). Match strength still refreshes because
         // the rating/profile caches above are dropped.
+    }
+
+    /**
+     * A manager-editor change must refresh both formation and two-axis tactic
+     * choices immediately, without turning ordinary training invalidations into
+     * an expensive full tactical recalculation.
+     */
+    public void invalidateManagerTacticPolicy(long teamId) {
+        managerTacticCache.remove(teamId);
+        tacticVectorCache.remove(teamId);
     }
 
     private void invalidateMatchdayLineupCaches(long teamId) {
@@ -1446,16 +1472,17 @@ public class MatchRoundSimulator {
     }
 
     /**
-     * Pick a team's formation. A human-managed team (or the scalar fallback when the two-axis model
-     * is off) keeps the manager's chosen {@code tacticStyle}. An AI manager under the two-axis model
-     * ranks all formations by the base value they yield for his squad and picks at a rank set by his
-     * skill — so a better coach lands a better-fitting shape (mirrors {@code ManagerTacticService}).
+     * Pick a team's formation. A human-managed team keeps the manager's chosen
+     * {@code tacticStyle}. An AI manager with the editor trait enabled always takes
+     * the value-maximal formation. Other AI managers keep the preferred formation
+     * in the scalar fallback or pick a value rank according to coaching skill in
+     * the two-axis model.
      */
     private String chooseFormation(long teamId) {
-        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
-        String preferred = (!managers.isEmpty() && managers.get(0).getTacticStyle() != null)
-                ? managers.get(0).getTacticStyle() : "442";
-        if (!engineConfig.getTacticalModel().isEnabled() || userContext.isHumanTeam(teamId)) {
+        Human manager = tacticalManager(teamId);
+        String preferred = manager != null && manager.getTacticStyle() != null
+                ? manager.getTacticStyle() : "442";
+        if (userContext.isHumanTeam(teamId)) {
             return preferred;
         }
         List<String> formations = tacticService.getAllExistingTactics();
@@ -1463,6 +1490,12 @@ public class MatchRoundSimulator {
         List<String> ranked = formations.stream()
                 .sorted(Comparator.comparingDouble((String f) -> formationBaseValue(teamId, f)).reversed())
                 .toList();
+        if (manager != null && manager.isAlwaysUseBestPossibleTactic()) {
+            return ranked.get(0);
+        }
+        if (!engineConfig.getTacticalModel().isEnabled()) {
+            return preferred;
+        }
         double[] coach = coachAbilities(teamId);
         double skill = Math.max(0, Math.min(100, (coach[0] + coach[1]) / 2.0));
         int index = (int) Math.round((100 - skill) / 100.0 * (ranked.size() - 1));

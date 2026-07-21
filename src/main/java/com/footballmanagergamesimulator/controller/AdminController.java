@@ -13,6 +13,8 @@ import com.footballmanagergamesimulator.service.ManualCompetitionDrawService;
 import com.footballmanagergamesimulator.service.AdminTransferService;
 import com.footballmanagergamesimulator.service.AdminClubFundingService;
 import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
+import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
+import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -82,6 +84,8 @@ public class AdminController {
     private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
     @Autowired
     private com.footballmanagergamesimulator.service.TransferOfferLifecycleService transferOfferLifecycleService;
+    @Autowired
+    private MatchSimulationOrchestrator matchSimulationOrchestrator;
 
     private final Random random = new Random();
 
@@ -269,6 +273,46 @@ public class AdminController {
         response.put("message", enabled
                 ? player.getName() + " will stay at the current club and retire when the contract ends."
                 : player.getName() + " is eligible for transfers again.");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Federation Editor control for the manager's squad-adaptive AI trait.
+     * The simulator cache is invalidated so the next fixture uses the new
+     * policy even when it is changed in the middle of a season.
+     */
+    @PatchMapping("/managers/{managerId}/always-best-tactic")
+    @Transactional
+    public ResponseEntity<?> updateAlwaysBestTactic(
+            @PathVariable long managerId,
+            @RequestBody Map<String, Object> body,
+            HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        Object value = body.get("alwaysUseBestPossibleTactic");
+        if (!(value instanceof Boolean enabled)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "alwaysUseBestPossibleTactic must be true or false"));
+        }
+
+        Human manager = humanRepository.findById(managerId).orElse(null);
+        if (manager == null || manager.getTypeId() != TypeNames.MANAGER_TYPE) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Manager not found"));
+        }
+
+        manager.setAlwaysUseBestPossibleTactic(enabled);
+        humanRepository.save(manager);
+        if (manager.getTeamId() != null && manager.getTeamId() > 0) {
+            matchSimulationOrchestrator.invalidateManagerTacticPolicy(manager.getTeamId());
+        }
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("managerId", manager.getId());
+        response.put("managerName", manager.getName());
+        response.put("alwaysUseBestPossibleTactic", manager.isAlwaysUseBestPossibleTactic());
+        response.put("message", enabled
+                ? manager.getName() + " will always use the best possible tactic."
+                : manager.getName() + " will use tactical preferences and coaching judgement.");
         return ResponseEntity.ok(response);
     }
 

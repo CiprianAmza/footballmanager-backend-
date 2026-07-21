@@ -21,6 +21,7 @@ import com.footballmanagergamesimulator.repository.TeamPlayerHistoricalRelationR
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.TrainingScheduleRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.util.ManagerTacticPolicy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -567,6 +568,8 @@ public class BootstrapService {
             String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), new Random());
             manager.setTacticStyle(kit[0]);
             manager.setKnownTactics(kit[1]);
+            manager.setAlwaysUseBestPossibleTactic(
+                    ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
             humanRepository.save(manager);
         }
     }
