@@ -5,6 +5,7 @@ import com.footballmanagergamesimulator.model.Scorer;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 
@@ -50,6 +51,31 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
         Double getRatingTotal();
     }
 
+    /** One compact record candidate per player and season in a competition. */
+    interface CompetitionSeasonRecordAggregate {
+        Long getPlayerId();
+        Integer getSeasonNumber();
+        Long getAppearances();
+        Long getGoals();
+        Long getAssists();
+        Long getTeamCount();
+        Long getTeamId();
+        String getTeamName();
+    }
+
+    /** One compact all-time record candidate per player in a competition. */
+    interface CompetitionAllTimeRecordAggregate {
+        Long getPlayerId();
+        Integer getFirstSeason();
+        Integer getLastSeason();
+        Long getAppearances();
+        Long getGoals();
+        Long getAssists();
+        Long getTeamCount();
+        Long getTeamId();
+        String getTeamName();
+    }
+
     @Query("""
             select s.playerId as playerId,
                    count(s.id) as matches,
@@ -90,6 +116,92 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
              group by s.competitionId, s.competitionTypeId, s.seasonNumber, s.teamId, s.playerId
             """)
     List<RatingImpactHistoryAggregate> aggregateRatingImpactHistory();
+
+    @Query("""
+            select s.playerId as playerId,
+                   s.seasonNumber as seasonNumber,
+                   count(s.id) as appearances,
+                   coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   count(distinct s.teamId) as teamCount,
+                   max(s.teamId) as teamId,
+                   max(s.teamName) as teamName
+              from Scorer s
+             where s.competitionId = :competitionId
+               and s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.playerId, s.seasonNumber
+            having sum(s.goals) > 0
+             order by sum(s.goals) desc, sum(s.assists) desc,
+                      count(s.id) asc, s.seasonNumber desc, s.playerId asc
+            """)
+    List<CompetitionSeasonRecordAggregate> findCompetitionSeasonGoalRecords(
+            @Param("competitionId") long competitionId, Pageable pageable);
+
+    @Query("""
+            select s.playerId as playerId,
+                   s.seasonNumber as seasonNumber,
+                   count(s.id) as appearances,
+                   coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   count(distinct s.teamId) as teamCount,
+                   max(s.teamId) as teamId,
+                   max(s.teamName) as teamName
+              from Scorer s
+             where s.competitionId = :competitionId
+               and s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.playerId, s.seasonNumber
+            having sum(s.assists) > 0
+             order by sum(s.assists) desc, sum(s.goals) desc,
+                      count(s.id) asc, s.seasonNumber desc, s.playerId asc
+            """)
+    List<CompetitionSeasonRecordAggregate> findCompetitionSeasonAssistRecords(
+            @Param("competitionId") long competitionId, Pageable pageable);
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason,
+                   max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances,
+                   coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   count(distinct s.teamId) as teamCount,
+                   max(s.teamId) as teamId,
+                   max(s.teamName) as teamName
+              from Scorer s
+             where s.competitionId = :competitionId
+               and s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.playerId
+            having sum(s.goals) > 0
+             order by sum(s.goals) desc, sum(s.assists) desc,
+                      count(s.id) asc, s.playerId asc
+            """)
+    List<CompetitionAllTimeRecordAggregate> findCompetitionAllTimeGoalRecords(
+            @Param("competitionId") long competitionId, Pageable pageable);
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason,
+                   max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances,
+                   coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   count(distinct s.teamId) as teamCount,
+                   max(s.teamId) as teamId,
+                   max(s.teamName) as teamName
+              from Scorer s
+             where s.competitionId = :competitionId
+               and s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.playerId
+            having sum(s.assists) > 0
+             order by sum(s.assists) desc, sum(s.goals) desc,
+                      count(s.id) asc, s.playerId asc
+            """)
+    List<CompetitionAllTimeRecordAggregate> findCompetitionAllTimeAssistRecords(
+            @Param("competitionId") long competitionId, Pageable pageable);
 
     List<Scorer> findByPlayerIdAndSeasonNumber(long playerId, int seasonNumber);
     List<Scorer> findAllByPlayerId(long scorerId);

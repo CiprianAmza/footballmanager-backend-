@@ -11,6 +11,7 @@ import com.footballmanagergamesimulator.service.StatsAggregationService;
 import com.footballmanagergamesimulator.service.StatsService;
 import com.footballmanagergamesimulator.service.LeagueStrengthService;
 import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
+import com.footballmanagergamesimulator.service.CompetitionRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,6 +41,7 @@ public class StatsController {
     @Autowired PlayerAnalyticsService playerAnalyticsService;
     @Autowired LeagueStrengthService leagueStrengthService;
     @Autowired ScorerLeaderboardSyncService scorerLeaderboardSyncService;
+    @Autowired CompetitionRecordService competitionRecordService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -151,6 +153,14 @@ public class StatsController {
     @GetMapping("/competition/{competitionId}/{seasonNumber}")
     public Map<String, Object> getCompetitionStats(@PathVariable long competitionId, @PathVariable int seasonNumber) {
         return statsAggregationService.getCompetitionStats(competitionId, seasonNumber);
+    }
+
+    /** Historic single-season and all-time goal/assist records for one competition. */
+    @GetMapping("/competition/{competitionId}/records")
+    public CompetitionRecordService.CompetitionRecords getCompetitionRecords(
+            @PathVariable long competitionId,
+            @RequestParam(defaultValue = "20") int limit) {
+        return competitionRecordService.records(competitionId, limit);
     }
 
     /** One eligible rating leader per team, compared with that team's average. */

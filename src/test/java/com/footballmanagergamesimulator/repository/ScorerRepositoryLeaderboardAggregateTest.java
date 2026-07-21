@@ -4,6 +4,7 @@ import com.footballmanagergamesimulator.model.Scorer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
 
@@ -65,6 +66,42 @@ class ScorerRepositoryLeaderboardAggregateTest {
         assertEquals(15.6, player.getRatingTotal(), 0.001);
     }
 
+    @Test
+    void aggregatesSingleSeasonAndAllTimeCompetitionRecordsInTheDatabase() {
+        scorerRepository.save(recordAppearance(10L, 7L, "Sherlock FC", 4L, 2, 3, 1));
+        scorerRepository.save(recordAppearance(10L, 7L, "Sherlock FC", 4L, 2, 2, 2));
+        scorerRepository.save(recordAppearance(10L, 8L, "Xenon", 4L, 3, 4, 6));
+        scorerRepository.save(recordAppearance(11L, 9L, "Technoid", 4L, 4, 6, 1));
+        scorerRepository.save(recordAppearance(12L, 9L, "Technoid", 99L, 4, 50, 50));
+
+        List<ScorerRepository.CompetitionSeasonRecordAggregate> seasonGoals =
+                scorerRepository.findCompetitionSeasonGoalRecords(4L, PageRequest.of(0, 10));
+        List<ScorerRepository.CompetitionSeasonRecordAggregate> seasonAssists =
+                scorerRepository.findCompetitionSeasonAssistRecords(4L, PageRequest.of(0, 10));
+        List<ScorerRepository.CompetitionAllTimeRecordAggregate> allTimeGoals =
+                scorerRepository.findCompetitionAllTimeGoalRecords(4L, PageRequest.of(0, 10));
+        List<ScorerRepository.CompetitionAllTimeRecordAggregate> allTimeAssists =
+                scorerRepository.findCompetitionAllTimeAssistRecords(4L, PageRequest.of(0, 10));
+
+        assertEquals(3, seasonGoals.size());
+        assertEquals(11L, seasonGoals.get(0).getPlayerId());
+        assertEquals(6L, seasonGoals.get(0).getGoals());
+        assertEquals(4, seasonGoals.get(0).getSeasonNumber());
+        assertEquals(10L, seasonAssists.get(0).getPlayerId());
+        assertEquals(6L, seasonAssists.get(0).getAssists());
+        assertEquals(3, seasonAssists.get(0).getSeasonNumber());
+
+        assertEquals(2, allTimeGoals.size());
+        assertEquals(10L, allTimeGoals.get(0).getPlayerId());
+        assertEquals(9L, allTimeGoals.get(0).getGoals());
+        assertEquals(9L, allTimeGoals.get(0).getAssists());
+        assertEquals(3L, allTimeGoals.get(0).getAppearances());
+        assertEquals(2L, allTimeGoals.get(0).getTeamCount());
+        assertEquals(2, allTimeGoals.get(0).getFirstSeason());
+        assertEquals(3, allTimeGoals.get(0).getLastSeason());
+        assertEquals(10L, allTimeAssists.get(0).getPlayerId());
+    }
+
     private Scorer appearance(long playerId, int season, int type, int goals) {
         Scorer scorer = new Scorer();
         scorer.setPlayerId(playerId);
@@ -85,6 +122,18 @@ class ScorerRepositoryLeaderboardAggregateTest {
         scorer.setCompetitionId(competitionId);
         scorer.setCompetitionName(competitionName);
         scorer.setRating(rating);
+        return scorer;
+    }
+
+    private Scorer recordAppearance(long playerId, long teamId, String teamName,
+                                    long competitionId, int season, int goals, int assists) {
+        Scorer scorer = appearance(playerId, season, 4, goals);
+        scorer.setTeamId(teamId);
+        scorer.setTeamName(teamName);
+        scorer.setOpponentTeamId(99L);
+        scorer.setCompetitionId(competitionId);
+        scorer.setCompetitionName("League of Champions");
+        scorer.setAssists(assists);
         return scorer;
     }
 }

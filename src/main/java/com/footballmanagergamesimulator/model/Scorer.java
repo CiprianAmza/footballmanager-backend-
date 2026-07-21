@@ -7,6 +7,7 @@ import lombok.Data;
 @Data
 @Table(name="scorer", indexes = {
         @Index(name = "idx_scorer_comp_season_round", columnList = "competitionId,seasonNumber,roundNumber"),
+        @Index(name = "idx_scorer_comp_player_season", columnList = "competitionId,playerId,seasonNumber"),
         @Index(name = "idx_scorer_player_season", columnList = "playerId,seasonNumber"),
         @Index(name = "idx_scorer_team_season", columnList = "teamId,seasonNumber")
 })
