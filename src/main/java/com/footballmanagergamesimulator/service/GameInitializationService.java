@@ -134,6 +134,7 @@ public class GameInitializationService {
         seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
 
         generateInitialSquadsAndStaff(round);
+        bootstrapService.initializeSpecialPlayers();
         newSeasonPlayerReadinessService.resetActiveTeamPlayers();
 
         staffService.generateFreeAgentCoaches(30, 1);

@@ -4,16 +4,20 @@ import com.footballmanagergamesimulator.controller.TrainingController;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.Stadium;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamFacilities;
+import com.footballmanagergamesimulator.model.TeamPlayerHistoricalRelation;
 import com.footballmanagergamesimulator.model.TrainingSchedule;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.StadiumRepository;
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
+import com.footballmanagergamesimulator.repository.TeamPlayerHistoricalRelationRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.TrainingScheduleRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -21,13 +25,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 /**
  * Hardcoded first-time data seed: the 17 competitions, the 8 team groups
  * with their facilities, stadium tiers, training schedules, and managers,
- * plus the single special player ("Kvekrpur" on Tik Tok).
+ * plus the named special players assigned to their canonical clubs.
  *
  * <p>Invoked exactly once from {@code CompetitionController.initializeRound()}
  * (the {@code @PostConstruct} entry point) when the database has no Round row
@@ -44,10 +51,15 @@ public class BootstrapService {
     @Autowired private TeamFacilitiesRepository teamFacilitiesRepository;
     @Autowired private StadiumRepository stadiumRepository;
     @Autowired private TrainingScheduleRepository trainingScheduleRepository;
+    @Autowired private PlayerSkillsRepository playerSkillsRepository;
+    @Autowired private TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
     @Autowired private CompositeNameGenerator compositeNameGenerator;
     @Autowired private TacticService tacticService;
+    @Autowired private CompetitionService competitionService;
+    @Autowired private NationService nationService;
+    @Autowired private FaceGenerator faceGenerator;
 
-    /** Run the full one-time seed in order: competitions → 8 team groups → special players. */
+    /** Run the structural one-time seed in order: competitions → 8 team groups. */
     public void initialization() {
         initializeCompetitions();
         initializeTeams1();
@@ -58,8 +70,6 @@ public class BootstrapService {
         initializeTeams6();
         initializeTeams7();
         initializeTeams8();
-
-        initializeSpecialPlayers();
     }
 
     private void initializeCompetitions() {
@@ -345,24 +355,96 @@ public class BootstrapService {
         createTeamsAndCompetitions(teamNames, teamValues, facilities, 86, 16L, 17L);
     }
 
-    private void initializeSpecialPlayers() {
-        Human Kvekrpur = new Human();
-        Kvekrpur.setRating(300);
-        Kvekrpur.setName("Kvekrpur");
-        Kvekrpur.setTeamId(14L); // Tik Tok
-        Kvekrpur.setAge(20);
-        Kvekrpur.setMorale(70D);
-        Kvekrpur.setFitness(100D);
-        Kvekrpur.setCurrentAbility(300);
-        Kvekrpur.setPotentialAbility(350);
-        Kvekrpur.setBestEverRating(300);
-        Kvekrpur.setSeasonCreated(1);
-        Kvekrpur.setTypeId(1);
-        Kvekrpur.setPosition("ST");
-        Kvekrpur.setCurrentStatus("Junior");
+    /**
+     * Seed the named players after the ordinary squads have been generated. This ordering lets the
+     * players receive complete attributes, contracts, faces, history and non-conflicting shirt numbers
+     * instead of becoming partial Human rows that only happen to carry a high headline rating.
+     */
+    public void initializeSpecialPlayers() {
+        List<SpecialPlayerSeed> seeds = List.of(
+                new SpecialPlayerSeed("Tik Tok", "Kvekrpur", "ST", 20, 300),
+                new SpecialPlayerSeed("Tik Tok", "Dostoievski", "ST", 15, 300),
+                new SpecialPlayerSeed("Tik Tok", "Kabutov", "DM", 15, 300),
+                new SpecialPlayerSeed("Tik Tok", "Mozart", "GK", 15, 300),
+                new SpecialPlayerSeed("FC San Marino", "Shakespeare", "ST", 15, 300),
+                new SpecialPlayerSeed("FC San Marino", "Beethoven", "GK", 15, 300),
+                new SpecialPlayerSeed("FC San Marino", "Rampardos", "MC", 15, 300),
+                new SpecialPlayerSeed("Inazuma Japan", "Saviola", "AMC", 15, 300),
+                new SpecialPlayerSeed("Inazuma Japan", "Umbreon", "AML", 15, 280),
+                new SpecialPlayerSeed("Inazuma Japan", "Itexoa", "MC", 15, 280));
 
-        humanRepository.save(Kvekrpur);
+        Map<String, Team> teamsByName = teamRepository.findAll().stream()
+                .collect(Collectors.toMap(Team::getName, team -> team, (first, duplicate) -> first));
+        Map<Long, List<Human>> additionsByTeam = new LinkedHashMap<>();
+
+        for (SpecialPlayerSeed seed : seeds) {
+            Team team = teamsByName.get(seed.teamName());
+            if (team == null) {
+                throw new IllegalStateException("Cannot seed " + seed.playerName()
+                        + ": team not found: " + seed.teamName());
+            }
+
+            Random playerRandom = new Random(seed.playerName().hashCode());
+            Human player = new Human();
+            player.setTeamId(team.getId());
+            player.setName(seed.playerName());
+            player.setTypeId(TypeNames.PLAYER_TYPE);
+            player.setPosition(seed.position());
+            player.setAge(seed.age());
+            player.setSeasonCreated(1);
+            player.setCurrentStatus(seed.age() <= 18 ? "Junior" : "Senior");
+            player.setMorale(80);
+            player.setFitness(80);
+            player.setRating(seed.rating());
+            player.setCurrentAbility((int) seed.rating());
+            player.setPotentialAbility((int) seed.rating() + 50);
+            player.setBestEverRating(seed.rating());
+            player.setSeasonOfBestEverRating(1);
+            HumanService.generatePhysicalProfile(player, playerRandom);
+            player.setTransferValue(TransferValueCalculator.calculate(
+                    seed.age(), seed.position(), seed.rating()));
+            player.setContractEndSeason(6);
+            player.setWage(WageService.baseWage(seed.rating()));
+            player.setReleaseClause(player.getTransferValue() * 2);
+
+            player = humanRepository.save(player);
+            faceGenerator.assignFace(player, nationService.nationIdForTeam(team.getId()));
+
+            PlayerSkills skills = new PlayerSkills();
+            skills.setPlayerId(player.getId());
+            skills.setPosition(seed.position());
+            competitionService.generateSkills(skills, seed.rating(), playerRandom);
+            PlayerSkillsService.calibrateOverallRating(skills, seed.rating());
+            playerSkillsRepository.save(skills);
+
+            TeamPlayerHistoricalRelation relation = new TeamPlayerHistoricalRelation();
+            relation.setPlayerId(player.getId());
+            relation.setTeamId(team.getId());
+            relation.setSeasonNumber(1);
+            relation.setRating(seed.rating());
+            teamPlayerHistoricalRelationRepository.save(relation);
+
+            additionsByTeam.computeIfAbsent(team.getId(), ignored -> new ArrayList<>()).add(player);
+        }
+
+        // Re-number the complete affected squads once, after all named players are present.
+        for (Map.Entry<Long, List<Human>> entry : additionsByTeam.entrySet()) {
+            List<Human> completeSquad = humanRepository
+                    .findAllByTeamIdAndTypeId(entry.getKey(), TypeNames.PLAYER_TYPE).stream()
+                    .filter(player -> !player.isRetired())
+                    .collect(Collectors.toCollection(ArrayList::new));
+            for (Human addition : entry.getValue()) {
+                if (completeSquad.stream().noneMatch(player -> player.getId() == addition.getId())) {
+                    completeSquad.add(addition);
+                }
+            }
+            HumanService.assignShirtNumbers(completeSquad);
+            humanRepository.saveAll(completeSquad);
+        }
     }
+
+    private record SpecialPlayerSeed(String teamName, String playerName, String position,
+                                     int age, double rating) {}
 
     private void createTeamsAndCompetitions(List<List<String>> teamNames, List<List<Integer>> teamValues,
                                             List<List<Integer>> facilities, int addedModulo, long leagueId, long cupId) {
