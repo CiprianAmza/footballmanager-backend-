@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionStatLine;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.MatchStats;
 import com.footballmanagergamesimulator.model.PlayerSeasonStat;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.Team;
@@ -14,6 +15,7 @@ import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.MatchStatsRepository;
 import com.footballmanagergamesimulator.repository.PlayerSeasonStatRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -35,6 +37,146 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 
 class StatsAggregationServiceTest {
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void competitionRatingImpactUsesTeamMatchThresholdAndExcludesFiveOfTenAppearances() {
+        StatsAggregationService service = new StatsAggregationService();
+        ScorerRepository scorerRepository = mock(ScorerRepository.class);
+        MatchStatsRepository matchStatsRepository = mock(MatchStatsRepository.class);
+        CompetitionHistoryRepository historyRepository = mock(CompetitionHistoryRepository.class);
+        HumanRepository humanRepository = mock(HumanRepository.class);
+        TeamRepository teamRepository = mock(TeamRepository.class);
+        ReflectionTestUtils.setField(service, "scorerRepository", scorerRepository);
+        ReflectionTestUtils.setField(service, "matchStatsRepository", matchStatsRepository);
+        ReflectionTestUtils.setField(service, "competitionHistoryRepository", historyRepository);
+        ReflectionTestUtils.setField(service, "humanRepository", humanRepository);
+        ReflectionTestUtils.setField(service, "teamRepository", teamRepository);
+
+        long competitionId = 14L;
+        int season = 7;
+        long teamId = 86L;
+        List<Scorer> performances = new java.util.ArrayList<>();
+        addRatedAppearances(performances, 1L, teamId, competitionId, season, 6, 9.0);
+        addRatedAppearances(performances, 2L, teamId, competitionId, season, 5, 9.8);
+        addRatedAppearances(performances, 3L, teamId, competitionId, season, 10, 7.0);
+        when(scorerRepository.findAllByCompetitionIdAndSeasonNumber(competitionId, season))
+                .thenReturn(performances);
+
+        List<MatchStats> matches = new java.util.ArrayList<>();
+        for (int round = 1; round <= 10; round++) {
+            MatchStats match = new MatchStats();
+            match.setTeam1Id(teamId);
+            match.setTeam2Id(100L + round);
+            matches.add(match);
+        }
+        when(matchStatsRepository.findAllByCompetitionIdAndSeasonNumber(competitionId, season))
+                .thenReturn(matches);
+        when(historyRepository.findAllByCompetitionIdAndSeasonNumber(competitionId, season)).thenReturn(List.of());
+        when(humanRepository.findAllById(any())).thenReturn(List.of(
+                human(1L, teamId, "Eligible star"),
+                human(2L, teamId, "Ineligible star"),
+                human(3L, teamId, "Regular")));
+        when(teamRepository.findAllById(any())).thenReturn(List.of(team(teamId, "Sherlock FC")));
+
+        Map<String, Object> result = service.getCompetitionRatingImpact(competitionId, season);
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) result.get("rows");
+
+        assertEquals(1, rows.size());
+        assertEquals(1L, rows.get(0).get("playerId"));
+        assertEquals(6, rows.get(0).get("requiredAppearances"));
+        assertEquals(6, rows.get(0).get("appearances"));
+        assertEquals(10, rows.get(0).get("teamMatches"));
+        assertEquals(9.0, rows.get(0).get("playerRating"));
+        assertEquals(8.24, rows.get(0).get("teamRating"));
+        assertEquals(0.76, rows.get(0).get("difference"));
+        assertEquals(55, result.get("minimumAppearancePercentage"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ratingHistoryRequiresBothTeamAndCompetitionAppearanceThresholds() {
+        StatsAggregationService service = new StatsAggregationService();
+        ScorerRepository scorerRepository = mock(ScorerRepository.class);
+        MatchStatsRepository matchStatsRepository = mock(MatchStatsRepository.class);
+        CompetitionHistoryRepository historyRepository = mock(CompetitionHistoryRepository.class);
+        HumanRepository humanRepository = mock(HumanRepository.class);
+        TeamRepository teamRepository = mock(TeamRepository.class);
+        CompetitionRepository competitionRepository = mock(CompetitionRepository.class);
+        ReflectionTestUtils.setField(service, "scorerRepository", scorerRepository);
+        ReflectionTestUtils.setField(service, "matchStatsRepository", matchStatsRepository);
+        ReflectionTestUtils.setField(service, "competitionHistoryRepository", historyRepository);
+        ReflectionTestUtils.setField(service, "humanRepository", humanRepository);
+        ReflectionTestUtils.setField(service, "teamRepository", teamRepository);
+        ReflectionTestUtils.setField(service, "competitionRepository", competitionRepository);
+
+        long competitionId = 14L;
+        ScorerRepository.RatingImpactHistoryAggregate oneMatchWonder =
+                ratingAggregate(competitionId, 7, 86L, 1L, 1, 9.8);
+        ScorerRepository.RatingImpactHistoryAggregate eligibleLeader =
+                ratingAggregate(competitionId, 7, 87L, 2L, 6, 45.0);
+        ScorerRepository.RatingImpactHistoryAggregate regular =
+                ratingAggregate(competitionId, 7, 87L, 3L, 10, 60.0);
+        when(scorerRepository.aggregateRatingImpactHistory()).thenReturn(List.of(
+                oneMatchWonder, eligibleLeader, regular));
+        when(matchStatsRepository.findAllByCompetitionIdIn(any())).thenReturn(List.of());
+
+        CompetitionHistory preliminaryExit = competitionHistory(competitionId, 7, 86L, 1);
+        CompetitionHistory finalist = competitionHistory(competitionId, 7, 87L, 10);
+        when(historyRepository.findAllByCompetitionIdIn(any()))
+                .thenReturn(List.of(preliminaryExit, finalist));
+        when(humanRepository.findAllById(any())).thenReturn(List.of(
+                human(1L, 86L, "One-match wonder"),
+                human(2L, 87L, "Eligible leader"),
+                human(3L, 87L, "Regular")));
+        when(teamRepository.findAllById(any())).thenReturn(List.of(
+                team(86L, "Qualifier"), team(87L, "Finalist")));
+        Competition competition = competition(competitionId, 4);
+        competition.setName("League of Champions");
+        when(competitionRepository.findAllById(any())).thenReturn(List.of(competition));
+
+        Map<String, Object> result = service.getRatingImpactHistory(55, 60);
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) result.get("rows");
+
+        assertEquals(1, rows.size());
+        assertEquals(2L, rows.get(0).get("playerId"));
+        assertEquals(10, rows.get(0).get("competitionMatches"));
+        assertEquals(6, rows.get(0).get("requiredTeamAppearances"));
+        assertEquals(6, rows.get(0).get("requiredCompetitionAppearances"));
+        assertEquals(6, rows.get(0).get("requiredAppearances"));
+        assertEquals(55, result.get("teamAppearancePercentage"));
+        assertEquals(60, result.get("competitionAppearancePercentage"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void allTimeChampionsExposeCompetitionIdsCountSuperCupsAndIgnoreDuplicateSnapshots() {
+        StatsAggregationService service = new StatsAggregationService();
+        CompetitionHistoryRepository historyRepository = mock(CompetitionHistoryRepository.class);
+        TeamRepository teamRepository = mock(TeamRepository.class);
+        ReflectionTestUtils.setField(service, "competitionHistoryRepository", historyRepository);
+        ReflectionTestUtils.setField(service, "teamRepository", teamRepository);
+
+        CompetitionHistory league = titleHistory(1L, 1, 10L, 1, "Test League", 1L);
+        CompetitionHistory duplicatedLeague = titleHistory(1L, 1, 10L, 1, "Test League", 2L);
+        CompetitionHistory superCup = titleHistory(6L, 2, 10L, 6, "Test Super Cup", 3L);
+        CompetitionHistory runnerUp = titleHistory(6L, 2, 20L, 6, "Test Super Cup", 4L);
+        runnerUp.setLastPosition(2);
+        when(historyRepository.findAll()).thenReturn(List.of(
+                league, duplicatedLeague, superCup, runnerUp));
+        when(teamRepository.findAllById(any())).thenReturn(List.of(team(10L, "Alpha")));
+
+        List<Map<String, Object>> result = service.getAllTimeChampions();
+
+        assertEquals(1, result.size());
+        assertEquals(2, result.get(0).get("totalTitles"));
+        assertEquals(1, result.get(0).get("leagueTitles"));
+        assertEquals(1, result.get(0).get("superCupTitles"));
+        List<Map<String, Object>> titles = (List<Map<String, Object>>) result.get(0).get("titles");
+        assertEquals(6L, titles.get(0).get("competitionId"));
+        assertEquals(2L, titles.get(0).get("season"));
+        assertEquals(1L, titles.get(1).get("competitionId"));
+    }
 
     @Test
     void teamSeasonStatsUsePlayedMatchesAndRankByGoalContributions() {
@@ -324,6 +466,49 @@ class StatsAggregationServiceTest {
         return scorer;
     }
 
+    private ScorerRepository.RatingImpactHistoryAggregate ratingAggregate(
+            long competitionId, int season, long teamId, long playerId,
+            int appearances, double ratingTotal) {
+        ScorerRepository.RatingImpactHistoryAggregate aggregate =
+                mock(ScorerRepository.RatingImpactHistoryAggregate.class);
+        when(aggregate.getCompetitionId()).thenReturn(competitionId);
+        when(aggregate.getCompetitionName()).thenReturn("League of Champions");
+        when(aggregate.getCompetitionTypeId()).thenReturn(4);
+        when(aggregate.getSeasonNumber()).thenReturn(season);
+        when(aggregate.getTeamId()).thenReturn(teamId);
+        when(aggregate.getTeamName()).thenReturn(teamId == 86L ? "Qualifier" : "Finalist");
+        when(aggregate.getPlayerId()).thenReturn(playerId);
+        when(aggregate.getAppearances()).thenReturn((long) appearances);
+        when(aggregate.getRatingCount()).thenReturn((long) appearances);
+        when(aggregate.getRatingTotal()).thenReturn(ratingTotal);
+        return aggregate;
+    }
+
+    private CompetitionHistory competitionHistory(long competitionId, int season,
+                                                    long teamId, int games) {
+        CompetitionHistory history = new CompetitionHistory();
+        history.setCompetitionId(competitionId);
+        history.setCompetitionTypeId(4);
+        history.setCompetitionName("League of Champions");
+        history.setSeasonNumber(season);
+        history.setTeamId(teamId);
+        history.setGames(games);
+        return history;
+    }
+
+    private CompetitionHistory titleHistory(long competitionId, long season, long teamId,
+                                              long typeId, String name, long historyId) {
+        CompetitionHistory history = new CompetitionHistory();
+        history.setId(historyId);
+        history.setCompetitionId(competitionId);
+        history.setSeasonNumber(season);
+        history.setTeamId(teamId);
+        history.setCompetitionTypeId(typeId);
+        history.setCompetitionName(name);
+        history.setLastPosition(1);
+        return history;
+    }
+
     private Scorer seasonScorer(long playerId, long teamId, int competitionTypeId, int goals, int assists) {
         Scorer scorer = new Scorer();
         scorer.setPlayerId(playerId);
@@ -339,6 +524,24 @@ class StatsAggregationServiceTest {
         scorer.setAssists(assists);
         scorer.setRating(7.0);
         return scorer;
+    }
+
+    private void addRatedAppearances(List<Scorer> target, long playerId, long teamId,
+                                     long competitionId, int season, int appearances, double rating) {
+        for (int round = 1; round <= appearances; round++) {
+            Scorer scorer = new Scorer();
+            scorer.setPlayerId(playerId);
+            scorer.setTeamId(teamId);
+            scorer.setTeamName("Sherlock FC");
+            scorer.setOpponentTeamId(100L + round);
+            scorer.setCompetitionId(competitionId);
+            scorer.setSeasonNumber(season);
+            scorer.setRoundNumber(round);
+            scorer.setTeamScore(1);
+            scorer.setOpponentScore(0);
+            scorer.setRating(rating);
+            target.add(scorer);
+        }
     }
 
     private Human human(long id, long teamId, String name) {

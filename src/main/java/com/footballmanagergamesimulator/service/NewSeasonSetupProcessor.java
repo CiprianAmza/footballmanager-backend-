@@ -112,6 +112,7 @@ public class NewSeasonSetupProcessor {
     @Autowired private SuperCupService superCupService;
     @Autowired private SponsorshipService sponsorshipService;
     @Autowired private MinimumSquadService minimumSquadService;
+    @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
     @Autowired private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
     @Lazy @Autowired private AdminTransferService adminTransferService;
 
@@ -220,6 +221,9 @@ public class NewSeasonSetupProcessor {
         // academy players only at this point, so every club starts the season
         // with at least 18 permanent first-team players.
         minimumSquadService.ensureMinimumSquads(newSeason);
+        int resetPlayers = newSeasonPlayerReadinessService.resetActiveTeamPlayers();
+        System.out.println("=== New-season readiness reset to 80 morale / 80 fitness for "
+                + resetPlayers + " active team player(s) ===");
         int expiredSponsorships = sponsorshipService.expireContractsBeforeSeason(newSeason);
         if (expiredSponsorships > 0) {
             System.out.println("=== Expired " + expiredSponsorships

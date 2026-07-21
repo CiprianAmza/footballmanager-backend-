@@ -153,6 +153,22 @@ public class StatsController {
         return statsAggregationService.getCompetitionStats(competitionId, seasonNumber);
     }
 
+    /** One eligible rating leader per team, compared with that team's average. */
+    @GetMapping("/competition/{competitionId}/{seasonNumber}/rating-impact")
+    public Map<String, Object> getCompetitionRatingImpact(@PathVariable long competitionId,
+                                                           @PathVariable int seasonNumber) {
+        return statsAggregationService.getCompetitionRatingImpact(competitionId, seasonNumber);
+    }
+
+    /** Historical rating-impact report across every played competition and season. */
+    @GetMapping("/rating-impact/history")
+    public Map<String, Object> getRatingImpactHistory(
+            @RequestParam(defaultValue = "55") int teamAppearancePercentage,
+            @RequestParam(defaultValue = "60") int competitionAppearancePercentage) {
+        return statsAggregationService.getRatingImpactHistory(
+                teamAppearancePercentage, competitionAppearancePercentage);
+    }
+
     /**
      * GET /stats/playerForm/{playerId}
      * Last 5 appearances + form trend (last 5 vs previous 5 avg ratings).

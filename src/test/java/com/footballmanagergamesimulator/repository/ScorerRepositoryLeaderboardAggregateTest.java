@@ -37,6 +37,34 @@ class ScorerRepositoryLeaderboardAggregateTest {
         assertEquals(4L, row.getCurrentSeasonGoals());
     }
 
+    @Test
+    void aggregatesRatingHistoryPerCompetitionSeasonTeamAndPlayer() {
+        scorerRepository.save(ratedAppearance(10L, 7L, "Sherlock FC", 4L,
+                "League of Champions", 4, 3, 7.2));
+        scorerRepository.save(ratedAppearance(10L, 7L, "Sherlock FC", 4L,
+                "League of Champions", 4, 3, 8.4));
+        scorerRepository.save(ratedAppearance(11L, 7L, "Sherlock FC", 4L,
+                "League of Champions", 4, 3, 6.8));
+
+        List<ScorerRepository.RatingImpactHistoryAggregate> rows =
+                scorerRepository.aggregateRatingImpactHistory();
+
+        assertEquals(2, rows.size());
+        ScorerRepository.RatingImpactHistoryAggregate player = rows.stream()
+                .filter(row -> row.getPlayerId() == 10L)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(4L, player.getCompetitionId());
+        assertEquals("League of Champions", player.getCompetitionName());
+        assertEquals(4, player.getCompetitionTypeId());
+        assertEquals(3, player.getSeasonNumber());
+        assertEquals(7L, player.getTeamId());
+        assertEquals("Sherlock FC", player.getTeamName());
+        assertEquals(2L, player.getAppearances());
+        assertEquals(2L, player.getRatingCount());
+        assertEquals(15.6, player.getRatingTotal(), 0.001);
+    }
+
     private Scorer appearance(long playerId, int season, int type, int goals) {
         Scorer scorer = new Scorer();
         scorer.setPlayerId(playerId);
@@ -44,6 +72,19 @@ class ScorerRepositoryLeaderboardAggregateTest {
         scorer.setCompetitionTypeId(type);
         scorer.setGoals(goals);
         scorer.setTeamScore(goals);
+        return scorer;
+    }
+
+    private Scorer ratedAppearance(long playerId, long teamId, String teamName,
+                                   long competitionId, String competitionName,
+                                   int competitionTypeId, int season, double rating) {
+        Scorer scorer = appearance(playerId, season, competitionTypeId, 0);
+        scorer.setTeamId(teamId);
+        scorer.setTeamName(teamName);
+        scorer.setOpponentTeamId(99L);
+        scorer.setCompetitionId(competitionId);
+        scorer.setCompetitionName(competitionName);
+        scorer.setRating(rating);
         return scorer;
     }
 }

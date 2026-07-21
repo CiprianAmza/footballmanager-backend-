@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public interface MatchStatsRepository extends JpaRepository<MatchStats, Long> {
 
@@ -12,6 +13,8 @@ public interface MatchStatsRepository extends JpaRepository<MatchStats, Long> {
             long competitionId, int seasonNumber, int roundNumber, long team1Id, long team2Id);
 
     List<MatchStats> findAllByCompetitionIdAndSeasonNumber(long competitionId, int seasonNumber);
+
+    List<MatchStats> findAllByCompetitionIdIn(Collection<Long> competitionIds);
 
     List<MatchStats> findAllBySeasonNumber(int seasonNumber);
 

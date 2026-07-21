@@ -36,6 +36,20 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
         Long getCurrentSeasonSecondLeagueGoals();
     }
 
+    /** One compact row per (competition, season, team, player). */
+    interface RatingImpactHistoryAggregate {
+        Long getCompetitionId();
+        String getCompetitionName();
+        Integer getCompetitionTypeId();
+        Integer getSeasonNumber();
+        Long getTeamId();
+        String getTeamName();
+        Long getPlayerId();
+        Long getAppearances();
+        Long getRatingCount();
+        Double getRatingTotal();
+    }
+
     @Query("""
             select s.playerId as playerId,
                    count(s.id) as matches,
@@ -58,6 +72,24 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
              group by s.playerId
             """)
     List<LeaderboardAggregate> aggregateAllForLeaderboard(@Param("season") int season);
+
+    @Query("""
+            select s.competitionId as competitionId,
+                   max(s.competitionName) as competitionName,
+                   s.competitionTypeId as competitionTypeId,
+                   s.seasonNumber as seasonNumber,
+                   s.teamId as teamId,
+                   max(s.teamName) as teamName,
+                   s.playerId as playerId,
+                   count(s.id) as appearances,
+                   coalesce(sum(case when s.rating >= 1.0 and s.rating <= 10.0 then 1 else 0 end), 0) as ratingCount,
+                   coalesce(sum(case when s.rating >= 1.0 and s.rating <= 10.0 then s.rating else 0.0 end), 0.0) as ratingTotal
+              from Scorer s
+             where s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.competitionId, s.competitionTypeId, s.seasonNumber, s.teamId, s.playerId
+            """)
+    List<RatingImpactHistoryAggregate> aggregateRatingImpactHistory();
 
     List<Scorer> findByPlayerIdAndSeasonNumber(long playerId, int seasonNumber);
     List<Scorer> findAllByPlayerId(long scorerId);

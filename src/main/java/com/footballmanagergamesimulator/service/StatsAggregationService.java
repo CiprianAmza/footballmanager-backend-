@@ -73,6 +73,9 @@ public class StatsAggregationService {
     @Autowired private RoundRepository roundRepository;
 
     private static final Pattern RESULT_SCORE_PATTERN = Pattern.compile("(\\d+)\\s*-\\s*(\\d+)");
+    private static final double RATING_IMPACT_MINIMUM_APPEARANCE_SHARE = 0.55;
+    private static final int RATING_HISTORY_DEFAULT_TEAM_PERCENTAGE = 55;
+    private static final int RATING_HISTORY_DEFAULT_COMPETITION_PERCENTAGE = 60;
 
     // ==================== GLOBAL SEASON OVERVIEW ====================
 
@@ -886,10 +889,22 @@ public class StatsAggregationService {
     public List<Map<String, Object>> getAllTimeChampions() {
         List<CompetitionHistory> allHistory = competitionHistoryRepository.findAll();
 
-        // Group winners (position 1) by teamId
-        Map<Long, List<CompetitionHistory>> teamWins = allHistory.stream()
+        // One club can only win a competition once in a season. Keeping this
+        // guard here makes imported/legacy saves safe even if they contain a
+        // duplicated history snapshot.
+        Map<String, CompetitionHistory> uniqueWins = new LinkedHashMap<>();
+        allHistory.stream()
                 .filter(h -> h.getLastPosition() == 1)
+                .sorted(Comparator.comparingLong(CompetitionHistory::getSeasonNumber)
+                        .thenComparingLong(CompetitionHistory::getCompetitionId)
+                        .thenComparingLong(CompetitionHistory::getId))
+                .forEach(h -> uniqueWins.putIfAbsent(
+                        h.getCompetitionId() + ":" + h.getSeasonNumber() + ":" + h.getTeamId(), h));
+
+        Map<Long, List<CompetitionHistory>> teamWins = uniqueWins.values().stream()
                 .collect(Collectors.groupingBy(CompetitionHistory::getTeamId));
+        Map<Long, String> teamNames = teamRepository.findAllById(teamWins.keySet()).stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map.Entry<Long, List<CompetitionHistory>> entry : teamWins.entrySet()) {
@@ -898,14 +913,16 @@ public class StatsAggregationService {
 
             Map<String, Object> teamData = new LinkedHashMap<>();
             teamData.put("teamId", teamId);
-            teamData.put("teamName", teamRepository.findNameById(teamId));
+            teamData.put("teamName", teamNames.getOrDefault(teamId, "Unknown team"));
 
-            int leagueTitles = 0, cupTitles = 0, secondLeagueTitles = 0, locTitles = 0, starsCupTitles = 0;
+            int leagueTitles = 0, cupTitles = 0, secondLeagueTitles = 0;
+            int locTitles = 0, starsCupTitles = 0, superCupTitles = 0;
             List<Map<String, Object>> titleList = new ArrayList<>();
 
             for (CompetitionHistory h : wins) {
                 Map<String, Object> title = new LinkedHashMap<>();
                 title.put("season", h.getSeasonNumber());
+                title.put("competitionId", h.getCompetitionId());
                 title.put("competitionName", h.getCompetitionName());
                 title.put("competitionTypeId", h.getCompetitionTypeId());
                 titleList.add(title);
@@ -916,8 +933,14 @@ public class StatsAggregationService {
                     case 3: secondLeagueTitles++; break;
                     case 4: locTitles++; break;
                     case 5: starsCupTitles++; break;
+                    case 6: superCupTitles++; break;
                 }
             }
+
+            titleList.sort(Comparator
+                    .comparingLong((Map<String, Object> title) ->
+                            ((Number) title.get("season")).longValue()).reversed()
+                    .thenComparing(title -> String.valueOf(title.get("competitionName"))));
 
             teamData.put("totalTitles", wins.size());
             teamData.put("leagueTitles", leagueTitles);
@@ -925,6 +948,7 @@ public class StatsAggregationService {
             teamData.put("secondLeagueTitles", secondLeagueTitles);
             teamData.put("locTitles", locTitles);
             teamData.put("starsCupTitles", starsCupTitles);
+            teamData.put("superCupTitles", superCupTitles);
             teamData.put("titles", titleList);
             result.add(teamData);
         }
@@ -953,6 +977,7 @@ public class StatsAggregationService {
 
         // --- Player stats from Scorer ---
         List<Scorer> scorers = scorerRepository.findAllByCompetitionIdAndSeasonNumber(competitionId, seasonNumber);
+        result.put("ratingImpact", buildCompetitionRatingImpact(competitionId, seasonNumber, scorers));
 
         Map<Long, int[]> playerAgg = new LinkedHashMap<>(); // playerId -> [goals, assists, matches]
         Map<Long, Double> playerRatingSum = new LinkedHashMap<>();
@@ -1086,6 +1111,429 @@ public class StatsAggregationService {
         result.put("disciplinary", disciplinary.stream().limit(20).toList());
 
         return result;
+    }
+
+    /**
+     * Compares every club's most consistently high-rated player with the average
+     * rating of all player performances recorded for that club in one competition.
+     *
+     * <p>A player is eligible only after appearing in at least 55% of the matches
+     * played by that club. The ceiling is intentional: six of ten appearances
+     * qualify, while five do not. Player/team pairs are aggregated independently,
+     * so a mid-season transfer cannot combine appearances for two different clubs.
+     */
+    public Map<String, Object> getCompetitionRatingImpact(long competitionId, int seasonNumber) {
+        List<Scorer> scorers = scorerRepository
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, seasonNumber);
+        return buildCompetitionRatingImpact(competitionId, seasonNumber, scorers);
+    }
+
+    private Map<String, Object> buildCompetitionRatingImpact(long competitionId, int seasonNumber,
+                                                               List<Scorer> allScorers) {
+        List<Scorer> playedScorers = allScorers.stream()
+                .filter(scorer -> scorer.getTeamScore() >= 0 && scorer.getOpponentTeamId() >= 0)
+                .toList();
+
+        Map<PlayerTeamKey, RatingImpactAccumulator> players = new LinkedHashMap<>();
+        Map<Long, RatingImpactAccumulator> teams = new LinkedHashMap<>();
+        Map<Long, String> scorerTeamNames = new LinkedHashMap<>();
+
+        for (Scorer scorer : playedScorers) {
+            long teamId = scorer.getTeamId();
+            scorerTeamNames.putIfAbsent(teamId, scorer.getTeamName());
+            players.computeIfAbsent(new PlayerTeamKey(scorer.getPlayerId(), teamId),
+                            ignored -> new RatingImpactAccumulator())
+                    .addAppearance(scorer.getRating());
+            teams.computeIfAbsent(teamId, ignored -> new RatingImpactAccumulator())
+                    .addAppearance(scorer.getRating());
+        }
+
+        Map<Long, Integer> teamMatches = resolveCompetitionTeamMatchCounts(
+                competitionId, seasonNumber, players);
+        Set<Long> playerIds = players.keySet().stream()
+                .map(PlayerTeamKey::playerId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<Long> teamIds = teams.keySet();
+        Map<Long, Human> humans = humanRepository.findAllById(playerIds).stream()
+                .collect(Collectors.toMap(Human::getId, human -> human));
+        Map<Long, String> storedTeamNames = teamRepository.findAllById(teamIds).stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
+
+        Map<Long, Map.Entry<PlayerTeamKey, RatingImpactAccumulator>> leaderByTeam = new LinkedHashMap<>();
+        for (Map.Entry<PlayerTeamKey, RatingImpactAccumulator> entry : players.entrySet()) {
+            PlayerTeamKey key = entry.getKey();
+            RatingImpactAccumulator player = entry.getValue();
+            int matches = Math.max(teamMatches.getOrDefault(key.teamId(), 0), player.appearances);
+            int requiredAppearances = minimumRequiredAppearances(matches);
+            if (player.appearances < requiredAppearances || player.ratingCount == 0) continue;
+
+            Map.Entry<PlayerTeamKey, RatingImpactAccumulator> current = leaderByTeam.get(key.teamId());
+            if (current == null || compareRatingImpactCandidates(entry, current) < 0) {
+                leaderByTeam.put(key.teamId(), entry);
+            }
+        }
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map.Entry<Long, Map.Entry<PlayerTeamKey, RatingImpactAccumulator>> teamEntry
+                : leaderByTeam.entrySet()) {
+            long teamId = teamEntry.getKey();
+            PlayerTeamKey key = teamEntry.getValue().getKey();
+            RatingImpactAccumulator player = teamEntry.getValue().getValue();
+            RatingImpactAccumulator team = teams.get(teamId);
+            if (team == null || team.ratingCount == 0) continue;
+
+            int matches = Math.max(teamMatches.getOrDefault(teamId, 0), player.appearances);
+            double playerRating = player.averageRating();
+            double teamRating = team.averageRating();
+            Human human = humans.get(key.playerId());
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("playerId", key.playerId());
+            row.put("playerName", human == null ? "Unknown" : human.getName());
+            row.put("position", human == null ? "" : human.getPosition());
+            row.put("teamId", teamId);
+            row.put("teamName", storedTeamNames.getOrDefault(teamId,
+                    scorerTeamNames.getOrDefault(teamId, "Unknown")));
+            row.put("playerRating", round(playerRating, 2));
+            row.put("teamRating", round(teamRating, 2));
+            row.put("difference", round(playerRating - teamRating, 2));
+            row.put("appearances", player.appearances);
+            row.put("teamMatches", matches);
+            row.put("requiredAppearances", minimumRequiredAppearances(matches));
+            row.put("appearancePercentage", matches == 0
+                    ? 0.0 : round(player.appearances * 100.0 / matches, 1));
+            rows.add(row);
+        }
+
+        rows.sort(Comparator
+                .comparingDouble((Map<String, Object> row) -> ((Number) row.get("difference")).doubleValue())
+                .reversed()
+                .thenComparing(Comparator.comparingDouble(
+                        (Map<String, Object> row) -> ((Number) row.get("playerRating")).doubleValue()).reversed())
+                .thenComparing(row -> String.valueOf(row.get("playerName"))));
+        addRanks(rows);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("minimumAppearanceShare", RATING_IMPACT_MINIMUM_APPEARANCE_SHARE);
+        result.put("minimumAppearancePercentage",
+                (int) Math.round(RATING_IMPACT_MINIMUM_APPEARANCE_SHARE * 100));
+        result.put("teamAverageMethod", "Weighted average of all rated player appearances");
+        result.put("rows", rows);
+        return result;
+    }
+
+    private Map<Long, Integer> resolveCompetitionTeamMatchCounts(
+            long competitionId, int seasonNumber,
+            Map<PlayerTeamKey, RatingImpactAccumulator> players) {
+        Map<Long, Integer> matches = new LinkedHashMap<>();
+
+        for (MatchStats match : matchStatsRepository
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, seasonNumber)) {
+            matches.merge(match.getTeam1Id(), 1, Integer::sum);
+            matches.merge(match.getTeam2Id(), 1, Integer::sum);
+        }
+
+        competitionHistoryRepository.findAllByCompetitionIdAndSeasonNumber(competitionId, seasonNumber).stream()
+                .forEach(history -> matches.merge(history.getTeamId(), history.getGames(), Math::max));
+
+        // Older imported saves may contain player ratings but no match_stats or
+        // CompetitionHistory rows. No player's appearances can exceed the team's
+        // played matches, so this is a safe lower-bound fallback for those saves.
+        for (Map.Entry<PlayerTeamKey, RatingImpactAccumulator> entry : players.entrySet()) {
+            matches.merge(entry.getKey().teamId(), entry.getValue().appearances, Math::max);
+        }
+        return matches;
+    }
+
+    private int minimumRequiredAppearances(int teamMatches) {
+        return Math.max(1, (int) Math.ceil(teamMatches * RATING_IMPACT_MINIMUM_APPEARANCE_SHARE));
+    }
+
+    private int minimumRequiredAppearances(int matches, double minimumShare) {
+        return Math.max(1, (int) Math.ceil(matches * minimumShare));
+    }
+
+    private int compareRatingImpactCandidates(
+            Map.Entry<PlayerTeamKey, RatingImpactAccumulator> left,
+            Map.Entry<PlayerTeamKey, RatingImpactAccumulator> right) {
+        int byRating = Double.compare(right.getValue().averageRating(), left.getValue().averageRating());
+        if (byRating != 0) return byRating;
+        int byAppearances = Integer.compare(right.getValue().appearances, left.getValue().appearances);
+        if (byAppearances != 0) return byAppearances;
+        return Long.compare(left.getKey().playerId(), right.getKey().playerId());
+    }
+
+    private record PlayerTeamKey(long playerId, long teamId) {}
+
+    private static class RatingImpactAccumulator {
+        int appearances;
+        int ratingCount;
+        double ratingTotal;
+
+        void addAppearance(double rating) {
+            appearances++;
+            // A match performance is on the 1-10 scale. Invalid values can exist
+            // in very old saves where the engine ability was stored in this field.
+            if (rating >= 1.0 && rating <= 10.0) {
+                ratingTotal += rating;
+                ratingCount++;
+            }
+        }
+
+        double averageRating() {
+            return ratingCount == 0 ? 0.0 : ratingTotal / ratingCount;
+        }
+    }
+
+    /**
+     * All-time report behind Overview > Rating History. The repository performs
+     * the expensive appearance aggregation in SQL, leaving this method to select
+     * one eligible leader for each (competition, season, team) tuple.
+     */
+    public Map<String, Object> getRatingImpactHistory() {
+        return getRatingImpactHistory(RATING_HISTORY_DEFAULT_TEAM_PERCENTAGE,
+                RATING_HISTORY_DEFAULT_COMPETITION_PERCENTAGE);
+    }
+
+    public Map<String, Object> getRatingImpactHistory(int requestedTeamPercentage,
+                                                       int requestedCompetitionPercentage) {
+        int teamPercentage = normalizeRatingHistoryPercentage(requestedTeamPercentage,
+                RATING_HISTORY_DEFAULT_TEAM_PERCENTAGE);
+        int competitionPercentage = normalizeRatingHistoryPercentage(requestedCompetitionPercentage,
+                RATING_HISTORY_DEFAULT_COMPETITION_PERCENTAGE);
+        double teamShare = teamPercentage / 100.0;
+        double competitionShare = competitionPercentage / 100.0;
+        List<ScorerRepository.RatingImpactHistoryAggregate> aggregates =
+                scorerRepository.aggregateRatingImpactHistory();
+
+        Map<CompetitionSeasonTeamKey, HistoricalRatingTeamAccumulator> byTeam = new LinkedHashMap<>();
+        Set<Long> playerIds = new LinkedHashSet<>();
+        Set<Long> teamIds = new LinkedHashSet<>();
+        Set<Long> competitionIds = new LinkedHashSet<>();
+
+        for (ScorerRepository.RatingImpactHistoryAggregate aggregate : aggregates) {
+            long competitionId = safeLong(aggregate.getCompetitionId());
+            long teamId = safeLong(aggregate.getTeamId());
+            long playerId = safeLong(aggregate.getPlayerId());
+            if (competitionId <= 0 || teamId <= 0 || playerId <= 0) continue;
+
+            CompetitionSeasonTeamKey key = new CompetitionSeasonTeamKey(
+                    competitionId, safeInt(aggregate.getSeasonNumber()), teamId);
+            HistoricalRatingTeamAccumulator team = byTeam.computeIfAbsent(key,
+                    ignored -> new HistoricalRatingTeamAccumulator(
+                            safeInt(aggregate.getCompetitionTypeId()),
+                            aggregate.getCompetitionName(), aggregate.getTeamName()));
+            HistoricalPlayerRating player = new HistoricalPlayerRating(
+                    playerId,
+                    safeInt(aggregate.getAppearances()),
+                    safeInt(aggregate.getRatingCount()),
+                    aggregate.getRatingTotal() == null ? 0.0 : aggregate.getRatingTotal());
+            team.players.add(player);
+            team.ratingCount += player.ratingCount;
+            team.ratingTotal += player.ratingTotal;
+            playerIds.add(playerId);
+            teamIds.add(teamId);
+            competitionIds.add(competitionId);
+        }
+
+        Map<CompetitionSeasonTeamKey, Integer> matchCounts = new LinkedHashMap<>();
+        Set<CompetitionSeasonKey> completedCompetitionSeasons = new LinkedHashSet<>();
+        if (!competitionIds.isEmpty()) {
+            for (MatchStats match : matchStatsRepository.findAllByCompetitionIdIn(competitionIds)) {
+                matchCounts.merge(new CompetitionSeasonTeamKey(match.getCompetitionId(),
+                        match.getSeasonNumber(), match.getTeam1Id()), 1, Integer::sum);
+                matchCounts.merge(new CompetitionSeasonTeamKey(match.getCompetitionId(),
+                        match.getSeasonNumber(), match.getTeam2Id()), 1, Integer::sum);
+            }
+            for (CompetitionHistory history : competitionHistoryRepository
+                    .findAllByCompetitionIdIn(competitionIds)) {
+                CompetitionSeasonTeamKey key = new CompetitionSeasonTeamKey(history.getCompetitionId(),
+                        (int) history.getSeasonNumber(), history.getTeamId());
+                matchCounts.merge(key, history.getGames(), Math::max);
+                completedCompetitionSeasons.add(new CompetitionSeasonKey(
+                        history.getCompetitionId(), (int) history.getSeasonNumber()));
+            }
+        }
+
+        // "Competition matches" means the longest route available in that
+        // competition season. For a competition still in progress, use the
+        // longest completed historical route as a floor so one excellent
+        // preliminary-round appearance cannot enter the all-time ranking.
+        Map<CompetitionSeasonKey, Integer> seasonCompetitionMatches = new LinkedHashMap<>();
+        for (Map.Entry<CompetitionSeasonTeamKey, Integer> entry : matchCounts.entrySet()) {
+            CompetitionSeasonTeamKey teamKey = entry.getKey();
+            seasonCompetitionMatches.merge(new CompetitionSeasonKey(
+                    teamKey.competitionId(), teamKey.seasonNumber()), entry.getValue(), Math::max);
+        }
+        Map<Long, Integer> completedCompetitionRoute = new LinkedHashMap<>();
+        for (Map.Entry<CompetitionSeasonKey, Integer> entry : seasonCompetitionMatches.entrySet()) {
+            if (completedCompetitionSeasons.contains(entry.getKey())) {
+                completedCompetitionRoute.merge(entry.getKey().competitionId(), entry.getValue(), Math::max);
+            }
+        }
+
+        Map<Long, Human> humans = humanRepository.findAllById(playerIds).stream()
+                .collect(Collectors.toMap(Human::getId, human -> human));
+        Map<Long, String> storedTeamNames = teamRepository.findAllById(teamIds).stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
+        Map<Long, Competition> storedCompetitions = competitionRepository.findAllById(competitionIds).stream()
+                .collect(Collectors.toMap(Competition::getId, competition -> competition));
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map.Entry<CompetitionSeasonTeamKey, HistoricalRatingTeamAccumulator> entry : byTeam.entrySet()) {
+            CompetitionSeasonTeamKey key = entry.getKey();
+            HistoricalRatingTeamAccumulator team = entry.getValue();
+            if (team.ratingCount == 0) continue;
+
+            int maximumPlayerAppearances = team.players.stream()
+                    .mapToInt(player -> player.appearances).max().orElse(0);
+            int teamMatches = Math.max(matchCounts.getOrDefault(key, 0), maximumPlayerAppearances);
+            CompetitionSeasonKey competitionSeasonKey = new CompetitionSeasonKey(
+                    key.competitionId(), key.seasonNumber());
+            int competitionMatches = seasonCompetitionMatches.getOrDefault(
+                    competitionSeasonKey, teamMatches);
+            if (!completedCompetitionSeasons.contains(competitionSeasonKey)) {
+                competitionMatches = Math.max(competitionMatches,
+                        completedCompetitionRoute.getOrDefault(key.competitionId(), 0));
+            }
+            competitionMatches = Math.max(competitionMatches, teamMatches);
+            int requiredTeamAppearances = minimumRequiredAppearances(teamMatches, teamShare);
+            int requiredCompetitionAppearances = minimumRequiredAppearances(
+                    competitionMatches, competitionShare);
+            int requiredAppearances = Math.max(requiredTeamAppearances,
+                    requiredCompetitionAppearances);
+            HistoricalPlayerRating leader = team.players.stream()
+                    .filter(player -> player.ratingCount > 0 && player.appearances >= requiredAppearances)
+                    .sorted(Comparator.comparingDouble(HistoricalPlayerRating::averageRating).reversed()
+                            .thenComparing(Comparator.comparingInt(
+                                    (HistoricalPlayerRating player) -> player.appearances).reversed())
+                            .thenComparingLong(player -> player.playerId))
+                    .findFirst().orElse(null);
+            if (leader == null) continue;
+
+            Human human = humans.get(leader.playerId);
+            Competition competition = storedCompetitions.get(key.competitionId());
+            int competitionTypeId = competition == null ? team.competitionTypeId
+                    : (int) competition.getTypeId();
+            String competitionName = competition == null
+                    ? fallbackName(team.competitionName, "Unknown competition")
+                    : competition.getName();
+            double playerRating = leader.averageRating();
+            double teamRating = team.ratingTotal / team.ratingCount;
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("competitionId", key.competitionId());
+            row.put("competitionName", competitionName);
+            row.put("competitionTypeId", competitionTypeId);
+            row.put("competitionType", ratingImpactCompetitionType(competitionTypeId));
+            row.put("seasonNumber", key.seasonNumber());
+            row.put("teamId", key.teamId());
+            row.put("teamName", storedTeamNames.getOrDefault(key.teamId(),
+                    fallbackName(team.teamName, "Unknown team")));
+            row.put("playerId", leader.playerId);
+            row.put("playerName", human == null ? "Unknown" : human.getName());
+            row.put("position", human == null ? "" : human.getPosition());
+            row.put("appearances", leader.appearances);
+            row.put("teamMatches", teamMatches);
+            row.put("competitionMatches", competitionMatches);
+            row.put("requiredTeamAppearances", requiredTeamAppearances);
+            row.put("requiredCompetitionAppearances", requiredCompetitionAppearances);
+            row.put("requiredAppearances", requiredAppearances);
+            row.put("appearancePercentage", teamMatches == 0 ? 0.0
+                    : round(leader.appearances * 100.0 / teamMatches, 1));
+            row.put("playerRating", round(playerRating, 2));
+            row.put("teamRating", round(teamRating, 2));
+            row.put("difference", round(playerRating - teamRating, 2));
+            rows.add(row);
+        }
+
+        rows.sort(Comparator
+                .comparingDouble((Map<String, Object> row) -> ((Number) row.get("difference")).doubleValue())
+                .reversed()
+                .thenComparing(Comparator.comparingDouble(
+                        (Map<String, Object> row) -> ((Number) row.get("playerRating")).doubleValue()).reversed())
+                .thenComparing(Comparator.comparingInt(
+                        (Map<String, Object> row) -> ((Number) row.get("seasonNumber")).intValue()).reversed())
+                .thenComparing(row -> String.valueOf(row.get("playerName"))));
+        addRanks(rows);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("minimumAppearancePercentage", teamPercentage);
+        result.put("teamAppearancePercentage", teamPercentage);
+        result.put("competitionAppearancePercentage", competitionPercentage);
+        result.put("teamAverageMethod", "Weighted average of all rated player appearances");
+        result.put("competitionMatchesMethod",
+                "Maximum team matches in that competition season (completed historical route used while a season is in progress)");
+        result.put("competitionCount", rows.stream().map(row -> row.get("competitionId")).distinct().count());
+        result.put("seasonCount", rows.stream().map(row -> row.get("seasonNumber")).distinct().count());
+        result.put("rowCount", rows.size());
+        result.put("rows", rows);
+        return result;
+    }
+
+    private int normalizeRatingHistoryPercentage(int requested, int fallback) {
+        if (requested <= 0) return fallback;
+        return Math.min(100, requested);
+    }
+
+    private long safeLong(Number value) {
+        return value == null ? 0L : value.longValue();
+    }
+
+    private int safeInt(Number value) {
+        return value == null ? 0 : value.intValue();
+    }
+
+    private String fallbackName(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String ratingImpactCompetitionType(int typeId) {
+        return switch (typeId) {
+            case 1 -> "First League";
+            case 2 -> "National Cup";
+            case 3 -> "Second League";
+            case 4 -> "League of Champions";
+            case 5 -> "Stars Cup";
+            case 6 -> "Super Cup";
+            default -> "Competition";
+        };
+    }
+
+    private record CompetitionSeasonTeamKey(long competitionId, int seasonNumber, long teamId) {}
+    private record CompetitionSeasonKey(long competitionId, int seasonNumber) {}
+
+    private static class HistoricalRatingTeamAccumulator {
+        final int competitionTypeId;
+        final String competitionName;
+        final String teamName;
+        final List<HistoricalPlayerRating> players = new ArrayList<>();
+        int ratingCount;
+        double ratingTotal;
+
+        HistoricalRatingTeamAccumulator(int competitionTypeId, String competitionName, String teamName) {
+            this.competitionTypeId = competitionTypeId;
+            this.competitionName = competitionName;
+            this.teamName = teamName;
+        }
+    }
+
+    private static class HistoricalPlayerRating {
+        final long playerId;
+        final int appearances;
+        final int ratingCount;
+        final double ratingTotal;
+
+        HistoricalPlayerRating(long playerId, int appearances, int ratingCount, double ratingTotal) {
+            this.playerId = playerId;
+            this.appearances = appearances;
+            this.ratingCount = ratingCount;
+            this.ratingTotal = ratingTotal;
+        }
+
+        double averageRating() {
+            return ratingCount == 0 ? 0.0 : ratingTotal / ratingCount;
+        }
     }
 
     // ==================== PLAYER FORM ====================

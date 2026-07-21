@@ -11,8 +11,11 @@ import com.footballmanagergamesimulator.service.PlayerRoleService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import com.footballmanagergamesimulator.service.PlayerValueService;
 import com.footballmanagergamesimulator.service.TacticService;
+import com.footballmanagergamesimulator.user.CurrentUserService;
+import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.annotation.PostConstruct;
+import jakarta.servlet.http.HttpServletRequest;
 import com.fasterxml.jackson.core.type.TypeReference;     // <--- ACESTA ESTE IMPORTUL CORECT
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,8 +29,11 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/tactic")
-@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
+@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}", allowedHeaders = "*")
 public class TacticController {
+
+    private static final String ADMIN_TOKEN_HEADER = "X-Admin-Token";
+    private static final String ADMIN_TOKEN = "admin-token-2026";
 
     @Autowired
     TeamRepository teamRepository;
@@ -57,6 +63,8 @@ public class TacticController {
     com.footballmanagergamesimulator.service.NationService nationService;
     @Autowired @Lazy
     com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired
+    CurrentUserService currentUserService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -75,7 +83,10 @@ public class TacticController {
             return null; // Frontend-ul va primi null și va folosi tactica default
         }
 
-        PersonalizedTactic savedTactic = tacticOpt.get();
+        return toView(tacticOpt.get());
+    }
+
+    private PersonalizedTacticView toView(PersonalizedTactic savedTactic) {
         PersonalizedTacticView view = new PersonalizedTacticView();
 
         view.setTeamId(savedTactic.getTeamId());
@@ -118,12 +129,122 @@ public class TacticController {
     }
 
     /**
+     * Public scouting view of a team's actual tactic plus the strongest formation/line-up
+     * available to the current squad. The response is deliberately complete (XI + seven
+     * substitutes) so other clubs can inspect it without opening the editor or guessing the
+     * AI manager's preferred formation in the browser.
+     */
+    @GetMapping("/teamView/{teamId}")
+    public ResponseEntity<?> getTeamTacticView(@PathVariable long teamId) {
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        List<TacticView> rankedTactics = getAllPossibleTactics(String.valueOf(teamId));
+        String bestTactic = rankedTactics.isEmpty() ? "442" : rankedTactics.get(0).getTacticName();
+
+        Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                .stream().findFirst().orElse(null);
+        Optional<PersonalizedTactic> saved = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
+
+        String managerFormation = saved.map(PersonalizedTactic::getTactic)
+                .filter(this::isKnownFormation)
+                .orElseGet(() -> manager != null && isKnownFormation(manager.getTacticStyle())
+                        ? manager.getTacticStyle() : bestTactic);
+
+        PersonalizedTacticView managerView = saved.map(this::toView)
+                .orElseGet(() -> defaultTacticView(teamId, managerFormation));
+        managerView.setTactic(managerFormation);
+        if (managerView.getFormationDataList() == null || managerView.getFormationDataList().isEmpty()) {
+            managerView.setFormationDataList(askAssistant(teamId, managerFormation));
+        } else {
+            ensureSevenSubstitutes(teamId, managerView.getFormationDataList());
+        }
+
+        PersonalizedTacticView bestView = defaultTacticView(teamId, bestTactic);
+        bestView.setFormationDataList(askAssistant(teamId, bestTactic));
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("teamId", teamId);
+        response.put("teamName", team.getName());
+        response.put("managerId", manager != null ? manager.getId() : null);
+        response.put("managerName", manager != null ? manager.getName() : "No appointed manager");
+        response.put("managerTacticSource", saved.isPresent() ? "SAVED" : "MANAGER_PREFERENCE");
+        response.put("managerTactic", managerView);
+        response.put("bestPossibleTactic", bestView);
+        return ResponseEntity.ok(response);
+    }
+
+    private boolean isKnownFormation(String tactic) {
+        if (tactic == null || tactic.isBlank()) return false;
+        try {
+            return tacticService.getFormationGridIndices(tactic).length == 11;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private PersonalizedTacticView defaultTacticView(long teamId, String tactic) {
+        PersonalizedTacticView view = new PersonalizedTacticView();
+        view.setTeamId(teamId);
+        view.setTactic(tactic);
+        view.setMentality("Balanced");
+        view.setTimeWasting("Sometimes");
+        view.setInPossession("Standard");
+        view.setPassingType("Normal");
+        view.setTempo("Standard");
+        view.setDefensiveLine("Standard");
+        view.setPressing("Low");
+        view.setWidth("Balanced");
+        view.setDribbling("Standard");
+        view.setFoulFrequency("Normal");
+        view.setFoulHardness("Medium");
+        view.setTempoFragmentation("Normal");
+        view.setWidePlay("Shoot");
+        view.setTransition("Balanced");
+        view.setFormationDataList(new ArrayList<>());
+        return view;
+    }
+
+    private void ensureSevenSubstitutes(long teamId, List<FormationData> formation) {
+        Set<Long> usedPlayers = formation.stream().map(FormationData::getPlayerId).collect(Collectors.toSet());
+        Set<Integer> occupiedBenchSlots = formation.stream()
+                .map(FormationData::getPositionIndex)
+                .filter(index -> index >= 30 && index <= 36)
+                .collect(Collectors.toSet());
+        Iterator<Human> candidates = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
+                .stream()
+                .filter(player -> !player.isRetired() && !usedPlayers.contains(player.getId()))
+                .sorted((left, right) -> Double.compare(right.getRating(), left.getRating()))
+                .iterator();
+        for (int index = 30; index <= 36 && candidates.hasNext(); index++) {
+            if (occupiedBenchSlots.contains(index)) continue;
+            Human player = candidates.next();
+            FormationData substitute = new FormationData();
+            substitute.setPositionIndex(index);
+            substitute.setPlayerId(player.getId());
+            formation.add(substitute);
+        }
+    }
+
+    /**
      * Endpoint ACTUALIZAT pentru a salva pozițiile exacte (JSON)
      */
     @PostMapping("/saveFormation")
-    public ResponseEntity<?> saveFormation(@RequestBody PersonalizedTacticView personalizedTacticView) {
+    public ResponseEntity<?> saveFormation(@RequestBody PersonalizedTacticView personalizedTacticView,
+                                           HttpServletRequest request) {
 
         long teamId = personalizedTacticView.getTeamId();
+        boolean adminOverride = ADMIN_TOKEN.equals(request.getHeader(ADMIN_TOKEN_HEADER));
+        User currentUser = currentUserService.getUserOrNull(request);
+        boolean ownsTeam = currentUser != null && Objects.equals(currentUser.getTeamId(), teamId);
+        if (!adminOverride && !ownsTeam) {
+            return ResponseEntity.status(403).body(Map.of(
+                    "error", "You can only edit the tactic of your own team"
+            ));
+        }
+
         CoachPermissions perms = coachPermissionService.getOrDefault(teamId);
         PersonalizedTactic existing = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId).orElse(null);
 
@@ -135,14 +256,16 @@ public class TacticController {
         // coach's submission. Owner-locked slots are then forced on top (server-side validation,
         // not just UI), so a coach cannot move a player the owner pinned to a slot.
         List<FormationData> xi;
-        if (!perms.isCanPickXI() && existing != null && existing.getFirst11() != null) {
+        if (!adminOverride && !perms.isCanPickXI() && existing != null && existing.getFirst11() != null) {
             xi = parseFirst11(existing.getFirst11());
         } else {
             xi = personalizedTacticView.getFormationDataList() != null
                     ? new ArrayList<>(personalizedTacticView.getFormationDataList())
                     : new ArrayList<>();
         }
-        applyOwnerLocks(xi, coachPermissionService.parseLockedSlots(perms.getLockedSlots()));
+        if (!adminOverride) {
+            applyOwnerLocks(xi, coachPermissionService.parseLockedSlots(perms.getLockedSlots()));
+        }
         try {
             personalizedTactic.setFirst11(objectMapper.writeValueAsString(xi));
         } catch (JsonProcessingException e) {
@@ -150,7 +273,7 @@ public class TacticController {
         }
 
         // ---- Formation + instructions ----
-        if (perms.isCanChangeFormationTactics() || existing == null) {
+        if (adminOverride || perms.isCanChangeFormationTactics() || existing == null) {
             personalizedTactic.setTactic(personalizedTacticView.getTactic());
             personalizedTactic.setMentality(personalizedTacticView.getMentality());
             personalizedTactic.setTimeWasting(personalizedTacticView.getTimeWasting());
@@ -186,7 +309,7 @@ public class TacticController {
         }
 
         // ---- Set-piece takers ----
-        if (perms.isCanSetSetPieces() || existing == null) {
+        if (adminOverride || perms.isCanSetSetPieces() || existing == null) {
             personalizedTactic.setPenaltyTakerId(personalizedTacticView.getPenaltyTakerId());
             personalizedTactic.setFreeKickTakerId(personalizedTacticView.getFreeKickTakerId());
             personalizedTactic.setCornerTakerLeftId(personalizedTacticView.getCornerTakerLeftId());

@@ -500,6 +500,18 @@ class SeasonTransitionInvariantsIT {
         assertTrue(newSeasonRegens > 0,
                 "processNewSeasonSetup should have generated regens with seasonCreated == nextSeason; got " + newSeasonRegens);
 
+        // ============ Invariant 3b: NEW-SEASON READINESS ==========
+        // The reset happens after retirements, expiries and minimum-squad
+        // academy promotions, so every active player attached to a club is
+        // covered, including newly promoted players.
+        List<Human> activeTeamPlayers = humanRepository
+                .findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNull(1L);
+        assertFalse(activeTeamPlayers.isEmpty(), "new season must contain active club players");
+        assertTrue(activeTeamPlayers.stream().allMatch(player -> player.getMorale() == 80.0),
+                "every active club player must start the new season with morale 80");
+        assertTrue(activeTeamPlayers.stream().allMatch(player -> player.getFitness() == 80.0),
+                "every active club player must start the new season with fitness 80");
+
         // ============ Invariant 4: PERSONALIZED TACTICS CLEARED ============
         // (only if there were any to begin with — bootstrap might not create them)
         if (personalizedTacticsBefore > 0) {

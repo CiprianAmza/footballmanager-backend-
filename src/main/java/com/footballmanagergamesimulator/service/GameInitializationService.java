@@ -84,6 +84,7 @@ public class GameInitializationService {
     @Autowired @Lazy private NewSeasonSetupProcessor newSeasonSetupProcessor;
     @Autowired private PrebuiltDataService prebuiltDataService;
     @Autowired private SuperCupService superCupService;
+    @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
 
     /**
      * Resume-aware initialization. If a Round row already exists, returns it
@@ -105,6 +106,7 @@ public class GameInitializationService {
             System.out.println("=== Loading pre-built data from " + prebuiltDataService.snapshotFile() + " ===");
             prebuiltDataService.restore();
             superCupService.ensureCompetitions();
+            newSeasonPlayerReadinessService.resetActiveTeamPlayers();
             return roundRepository.findById(1L).orElseThrow(() ->
                     new IllegalStateException("Pre-built snapshot contained no Round — delete "
                             + prebuiltDataService.snapshotFile() + " and regenerate"));
@@ -132,6 +134,7 @@ public class GameInitializationService {
         seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
 
         generateInitialSquadsAndStaff(round);
+        newSeasonPlayerReadinessService.resetActiveTeamPlayers();
 
         staffService.generateFreeAgentCoaches(30, 1);
 

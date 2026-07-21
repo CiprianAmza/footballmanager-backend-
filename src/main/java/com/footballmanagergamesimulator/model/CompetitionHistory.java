@@ -5,7 +5,9 @@ import lombok.Data;
 
 @Entity
 @Data
-@Table(name="competitionHistory")
+@Table(name="competitionHistory", indexes = {
+        @Index(name = "idx_comp_history_comp_season_team", columnList = "competitionId,seasonNumber,teamId")
+})
 public class CompetitionHistory {
 
   @Id
