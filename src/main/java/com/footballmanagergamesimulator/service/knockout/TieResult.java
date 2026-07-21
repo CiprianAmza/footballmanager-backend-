@@ -21,7 +21,7 @@ public record TieResult(
         int leg2A, int leg2B,
         int aggregateA, int aggregateB,
         boolean extraTime, int etA, int etB,
-        boolean penalties,
+        boolean penalties, int penaltyA, int penaltyB,
         boolean teamAWon) {
 
     public boolean teamBWon() {
@@ -39,7 +39,7 @@ public record TieResult(
             sb.append(leg1A + etA).append('-').append(leg1B + etB);
         }
         if (extraTime) sb.append(" a.e.t. (+").append(etA).append('-').append(etB).append(')');
-        if (penalties) sb.append(", pens ").append(teamAWon ? 'A' : 'B');
+        if (penalties) sb.append(", pens ").append(penaltyA).append('-').append(penaltyB);
         return sb.toString();
     }
 }

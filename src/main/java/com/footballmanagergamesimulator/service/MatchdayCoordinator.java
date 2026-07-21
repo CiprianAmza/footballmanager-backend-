@@ -351,6 +351,10 @@ public class MatchdayCoordinator {
             result.put("isHome", detail.getTeam1Id() == humanTeamId);
             result.put("winnerTeamId", detail.getWinnerTeamId());
             result.put("decidedBy", detail.getDecidedBy());
+            result.put("penaltyTeam1Score", detail.getPenaltyTeam1Score());
+            result.put("penaltyTeam2Score", detail.getPenaltyTeam2Score());
+            result.put("aggregateTeam1Score", detail.getAggregateTeam1Score());
+            result.put("aggregateTeam2Score", detail.getAggregateTeam2Score());
 
             List<MatchEvent> matchEvents = matchEventRepository
                     .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
@@ -440,6 +444,10 @@ public class MatchdayCoordinator {
         String koResultText = null;
         Long winnerId = null; // null → propagation deferred (first leg of a two-leg tie)
         String decidedBy = teamScore1 == teamScore2 ? null : "NORMAL";
+        Integer penaltyTeam1Score = null;
+        Integer penaltyTeam2Score = null;
+        Integer aggregateTeam1Score = null;
+        Integer aggregateTeam2Score = null;
         if (knockout) {
             if (legNumber == 1 && tieId != 0) {
                 // First leg: stash the score on the leg-1 row so leg 2 (a later
@@ -455,8 +463,8 @@ public class MatchdayCoordinator {
                 decidedBy = "FIRST_LEG";
                 koResultText = "First leg — return leg to come";
             } else if (legNumber == 2 && tieId != 0) {
-                // Second leg: persist this leg, aggregate with leg 1, decide. The
-                // tie is settled on aggregate, so the live 90' score is NOT bumped.
+                // Second leg: aggregate with leg 1 and decide. Extra-time goals
+                // are part of this leg's final football score; shootout kicks are not.
                 CompetitionTeamInfoMatch leg2Row = competitionTeamInfoMatchRepository
                         .findByTieIdAndLegNumber(tieId, 2).orElse(null);
                 if (leg2Row != null) {
@@ -472,12 +480,28 @@ public class MatchdayCoordinator {
                     int aggB = leg1Row.getTeam2Score() + teamScore1;
                     var d = decideTie(session, false, teamPower2, teamPower1, aggA, aggB);
                     winnerId = d.teamAWon() ? teamId2 : teamId1;
+                    teamScore1 += d.etB();
+                    teamScore2 += d.etA();
+                    if (d.etA() != 0 || d.etB() != 0) {
+                        session.applyCommitScore(teamScore1, teamScore2);
+                        resultAdjustedAtCommit = true;
+                    }
+                    aggregateTeam1Score = aggB + d.etB();
+                    aggregateTeam2Score = aggA + d.etA();
+                    if (d.penalties()) {
+                        penaltyTeam1Score = d.penaltyB();
+                        penaltyTeam2Score = d.penaltyA();
+                    }
                     decidedBy = d.penalties() ? "PENALTIES"
                             : d.extraTime() ? "EXTRA_TIME" : "AGGREGATE";
-                    koScoreSuffix = " (agg " + aggA + "-" + aggB
-                            + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
-                    int winnerAgg = d.teamAWon() ? aggA : aggB;
-                    int loserAgg = d.teamAWon() ? aggB : aggA;
+                    koScoreSuffix = " (agg " + aggregateTeam1Score + "-" + aggregateTeam2Score
+                            + (d.penalties()
+                            ? ", pens " + penaltyTeam1Score + "-" + penaltyTeam2Score
+                            : d.extraTime() ? ", a.e.t." : "") + ")";
+                    int finalAggA = aggregateTeam2Score;
+                    int finalAggB = aggregateTeam1Score;
+                    int winnerAgg = d.teamAWon() ? finalAggA : finalAggB;
+                    int loserAgg = d.teamAWon() ? finalAggB : finalAggA;
                     String tail = d.penalties() ? " (won on penalties)" : d.extraTime() ? " (a.e.t.)" : "";
                     koResultText = matchRoundSimulator.roundTeamName(winnerId)
                             + " advance " + winnerAgg + "-" + loserAgg + " on aggregate" + tail;
@@ -485,8 +509,21 @@ public class MatchdayCoordinator {
                     // Lost leg-1 record — decide on this match alone (defensive).
                     var d = decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
+                    teamScore1 += d.etA();
+                    teamScore2 += d.etB();
+                    if (d.etA() != 0 || d.etB() != 0) {
+                        session.applyCommitScore(teamScore1, teamScore2);
+                        resultAdjustedAtCommit = true;
+                    }
+                    if (d.penalties()) {
+                        penaltyTeam1Score = d.penaltyA();
+                        penaltyTeam2Score = d.penaltyB();
+                    }
                     decidedBy = d.penalties() ? "PENALTIES"
                             : d.extraTime() ? "EXTRA_TIME" : "NORMAL";
+                    koScoreSuffix = d.penalties()
+                            ? " (pens " + penaltyTeam1Score + "-" + penaltyTeam2Score + ")"
+                            : d.extraTime() ? " (a.e.t.)" : "";
                     koResultText = matchRoundSimulator.roundTeamName(winnerId) + " advance";
                 }
             } else {
@@ -496,13 +533,17 @@ public class MatchdayCoordinator {
                     var d = decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
                     decidedBy = d.penalties() ? "PENALTIES" : "EXTRA_TIME";
-                    if (d.penalties()) {
-                        koScoreSuffix = " (pens)";
-                    } else {
-                        teamScore1 += d.etA();
-                        teamScore2 += d.etB();
+                    teamScore1 += d.etA();
+                    teamScore2 += d.etB();
+                    if (d.etA() != 0 || d.etB() != 0) {
                         session.applyCommitScore(teamScore1, teamScore2);
                         resultAdjustedAtCommit = true;
+                    }
+                    if (d.penalties()) {
+                        penaltyTeam1Score = d.penaltyA();
+                        penaltyTeam2Score = d.penaltyB();
+                        koScoreSuffix = " (pens " + penaltyTeam1Score + "-" + penaltyTeam2Score + ")";
+                    } else {
                         koScoreSuffix = " (a.e.t.)";
                     }
                     koResultText = matchRoundSimulator.roundTeamName(winnerId)
@@ -582,6 +623,10 @@ public class MatchdayCoordinator {
                 ? winnerId
                 : teamScore1 == teamScore2 ? null : (teamScore1 > teamScore2 ? teamId1 : teamId2));
         detail.setDecidedBy(decidedBy);
+        detail.setPenaltyTeam1Score(penaltyTeam1Score);
+        detail.setPenaltyTeam2Score(penaltyTeam2Score);
+        detail.setAggregateTeam1Score(aggregateTeam1Score);
+        detail.setAggregateTeam2Score(aggregateTeam2Score);
         detail.setSeasonNumber((long) season);
         detail.setLegNumber(legNumber);
         List<CompetitionTeamInfoMatch> persistedFixtures = competitionTeamInfoMatchRepository.findPlayedFixture(
@@ -613,6 +658,10 @@ public class MatchdayCoordinator {
         result.put("season", season);
         result.put("winnerTeamId", detail.getWinnerTeamId());
         result.put("decidedBy", decidedBy);
+        result.put("penaltyTeam1Score", penaltyTeam1Score);
+        result.put("penaltyTeam2Score", penaltyTeam2Score);
+        result.put("aggregateTeam1Score", aggregateTeam1Score);
+        result.put("aggregateTeam2Score", aggregateTeam2Score);
         result.put("manualSubstitutionsApplied", session.hasManualSubstitutions());
         result.put("resultAdjustedAtCommit", resultAdjustedAtCommit);
         // The post-match PC + suspensions + news are wired up by the caller

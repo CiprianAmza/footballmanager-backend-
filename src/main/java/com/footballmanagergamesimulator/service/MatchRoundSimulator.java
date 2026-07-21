@@ -355,6 +355,8 @@ public class MatchRoundSimulator {
 
             int teamScore1, teamScore2;
             double teamPower1, teamPower2;
+            boolean interactiveMatch = false;
+            KnockoutMatchResolution knockoutResolution = null;
 
             if (isHumanMatch) {
                 humanMatches++;
@@ -406,8 +408,6 @@ public class MatchRoundSimulator {
                         && !humanManager.isAlwaysContinue() && adminScore == null) {
                     useFullMatchEngine = true;
                 }
-
-                boolean interactiveMatch = false;
 
                 if (useFullMatchEngine) {
                     // --- INTERACTIVE LIVE MATCH (Faza 3 Sesiunea 4) ---
@@ -486,6 +486,14 @@ public class MatchRoundSimulator {
                                 matchSimulationService.effectiveTeamPower(teamPower2, teamTalkFactor(teamId2), false));
                         teamScore1 = scores.get(0);
                         teamScore2 = scores.get(1);
+                    }
+
+                    if (knockout) {
+                        knockoutResolution = resolveKnockoutMatch(
+                                match, teamId1, teamPower1, teamId2, teamPower2,
+                                teamScore1, teamScore2, firstLegScores);
+                        teamScore1 = knockoutResolution.score1();
+                        teamScore2 = knockoutResolution.score2();
                     }
 
                     // Full scorer tracking with weighted distribution
@@ -570,6 +578,14 @@ public class MatchRoundSimulator {
                     teamScore2 = scores.get(1);
                 }
 
+                if (knockout) {
+                    knockoutResolution = resolveKnockoutMatch(
+                            match, teamId1, teamPower1, teamId2, teamPower2,
+                            teamScore1, teamScore2, firstLegScores);
+                    teamScore1 = knockoutResolution.score1();
+                    teamScore2 = knockoutResolution.score2();
+                }
+
                 _ts = System.nanoTime();
                 List<Scorer> team1Scorers = getScorersForTeamSimplified(
                         teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId);
@@ -637,72 +653,33 @@ public class MatchRoundSimulator {
             // Single-leg: decide via extra time then penalties if level.
             // Two-leg: leg 1 is recorded but does NOT advance anyone; leg 2 aggregates
             // both legs and decides the tie (extra time + penalties on level aggregate).
-            String koScoreSuffix = "";
-            Long resultWinnerId = teamScore1 == teamScore2
-                    ? null
-                    : (teamScore1 > teamScore2 ? teamId1 : teamId2);
-            String resultDecidedBy = resultWinnerId == null ? null : "NORMAL";
-            if (knockout && !_isInteractivePending) {
-                int legNumber = match.getLegNumber();
-                long tieId = match.getTieId();
-                Long winnerId = null; // null → propagation deferred (first leg of a two-leg tie)
+            String koScoreSuffix = knockoutResolution == null ? "" : knockoutResolution.scoreSuffix();
+            Long resultWinnerId = knockoutResolution == null
+                    ? (teamScore1 == teamScore2 ? null : (teamScore1 > teamScore2 ? teamId1 : teamId2))
+                    : knockoutResolution.winnerTeamId();
+            String resultDecidedBy = knockoutResolution == null
+                    ? (resultWinnerId == null ? null : "NORMAL")
+                    : knockoutResolution.decidedBy();
+            Integer penaltyTeam1Score = knockoutResolution == null ? null : knockoutResolution.penalty1();
+            Integer penaltyTeam2Score = knockoutResolution == null ? null : knockoutResolution.penalty2();
+            Integer aggregateTeam1Score = knockoutResolution == null ? null : knockoutResolution.aggregate1();
+            Integer aggregateTeam2Score = knockoutResolution == null ? null : knockoutResolution.aggregate2();
 
-                // Leg 1 may be in this round's cache (single-pass) or persisted on the
-                // first-leg match row (legs played on separate calendar days).
-                int[] leg1 = null;
-                if (legNumber == 2 && tieId != 0) {
-                    leg1 = firstLegScores.get(tieId);
-                    if (leg1 == null) {
-                        var leg1Row = competitionTeamInfoMatchRepository.findByTieIdAndLegNumber(tieId, 1).orElse(null);
-                        if (leg1Row != null && leg1Row.getTeam1Score() >= 0) {
-                            leg1 = new int[]{leg1Row.getTeam1Score(), leg1Row.getTeam2Score()};
-                        }
-                    }
-                }
-
-                if (legNumber == 1 && tieId != 0) {
-                    // First leg: stash the score, decide nothing yet.
-                    firstLegScores.put(tieId, new int[]{teamScore1, teamScore2});
-                    koScoreSuffix = " (1st leg)";
-                    resultWinnerId = null;
-                    resultDecidedBy = "FIRST_LEG";
-                } else if (legNumber == 2 && tieId != 0 && leg1 != null) {
-                    // Second leg: team1 here hosted leg 2 (= tie side B); team2 hosted leg 1 (= side A).
-                    int aggA = leg1[0] + teamScore2; // side A: leg-1 home goals + leg-2 away goals
-                    int aggB = leg1[1] + teamScore1; // side B: leg-1 away goals + leg-2 home goals
-                    var d = decideTie(teamId2, teamPower2, teamId1, teamPower1, aggA, aggB);
-                    winnerId = d.teamAWon() ? teamId2 : teamId1;
-                    resultDecidedBy = d.penalties() ? "PENALTIES"
-                            : d.extraTime() ? "EXTRA_TIME" : "AGGREGATE";
-                    koScoreSuffix = " (agg " + aggA + "-" + aggB
-                            + (d.penalties() ? ", pens" : d.extraTime() ? ", a.e.t." : "") + ")";
+            if (knockout && !_isInteractivePending && resultWinnerId != null) {
+                // National cup: propagate the winner into the pre-created bracket slot.
+                // For LoC/Stars Cup we keep the legacy CompetitionTeamInfo flow below.
+                if (cachedCupCompIds != null && cachedCupCompIds.contains(_competitionId)
+                        && match.getMatchIndex() > 0) {
+                    cupBracketService.propagateWinner(
+                            _competitionId, Integer.parseInt(getCurrentSeason()),
+                            _roundId, match.getMatchIndex(), resultWinnerId);
                 } else {
-                    // Single-leg knockout (or a leg-2 that lost its leg-1 record — decide on this match).
-                    var d = decideTie(teamId1, teamPower1, teamId2, teamPower2, teamScore1, teamScore2);
-                    winnerId = d.teamAWon() ? teamId1 : teamId2;
-                    resultDecidedBy = d.penalties() ? "PENALTIES"
-                            : d.extraTime() ? "EXTRA_TIME" : "NORMAL";
-                    if (d.penalties()) koScoreSuffix = " (pens)";
-                    else if (d.extraTime()) koScoreSuffix = " (a.e.t.)";
-                }
-
-                if (winnerId != null) {
-                    resultWinnerId = winnerId;
-                    // National cup: propagate the winner into the pre-created bracket slot.
-                    // For LoC/Stars Cup we keep the legacy CompetitionTeamInfo flow below.
-                    if (cachedCupCompIds != null && cachedCupCompIds.contains(_competitionId)
-                            && match.getMatchIndex() > 0) {
-                        cupBracketService.propagateWinner(
-                                _competitionId, Integer.parseInt(getCurrentSeason()),
-                                _roundId, match.getMatchIndex(), winnerId);
-                    } else {
-                        CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
-                        competitionTeamInfo.setCompetitionId(_competitionId);
-                        competitionTeamInfo.setRound(nextRound);
-                        competitionTeamInfo.setTeamId(winnerId);
-                        competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()));
-                        competitionTeamInfoRepository.save(competitionTeamInfo);
-                    }
+                    CompetitionTeamInfo competitionTeamInfo = new CompetitionTeamInfo();
+                    competitionTeamInfo.setCompetitionId(_competitionId);
+                    competitionTeamInfo.setRound(nextRound);
+                    competitionTeamInfo.setTeamId(resultWinnerId);
+                    competitionTeamInfo.setSeasonNumber(Long.parseLong(getCurrentSeason()));
+                    competitionTeamInfoRepository.save(competitionTeamInfo);
                 }
             }
 
@@ -727,6 +704,10 @@ public class MatchRoundSimulator {
                 competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);
                 competitionTeamInfoDetail.setWinnerTeamId(resultWinnerId);
                 competitionTeamInfoDetail.setDecidedBy(resultDecidedBy);
+                competitionTeamInfoDetail.setPenaltyTeam1Score(penaltyTeam1Score);
+                competitionTeamInfoDetail.setPenaltyTeam2Score(penaltyTeam2Score);
+                competitionTeamInfoDetail.setAggregateTeam1Score(aggregateTeam1Score);
+                competitionTeamInfoDetail.setAggregateTeam2Score(aggregateTeam2Score);
                 competitionTeamInfoDetail.setSeasonNumber(Long.parseLong(getCurrentSeason()));
                 competitionTeamInfoDetail.setLegNumber(match.getLegNumber());
                 competitionTeamInfoDetail.setMatchIndex(match.getMatchIndex());
@@ -1283,6 +1264,87 @@ public class MatchRoundSimulator {
         double hp = getSimpleTeamRating(homeTeamId), ap = getSimpleTeamRating(awayTeamId);
         List<Integer> s = matchSimulationService.calculateScores(hp, ap, threadRandom.get());
         return new MatchOutcome(s.get(0), s.get(1), hp, ap);
+    }
+
+    /** Canonical knockout result, already aligned to the displayed team1/team2 row. */
+    private record KnockoutMatchResolution(
+            int score1, int score2, String scoreSuffix,
+            Long winnerTeamId, String decidedBy,
+            Integer penalty1, Integer penalty2,
+            Integer aggregate1, Integer aggregate2) {}
+
+    /**
+     * Resolve extra time / penalties before scorers, statistics and standings are
+     * written. This makes the final football score (including extra-time goals)
+     * the source of truth for every downstream system. Shootout goals remain a
+     * separate score, as they do not belong to the match score.
+     */
+    private KnockoutMatchResolution resolveKnockoutMatch(
+            CompetitionTeamInfoMatch match,
+            long teamId1, double teamPower1, long teamId2, double teamPower2,
+            int score1, int score2, Map<Long, int[]> firstLegScores) {
+        int legNumber = match.getLegNumber();
+        long tieId = match.getTieId();
+
+        if (legNumber == 1 && tieId != 0) {
+            firstLegScores.put(tieId, new int[]{score1, score2});
+            return new KnockoutMatchResolution(
+                    score1, score2, " (1st leg)", null, "FIRST_LEG",
+                    null, null, null, null);
+        }
+
+        int[] leg1 = null;
+        if (legNumber == 2 && tieId != 0) {
+            leg1 = firstLegScores.get(tieId);
+            if (leg1 == null) {
+                CompetitionTeamInfoMatch leg1Row = competitionTeamInfoMatchRepository
+                        .findByTieIdAndLegNumber(tieId, 1).orElse(null);
+                if (leg1Row != null && leg1Row.getTeam1Score() >= 0) {
+                    leg1 = new int[]{leg1Row.getTeam1Score(), leg1Row.getTeam2Score()};
+                }
+            }
+        }
+
+        if (legNumber == 2 && tieId != 0 && leg1 != null) {
+            // team1 hosts leg 2 (= side B), team2 was the leg-1 host (= side A).
+            int aggregateA = leg1[0] + score2;
+            int aggregateB = leg1[1] + score1;
+            var decision = decideTie(teamId2, teamPower2, teamId1, teamPower1, aggregateA, aggregateB);
+
+            // Extra-time goals are part of the second-leg football score and aggregate.
+            score1 += decision.etB();
+            score2 += decision.etA();
+            int finalAggregate1 = aggregateB + decision.etB();
+            int finalAggregate2 = aggregateA + decision.etA();
+            Long winner = decision.teamAWon() ? teamId2 : teamId1;
+            Integer penalty1 = decision.penalties() ? decision.penaltyB() : null;
+            Integer penalty2 = decision.penalties() ? decision.penaltyA() : null;
+            String decidedBy = decision.penalties() ? "PENALTIES"
+                    : decision.extraTime() ? "EXTRA_TIME" : "AGGREGATE";
+            String suffix = " (agg " + finalAggregate1 + "-" + finalAggregate2
+                    + (decision.penalties()
+                    ? ", pens " + penalty1 + "-" + penalty2
+                    : decision.extraTime() ? ", a.e.t." : "") + ")";
+            return new KnockoutMatchResolution(
+                    score1, score2, suffix, winner, decidedBy,
+                    penalty1, penalty2, finalAggregate1, finalAggregate2);
+        }
+
+        // Single-leg knockout, including the defensive fallback for a missing leg 1.
+        var decision = decideTie(teamId1, teamPower1, teamId2, teamPower2, score1, score2);
+        score1 += decision.etA();
+        score2 += decision.etB();
+        Long winner = decision.teamAWon() ? teamId1 : teamId2;
+        Integer penalty1 = decision.penalties() ? decision.penaltyA() : null;
+        Integer penalty2 = decision.penalties() ? decision.penaltyB() : null;
+        String decidedBy = decision.penalties() ? "PENALTIES"
+                : decision.extraTime() ? "EXTRA_TIME" : "NORMAL";
+        String suffix = decision.penalties()
+                ? " (pens " + penalty1 + "-" + penalty2 + ")"
+                : decision.extraTime() ? " (a.e.t.)" : "";
+        return new KnockoutMatchResolution(
+                score1, score2, suffix, winner, decidedBy,
+                penalty1, penalty2, null, null);
     }
 
     /** Resolve a knockout tie's tiebreak (extra time + penalties). Under the two-axis model the

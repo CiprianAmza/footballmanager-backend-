@@ -32,6 +32,18 @@ public class CompetitionTeamInfoDetail {
   private Long winnerTeamId;
   /** NORMAL, EXTRA_TIME, PENALTIES, AGGREGATE, or FIRST_LEG. */
   private String decidedBy;
+
+  /** Shootout score, aligned with team1/team2. Null when no shootout occurred. */
+  private Integer penaltyTeam1Score;
+  private Integer penaltyTeam2Score;
+
+  /**
+   * Final aggregate, aligned with team1/team2 as displayed on this result row.
+   * This matters on leg two because the second-leg home side was the away side
+   * in leg one. Null for single matches and first legs.
+   */
+  private Integer aggregateTeam1Score;
+  private Integer aggregateTeam2Score;
   private long roundId;
   private String teamName1;
   private String teamName2;

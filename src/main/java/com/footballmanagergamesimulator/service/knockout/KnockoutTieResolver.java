@@ -79,7 +79,8 @@ public class KnockoutTieResolver {
 
         TieDecision d = decide(powerA, powerB, aggA, aggB, tiebreakRng);
         return new TieResult(format, leg1A, leg1B, leg2A, leg2B, aggA, aggB,
-                d.extraTime(), d.etA(), d.etB(), d.penalties(), d.teamAWon());
+                d.extraTime(), d.etA(), d.etB(), d.penalties(),
+                d.penaltyA(), d.penaltyB(), d.teamAWon());
     }
 
     /**
@@ -93,7 +94,7 @@ public class KnockoutTieResolver {
      */
     public TieDecision decide(double powerA, double powerB, int aggregateA, int aggregateB, Random tiebreakRng) {
         if (aggregateA != aggregateB) {
-            return new TieDecision(aggregateA > aggregateB, false, 0, 0, false);
+            return new TieDecision(aggregateA > aggregateB, false, 0, 0, false, 0, 0);
         }
 
         // Level → 30-minute extra-time mini-match (far fewer goals than a full 90).
@@ -102,7 +103,7 @@ public class KnockoutTieResolver {
         int etA = et.get(0);
         int etB = et.get(1);
         if (aggregateA + etA != aggregateB + etB) {
-            return new TieDecision((aggregateA + etA) > (aggregateB + etB), true, etA, etB, false);
+            return new TieDecision((aggregateA + etA) > (aggregateB + etB), true, etA, etB, false, 0, 0);
         }
 
         // Still level → penalty shootout. Near coin-flip, optional weaker-team edge.
@@ -110,7 +111,8 @@ public class KnockoutTieResolver {
         boolean aIsWeaker = powerA < powerB;
         double aWinChance = aIsWeaker ? weakerWinChance : 1.0 - weakerWinChance;
         boolean aWon = tiebreakRng.nextDouble() < aWinChance;
-        return new TieDecision(aWon, true, etA, etB, true);
+        int[] penalties = penaltyScore(aWon, tiebreakRng);
+        return new TieDecision(aWon, true, etA, etB, true, penalties[0], penalties[1]);
     }
 
     /**
@@ -126,23 +128,36 @@ public class KnockoutTieResolver {
     public TieDecision decide(TeamProfile pA, TacticVector tA, TeamProfile pB, TacticVector tB,
                               int aggregateA, int aggregateB, Random tiebreakRng) {
         if (aggregateA != aggregateB) {
-            return new TieDecision(aggregateA > aggregateB, false, 0, 0, false);
+            return new TieDecision(aggregateA > aggregateB, false, 0, 0, false, 0, 0);
         }
 
         List<Integer> et = tacticalScoreService.scoreExtraTime(pA, tA, pB, tB, tiebreakRng);
         int etA = et.get(0);
         int etB = et.get(1);
         if (aggregateA + etA != aggregateB + etB) {
-            return new TieDecision((aggregateA + etA) > (aggregateB + etB), true, etA, etB, false);
+            return new TieDecision((aggregateA + etA) > (aggregateB + etB), true, etA, etB, false, 0, 0);
         }
 
         double weakerWinChance = config.getKnockout().getPenaltyWeakerTeamWinChance();
         boolean aIsWeaker = (pA.attack() + pA.defense()) < (pB.attack() + pB.defense());
         double aWinChance = aIsWeaker ? weakerWinChance : 1.0 - weakerWinChance;
         boolean aWon = tiebreakRng.nextDouble() < aWinChance;
-        return new TieDecision(aWon, true, etA, etB, true);
+        int[] penalties = penaltyScore(aWon, tiebreakRng);
+        return new TieDecision(aWon, true, etA, etB, true, penalties[0], penalties[1]);
+    }
+
+    /**
+     * Produce a compact, realistic shootout score while keeping the already
+     * selected winner authoritative. Penalty kicks are deliberately separate
+     * from the football score: callers expose them as a secondary result.
+     */
+    private int[] penaltyScore(boolean teamAWon, Random random) {
+        int loser = 2 + random.nextInt(4); // 3-2 through 6-5 covers normal + sudden death
+        int winner = loser + 1;
+        return teamAWon ? new int[]{winner, loser} : new int[]{loser, winner};
     }
 
     /** Tiebreak outcome for an already-played aggregate. */
-    public record TieDecision(boolean teamAWon, boolean extraTime, int etA, int etB, boolean penalties) {}
+    public record TieDecision(boolean teamAWon, boolean extraTime, int etA, int etB,
+                              boolean penalties, int penaltyA, int penaltyB) {}
 }

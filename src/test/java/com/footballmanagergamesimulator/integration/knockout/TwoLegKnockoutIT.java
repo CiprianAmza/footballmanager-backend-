@@ -149,6 +149,22 @@ class TwoLegKnockoutIT {
 
         assertThat(details.stream().anyMatch(d -> d.getScore() != null && d.getScore().contains("(agg")))
                 .as("the second leg's result is annotated with the aggregate").isTrue();
+
+        CompetitionTeamInfoDetail secondLegResult = details.stream()
+                .filter(d -> d.getLegNumber() == 2).findFirst().orElseThrow();
+        CompetitionTeamInfoMatch playedLeg1 = matchRepo.findByTieIdAndLegNumber(tieId, 1).orElseThrow();
+        CompetitionTeamInfoMatch playedLeg2 = matchRepo.findByTieIdAndLegNumber(tieId, 2).orElseThrow();
+        assertThat(secondLegResult.getAggregateTeam1Score())
+                .as("aggregate is aligned with the second-leg home team")
+                .isEqualTo(playedLeg1.getTeam2Score() + playedLeg2.getTeam1Score());
+        assertThat(secondLegResult.getAggregateTeam2Score())
+                .as("aggregate is aligned with the second-leg away team")
+                .isEqualTo(playedLeg1.getTeam1Score() + playedLeg2.getTeam2Score());
+        if ("PENALTIES".equals(secondLegResult.getDecidedBy())) {
+            assertThat(secondLegResult.getPenaltyTeam1Score()).isNotEqualTo(secondLegResult.getPenaltyTeam2Score());
+            assertThat(secondLegResult.getPenaltyTeam1Score() > secondLegResult.getPenaltyTeam2Score())
+                    .isEqualTo(secondLegResult.getWinnerTeamId() == secondLegResult.getTeam1Id());
+        }
     }
 
     @Test

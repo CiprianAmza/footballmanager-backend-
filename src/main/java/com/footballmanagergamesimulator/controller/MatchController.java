@@ -160,6 +160,10 @@ public class MatchController {
             meeting.put("score", detail.getScore());
             meeting.put("winnerTeamId", winnerId);
             meeting.put("decidedBy", detail.getDecidedBy());
+            meeting.put("penaltyTeam1Score", detail.getPenaltyTeam1Score());
+            meeting.put("penaltyTeam2Score", detail.getPenaltyTeam2Score());
+            meeting.put("aggregateTeam1Score", detail.getAggregateTeam1Score());
+            meeting.put("aggregateTeam2Score", detail.getAggregateTeam2Score());
             meeting.put("teamAResult", teamAResult);
             meeting.put("teamAGoals", goalsA);
             meeting.put("teamBGoals", goalsB);

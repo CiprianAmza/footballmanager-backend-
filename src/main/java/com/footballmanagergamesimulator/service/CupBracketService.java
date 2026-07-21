@@ -532,6 +532,7 @@ public class CupBracketService {
             entry.put("qualifiedTeamId", played == null || "FIRST_LEG".equals(played.getDecidedBy())
                     ? null : played.getWinnerTeamId());
             entry.put("decidedBy", played == null ? null : played.getDecidedBy());
+            addDeciderScores(entry, played);
             matchesByRound.computeIfAbsent(m.getRound(), k -> new ArrayList<>()).add(entry);
         }
 
@@ -561,6 +562,7 @@ public class CupBracketService {
                 entry.put("qualifiedTeamId", "FIRST_LEG".equals(d.getDecidedBy())
                         ? null : d.getWinnerTeamId());
                 entry.put("decidedBy", d.getDecidedBy());
+                addDeciderScores(entry, d);
                 matchesByRound.computeIfAbsent(d.getRoundId(), k -> new ArrayList<>()).add(entry);
             }
         }
@@ -587,6 +589,13 @@ public class CupBracketService {
 
     private String bracketKey(long round, long team1Id, long team2Id, int legNumber) {
         return round + ":" + team1Id + ":" + team2Id + ":" + legNumber;
+    }
+
+    private void addDeciderScores(Map<String, Object> entry, CompetitionTeamInfoDetail result) {
+        entry.put("penaltyTeam1Score", result == null ? null : result.getPenaltyTeam1Score());
+        entry.put("penaltyTeam2Score", result == null ? null : result.getPenaltyTeam2Score());
+        entry.put("aggregateTeam1Score", result == null ? null : result.getAggregateTeam1Score());
+        entry.put("aggregateTeam2Score", result == null ? null : result.getAggregateTeam2Score());
     }
 
     /**

@@ -10,6 +10,7 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -98,6 +99,11 @@ public class CompetitionQueryService {
     public List<CompetitionTeamInfoDetail> getMatchesByCompetitionAndSeason(long competitionId, long season) {
         return competitionTeamInfoDetailRepository.findAll().stream()
                 .filter(d -> d.getCompetitionId() == competitionId && d.getSeasonNumber() == season)
+                .sorted(Comparator.comparingLong(CompetitionTeamInfoDetail::getRoundId)
+                        .thenComparingLong(d -> d.getTieId() == 0 ? Long.MAX_VALUE : d.getTieId())
+                        .thenComparingInt(CompetitionTeamInfoDetail::getLegNumber)
+                        .thenComparingInt(d -> d.getMatchIndex() <= 0 ? Integer.MAX_VALUE : d.getMatchIndex())
+                        .thenComparingLong(CompetitionTeamInfoDetail::getId))
                 .toList();
     }
 

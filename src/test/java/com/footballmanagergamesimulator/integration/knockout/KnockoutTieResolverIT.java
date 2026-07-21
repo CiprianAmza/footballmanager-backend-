@@ -142,6 +142,8 @@ class KnockoutTieResolverIT {
             if (r.penalties()) {
                 pens++;
                 if (r.teamAWon()) aWins++;
+                assertThat(r.penaltyA()).isNotEqualTo(r.penaltyB());
+                assertThat(r.penaltyA() > r.penaltyB()).isEqualTo(r.teamAWon());
             }
         }
         assertThat(pens).as("equal teams with near-zero ET goals must reach penalties often").isGreaterThan(500);

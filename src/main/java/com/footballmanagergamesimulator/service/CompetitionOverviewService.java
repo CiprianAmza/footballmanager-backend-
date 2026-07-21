@@ -204,6 +204,10 @@ public class CompetitionOverviewService {
         finalView.put("winnerTeamId", winnerId);
         finalView.put("qualifiedTeamId", winnerId);
         finalView.put("decidedBy", finalResult.getDecidedBy());
+        finalView.put("penaltyTeam1Score", finalResult.getPenaltyTeam1Score());
+        finalView.put("penaltyTeam2Score", finalResult.getPenaltyTeam2Score());
+        finalView.put("aggregateTeam1Score", finalResult.getAggregateTeam1Score());
+        finalView.put("aggregateTeam2Score", finalResult.getAggregateTeam2Score());
         summary.put("finalResult", finalView);
         return summary;
     }
