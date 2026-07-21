@@ -71,6 +71,98 @@ This project is a personal educational initiative inspired by the Football Manag
 
 <img width="1512" height="857" alt="image" src="https://github.com/user-attachments/assets/5b737987-ad1c-4699-973c-d37c3b81ac5c" />
 
+## Development setup
+
+The application is split across two GitHub repositories:
+
+- Backend: `https://github.com/CiprianAmza/footballmanager-backend-.git`
+- Frontend: `https://github.com/CiprianAmza/footballmanager-frontend-test.git`
+
+### Requirements
+
+- Java 17
+- Maven 3.9+
+- Node.js 20 and npm 10
+- Git LFS (required for the bundled save game)
+
+On macOS, install and initialise Git LFS before cloning:
+
+```bash
+brew install git-lfs
+git lfs install
+```
+
+Clone both projects:
+
+```bash
+mkdir -p ~/IdeaProjects
+cd ~/IdeaProjects
+git clone https://github.com/CiprianAmza/footballmanager-backend-.git
+git clone https://github.com/CiprianAmza/footballmanager-frontend-test.git
+```
+
+If the backend was cloned before Git LFS was installed, download the save with:
+
+```bash
+cd ~/IdeaProjects/footballmanager-backend-
+git lfs pull
+```
+
+Start the backend:
+
+```bash
+cd ~/IdeaProjects/footballmanager-backend-
+mvn clean install
+mvn spring-boot:run
+```
+
+Start the frontend in a second terminal:
+
+```bash
+cd ~/IdeaProjects/footballmanager-frontend-test
+npm ci
+npm start
+```
+
+- Frontend: `http://localhost:4200`
+- Backend: `http://localhost:8086`
+
+## Bundled save game
+
+The repository contains the current career snapshot at:
+
+```text
+saves/ciprian-sherlock-season-15-day-341.json
+```
+
+Snapshot state:
+
+- Season 15
+- 7 July (day 341, morning)
+- Ciprian managing Sherlock FC
+- Save format version 5
+
+The save is stored through Git LFS because the complete match and career history
+is approximately 411 MB. After starting the backend, restore it with:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  --data-binary @saves/ciprian-sherlock-season-15-day-341.json \
+  http://localhost:8086/game/import
+```
+
+A successful import returns `"success": true` together with the restored season,
+date, team and manager. Refresh the frontend after the import.
+
+The development database is H2 in-memory, so stopping the backend erases the
+running database. Export a fresh snapshot before a restart when the career has
+advanced:
+
+```bash
+curl http://localhost:8086/game/export -o football-manager-save.json
+```
+
 ## Automated testing
 
 Fast unit tests:
