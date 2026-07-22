@@ -35,6 +35,17 @@ public class GoalAnimationService {
         context.clearMatchStoppage();
     }
 
+    /** Set the canonical animation seed (fixtureKey + slotIndex) for the next
+     *  generation on this thread, so a same-minute goal gets a distinct, restart-stable
+     *  animation. Clear it right after with {@link #clearAnimationSeed()}. */
+    public void setAnimationSeed(long seed) {
+        context.setSeedOverride(seed);
+    }
+
+    public void clearAnimationSeed() {
+        context.clearSeedOverride();
+    }
+
     // ===== Generators =====
 
     public GoalAnimationData generate(

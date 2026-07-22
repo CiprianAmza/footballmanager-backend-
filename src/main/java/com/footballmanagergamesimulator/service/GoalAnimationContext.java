@@ -40,6 +40,12 @@ public class GoalAnimationContext {
      *  generate*() methods for their mirror logic. Reset to 0 between matches. */
     private final ThreadLocal<Integer> firstHalfStoppageTl = ThreadLocal.withInitial(() -> 0);
 
+    // Canonical animation seed override. When set (feature flag on), the generators seed
+    // their RNG from this value — derived from fixtureKey + slotIndex — instead of the
+    // legacy (playerId, minute), so a same-minute goal gets a distinct, restart-stable
+    // animation that a refresh/replay reproduces. null = legacy seeding (byte-identical).
+    private final ThreadLocal<Long> seedOverrideTl = new ThreadLocal<>();
+
     /** Tell the animation service how many minutes of first-half stoppage this
      *  match has. Anything generated until {@link #clearMatchStoppage} treats
      *  minutes ≤ {@code 45 + firstHalfStoppage} as first half. */
@@ -53,6 +59,21 @@ public class GoalAnimationContext {
 
     public int firstHalfStoppage() {
         return firstHalfStoppageTl.get();
+    }
+
+    /** Set the canonical animation seed for the next generation(s) on this thread. */
+    public void setSeedOverride(long seed) {
+        seedOverrideTl.set(seed);
+    }
+
+    public void clearSeedOverride() {
+        seedOverrideTl.remove();
+    }
+
+    /** The canonical animation seed, or null when the legacy (playerId, minute) seed
+     *  should be used. */
+    public Long seedOverride() {
+        return seedOverrideTl.get();
     }
 
     /** Populate scoring + defending kits on the result so the frontend can color

@@ -178,7 +178,8 @@ public class GoalAnimationOpenPlayGenerator {
         if (scorer == null) return null;
         if (outcome == null) outcome = "GOAL";
 
-        Random rng = new Random(scorer.getId() * 31L + minute * 17L);
+        Long seedOverride = context.seedOverride();
+        Random rng = new Random(seedOverride != null ? seedOverride : (scorer.getId() * 31L + minute * 17L));
 
         // 1. Select best 11 per side
         List<Human> atk11 = selectEleven(attackingAll, scorer, assister);

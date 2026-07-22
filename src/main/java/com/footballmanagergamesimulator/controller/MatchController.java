@@ -588,7 +588,7 @@ public class MatchController {
      */
     @GetMapping("/live/{key}/state")
     public org.springframework.http.ResponseEntity<LiveMatchData> getLiveMatchState(@PathVariable String key) {
-        LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSessionOrRecover(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         return org.springframework.http.ResponseEntity.ok(session.snapshot());
     }
@@ -601,7 +601,7 @@ public class MatchController {
     public org.springframework.http.ResponseEntity<LiveMatchData> advanceLiveMatch(
             @PathVariable String key,
             @RequestParam("untilMinute") int untilMinute) {
-        LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSessionOrRecover(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         return org.springframework.http.ResponseEntity.ok(session.advanceUntilAndSnapshot(untilMinute));
     }
@@ -615,7 +615,7 @@ public class MatchController {
     public org.springframework.http.ResponseEntity<?> substituteInLiveMatch(
             @PathVariable String key,
             @RequestBody SubstituteRequest body) {
-        LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSessionOrRecover(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         try {
             LiveMatchData state = body.atMinute > 0
@@ -647,7 +647,7 @@ public class MatchController {
      */
     @PostMapping("/live/{key}/commit")
     public org.springframework.http.ResponseEntity<?> commitLiveMatch(@PathVariable String key) {
-        LiveMatchSession session = liveMatchSimulationService.getSession(key);
+        LiveMatchSession session = liveMatchSimulationService.getSessionOrRecoverForCommit(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
         if (!session.isFinished()) {
             return org.springframework.http.ResponseEntity.badRequest()

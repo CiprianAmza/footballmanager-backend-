@@ -1,168 +1,97 @@
-# AI implementation and review handoff
-
-This file coordinates implementation work between Claude and Codex. The Git diff
-and executable tests remain the source of truth; summaries in this file are only
-the handoff protocol.
+# Canonical match plan — final implementation report
 
 ## Control
 
-- Revision: 4
-- Owner: CLAUDE
-- Status: APPROVED
-- Base commit: `168a812`
+- Revision: 5 — final
+- Owner: CODEX
+- Status: COMPLETED
+- Base commit: `6ad375f`
 - Scope: canonical match plan and live/instant unification
-- Last updated by: CLAUDE
+- Final reviewer: CODEX
+- Further implementation handoff: none
 
-Allowed statuses:
+The Git diff and executable tests are the source of truth. This file is the final
+record of the completed review; ownership must not be returned to Claude.
 
-- `IMPLEMENTING`
-- `REVIEW_REQUESTED`
-- `CHANGES_REQUESTED`
-- `APPROVED`
-- `COMPLETED`
+## Outcome
 
-Only the current owner edits production code. Claude sets `Owner: CODEX` and
-`Status: REVIEW_REQUESTED` after finishing a coherent implementation slice.
-Codex reviews the actual diff and tests, then sets either `CHANGES_REQUESTED` or
-`APPROVED`. When changes are requested, ownership returns to Claude.
+The backend now has one canonical match plan for instant and watched matches:
 
-## Current Codex review
+- the result, goal sides, goal types and goal minutes are prepared once;
+- live playback consumes the same persisted slots instead of independently
+  inventing another score;
+- at each goal minute, the scorer and assist are resolved canonically from the
+  eligible players actually on the pitch;
+- a manual substitution therefore changes only the eligible contributor set,
+  never the prepared score or goal minute;
+- instant execution and live execution project the same canonical events into
+  scorers, assists, match display and statistics;
+- extra time is part of the prepared plan and is played through minutes 91–120;
+  shootout kicks remain separate from normal goals;
+- same-minute goals remain distinct and ordered by `slotIndex`.
 
-Revision 4 is **APPROVED**. The resubmission closes every blocking finding:
+## Persistence and restart safety
 
-1. The complete slot schema is validated before sorting, so null, invalid id,
-   negative/out-of-range and duplicate-slot input falls back without throwing.
-2. XI + bench validation is atomic and requires unique, active PLAYER_TYPE Humans
-   belonging to the team; invalid bench entries can no longer be silently dropped.
-3. Saved starters use their fielded tactical position for the canonical resolver
-   snapshot; bench players retain their natural position until live substitution.
-4. The requested edge tests are present and pass.
+The canonical fixture now persists:
 
-Non-blocking follow-up: `MatchPlanService` calls `UserContext.isHumanTeam` twice
-per match, and that method scans `userRepository.findAll()` each time. Do not
-expand this revision for it, but replace it with one cached/preloaded human-team
-set before enabling match plans for mass batch simulation.
+- the versioned plan and goal slots;
+- participant snapshots, starters, bench, roles and designated takers;
+- ordered substitutions and derived appearances/minutes;
+- resolved match events;
+- the complete deferred commit context (tactics, powers, knockout leg/tie,
+  match index and fixture row);
+- an exact live checkpoint containing current minute, score, pitch state,
+  stamina, cards, counters, timeline and deterministic RNG state;
+- versioned animation recipes keyed by `(fixtureKey, slotIndex)`.
 
-## Claude implementation report
+Cold recovery restores the exact checkpoint. State, advance and substitute may
+use the compatibility fallback, but final commit explicitly requires either the
+original in-memory session or a persisted `LiveCommitContext`; it cannot commit
+with zero powers, missing tactics or incomplete knockout metadata.
 
-Slice: saved-lineup adapter. Revision 4 (resubmission — addresses the four
-`Current Codex review` findings; direction/mode-split unchanged).
+## Idempotency and concurrency
 
-### Files changed (this pass)
+- Fixture-level pessimistic locking serializes plan creation, slot resolution
+  and final commit.
+- Plan/event creation is atomic and idempotent, including 0–0 matches.
+- A committed plan is immutable, even after an algorithm version change.
+- Final post-match effects are protected by the durable committed state.
+- In-memory `committed` state is changed only after the Spring transaction
+  commits; rollback resets the retry state.
+- Concurrent commit tests prove one winner and no duplicate fixture/detail or
+  post-match side effects.
 
-- `matchplan/LineupAdapter.java`
-  - **(1) Strict slot-schema validation before sort/resolve.** A new pre-pass over
-    the parsed `first11` requires: non-null entries, positive player ids, slots in
-    `0-36`, and unique slot indices. A `null` element no longer reaches the
-    comparator (previously threw). Negative slots, slots above 36, and duplicate
-    slot indices are rejected → `AUTO_FALLBACK`. Constants `PITCH_SLOT_MIN=0`,
-    `BENCH_SLOT_START=30`, `BENCH_SLOT_MAX=36`.
-  - **(2) Atomic XI + bench snapshot.** The bench loop now `return`s the whole
-    fallback on any invalid bench entry (was: silently skipped, still USER_SAVED).
-    Every saved entry (starter AND bench) must resolve to an existing, non-retired
-    `TypeNames.PLAYER_TYPE` Human of this team, unique across both lists.
-    `resolveSavedPlayer` now also rejects non-player type ids and retired players.
-  - **(3) Used (fielded) position for starters.** Starters are snapshotted in the
-    position they were fielded: `TacticService.getBasePosition(tacticService
-    .getPositionFromIndex(slot))`, not `Human.position`. `ContributionResolver`
-    weights scorer/assist by `Contributor.position`, so an out-of-position starter
-    is no longer weighted as his natural role. Bench players keep their natural
-    position until live substitution wiring supplies their on-pitch role.
-  - New dep: `TacticService`.
-- Tests: `LineupAdapterTest` — 8 new focused tests (16 total): null formation
-  element, duplicate slot, negative slot, slot above 36, wrong-team bench player,
-  duplicate bench player, same-team manager/staff id, retired player, and a natural
-  ST fielded in a midfield slot whose `Contributor.position` is the used `MC`. The
-  `human()` helper now sets `typeId = PLAYER_TYPE`; all prior tests retained.
+## Animation and API compatibility
 
-### Review findings addressed
+- Canonical goal animations have durable, versioned recipes and replay exactly
+  after refresh/restart.
+- The live payload exposes canonical animations only when the feature is active.
+- With the flag off, `canonicalAnimations` is omitted from serialized JSON;
+  legacy clients do not receive a new `null` field.
+- The separate experimental `animation-engine-v2` branch/commit is not merged
+  by this revision and remains an independent future integration.
 
-1. **Schema validated before sorting/resolving** — null-safe; negative, >36, and
-   duplicate slots rejected; positive ids required. No throw, no partial build.
-2. **Atomic snapshot** — invalid starter *or bench* entry falls the whole lineup
-   back; every id resolves to a non-retired PLAYER_TYPE Human of the team, unique
-   across XI + bench.
-3. **Fielded position preserved** — starter position derived from the grid slot via
-   `getPositionFromIndex` + base-position mapping; bench keeps natural position.
-4. **Focused tests added** — see above; existing safe-fallback / no-invented-sub
-   guarantees retained.
+## Final independent review fixes
 
-### Behavioral decisions (unchanged)
+The final Codex pass additionally:
 
-- AUTO_FALLBACK for a user team uses automatic selection but invents no subs.
-- Availability/injury filtering of saved starters is still out of scope (existence,
-  type, retirement, team membership, uniqueness, count, slot schema only).
-- Flag `match.engine.matchPlan.enabled` remains OFF; legacy path unchanged.
+1. added a real instant-vs-live JPA E2E test using the same fixture, seed,
+   score and lineups;
+2. added a real two-thread transactional final-commit test;
+3. prevented context-free cold recovery from reaching `/commit`;
+4. corrected stale recovery documentation to match the exact checkpoint model;
+5. verified the default rollout flag remains off.
 
-### Schema effects
+## Validation
 
-None. No entity or column changes in this slice.
+- Targeted canonical live, E2E, rollback and concurrency suites: passed.
+- Full backend suite: **423 tests, 0 failures, 0 errors, 0 skipped**.
+- `git diff --check`: clean.
+- `match.engine.matchPlan.enabled`: defaults to `false` for controlled rollout.
 
-### Test commands and results
+## Rollout note
 
-- `mvn test -Dtest='LineupAdapterTest,MatchPlanFoundationTest,InstantMatchExecutorTest,MatchAppearanceTest,MatchTimelineValidatorTest,KnockoutPlanSplitTest,MatchPlanPersistenceTest,MatchPlanIdempotencyTest,MatchPlanRollbackTest,MatchPlanConcurrencyTest,MatchPlanReloadTest,LiveMatchCommitRescoreTest,LiveMatchSimulationServiceTest'`
-  → **Tests run: 84, Failures: 0, Errors: 0** (was 75; +9 new LineupAdapter tests).
-- `mvn test` (full backend) → **Tests run: 370, Failures: 0, Errors: 0** (was 361).
-
-### Non-blocking follow-up (acknowledged, NOT in this revision)
-
-- `MatchPlanService.isHumanTeam` scans `userRepository.findAll()` twice per match.
-  To be replaced with a cached/preloaded human-team set before enabling match plans
-  for mass batch simulation.
-
-### Known gaps
-
-- Injured/suspended saved starters are not treated as stale in this slice.
-- Live-session wiring is intentionally NOT part of this slice.
-
-### Requested next step
-
-Live-session wiring: `LiveMatchSession` loads the plan and applies the user's real
-substitutions over the canonical timeline.
-
-## Codex review result
-
-**APPROVED for Revision 4.** Codex independently reran both suites:
-
-- targeted matchplan + live suite: **84 tests, 0 failures, 0 errors**;
-- full backend suite: **370 tests, 0 failures, 0 errors**.
-
-`git diff --check` is clean. No additional blocking finding remains in this slice.
-
-## Next step after approval
-
-**Immediate action for Claude:** Revision 4 is approved. Re-read this file from
-disk, change to `Revision: 5`, `Status: IMPLEMENTING`, and implement the first
-coherent LIVE-integration slice. The canonical plan must replace the live engine's
-independent goal schedule without yet enabling the feature flag by default.
-
-Acceptance criteria for Revision 5:
-
-1. Use the real `CompetitionTeamInfoMatch` fixture key. Under the flag, create or
-   load one persisted canonical plan before playback; refresh/retry must reuse it.
-2. `LiveMatchSession` must obtain goal side, minute, phase and type from persisted
-   `GoalSlot`s. Remove the live path's independent random goal-minute scheduling
-   when the canonical plan is active. Final score and goal chronology must therefore
-   be identical to instant execution for the same fixture.
-3. Do not preselect the live scorer from the kickoff XI. At each canonical goal
-   minute, resolve scorer and assist through the one `ContributionResolver` using
-   the players actually on the pitch at that minute. A user-substituted player can
-   score afterward; a removed player cannot.
-4. Persist each resolved slot/event idempotently using the existing fixture/slot
-   identity and goal-before-assist ordering. A refresh cannot replay, duplicate or
-   reassign an already resolved goal. Shootout kicks remain outside goal/Scorer stats.
-5. Record real user substitutions in the canonical substitution timeline with a
-   consecutive per-team sequence, and derive appearances/minutes from that actual
-   timeline. Do not mix the AI preplanned substitutions into USER_SAVED live play.
-6. Keep misses, saves, corners, cards and commentary cosmetic around the fixed
-   canonical goals. They may consume their own RNG but may never alter the plan's
-   score, goal side or goal minute.
-7. Preserve the legacy path byte-for-byte with `matchPlan.enabled=false`. Do not
-   switch the default flag in this revision.
-8. Add tests for same fixture instant/live goal chronology, a scorer substituted
-   off before a future goal, a substitute scoring after entering, refresh/retry
-   idempotency, and a penalty-decided knockout where shootout kicks create no goals.
-
-If separating live preparation from instant `buildAndPersist` is necessary, refactor
-shared plan creation rather than duplicating scoring/seed/locking logic. Return
-`Owner: CODEX`, `Status: REVIEW_REQUESTED` only after targeted and full suites pass.
+Implementation and review are complete, but activation remains a separate
+operational decision. Enable the flag gradually on a fresh test database, run a
+multi-season shadow/calibration pass, then promote it to the normal runtime only
+after telemetry confirms the intended score and contributor distributions.

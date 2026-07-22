@@ -51,7 +51,8 @@ public class GoalAnimationFreeKickGenerator {
 
         if (taker == null) return null;
 
-        Random rng = new Random(taker.getId() * 47L + minute * 19L);
+        Long seedOverride = context.seedOverride();
+        Random rng = new Random(seedOverride != null ? seedOverride : (taker.getId() * 47L + minute * 19L));
 
         List<Human> atk11 = selectEleven(attackingAll, taker, null);
         List<Human> def11 = selectEleven(defendingAll, null, null);

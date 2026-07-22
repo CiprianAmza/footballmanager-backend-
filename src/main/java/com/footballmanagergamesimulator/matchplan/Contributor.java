@@ -23,4 +23,11 @@ public record Contributor(
     public boolean isGoalkeeper() {
         return "GK".equals(position);
     }
+
+    /** Same player, fielded in a different tactical position (e.g. a substitute
+     *  who enters into the slot vacated by the player he replaces). */
+    public Contributor withPosition(String newPosition) {
+        return new Contributor(playerId, name, newPosition, rating, finishing, passing, vision,
+                fitness, designatedPenaltyTaker, designatedFreeKickTaker);
+    }
 }

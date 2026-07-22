@@ -70,6 +70,20 @@ public class MatchPlanningService {
                 homeShootout, awayShootout, slots);
     }
 
+    /** Generate ONLY the extra-time goal slots (minutes 91-120), for a live knockout whose
+     *  ET is decided at commit and appended to the already-played regular-time plan. Uses a
+     *  dedicated, seed-derived RNG so the ET minutes/types are deterministic and stable
+     *  across a refresh, independent of the regular-time generation. */
+    public List<GoalSlot> extraTimeSlots(long seed, long homeTeamId, long awayTeamId,
+                                         int homeScoreET, int awayScoreET) {
+        Random rng = new Random(seed * 7_777_777L + 91);
+        List<GoalSlot> slots = new ArrayList<>();
+        addSlots(slots, homeTeamId, Math.max(0, homeScoreET), GoalPhase.EXTRA_TIME, 91, 121, rng);
+        addSlots(slots, awayTeamId, Math.max(0, awayScoreET), GoalPhase.EXTRA_TIME, 91, 121, rng);
+        slots.sort((a, b) -> Integer.compare(a.getMinute(), b.getMinute()));
+        return slots;
+    }
+
     private void addSlots(List<GoalSlot> slots, long teamId, int goals, GoalPhase phase,
                           int minuteMin, int minuteMaxExclusive, Random rng) {
         for (int i = 0; i < goals; i++) {

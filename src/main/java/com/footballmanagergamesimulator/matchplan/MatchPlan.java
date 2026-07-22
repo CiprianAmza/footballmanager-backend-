@@ -97,6 +97,22 @@ public class MatchPlan {
     public boolean hadExtraTime() { return homeScoreET >= 0 && awayScoreET >= 0; }
     public boolean hadShootout() { return homeShootout >= 0 && awayShootout >= 0; }
 
+    /** Record an extra-time / shootout result decided after 90' (live knockout). The
+     *  regular-time score and slots are untouched. */
+    public void recordExtraTime(int homeScoreET, int awayScoreET, int homeShootout, int awayShootout) {
+        this.homeScoreET = homeScoreET;
+        this.awayScoreET = awayScoreET;
+        this.homeShootout = homeShootout;
+        this.awayShootout = awayShootout;
+    }
+
+    /** Append a goal slot (extra time) to this plan, wiring the back-reference so the
+     *  cascade persists it. Existing (regular-time) slots are preserved. */
+    public void addGoalSlot(GoalSlot slot) {
+        slot.setMatchPlan(this);
+        this.goalSlots.add(slot);
+    }
+
     /** Total football goals per side (regular + extra time), excluding the shootout. */
     public int getHomeGoals() { return homeScore90 + Math.max(0, homeScoreET); }
     public int getAwayGoals() { return awayScore90 + Math.max(0, awayScoreET); }

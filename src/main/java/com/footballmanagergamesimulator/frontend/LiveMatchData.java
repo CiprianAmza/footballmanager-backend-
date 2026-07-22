@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.frontend;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 import java.util.List;
@@ -8,8 +9,18 @@ import java.util.Map;
 @Data
 public class LiveMatchData {
 
-    // Goal animations keyed by minute (only present when watchGoalHighlights is enabled)
+    // LEGACY boundary (flag off): goal + cosmetic animations keyed by minute (last one at
+    // a minute wins). Byte-compatible with the existing frontend. Only present when
+    // watchGoalHighlights is enabled.
     private Map<Integer, GoalAnimationData> goalAnimations;
+
+    // CANONICAL boundary (flag on): the plan's goal animations as an ordered list carrying
+    // (minute, slotIndex, fixtureKey), so the frontend queues by (minute, slotIndex) and
+    // plays same-minute goals in sequence. @JsonInclude(NON_NULL): when the canonical plan
+    // is not bound (flag off) the property is OMITTED entirely, so the serialized JSON is
+    // byte-identical to the legacy contract.
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<GoalAnimationData> canonicalAnimations;
 
     private long homeTeamId;
     private long awayTeamId;

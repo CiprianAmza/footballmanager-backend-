@@ -48,6 +48,18 @@ public class LiveMatchSimulationService {
     PlayerValueService playerValueService;
     @Autowired
     MatchSimulationService matchSimulationService;
+    // Optional: null in the pure-helper unit tests that build the service with `new`.
+    // Guarded at every use so the canonical path is inert unless the flag is on.
+    @Autowired(required = false)
+    com.footballmanagergamesimulator.matchplan.MatchPlanService matchPlanService;
+    @Autowired(required = false)
+    com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository fixtureRepositoryForRecovery;
+    @Autowired(required = false)
+    com.footballmanagergamesimulator.repository.LiveCommitContextRepository liveCommitContextRepository;
+    @Autowired(required = false)
+    com.footballmanagergamesimulator.repository.MatchAnimationRecipeRepository matchAnimationRecipeRepository;
+    @Autowired(required = false)
+    com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     // Per-minute stamina drain for a "default" player (stamina=10, naturalFitness=10)
     // at a position with multiplier 1.0 lands around 0.35 stamina/min after
@@ -857,6 +869,184 @@ public class LiveMatchSimulationService {
     }
 
     /**
+     * Get the in-memory session, or COLD-RECOVER it from the persisted canonical plan if the
+     * session is gone (e.g. after a backend restart). Used by the resume paths (state / advance
+     * / substitute), so a watched canonical match survives a restart instead of 404-ing. The
+     * session key encodes {@code competitionId_season_round_teamId1_teamId2}; the CTIM fixture
+     * row supplies the plan's {@code matchRowId}. Returns null when there is nothing to recover.
+     *
+     * <p>When a persisted {@link com.footballmanagergamesimulator.matchplan.LiveCommitContext}
+     * exists, the complete deferred commit context and exact engine checkpoint are restored.
+     * The context-free fallback is deliberately limited to resume/advance compatibility and must
+     * not be used to commit a match.
+     */
+    public LiveMatchSession getSessionOrRecover(String key) {
+        LiveMatchSession existing = liveMatchSessions.get(key);
+        if (existing != null) return existing;
+        if (matchPlanService == null || !matchPlanService.isEnabled() || key == null) return null;
+        String[] p = key.split("_");
+        if (p.length != 5) return null;
+        try {
+            long comp = Long.parseLong(p[0]);
+            int season = Integer.parseInt(p[1]);
+            int round = Integer.parseInt(p[2]);
+            long t1 = Long.parseLong(p[3]);
+            long t2 = Long.parseLong(p[4]);
+
+            // Prefer the persisted self-contained commit context: it carries the matchRowId
+            // (so a two-leg tie's legNumber is not a problem) AND the deferred commit context
+            // (tactics, knockout leg/tie/bracket) so a recovered /commit is safe.
+            var ctxOpt = liveCommitContextRepository != null
+                    ? liveCommitContextRepository.findByLiveKey(key) : java.util.Optional.<com.footballmanagergamesimulator.matchplan.LiveCommitContext>empty();
+            if (ctxOpt.isPresent()) {
+                com.footballmanagergamesimulator.matchplan.LiveCommitContext ctx = ctxOpt.get();
+                LiveMatchSession s = recoverCanonicalSession(t1, t2, ctx.getHomePower(), ctx.getAwayPower(),
+                        comp, season, round, true, null, ctx.getMatchRowId());
+                if (s != null) {
+                    s.setDeferredContext(ctx.getHomePower(), ctx.getAwayPower(),
+                            ctx.getHomeTactic(), ctx.getAwayTactic(), null, null,
+                            ctx.isKnockout(), ctx.getLegNumber(), ctx.getTieId(), ctx.getMatchIndex());
+                    // RESUME at the crash minute instead of replaying from 0.
+                    List<Long> reds = new java.util.ArrayList<>();
+                    if (ctx.getRedCardPlayerIds() != null && !ctx.getRedCardPlayerIds().isBlank()) {
+                        for (String part : ctx.getRedCardPlayerIds().split(",")) {
+                            try { reds.add(Long.parseLong(part.trim())); } catch (NumberFormatException ignore) {}
+                        }
+                    }
+                    LiveSessionCheckpoint checkpoint = null;
+                    if (objectMapper != null && ctx.getCheckpointJson() != null
+                            && !ctx.getCheckpointJson().isBlank()) {
+                        try {
+                            checkpoint = objectMapper.readValue(
+                                    ctx.getCheckpointJson(), LiveSessionCheckpoint.class);
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            throw new IllegalStateException("Unreadable live checkpoint for " + key, e);
+                        }
+                    }
+                    s.restoreCheckpoint(ctx.getCheckpointMinute(), reds,
+                            ctx.getCheckpointRandomState(), checkpoint);
+                }
+                return s;
+            }
+
+            // Fallback: no persisted context — recover for resume/advance only (single-leg
+            // lookup); /commit would lack the deferred context.
+            if (fixtureRepositoryForRecovery == null) return null;
+            List<com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch> fixtures =
+                    fixtureRepositoryForRecovery.findPlayedFixture(comp, round, String.valueOf(season), t1, t2, 0);
+            if (fixtures.isEmpty()) return null;
+            return recoverCanonicalSession(t1, t2, 0.0, 0.0, comp, season, round, true, null, fixtures.get(0).getId());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Return a session that is safe to commit. An in-memory session already owns its deferred
+     * context; after a restart, recovery is allowed only when that context was persisted. This
+     * prevents a legacy/context-free fallback from committing with zero powers, missing tactics,
+     * or incomplete knockout metadata.
+     */
+    public LiveMatchSession getSessionOrRecoverForCommit(String key) {
+        LiveMatchSession existing = liveMatchSessions.get(key);
+        if (existing != null) return existing;
+        if (key == null || liveCommitContextRepository == null
+                || liveCommitContextRepository.findByLiveKey(key).isEmpty()) {
+            return null;
+        }
+        return getSessionOrRecover(key);
+    }
+
+    /**
+     * Persist the self-contained commit context for a canonical live match (keyed by the live
+     * session key), so a cold-recovered session can COMMIT correctly after a restart. Called
+     * once the round simulator knows the tactics + knockout context.
+     */
+    public void saveLiveCommitContext(long competitionId, int season, int round, long teamId1, long teamId2,
+                                      long matchRowId, String homeTactic, String awayTactic,
+                                      double homePower, double awayPower, boolean knockout,
+                                      int legNumber, long tieId, int matchIndex) {
+        if (liveCommitContextRepository == null || matchPlanService == null || !matchPlanService.isEnabled()) return;
+        String liveKey = buildKey(competitionId, season, round, teamId1, teamId2);
+        liveCommitContextRepository.findByLiveKey(liveKey).ifPresent(liveCommitContextRepository::delete);
+        liveCommitContextRepository.save(new com.footballmanagergamesimulator.matchplan.LiveCommitContext(
+                liveKey, matchRowId, homeTactic, awayTactic, homePower, awayPower,
+                knockout, legNumber, tieId, matchIndex));
+    }
+
+    /** Update the live checkpoint (current minute + red cards) so a cold restart resumes here.
+     *  No-op until the commit context exists (written at session creation). */
+    public void saveLiveCheckpoint(long competitionId, int season, int round, long teamId1, long teamId2,
+                                   int minute, java.util.Collection<Long> redCardIds, Long randomState,
+                                   LiveSessionCheckpoint checkpoint) {
+        if (liveCommitContextRepository == null || matchPlanService == null || !matchPlanService.isEnabled()) return;
+        String liveKey = buildKey(competitionId, season, round, teamId1, teamId2);
+        liveCommitContextRepository.findByLiveKey(liveKey).ifPresent(ctx -> {
+            ctx.setCheckpointMinute(minute);
+            ctx.setRedCardPlayerIds(redCardIds == null ? "" : redCardIds.stream()
+                    .map(String::valueOf).collect(java.util.stream.Collectors.joining(",")));
+            ctx.setCheckpointRandomState(randomState);
+            if (objectMapper != null && checkpoint != null) {
+                try {
+                    ctx.setCheckpointJson(objectMapper.writeValueAsString(checkpoint));
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    throw new IllegalStateException("Could not serialize live checkpoint for " + liveKey, e);
+                }
+            }
+            liveCommitContextRepository.save(ctx);
+        });
+    }
+
+    /** Persist one complete, versioned canonical animation recipe idempotently. */
+    void persistCanonicalAnimation(String fixtureKey, int slotIndex, GoalAnimationData animation) {
+        if (fixtureKey == null || animation == null
+                || matchAnimationRecipeRepository == null || objectMapper == null) return;
+        int version = animation.getGeneratorVersion();
+        if (matchAnimationRecipeRepository
+                .findByFixtureKeyAndSlotIndex(fixtureKey, slotIndex)
+                .isPresent()) return;
+        try {
+            String json = objectMapper.writeValueAsString(animation);
+            matchAnimationRecipeRepository.save(
+                    new com.footballmanagergamesimulator.matchplan.MatchAnimationRecipe(
+                            fixtureKey, slotIndex, version, animation.getMinute(), json));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Could not persist canonical animation "
+                    + fixtureKey + "/" + slotIndex, e);
+        }
+    }
+
+    /** Read the exact historical recipes; no generator is invoked during recovery. */
+    List<GoalAnimationData> loadCanonicalAnimations(String fixtureKey) {
+        if (fixtureKey == null || matchAnimationRecipeRepository == null || objectMapper == null) {
+            return java.util.List.of();
+        }
+        List<GoalAnimationData> result = new java.util.ArrayList<>();
+        for (var recipe : matchAnimationRecipeRepository
+                .findByFixtureKeyOrderByMinuteAscSlotIndexAsc(fixtureKey)) {
+            try {
+                GoalAnimationData animation = objectMapper.readValue(
+                        recipe.getRecipeJson(), GoalAnimationData.class);
+                // The durable identity lives in columns as well as JSON.  Reapply it so even
+                // old payloads missing metadata remain collision-safe at the API boundary.
+                animation.setFixtureKey(recipe.getFixtureKey());
+                animation.setSlotIndex(recipe.getSlotIndex());
+                animation.setMinute(recipe.getMinute());
+                animation.setGeneratorVersion(recipe.getGeneratorVersion());
+                result.add(animation);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new IllegalStateException("Unreadable canonical animation recipe id="
+                        + recipe.getId(), e);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Canonical variant: in addition to pinning the scoreline, when the MatchPlan
+     * feature flag is on, persist the canonical plan (a {@code PLANNED} plan with its
+
+    /**
      * Find a session for a given (competition, season, matchday, teamId)
      * tuple — used by GameAdvanceService to detect live matches WITHOUT
      * relying on the CompetitionTeamInfoDetail row (which doesn't exist yet
@@ -1033,15 +1223,154 @@ public class LiveMatchSimulationService {
             boolean generateGoalAnimations,
             TacticalScoreService.Matchup matchup,
             int targetHomeGoals, int targetAwayGoals) {
+        return createInteractiveSessionWithRandom(teamId1, teamId2, power1, power2,
+                competitionId, season, round, generateGoalAnimations, matchup,
+                targetHomeGoals, targetAwayGoals, new Random());
+    }
+
+    private LiveMatchSession createInteractiveSessionWithRandom(
+            long teamId1, long teamId2,
+            double power1, double power2,
+            long competitionId, int season, int round,
+            boolean generateGoalAnimations,
+            TacticalScoreService.Matchup matchup,
+            int targetHomeGoals, int targetAwayGoals,
+            Random liveRandom) {
         LiveMatchSession session = new LiveMatchSession(this,
                 teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations, matchup, new Random(),
+                competitionId, season, round, generateGoalAnimations, matchup, liveRandom,
                 targetHomeGoals, targetAwayGoals, true);
         String key = buildKey(competitionId, season, round, teamId1, teamId2);
         liveMatchSessions.put(key, session);
         // Also seed liveMatchCache with the initial snapshot so legacy
         // /match/live/{key} reads return the kickoff state.
         liveMatchCache.put(key, session.snapshot());
+        return session;
+    }
+
+    /** Stable narration seed for a canonical fixture.  The canonical score/slots are already
+     *  fixed by MatchPlan; this seed makes the surrounding cards, substitutions and commentary
+     *  reproducible and, together with the checkpointed RNG state, restart-safe. */
+    private long canonicalLiveSeed(long matchRowId, long competitionId, int season, int round,
+                                   long teamId1, long teamId2) {
+        long hash = 0xcbf29ce484222325L;
+        long[] values = {matchRowId, competitionId, season, round, teamId1, teamId2};
+        for (long value : values) {
+            for (int i = 0; i < 8; i++) {
+                hash ^= (value >>> (i * 8)) & 0xffL;
+                hash *= 0x100000001b3L;
+            }
+        }
+        return hash;
+    }
+
+    /**
+     * Cold recovery: after a backend restart the in-memory session is gone, but the canonical
+     * plan (with its resolved goal slots, participant snapshot and recorded substitutions) is
+     * persisted. This factory recreates and re-binds the canonical plan and participant snapshot;
+     * {@link #getSessionOrRecover(String)} then applies the persisted full checkpoint (timeline,
+     * statistics, cards, stamina, substitutions and RNG state) for an exact restart. Direct calls
+     * without a commit context reconstruct the canonical result but are resume-only fallbacks.
+     * Returns null if there is no recoverable (non-committed) plan for the fixture.
+     */
+    public LiveMatchSession recoverCanonicalSession(
+            long teamId1, long teamId2, double power1, double power2,
+            long competitionId, int season, int round, boolean generateGoalAnimations,
+            TacticalScoreService.Matchup matchup, long matchRowId) {
+        if (matchPlanService == null || !matchPlanService.isEnabled() || matchRowId <= 0) return null;
+        String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                .competitionFixtureKey(matchRowId);
+        var snapOpt = matchPlanService.loadLivePlanSnapshot(fixtureKey);
+        if (snapOpt.isEmpty()) return null;
+        com.footballmanagergamesimulator.matchplan.LivePlanSnapshot snap = snapOpt.get();
+        if (snap.status() == com.footballmanagergamesimulator.matchplan.MatchPlan.Status.COMMITTED) {
+            return null; // finished + committed; nothing to recover for live play
+        }
+        int targetHome = snap.regularTimeSlots(teamId1).size();
+        int targetAway = snap.regularTimeSlots(teamId2).size();
+        LiveMatchSession session = new LiveMatchSession(this,
+                teamId1, teamId2, power1, power2, competitionId, season, round,
+                generateGoalAnimations, matchup,
+                new CheckpointRandom(canonicalLiveSeed(matchRowId, competitionId, season, round, teamId1, teamId2)),
+                targetHome, targetAway, true);
+        session.adoptCanonicalXi(
+                new com.footballmanagergamesimulator.matchplan.Lineup(snap.starters(teamId1), snap.bench(teamId1), java.util.List.of()),
+                new com.footballmanagergamesimulator.matchplan.Lineup(snap.starters(teamId2), snap.bench(teamId2), java.util.List.of()));
+        session.bindCanonicalPlan(snap, fixtureKey);
+        session.loadRecordedSubs(snap.substitutions());
+        session.loadPersistedCanonicalAnimations(loadCanonicalAnimations(fixtureKey));
+        String key = buildKey(competitionId, season, round, teamId1, teamId2);
+        liveMatchSessions.put(key, session);
+        liveMatchCache.put(key, session.snapshot());
+        return session;
+    }
+
+    /**
+     * Canonical variant: in addition to pinning the scoreline, when the MatchPlan
+     * feature flag is on, persist the canonical plan (a {@code PLANNED} plan with its
+     * unresolved goal slots + the kickoff participant snapshot) for the real fixture
+     * and bind it to the session, so the watched match consumes the plan's fixed goal
+     * minutes/sides and can be recovered on refresh. With the flag off (or
+     * {@code matchRowId <= 0}) this is identical to the pinned overload — the legacy
+     * narration is untouched.
+     */
+    public LiveMatchSession createInteractiveSession(
+            long teamId1, long teamId2,
+            double power1, double power2,
+            long competitionId, int season, int round,
+            boolean generateGoalAnimations,
+            TacticalScoreService.Matchup matchup,
+            int targetHomeGoals, int targetAwayGoals,
+            long matchRowId, String homeTactic, String awayTactic) {
+        return createInteractiveSession(teamId1, teamId2, power1, power2, competitionId, season, round,
+                generateGoalAnimations, matchup, targetHomeGoals, targetAwayGoals, matchRowId,
+                homeTactic, awayTactic, -1, -1, -1, -1);
+    }
+
+    /**
+     * Full canonical variant with the knockout ET/shootout split decided BEFORE kickoff (the
+     * agreed model): the whole result and all goal minutes are fixed up front, the plan is
+     * prepared with the extra-time slots, and the live session's duration extends to 120' so
+     * the user watches (and can substitute during) extra time. Pass {@code -1} for the ET /
+     * shootout pairs for a match with no extra time.
+     */
+    public LiveMatchSession createInteractiveSession(
+            long teamId1, long teamId2,
+            double power1, double power2,
+            long competitionId, int season, int round,
+            boolean generateGoalAnimations,
+            TacticalScoreService.Matchup matchup,
+            int targetHomeGoals, int targetAwayGoals,
+            long matchRowId, String homeTactic, String awayTactic,
+            int homeScoreET, int awayScoreET, int homeShootout, int awayShootout) {
+        boolean canonical = matchPlanService != null && matchPlanService.isEnabled()
+                && matchRowId > 0 && targetHomeGoals >= 0 && targetAwayGoals >= 0;
+        Random liveRandom = canonical
+                ? new CheckpointRandom(canonicalLiveSeed(matchRowId, competitionId, season, round, teamId1, teamId2))
+                : new Random();
+        LiveMatchSession session = createInteractiveSessionWithRandom(teamId1, teamId2, power1, power2,
+                competitionId, season, round, generateGoalAnimations, matchup,
+                targetHomeGoals, targetAwayGoals, liveRandom);
+
+        if (canonical) {
+            String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                    .competitionFixtureKey(matchRowId);
+            // Authoritative XI/bench for BOTH paths: the same adapter the instant path uses
+            // (saved first11 for a human team, auto for AI), with designated takers. The
+            // session adopts it as its on-pitch set so watched == instant.
+            var kickoff = matchPlanService.buildKickoffLineups(fixtureKey, competitionId, season, round,
+                    teamId1, teamId2, homeTactic, awayTactic);
+            session.adoptCanonicalXi(kickoff.home(), kickoff.away());
+            // Persisted participants = the adopted XI (with takers) + the rest of the squad
+            // as bench, so any player the user brings on is snapshotted.
+            com.footballmanagergamesimulator.matchplan.Lineup homeXI = session.canonicalKickoffLineup(true);
+            com.footballmanagergamesimulator.matchplan.Lineup awayXI = session.canonicalKickoffLineup(false);
+            matchPlanService.prepareLivePlan(fixtureKey, competitionId, season, round,
+                    teamId1, teamId2, homeXI, awayXI, targetHomeGoals, targetAwayGoals,
+                    homeScoreET, awayScoreET, homeShootout, awayShootout);
+            matchPlanService.loadLivePlanSnapshot(fixtureKey)
+                    .ifPresent(snap -> session.bindCanonicalPlan(snap, fixtureKey));
+        }
         return session;
     }
 

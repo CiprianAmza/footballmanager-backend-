@@ -50,7 +50,8 @@ public class GoalAnimationPenaltyGenerator {
 
         if (taker == null) return null;
 
-        Random rng = new Random(taker.getId() * 41L + minute * 13L);
+        Long seedOverride = context.seedOverride();
+        Random rng = new Random(seedOverride != null ? seedOverride : (taker.getId() * 41L + minute * 13L));
 
         List<Human> atk11 = selectEleven(attackingAll, taker, null);
         List<Human> def11 = selectEleven(defendingAll, null, null);

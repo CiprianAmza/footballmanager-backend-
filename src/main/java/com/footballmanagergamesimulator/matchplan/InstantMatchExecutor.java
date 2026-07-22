@@ -32,6 +32,13 @@ public class InstantMatchExecutor {
     /** Context needed to stamp {@link MatchEvent} rows (not part of the pure plan). */
     public record MatchContext(String fixtureKey, long competitionId, int seasonNumber, int roundNumber) {}
 
+    /** Per-slot RNG seed: keyed by the persisted slotIndex so a reload/refresh
+     *  resolves an unresolved slot exactly as the first run would have, and the
+     *  live path resolves each slot identically to instant. Shared by both paths. */
+    public static long perSlotSeed(long planSeed, int slotIndex) {
+        return planSeed * SLOT_SALT + slotIndex;
+    }
+
     /**
      * Resolve every goal slot and return the goal/assist events. Slots are
      * mutated with their resolved contributors (so callers can persist the plan
@@ -40,32 +47,41 @@ public class InstantMatchExecutor {
      */
     public List<MatchEvent> execute(MatchPlan plan, Lineup homeLineup, Lineup awayLineup, MatchContext ctx) {
         List<MatchEvent> events = new ArrayList<>();
-        List<GoalSlot> slots = plan.getGoalSlots();
-
-        for (GoalSlot slot : slots) {
+        for (GoalSlot slot : plan.getGoalSlots()) {
             boolean home = slot.getTeamId() == plan.getHomeTeamId();
             Lineup lineup = home ? homeLineup : awayLineup;
-            List<Contributor> onPitch = lineup.onPitchAt(slot.getMinute());
+            events.addAll(resolveSlot(plan, slot, lineup.onPitchAt(slot.getMinute()), ctx));
+        }
+        return events;
+    }
 
-            // Per-slot RNG keyed by the persisted slotIndex, so a reload/refresh
-            // resolves an unresolved slot the same way the first run would have.
-            Random rng = new Random(plan.getSeed() * SLOT_SALT + slot.getSlotIndex());
-            resolver.resolve(slot, onPitch, rng);
-            if (!slot.isResolved() || slot.getScorerId() == null) continue;
+    /**
+     * Resolve exactly ONE goal slot against the given on-pitch players and return
+     * its canonical event(s) (goal, then optional assist). The single decision
+     * point shared by the instant loop above and the LIVE path, which calls this
+     * at each canonical goal minute with the players actually on the pitch then —
+     * so the watched scorer equals the persisted one. Idempotent at the slot level:
+     * {@link ContributionResolver#resolve} is a no-op on an already-resolved slot,
+     * and re-emits that slot's same events.
+     */
+    public List<MatchEvent> resolveSlot(MatchPlan plan, GoalSlot slot, List<Contributor> onPitch, MatchContext ctx) {
+        List<MatchEvent> events = new ArrayList<>();
+        Random rng = new Random(perSlotSeed(plan.getSeed(), slot.getSlotIndex()));
+        resolver.resolve(slot, onPitch, rng);
+        if (!slot.isResolved() || slot.getScorerId() == null) return events;
 
-            Contributor scorer = find(onPitch, slot.getScorerId());
-            events.add(buildEvent(plan, ctx, slot.getSlotIndex(), MatchEvent.ORDER_GOAL,
-                    slot.getMinute(), "goal",
-                    slot.getScorerId(), scorer != null ? scorer.name() : "", slot.getTeamId(),
-                    slot.getGoalType()));
+        Contributor scorer = find(onPitch, slot.getScorerId());
+        events.add(buildEvent(plan, ctx, slot.getSlotIndex(), MatchEvent.ORDER_GOAL,
+                slot.getMinute(), "goal",
+                slot.getScorerId(), scorer != null ? scorer.name() : "", slot.getTeamId(),
+                slot.getGoalType()));
 
-            if (slot.getAssistId() != null) {
-                Contributor assister = find(onPitch, slot.getAssistId());
-                events.add(buildEvent(plan, ctx, slot.getSlotIndex(), MatchEvent.ORDER_ASSIST,
-                        slot.getMinute(), "assist",
-                        slot.getAssistId(), assister != null ? assister.name() : "", slot.getTeamId(),
-                        "Assist"));
-            }
+        if (slot.getAssistId() != null) {
+            Contributor assister = find(onPitch, slot.getAssistId());
+            events.add(buildEvent(plan, ctx, slot.getSlotIndex(), MatchEvent.ORDER_ASSIST,
+                    slot.getMinute(), "assist",
+                    slot.getAssistId(), assister != null ? assister.name() : "", slot.getTeamId(),
+                    "Assist"));
         }
         return events;
     }

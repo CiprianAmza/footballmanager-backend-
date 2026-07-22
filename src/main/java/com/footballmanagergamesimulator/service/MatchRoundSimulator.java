@@ -446,10 +446,27 @@ public class MatchRoundSimulator {
                         targetHomeGoals = pinned.get(0);
                         targetAwayGoals = pinned.get(1);
                     }
+                    // Canonical knockout (blocker #3): resolve the ET/shootout split BEFORE
+                    // kickoff so the whole result and all goal minutes are fixed up front — the
+                    // user watches (and can substitute during) minutes 91-120, and shootout kicks
+                    // stay separate from goals. Only when the plan is on and a pinned 90' score
+                    // exists; the flag-off interactive path still defers the tiebreak to /commit.
+                    int etHome = -1, etAway = -1, shootoutHome = -1, shootoutAway = -1;
+                    if (knockout && matchPlanService.isEnabled() && targetHomeGoals >= 0) {
+                        KnockoutMatchResolution pre = resolveKnockoutMatch(
+                                match, teamId1, teamPower1, teamId2, teamPower2,
+                                targetHomeGoals, targetAwayGoals, firstLegScores);
+                        etHome = pre.et1() == null ? -1 : pre.et1();
+                        etAway = pre.et2() == null ? -1 : pre.et2();
+                        shootoutHome = pre.penalty1() == null ? -1 : pre.penalty1();
+                        shootoutAway = pre.penalty2() == null ? -1 : pre.penalty2();
+                    }
                     LiveMatchSession liveSession = liveMatchSimulationService.createInteractiveSession(
                             teamId1, teamId2, teamPower1, teamPower2,
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            generateGoalAnims, liveMatchup, targetHomeGoals, targetAwayGoals);
+                            generateGoalAnims, liveMatchup, targetHomeGoals, targetAwayGoals,
+                            match.getId(), tactic1, tactic2,
+                            etHome, etAway, shootoutHome, shootoutAway);
                     if (liveMatchup != null) {
                         liveSession.setDeferredTwoAxis(liveP1, liveT1, liveP2, liveT2);
                     }
@@ -580,6 +597,12 @@ public class MatchRoundSimulator {
                     if (s != null) {
                         s.setDeferredContext(teamPower1, teamPower2, tactic1, tactic2,
                                 personalizedTactic1.orElse(null), personalizedTactic2.orElse(null),
+                                knockout, match.getLegNumber(), match.getTieId(), match.getMatchIndex());
+                        // Persist the same context (canonical only) so a cold-recovered session
+                        // can /commit after a restart. No-op when the flag is off.
+                        liveMatchSimulationService.saveLiveCommitContext(
+                                _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                                teamId1, teamId2, match.getId(), tactic1, tactic2, teamPower1, teamPower2,
                                 knockout, match.getLegNumber(), match.getTieId(), match.getMatchIndex());
                     }
                 }

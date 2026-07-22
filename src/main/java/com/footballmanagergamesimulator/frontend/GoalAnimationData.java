@@ -7,7 +7,20 @@ import java.util.List;
 @Data
 public class GoalAnimationData {
 
+    /** Bumped whenever the animation generators change in a way that invalidates a
+     *  previously persisted/recovered animation, so a canonical recipe from an older
+     *  generator can be detected and regenerated. */
+    public static final int GENERATOR_VERSION = 1;
+
     private int minute;
+
+    // Canonical identity (feature flag on): which persisted goal slot this animation
+    // belongs to, for durable, collision-safe, ordered playback. -1 / null for legacy
+    // (cosmetic or non-canonical) animations. The frontend queues by (minute, slotIndex).
+    private int slotIndex = -1;
+    private String fixtureKey;
+    private int generatorVersion = GENERATOR_VERSION;
+
     private long scoringTeamId;
     private long defendingTeamId;
     private long homeTeamId;
