@@ -93,7 +93,12 @@ public final class FrameCompiler implements AnimationCompiler {
         assignFormation(spec.defenders(), true, formation, attackingCount);
         int goalkeeper = goalkeeperIndex(spec.defenders(), attackingCount, formation);
 
-        Schedule schedule = fit(original, index, formation);
+        // The safe fallback is total for every accepted profile: its touches are pinned to each
+        // participant's own formation slot, so no player has to sprint across the pitch. The ball
+        // does all the travelling and its flight is always framed within the budget by ball speed.
+        PlayScript source = original.pattern() == PatternId.SAFE_FALLBACK
+                ? pinToFormation(original, index, formation) : original;
+        Schedule schedule = fit(source, index, formation);
         PlayScript script = schedule.script();
         List<PlayScript.Touch> touches = script.touches();
         int finalTouch = touches.size() - 1;
@@ -124,12 +129,17 @@ public final class FrameCompiler implements AnimationCompiler {
             }
             if (blocker < 0) blocker = goalkeeper;
         }
-        PitchPoint shotEndEstimate = switch (spec.outcome()) {
-            case SAVE -> new PitchPoint(98, targetY);
-            case BLOCKED -> blockPoint;
-            default -> new PitchPoint(100, targetY);
+        // For SAVE/BLOCKED the ball ends on the moving keeper/blocker, whose real position lies on the
+        // segment formation->target. Frame the flight for the FARTHER of those two endpoints (a segment's
+        // farthest point from the shooter is an endpoint), so however far the actor has actually moved the
+        // ball step still fits under the cap.
+        int shotFlight = switch (spec.outcome()) {
+            case SAVE -> maxFlightFrames(shotOrigin, new PitchPoint(98, targetY),
+                    formation[goalkeeper], script.shotBend());
+            case BLOCKED -> maxFlightFrames(shotOrigin, blockPoint, formation[blocker], script.shotBend());
+            default -> ballFlightFrames(shotOrigin, new PitchPoint(100, targetY), script.shotBend());
         };
-        int shotArrival = shotFrame + ballFlightFrames(shotOrigin, shotEndEstimate, script.shotBend());
+        int shotArrival = shotFrame + shotFlight;
         if (shotArrival > TOTAL_FRAMES - SHOT_TAIL)
             throw new RenderException("shot does not fit frame budget: " + script.pattern());
 
@@ -186,6 +196,18 @@ public final class FrameCompiler implements AnimationCompiler {
     }
 
     // ---- Scheduling -------------------------------------------------------
+
+    /** Pins every touch of a script to the toucher's formation slot (used by the total fallback). */
+    private static PlayScript pinToFormation(PlayScript script, Map<Long, Integer> index, PitchPoint[] formation) {
+        List<PlayScript.Touch> pinned = new ArrayList<>(script.touches().size());
+        for (PlayScript.Touch touch : script.touches()) {
+            Integer i = index.get(touch.playerId());
+            if (i == null) throw new RenderException("fallback uses non-snapshot player " + touch.playerId());
+            pinned.add(new PlayScript.Touch(touch.playerId(), formation[i], touch.dwellFrames(),
+                    touch.arrivalBend(), touch.receiveKind()));
+        }
+        return new PlayScript(script.pattern(), pinned, script.deadBallSpot(), script.preludeFrames(), script.shotBend());
+    }
 
     private Schedule fit(PlayScript original, Map<Long, Integer> index, PitchPoint[] formation) {
         PlayScript script = original;
@@ -263,6 +285,15 @@ public final class FrameCompiler implements AnimationCompiler {
         PitchPoint control = control(start, end, bend);
         double maxDerivative = 2 * Math.max(start.distanceTo(control), control.distanceTo(end));
         return Math.max(4, (int) Math.ceil(maxDerivative / ballCap));
+    }
+
+    /**
+     * Frames enough for a flight ending anywhere on the segment {@code start->[a|b]}, with a small
+     * headroom for the ~one-step drift between the framing estimate and the actor's real arrival spot.
+     */
+    private int maxFlightFrames(PitchPoint start, PitchPoint a, PitchPoint b, double bend) {
+        int frames = Math.max(ballFlightFrames(start, a, bend), ballFlightFrames(start, b, bend));
+        return frames + 2;
     }
 
     // ---- Track construction ----------------------------------------------

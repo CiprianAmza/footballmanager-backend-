@@ -55,7 +55,8 @@ class AnimationVersionTest {
     }
 
     @Test void unknownVersionFailsExplicitly() {
-        assertThrows(UnsupportedAnimationVersionException.class, () -> director.direct(versioned(99, null)));
+        assertThrows(UnsupportedAnimationVersionException.class,
+                () -> director.direct(versioned(99, MatchPeriod.FIRST_HALF)));
     }
 
     @Test void historicalV1RecipeRoundTripsThroughJsonToTheGolden() {
@@ -65,6 +66,31 @@ class AnimationVersionTest {
         AnimationReplay regenerated = director.replay(decoded);
         assertEquals(1, regenerated.renderedWithVersion());
         assertEquals(GOLDEN_V1, regenerated.fingerprint());
+    }
+
+    @Test void currentVersionSpecRequiresAnExplicitPeriod() {
+        List<PlayerSnapshot> players = new ArrayList<>(side(100, HOME, "Home"));
+        players.addAll(side(200, AWAY, "Away"));
+        // A version-2 moment at minute 95 with a null period would silently lose extra-time direction.
+        assertThrows(IllegalArgumentException.class, () -> new MatchMomentSpec("CTIM:VER", 0, PLAN_SEED, 2,
+                95, 2, null, HOME, AWAY, HOME, AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL,
+                SCORER, ASSISTER, players, null));
+    }
+
+    @Test void currentVersionRecipeJsonWithoutPeriodIsRejected() {
+        var directed = director.direct(versioned(2, MatchPeriod.EXTRA_TIME_FIRST_HALF));
+        String json = codec.encode(directed.recipe());
+        String withoutPeriod = json.replaceAll(",?\"period\":\"[A-Z_]+\"", "");
+        assertFalse(withoutPeriod.contains("\"period\""), "period should be absent from the tampered JSON");
+        assertThrows(IllegalStateException.class, () -> codec.decode(withoutPeriod));
+    }
+
+    @Test void extraTimeHalvesKeepOppositeExplicitDirectionsUnderVersionTwo() {
+        AnimationReplay et1 = director.direct(versioned(2, MatchPeriod.EXTRA_TIME_FIRST_HALF)).replay();
+        AnimationReplay et2 = director.direct(versioned(2, MatchPeriod.EXTRA_TIME_SECOND_HALF)).replay();
+        assertTrue(et1.homeAttacksRight());
+        assertFalse(et2.homeAttacksRight());
+        assertNotEquals(et1.homeAttacksRight(), et2.homeAttacksRight());
     }
 
     @Test void legacyRecipeJsonWithoutPeriodFieldStillDecodesAndReplaysToTheGolden() {

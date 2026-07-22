@@ -42,13 +42,19 @@ public record MatchMomentSpec(
             Comparator.comparingInt((PlayerSnapshot p) -> POSITION_RANK.getOrDefault(p.tacticalPosition(), 99))
                     .thenComparingLong(PlayerSnapshot::playerId);
 
+    /** The only generator version whose schema predates the explicit period and may omit it. */
+    private static final int LEGACY_GENERATOR_VERSION = 1;
+
     public MatchMomentSpec {
         new AnimationKey(fixtureKey, slotIndex);
         if (generatorVersion <= 0) throw new IllegalArgumentException("generatorVersion must be positive");
         if (minute < 1) throw new IllegalArgumentException("minute must be positive");
         if (firstHalfStoppage < 0) throw new IllegalArgumentException("stoppage must be non-negative");
-        // period may be null only for legacy version-1 recipes persisted before the explicit
-        // period model; in that case direction falls back to the first-half derivation.
+        // A null period is compatible only with the legacy version-1 schema, whose recipes predate the
+        // explicit period model and derive direction from the first half. Every current/future version
+        // must carry an explicit period so extra-time direction is never lost.
+        if (period == null && generatorVersion != LEGACY_GENERATOR_VERSION)
+            throw new IllegalArgumentException("period is required for generator version " + generatorVersion);
         if (scoringTeamId <= 0 || defendingTeamId <= 0 || homeTeamId <= 0)
             throw new IllegalArgumentException("team ids must be positive");
         if (scoringTeamId == defendingTeamId) throw new IllegalArgumentException("teams must differ");
