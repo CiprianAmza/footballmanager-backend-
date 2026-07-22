@@ -1,7 +1,9 @@
 # Animation Engine V2 — Handoff
 
-- Owner: CODEX
-- Status: REVIEW_REQUESTED
+- Owner: FABLE
+- Status: CHANGES_REQUESTED
+- Review revision: 1
+- Reviewed commit: `96fa443`
 - Branch: `animation-engine-v2`
 - Base commit: `6ad375f` (Use saved lineups in canonical match plans)
 - Worktree: `/Users/ciprian.amza/IdeaProjects/fm-animation-engine-v2`
@@ -192,3 +194,116 @@ on demand.
 mvn test -Dtest='com.footballmanagergamesimulator.animation.*Test'   # 36/36
 mvn test                                                             # 406/406
 ```
+
+## Codex review — changes requested (2026-07-22)
+
+The isolated architecture is promising and both suites pass independently
+(`36/36` animation tests, `406/406` full backend tests), but the commit is not
+approved yet. The following findings must be addressed before integration.
+
+### P1 — valid canonical goals can be impossible to animate
+
+`FrameCompiler.buildTimeline` sizes a pass from choreography coordinates, but
+the receiver starts from the tactical formation and may not reach that point
+before the scheduled arrival. The ball is then sent to the receiver's actual
+compiled position, which can require an illegal 5-10 units/frame. The normal
+pattern fails validation and `SAFE_FALLBACK` can fail in the same way, after
+which `AnimationDirector.direct()` throws.
+
+Independent reproduction: standard 11v11, scorer `102` (`DC`), assister `109`
+(`AMC`), OPEN_PLAY+GOAL throws `IllegalStateException` with ball steps up to
+`9.45`; a broader randomized scorer/assister sweep also found many failures.
+
+Required fix:
+
+- make clip-start positioning/timing account for every chain participant's
+  reachable position under the configured speed/acceleration limits;
+- make the fallback genuinely total for every contract-valid moment;
+- add a scorer/assister position matrix (GK separately according to product
+  rules, plus DL/DC/DR/WBL/WBR/DM/MC/wide/AM/ST), partial/red-card rosters and
+  property/fuzz coverage asserting that `direct()` never throws.
+
+### P1 — historical generator versioning is currently only a convention
+
+`AnimationGeneratorRegistry.Generator` stores the final concrete
+`FrameCompiler`, and `FrameCompiler.compile()` always emits its single static
+`VERSION = 1`. Consequently a future v2 compiler cannot actually be registered
+beside v1 without changing the same class/code that historical v1 recipes use.
+The documented byte-identical survival guarantee is therefore not structural.
+
+Required fix:
+
+- introduce a versioned compiler/generator interface and immutable v1
+  implementation/library (`V1FrameCompiler`, `V1PatternLibrary`, or equivalent);
+- allow v1 and a synthetic v2 to coexist in the registry;
+- add a golden persisted-v1 recipe test proving that registering/rendering v2
+  does not change the v1 replay or fingerprint.
+
+### P1 — extra-time direction cannot be represented correctly
+
+`MatchMomentSpec.isFirstHalf()` treats every minute after regular first-half
+stoppage as the same half. Both extra-time periods therefore render in the same
+direction, and the initial ET direction is not safely derivable from just
+`homeTeamId + minute` anyway.
+
+Required fix: persist an explicit canonical period/attacking direction in the
+spec and recipe (preferred over inferring it), then test regular stoppage time,
+ET first period and ET second period.
+
+### P2 — replay/frame output is externally mutable
+
+`ReplayFrame.positions` is `List<double[]>`; the arrays are exposed directly,
+and `AnimationReplay` does not establish deep immutability. A caller can mutate
+a validated/enqueued replay in place and change its fingerprint. This was
+reproduced independently by assigning `positions().get(0)[0] = 999`.
+
+Required fix: use an immutable coordinate value (`Position`, recommended) or
+deep defensive copies on construction and access; add mutation-resistance tests
+for frames, replay lists and the queue.
+
+### P2 — deterministic output depends on caller roster order
+
+The same fixture/slot/seed and the same on-pitch player set produces different
+frames if the snapshot list is shuffled, because both weighted support picks
+and formation/jitter consume caller iteration order. This was reproduced
+independently.
+
+Required fix: carry the canonical `participantIndex`/tactical slot into the
+snapshot and normalize all selection order (playerId is acceptable only where
+slot order is irrelevant). Add shuffled-input tests that define and enforce the
+intended canonical behavior.
+
+### P2 — real supported positions WBL/WBR are mapped incorrectly
+
+The game generates and uses `WBL`/`WBR`, but `FrameCompiler.basePosition()`
+falls through to central midfield and `positionGroup()` treats them as
+attackers. Wing-backs therefore begin centrally and receive attacking ambient
+movement. Pattern preference lists also omit them from full-back roles.
+
+Required fix: support the complete production position vocabulary, map WBL/WBR
+as wide defenders/wing-backs, include them in appropriate overlap/cross/support
+pools, and use production-position fixtures in the physics sweep.
+
+### P2 — `assisterId == null` still renders a clean final assist
+
+For essentially every no-assist open-play sample, patterns synthesize a final
+`PASS teammate -> scorer`; the validator only checks the positive-assist case.
+That visually contradicts the canonical absence of an assist.
+
+Required fix: when assist is null, render a genuinely unassisted route (solo
+carry, loose/rebound/deflection/turnover before the scorer) rather than a clean
+final pass, and add the inverse contract assertion.
+
+### Integration gate — durable animation idempotency remains required
+
+The current in-memory `AnimationQueue` intentionally does not survive refresh
+or restart. Before enabling the flag, the integration slice must persist the
+recipe with a unique `(fixtureKey, slotIndex)` key, transactionally reuse it
+under concurrent requests, and prove cold restart/refresh idempotency. This may
+land after the canonical Revision 5 rebase, but it remains a release blocker;
+the engine must not be presented as end-to-end idempotent before that work.
+
+After the fixes, rerun the dedicated suite, the new adversarial/property tests,
+and the full backend suite, then set `Owner: CODEX`,
+`Status: REVIEW_REQUESTED`, increment `Review revision`, and include the new
+commit hash and exact test totals.
