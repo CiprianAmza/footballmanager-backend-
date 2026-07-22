@@ -1,26 +1,14 @@
 package com.footballmanagergamesimulator.controller;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.model.*;
-import com.footballmanagergamesimulator.person.CareerType;
-import com.footballmanagergamesimulator.person.ControlType;
-import com.footballmanagergamesimulator.person.PersonProfileRepository;
-import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.*;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -30,9 +18,6 @@ import java.util.stream.Collectors;
 @RequestMapping("/game")
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class GameController {
-
-    @PersistenceContext
-    private EntityManager entityManager;
 
     @Autowired
     UserContext userContext;
@@ -140,12 +125,9 @@ public class GameController {
     @Autowired GameStateService gameStateService;
     @Autowired GameLock gameLock;
     @Autowired FastForwardService fastForwardService;
-    @Autowired PersonProfileRepository personProfileRepository;
-    @Autowired PersonProfileService personProfileService;
+    @Autowired GameSaveImportService gameSaveImportService;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private static final int LEGACY_SAVE_VERSION = 5;
-    private static final int CURRENT_SAVE_VERSION = 6;
+    private static final int CURRENT_SAVE_VERSION = GameSaveImportService.CURRENT_SAVE_VERSION;
 
     // ==================== GAME SETUP ====================
 
@@ -775,25 +757,16 @@ public class GameController {
         save.put("personalizedTactics", personalizedTacticRepository.findAll());
         save.put("teamPlayerHistorical", teamPlayerHistoricalRelationRepository.findAll());
 
-        // Save only career state. Authentication data and authorities are
-        // account state and must never be exported into a game save.
-        save.put("users", userRepository.findAll().stream().map(this::exportUserCareerState).toList());
-        save.put("personProfiles", personProfileRepository.findAll());
+        // Account and PersonProfile identity are deliberately outside a global
+        // game save. They remain bound to the authenticated installation and
+        // can never be selected or reassociated by import payload IDs.
 
         return save;
     }
 
     @PostMapping("/import")
-    @Transactional
     public Map<String, Object> importGame(@RequestBody Map<String, Object> save) {
         Map<String, Object> result = new LinkedHashMap<>();
-        Optional<String> preflightError = validateSaveBeforeMutation(save);
-        if (preflightError.isPresent()) {
-            result.put("success", false);
-            result.put("error", preflightError.get());
-            return result;
-        }
-
         if (fastForwardService.isRunning()) {
             result.put("success", false);
             result.put("error", "Cancel the active fast-forward job before loading a game");
@@ -801,293 +774,27 @@ public class GameController {
         }
 
         gameLock.lock();
-        boolean unlockAfterTransaction = registerGameLockReleaseAfterTransaction();
         try {
-            // Disable referential integrity and truncate all tables
-            entityManager.createNativeQuery("SET REFERENTIAL_INTEGRITY FALSE").executeUpdate();
-
-            // Get all table names from H2 and truncate them (resets identity sequences too)
-            @SuppressWarnings("unchecked")
-            List<Object> tables = entityManager.createNativeQuery(
-                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'PUBLIC'").getResultList();
-            for (Object row : tables) {
-                String tableName = row instanceof Object[] ? (String) ((Object[]) row)[0] : (String) row;
-                if ("FLYWAY_SCHEMA_HISTORY".equalsIgnoreCase(tableName)
-                        || "USERS".equalsIgnoreCase(tableName)
-                        || "PERSON_PROFILE".equalsIgnoreCase(tableName)) continue;
-                entityManager.createNativeQuery("TRUNCATE TABLE \"" + tableName + "\" RESTART IDENTITY").executeUpdate();
-            }
-
-            entityManager.createNativeQuery("SET REFERENTIAL_INTEGRITY TRUE").executeUpdate();
-            entityManager.flush();
-            entityManager.clear();
-
-            // Import all entities using native SQL to preserve original IDs
-            importNative(save, "rounds", "ROUND");
-            importNative(save, "competitions", "COMPETITION");
-            importNative(save, "teams", "TEAM");
-            importNative(save, "teamFacilities", "TEAM_FACILITIES");
-            importNative(save, "stadiums", "STADIUM");
-            importNative(save, "gameCalendars", "GAME_CALENDAR");
-            importNative(save, "calendarEvents", "CALENDAR_EVENT");
-            importNative(save, "humans", "HUMAN");
-            importNative(save, "playerSkills", "PLAYER_SKILLS");
-            importNative(save, "youthPlayers", "YOUTH_PLAYER");
-            importNative(save, "playerInteractions", "PLAYER_INTERACTION");
-            importNative(save, "competitionTeamInfos", "COMPETITION_TEAM_INFO");
-            importNative(save, "competitionTeamInfoDetails", "COMPETITION_TEAM_INFO_DETAIL");
-            importNative(save, "competitionTeamInfoMatches", "COMPETITION_TEAM_INFO_MATCH");
-            importNative(save, "teamCompetitionDetails", "TEAM_COMPETITION_DETAIL");
-            importNative(save, "competitionHistories", "COMPETITION_HISTORY");
-            importNative(save, "clubCoefficients", "CLUB_COEFFICIENT");
-            importNative(save, "scorers", "SCORER");
-            importNative(save, "scorerLeaderboard", "SCORER_LEADERBOARD_ENTRY");
-            importNative(save, "matchEvents", "MATCH_EVENT");
-            importNative(save, "matchStats", "MATCH_STATS");
-            importNative(save, "playerSeasonStats", "PLAYER_SEASON_STAT");
-            importNative(save, "transfers", "TRANSFER");
-            importNative(save, "transferOffers", "TRANSFER_OFFER");
-            importNative(save, "loans", "LOAN");
-            importNative(save, "adminPlayerMovements", "ADMIN_PLAYER_MOVEMENT");
-            importNative(save, "injuries", "INJURY");
-            importNative(save, "suspensions", "SUSPENSION");
-            importNative(save, "sponsorships", "SPONSORSHIP");
-            importNative(save, "boardRequests", "BOARD_REQUEST");
-            importNative(save, "facilityUpgrades", "FACILITY_UPGRADE");
-            importNative(save, "awards", "AWARD");
-            importNative(save, "awardOverrides", "AWARD_OVERRIDE");
-            importNative(save, "seasonObjectives", "SEASON_OBJECTIVE");
-            importNative(save, "managerHistories", "MANAGER_HISTORY");
-            importNative(save, "managerInbox", "MANAGER_INBOX");
-            importNative(save, "pressConferences", "PRESS_CONFERENCE");
-            importNative(save, "nationalTeamCallups", "NATIONAL_TEAM_CALLUP");
-            importNative(save, "trainingSchedules", "TRAINING_SCHEDULE");
-            importNative(save, "personalizedTactics", "PERSONALIZED_TACTIC");
-            importNative(save, "teamPlayerHistorical", "TEAM_PLAYER_HISTORICAL_RELATION");
-            importNative(save, "financialRecords", "FINANCIAL_RECORD");
-            restoreUserCareerState(save.get("users"));
-            importNative(save, "personProfiles", "PERSON_PROFILE");
-
-            Number saveVersion = (Number) save.get("saveVersion");
-            if (saveVersion.intValue() == LEGACY_SAVE_VERSION) {
-                entityManager.flush();
-                entityManager.clear();
-                personProfileService.backfill();
-            }
-
-            // Loading an older save must respect the currently selected game
-            // mode. Keep historical rows, but make every player selectable.
-            if (gameplayFeatures.isPlayerAvailabilityDisabled()) {
-                entityManager.createNativeQuery("UPDATE SUSPENSION SET ACTIVE = FALSE").executeUpdate();
-                entityManager.createNativeQuery("UPDATE INJURY SET DAYS_REMAINING = 0").executeUpdate();
-                entityManager.createNativeQuery("UPDATE HUMAN SET CURRENT_STATUS = 'Available' "
-                        + "WHERE LOWER(CURRENT_STATUS) LIKE 'injur%'").executeUpdate();
-            }
-
-            // Only IDENTITY columns support ALTER COLUMN ... RESTART. Trying
-            // that statement on a SEQUENCE-backed primary key marks the whole
-            // transaction rollback-only even when the exception is caught.
-            @SuppressWarnings("unchecked")
-            List<Object> identityTables = entityManager.createNativeQuery("""
-                    SELECT TABLE_NAME FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = 'PUBLIC' AND COLUMN_NAME = 'ID' AND IS_IDENTITY = 'YES'
-                    """).getResultList();
-            for (Object row : identityTables) {
-                String tableName = row instanceof Object[] ? (String) ((Object[]) row)[0] : (String) row;
-                Number maxId = (Number) entityManager.createNativeQuery(
-                        "SELECT COALESCE(MAX(ID), 0) FROM \"" + tableName + "\"").getSingleResult();
-                entityManager.createNativeQuery("ALTER TABLE \"" + tableName
-                        + "\" ALTER COLUMN ID RESTART WITH " + (maxId.longValue() + 1)).executeUpdate();
-            }
-            resetSequence("CTI_SEQ", "COMPETITION_TEAM_INFO");
-            resetSequence("SCORER_SEQ", "SCORER");
-            resetSequence("PLAYER_SKILLS_SEQ", "PLAYER_SKILLS");
-            resetSequence("TPHR_SEQ", "TEAM_PLAYER_HISTORICAL_RELATION");
-
-            entityManager.flush();
-            entityManager.clear();
+            GameSaveImportService.ImportPlan plan = gameSaveImportService.prepare(save);
+            gameSaveImportService.apply(plan, gameplayFeatures.isPlayerAvailabilityDisabled());
 
             result.put("success", true);
             result.put("message", "Game loaded successfully");
             appendRestoredGameSummary(result);
+            try {
+                gameStateService.reloadAfterImport();
+            } catch (RuntimeException reloadFailure) {
+                // The database import is already committed and valid. A cache
+                // refresh problem must not be misreported as a rolled-back load.
+                result.put("warning", "Game loaded; runtime state will refresh on the next request");
+            }
         } catch (Exception e) {
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             result.put("success", false);
             result.put("error", e.getMessage());
-            e.printStackTrace();
         } finally {
-            if (!unlockAfterTransaction) {
-                gameLock.unlock();
-            }
+            gameLock.unlock();
         }
         return result;
-    }
-
-    Optional<String> validateSaveBeforeMutation(Map<String, Object> save) {
-        if (save == null) return Optional.of("Invalid save: payload is required");
-        Object rawVersion = save.get("saveVersion");
-        if (!(rawVersion instanceof Number version)
-                || (version.intValue() != LEGACY_SAVE_VERSION && version.intValue() != CURRENT_SAVE_VERSION)) {
-            return Optional.of("Incompatible save version; expected 5 or 6");
-        }
-        if (!(save.get("rounds") instanceof List<?> rounds) || rounds.isEmpty()
-                || rounds.stream().anyMatch(row -> !(row instanceof Map<?, ?>))) {
-            return Optional.of("Invalid save: rounds must be a non-empty object list");
-        }
-        if (!(save.get("gameCalendars") instanceof List<?> calendars) || calendars.isEmpty()
-                || calendars.stream().anyMatch(row -> !(row instanceof Map<?, ?>))) {
-            return Optional.of("Invalid save: gameCalendars must be a non-empty object list");
-        }
-        Optional<String> userError = validateUsers(save.get("users"));
-        if (userError.isPresent()) return userError;
-        if (version.intValue() == CURRENT_SAVE_VERSION) {
-            Optional<String> profileError = validateProfiles(save.get("personProfiles"));
-            if (profileError.isPresent()) return profileError;
-        }
-        return Optional.empty();
-    }
-
-    private Optional<String> validateUsers(Object rawUsers) {
-        if (rawUsers == null) return Optional.empty();
-        if (!(rawUsers instanceof List<?> users)) return Optional.of("Invalid save: users must be a list");
-        Set<Object> ids = new HashSet<>();
-        Set<String> usernames = new HashSet<>();
-        Set<String> emails = new HashSet<>();
-        for (Object raw : users) {
-            if (!(raw instanceof Map<?, ?> user)) return Optional.of("Invalid save: user row must be an object");
-            Object id = user.get("id");
-            Object username = user.get("username");
-            Object email = user.get("email");
-            Object password = user.get("password");
-            if (!(id instanceof Number)) {
-                return Optional.of("Invalid save: every user needs an id");
-            }
-            if (password != null && !(password instanceof String)) {
-                return Optional.of("Invalid save: password value has an invalid type");
-            }
-            if (!ids.add(((Number) id).longValue())) {
-                return Optional.of("Invalid save: duplicate user identity");
-            }
-            if (username != null && (!(username instanceof String name) || name.isBlank()
-                    || !usernames.add(name.toLowerCase(Locale.ROOT)))) {
-                return Optional.of("Invalid save: invalid or duplicate username");
-            }
-            if (email instanceof String value && !value.isBlank()
-                    && !emails.add(value.toLowerCase(Locale.ROOT))) {
-                return Optional.of("Invalid save: duplicate user email");
-            }
-            for (String numericField : List.of("teamId", "lastTeamId", "managerId")) {
-                Object value = user.get(numericField);
-                if (value != null && !(value instanceof Number)) {
-                    return Optional.of("Invalid save: invalid user career state");
-                }
-            }
-            for (String booleanField : List.of("fired", "everManaged", "initialOffersGenerated")) {
-                Object value = user.get(booleanField);
-                if (value != null && !(value instanceof Boolean)) {
-                    return Optional.of("Invalid save: invalid user career state");
-                }
-            }
-            Object role = user.get("careerRole");
-            if (role != null) {
-                try {
-                    com.footballmanagergamesimulator.user.CareerRole.valueOf(String.valueOf(role));
-                } catch (IllegalArgumentException exception) {
-                    return Optional.of("Invalid save: unsupported career role");
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
-    private Optional<String> validateProfiles(Object rawProfiles) {
-        if (!(rawProfiles instanceof List<?> profiles)) {
-            return Optional.of("Invalid save v6: personProfiles must be a list");
-        }
-        Set<Long> ids = new HashSet<>();
-        Set<Long> userIds = new HashSet<>();
-        Set<Long> humanIds = new HashSet<>();
-        for (Object raw : profiles) {
-            if (!(raw instanceof Map<?, ?> profile) || !(profile.get("id") instanceof Number id)) {
-                return Optional.of("Invalid save v6: profile row must contain an id");
-            }
-            if (!ids.add(id.longValue())) return Optional.of("Invalid save v6: duplicate profile id");
-            if (!addUniqueNullable(profile.get("userId"), userIds)
-                    || !addUniqueNullable(profile.get("humanId"), humanIds)) {
-                return Optional.of("Invalid save v6: duplicate profile identity link");
-            }
-            try {
-                CareerType.valueOf(String.valueOf(profile.get("careerType")));
-                ControlType.valueOf(String.valueOf(profile.get("controlType")));
-            } catch (IllegalArgumentException exception) {
-                return Optional.of("Invalid save v6: unsupported profile type");
-            }
-        }
-        return Optional.empty();
-    }
-
-    private boolean addUniqueNullable(Object raw, Set<Long> values) {
-        if (raw == null) return true;
-        return raw instanceof Number number && values.add(number.longValue());
-    }
-
-    private Map<String, Object> exportUserCareerState(User user) {
-        Map<String, Object> state = new LinkedHashMap<>();
-        state.put("id", user.getId());
-        state.put("teamId", user.getTeamId());
-        state.put("lastTeamId", user.getLastTeamId());
-        state.put("managerId", user.getManagerId());
-        state.put("fired", user.isFired());
-        state.put("everManaged", user.isEverManaged());
-        state.put("initialOffersGenerated", user.isInitialOffersGenerated());
-        return state;
-    }
-
-    private void restoreUserCareerState(Object rawUsers) {
-        if (!(rawUsers instanceof List<?> users)) return;
-        Map<String, String> allowed = Map.of(
-                "teamId", "TEAM_ID",
-                "lastTeamId", "LAST_TEAM_ID",
-                "managerId", "MANAGER_ID",
-                "fired", "FIRED",
-                "everManaged", "EVER_MANAGED",
-                "initialOffersGenerated", "INITIAL_OFFERS_GENERATED");
-        for (Object raw : users) {
-            if (!(raw instanceof Map<?, ?> row) || !(row.get("id") instanceof Number id)) continue;
-            List<String> assignments = new ArrayList<>();
-            List<Object> values = new ArrayList<>();
-            for (Map.Entry<String, String> field : allowed.entrySet()) {
-                if (!row.containsKey(field.getKey())) continue;
-                assignments.add(field.getValue() + " = ?");
-                values.add(row.get(field.getKey()));
-            }
-            if (assignments.isEmpty()) continue;
-            jakarta.persistence.Query query = entityManager.createNativeQuery(
-                    "UPDATE USERS SET " + String.join(", ", assignments) + " WHERE ID = ?");
-            for (int index = 0; index < values.size(); index++) {
-                query.setParameter(index + 1, values.get(index));
-            }
-            query.setParameter(values.size() + 1, id.longValue());
-            query.executeUpdate();
-        }
-    }
-
-    private boolean registerGameLockReleaseAfterTransaction() {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            return false;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                gameStateService.reloadAfterImport();
-            }
-
-            @Override
-            public void afterCompletion(int status) {
-                gameLock.unlock();
-            }
-        });
-        return true;
     }
 
     private void appendRestoredGameSummary(Map<String, Object> result) {
@@ -1125,145 +832,6 @@ public class GameController {
             profiles.add(profile);
         }
         result.put("profiles", profiles);
-    }
-
-    private void resetSequence(String sequenceName, String tableName) {
-        Number maxId = (Number) entityManager.createNativeQuery(
-                "SELECT COALESCE(MAX(ID), 0) FROM \"" + tableName + "\"").getSingleResult();
-        entityManager.createNativeQuery("ALTER SEQUENCE " + sequenceName
-                + " RESTART WITH " + (maxId.longValue() + 1)).executeUpdate();
-    }
-
-    // Global JSON property name -> SQL column name overrides
-    // ONLY for mappings that are safe across ALL tables
-    private static final Map<String, String> COLUMN_NAME_OVERRIDES = Map.ofEntries(
-            Map.entry("substitute", "IS_SUBSTITUTE")    // Lombok: boolean isSubstitute -> getter isSubstitute() -> Jackson key 'substitute'
-    );
-
-    // Per-table overrides for @Column(name=...) and boolean field naming mismatches
-    private static final Map<String, Map<String, String>> TABLE_COLUMN_OVERRIDES = Map.ofEntries(
-            // @Column(name=...) overrides
-            Map.entry("AWARD", Map.of("value", "AWARD_VALUE")),
-            Map.entry("BOARD_REQUEST", Map.of("day", "REQUEST_DAY", "status", "REQUEST_STATUS")),
-            Map.entry("CALENDAR_EVENT", Map.of("day", "EVENT_DAY", "status", "EVENT_STATUS")),
-            Map.entry("COMPETITION_TEAM_INFO_MATCH", Map.of(
-                    "day", "MATCH_DAY",
-                    "team1Score", "TEAM1_SCORE",
-                    "team2Score", "TEAM2_SCORE")),
-            Map.entry("COMPETITION_TEAM_INFO_DETAIL", Map.of("day", "MATCH_DAY")),
-            Map.entry("FINANCIAL_RECORD", Map.of("day", "RECORD_DAY")),
-            Map.entry("MATCH_EVENT", Map.of("minute", "EVENT_MINUTE")),
-            Map.entry("PLAYER_INTERACTION", Map.of("day", "INTERACTION_DAY")),
-            Map.entry("PRESS_CONFERENCE", Map.of("day", "CONFERENCE_DAY")),
-            // Boolean field overrides (Jackson+Lombok produce both "isX" and "x" keys)
-            // Human: boolean retired + @JsonProperty("isRetired") -> column RETIRED
-            Map.entry("HUMAN", Map.of("isRetired", "RETIRED", "retired", "RETIRED")),
-            // ScorerLeaderboardEntry: boolean isActive + @JsonProperty("isActive") -> column IS_ACTIVE
-            Map.entry("SCORER_LEADERBOARD_ENTRY", Map.of("isActive", "IS_ACTIVE", "active", "IS_ACTIVE")),
-            // ManagerInbox: boolean isRead + @JsonProperty("isRead") -> column IS_READ
-            Map.entry("MANAGER_INBOX", Map.of("isRead", "IS_READ", "read", "IS_READ"))
-            // Suspension: boolean active -> column ACTIVE (default camelToSnake works, no override needed)
-    );
-
-    @SuppressWarnings("unchecked")
-    private void importNative(Map<String, Object> save, String jsonKey, String tableName) {
-        Object data = save.get(jsonKey);
-        if (data == null) return;
-
-        // First, get actual column names from H2 schema for this table
-        Set<String> validColumns = new HashSet<>();
-        try {
-            @SuppressWarnings("unchecked")
-            List<Object> cols = entityManager.createNativeQuery(
-                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '" + tableName + "' AND TABLE_SCHEMA = 'PUBLIC'").getResultList();
-            for (Object col : cols) {
-                String colName = col instanceof Object[] ? (String) ((Object[]) col)[0] : (String) col;
-                validColumns.add(colName.toUpperCase());
-            }
-        } catch (Exception e) {
-            System.err.println("Could not get columns for " + tableName + ": " + e.getMessage());
-            return;
-        }
-
-        if (validColumns.isEmpty()) {
-            System.err.println("No columns found for table " + tableName + ", skipping");
-            return;
-        }
-
-        List<?> rows = (List<?>) data;
-        for (Object rowObj : rows) {
-            Map<String, Object> row = objectMapper.convertValue(rowObj, new TypeReference<Map<String, Object>>() {});
-
-            List<String> columns = new ArrayList<>();
-            List<Object> values = new ArrayList<>();
-            Set<String> addedColumns = new HashSet<>(); // prevent duplicate columns (Jackson+Lombok can emit both "isActive" and "active")
-
-            // Get table-specific overrides if any
-            Map<String, String> tableOverrides = TABLE_COLUMN_OVERRIDES.getOrDefault(tableName, Map.of());
-
-            for (Map.Entry<String, Object> entry : row.entrySet()) {
-                Object val = entry.getValue();
-                if (val == null) continue;
-
-                // Map JSON key to SQL column name: table-specific override > global override > camelToSnake
-                String colName;
-                if (tableOverrides.containsKey(entry.getKey())) {
-                    colName = tableOverrides.get(entry.getKey());
-                } else if (COLUMN_NAME_OVERRIDES.containsKey(entry.getKey())) {
-                    colName = COLUMN_NAME_OVERRIDES.get(entry.getKey());
-                } else {
-                    colName = camelToSnake(entry.getKey()).toUpperCase();
-                }
-
-                // Only include columns that actually exist in the table, and skip duplicates
-                if (!validColumns.contains(colName)) continue;
-                if (!addedColumns.add(colName)) continue;
-
-                columns.add(colName);
-                values.add(val);
-            }
-
-            if (columns.isEmpty()) continue;
-
-            // Person profiles survive the table truncation and are updated by
-            // identity. User account rows never pass through this generic
-            // importer; only an explicit allow-list of career fields is restored.
-            String sql;
-            if ("PERSON_PROFILE".equals(tableName)) {
-                sql = "MERGE INTO " + tableName + " (" + String.join(", ", columns)
-                        + ") KEY(ID) VALUES ("
-                        + columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ")";
-            } else {
-                sql = "INSERT INTO " + tableName + " (" + String.join(", ", columns)
-                        + ") VALUES ("
-                        + columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ")";
-            }
-
-            jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
-            for (int i = 0; i < values.size(); i++) {
-                query.setParameter(i + 1, values.get(i));
-            }
-            query.executeUpdate();
-        }
-    }
-
-    private String camelToSnake(String str) {
-        // Mimics Spring Boot's CamelCaseToUnderscoresNamingStrategy:
-        // Insert underscore before uppercase letter ONLY if preceded by a lowercase letter
-        // Digits do NOT trigger underscore: team1Id -> team1id -> TEAM1ID (matches H2 column)
-        StringBuilder result = new StringBuilder();
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (Character.isUpperCase(c)) {
-                if (i > 0 && Character.isLowerCase(str.charAt(i - 1))) {
-                    result.append('_');
-                }
-                result.append(Character.toLowerCase(c));
-            } else {
-                result.append(c);
-            }
-        }
-        return result.toString();
     }
 
     private String formatMoney(long value) {

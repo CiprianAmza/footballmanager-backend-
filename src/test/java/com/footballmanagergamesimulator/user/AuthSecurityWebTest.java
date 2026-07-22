@@ -3,23 +3,36 @@ package com.footballmanagergamesimulator.user;
 import com.footballmanagergamesimulator.config.WebSecurityConfig;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
+import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
+import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.JobOfferService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,10 +42,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {AuthController.class, CareerOnboardingController.class},
+@WebMvcTest(controllers = {AuthController.class, CareerOnboardingController.class,
+        AuthSecurityWebTest.SaveEndpointStub.class},
         properties = {"regent.enabled=false", "cors.allowed-origins=http://localhost:4200"})
 @ContextConfiguration(classes = {AuthController.class, CareerOnboardingController.class,
-        WebSecurityConfig.class, CurrentUserService.class, UserDetailsServiceImpl.class})
+        CareerOnboardingService.class, AuthSecurityWebTest.SaveEndpointStub.class, WebSecurityConfig.class,
+        CurrentUserService.class, UserDetailsServiceImpl.class})
 class AuthSecurityWebTest {
 
     @Autowired private MockMvc mockMvc;
@@ -40,9 +55,15 @@ class AuthSecurityWebTest {
     @MockBean private UserRepository userRepository;
     @MockBean private UserService userService;
     @MockBean private PersonProfileService profileService;
-    @MockBean private CareerOnboardingService onboardingService;
+    @MockBean private HumanRepository humanRepository;
+    @MockBean private TeamRepository teamRepository;
+    @MockBean private RoundRepository roundRepository;
+    @MockBean private JobOfferService jobOfferService;
+    @SpyBean private CareerOnboardingService onboardingService;
 
     private User user;
+    private User chairman;
+    private User admin;
     private PersonProfile profile;
 
     @BeforeEach
@@ -58,8 +79,29 @@ class AuthSecurityWebTest {
         profile = new PersonProfile();
         profile.setId(9L);
         profile.setUserId(1);
-        when(userRepository.findByUsernameIgnoreCase("alice")).thenReturn(Optional.of(user));
-        when(profileService.requireForUser(user)).thenReturn(profile);
+        chairman = account(2, "chairman", "USER", CareerRole.CHAIRMAN);
+        admin = account(3, "admin", "ADMIN", CareerRole.MANAGER);
+        when(userRepository.findByUsernameIgnoreCase(anyString())).thenAnswer(invocation -> {
+            String username = invocation.getArgument(0, String.class);
+            return Optional.ofNullable(Map.of(
+                    "alice", user,
+                    "chairman", chairman,
+                    "admin", admin).get(username.toLowerCase()));
+        });
+        when(userRepository.findByIdForUpdate(org.mockito.ArgumentMatchers.anyInt())).thenAnswer(invocation -> {
+            int id = invocation.getArgument(0, Integer.class);
+            return Map.of(1, user, 2, chairman, 3, admin).entrySet().stream()
+                    .filter(entry -> entry.getKey() == id)
+                    .map(Map.Entry::getValue)
+                    .findFirst();
+        });
+        when(profileService.requireForUser(any())).thenAnswer(invocation -> {
+            User actor = invocation.getArgument(0, User.class);
+            PersonProfile actorProfile = new PersonProfile();
+            actorProfile.setId(actor.getId() + 8L);
+            actorProfile.setUserId(actor.getId());
+            return actorProfile;
+        });
     }
 
     @Test
@@ -99,7 +141,7 @@ class AuthSecurityWebTest {
         mockMvc.perform(get("/game/isSetupComplete").session(session).param("userId", "999"))
                 .andExpect(status().isForbidden());
 
-        when(onboardingService.setupManager(any(), any())).thenReturn(Map.of("success", true));
+        doReturn(Map.of("success", true)).when(onboardingService).setupManager(any(), any());
         mockMvc.perform(post("/api/career/manager/setup").session(session).with(csrf())
                         .contentType("application/json")
                         .content("{\"managerName\":\"Alice\",\"managerAge\":35,\"teamId\":2,\"freeAgent\":false,\"userId\":999}"))
@@ -112,6 +154,44 @@ class AuthSecurityWebTest {
         MockHttpSession session = login();
         mockMvc.perform(get("/boardroom/humans").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(get("/admin/users").session(session)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void globalSaveMatrixIsAdminOnlyAndImportStillRequiresCsrf() throws Exception {
+        for (String username : new String[]{"alice", "chairman"}) {
+            MockHttpSession session = login(username);
+            mockMvc.perform(get("/game/export").session(session)).andExpect(status().isForbidden());
+            mockMvc.perform(post("/game/import").session(session).with(csrf())
+                            .contentType("application/json").content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+
+        MockHttpSession adminSession = login("admin");
+        mockMvc.perform(get("/game/export").session(adminSession)).andExpect(status().isOk());
+        mockMvc.perform(post("/game/import").session(adminSession)
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/game/import").session(adminSession).with(csrf())
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void secondUserGetsHttpConflictWhenTryingToTakeControlledTeam() throws Exception {
+        User victim = chairman;
+        victim.setTeamId(44L);
+        victim.setManagerId(10L);
+        Team controlledTeam = new Team();
+        controlledTeam.setId(44L);
+        when(teamRepository.findByIdForUpdate(44L)).thenReturn(Optional.of(controlledTeam));
+        when(userRepository.findAllByTeamId(44L)).thenReturn(java.util.List.of(victim));
+
+        mockMvc.perform(post("/api/career/manager/setup").session(login("alice")).with(csrf())
+                        .contentType("application/json")
+                        .content("{\"managerName\":\"Attacker\",\"managerAge\":40,\"teamId\":44,\"freeAgent\":false}"))
+                .andExpect(status().isConflict());
+        assertThat(victim.getTeamId()).isEqualTo(44L);
+        assertThat(victim.getManagerId()).isEqualTo(10L);
     }
 
     @Test
@@ -139,12 +219,41 @@ class AuthSecurityWebTest {
     }
 
     private MockHttpSession login() throws Exception {
+        return login("alice");
+    }
+
+    private MockHttpSession login(String username) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/auth/login").with(csrf())
                         .contentType("application/json")
-                        .content("{\"username\":\"alice\",\"password\":\"correct-password\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"correct-password\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userId").value(1))
                 .andReturn();
         return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    private User account(int id, String username, String roles, CareerRole careerRole) {
+        User account = new User();
+        account.setId(id);
+        account.setUsername(username);
+        account.setEmail(username + "@example.com");
+        account.setPassword(passwordEncoder.encode("correct-password"));
+        account.setRoles(roles);
+        account.setCareerRole(careerRole);
+        account.setActive(true);
+        return account;
+    }
+
+    @RestController
+    @RequestMapping("/game")
+    static class SaveEndpointStub {
+        @GetMapping("/export")
+        Map<String, Object> export() {
+            return Map.of("saveVersion", 6);
+        }
+
+        @PostMapping("/import")
+        Map<String, Object> importSave() {
+            return Map.of("success", true);
+        }
     }
 }

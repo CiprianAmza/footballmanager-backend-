@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -43,6 +44,9 @@ public class CareerOnboardingService {
 
     @Transactional
     public Map<String, Object> setupManager(User user, ManagerSetupRequest request) {
+        int authenticatedUserId = user.getId();
+        user = userRepository.findByIdForUpdate(authenticatedUserId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user no longer exists"));
         requireRole(user, CareerRole.MANAGER);
         if (user.getManagerId() != null) {
             Human existing = humanRepository.findById(user.getManagerId())
@@ -68,10 +72,15 @@ public class CareerOnboardingService {
             user.setEverManaged(false);
             user.setInitialOffersGenerated(false);
         } else {
-            Team team = teamRepository.findById(request.teamId())
+            Team team = teamRepository.findByIdForUpdate(request.teamId())
                     .orElseThrow(() -> new IllegalArgumentException("Team not found"));
+            boolean controlledByAnotherUser = userRepository.findAllByTeamId(team.getId()).stream()
+                    .anyMatch(controller -> controller.getId() != authenticatedUserId);
+            if (controlledByAnotherUser) {
+                throw new CareerControlConflictException("Team is controlled by another user");
+            }
             List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.MANAGER_TYPE);
-            manager = managers.isEmpty() ? new Human() : managers.get(0);
+            manager = managers.stream().min(Comparator.comparingLong(Human::getId)).orElseGet(Human::new);
             manager.setName(request.managerName().trim());
             manager.setAge(request.managerAge());
             manager.setTeamId(team.getId());

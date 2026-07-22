@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.person;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.user.CareerRole;
+import com.footballmanagergamesimulator.user.CareerControlConflictException;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -45,14 +46,23 @@ public class PersonProfileService {
 
     @Transactional
     public PersonProfile attachManager(User user, Human manager) {
-        PersonProfile profile = profileRepository.findByUserId(user.getId())
+        PersonProfile humanProfile = profileRepository.findByHumanIdForUpdate(manager.getId()).orElse(null);
+        if (humanProfile != null && humanProfile.getUserId() != null
+                && !humanProfile.getUserId().equals(user.getId())) {
+            throw new CareerControlConflictException("Manager identity is controlled by another user");
+        }
+
+        PersonProfile profile = profileRepository.findByUserIdForUpdate(user.getId())
                 .orElseGet(() -> createForUser(user, manager.getName()));
-        profileRepository.findByHumanId(manager.getId())
-                .filter(other -> other.getId() != profile.getId())
-                .ifPresent(other -> {
-                    profileRepository.delete(other);
-                    profileRepository.flush();
-                });
+        if (profile.getHumanId() != null && !profile.getHumanId().equals(manager.getId())) {
+            throw new CareerControlConflictException("User already controls another manager identity");
+        }
+        if (humanProfile != null && humanProfile.getId() != profile.getId()) {
+            // The Human profile is AI-only. Preserve the user's canonical
+            // profile and remove only the unowned AI duplicate.
+            profileRepository.delete(humanProfile);
+            profileRepository.flush();
+        }
         profile.setHumanId(manager.getId());
         profile.setCareerType(CareerType.MANAGER);
         profile.setControlType(ControlType.USER);
@@ -90,7 +100,16 @@ public class PersonProfileService {
                     : profileRepository.findByUserId(linkedUser.getId()).orElse(null);
             PersonProfile profile;
             if (userProfile != null) {
+                if (userProfile.getHumanId() != null && !userProfile.getHumanId().equals(human.getId())) {
+                    throw new CareerControlConflictException(
+                            "User profile is already linked to another Human identity");
+                }
                 if (humanProfile != null && humanProfile.getId() != userProfile.getId()) {
+                    if (humanProfile.getUserId() != null
+                            && !humanProfile.getUserId().equals(linkedUser.getId())) {
+                        throw new CareerControlConflictException(
+                                "Human identity is controlled by another user");
+                    }
                     profileRepository.delete(humanProfile);
                     profileRepository.flush();
                 }

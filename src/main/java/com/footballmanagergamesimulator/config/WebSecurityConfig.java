@@ -95,6 +95,8 @@ public class WebSecurityConfig {
                     requests.requestMatchers("/h2-console/**").denyAll();
                     requests.requestMatchers(HttpMethod.POST, "/game/setup").denyAll();
                     requests.requestMatchers(HttpMethod.GET, "/game/isSetupComplete").denyAll();
+                    requests.requestMatchers(HttpMethod.GET, "/game/export").hasRole("ADMIN");
+                    requests.requestMatchers(HttpMethod.POST, "/game/import").hasRole("ADMIN");
                     if (!regentEnabled) requests.requestMatchers("/boardroom/**").denyAll();
                     else requests.requestMatchers("/boardroom/**").authenticated();
                     requests.requestMatchers("/admin/login").permitAll();
