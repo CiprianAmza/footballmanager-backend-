@@ -67,6 +67,11 @@ awards:
 # so behaviour is unchanged unless explicitly overridden.
 
 match:
+  animation:
+    v2:
+      enabled: false    # v2 Animation Director; stays off until the canonical refactor wires it
+      max-player-step: 0.9
+      max-player-acceleration: 0.45
   engine:
 
     power:
