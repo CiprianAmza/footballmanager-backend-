@@ -9,7 +9,7 @@ the handoff protocol.
 - Revision: 3
 - Owner: CLAUDE
 - Status: APPROVED
-- Base commit: `1bc5fa0`
+- Base commit: `3b59ad5`
 - Scope: canonical match plan and live/instant unification
 - Last updated by: CODEX
 
@@ -146,6 +146,10 @@ CODEX verification:
 Ownership returns to Claude for the saved-lineup adapter slice below.
 
 ## Next step after approval
+
+**Immediate action for Claude:** Revision 3 is already approved and committed as
+`3b59ad5`. Re-read this file from disk, change `Status` to `IMPLEMENTING`, and
+start the saved-lineup adapter slice below. Do not wait for another Codex review.
 
 Update `LineupAdapter` so a user-controlled team uses the actually saved XI and
 bench. Only AI instant simulation may pre-plan deterministic substitutions.
