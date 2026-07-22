@@ -8,8 +8,10 @@ import java.util.Set;
 
 /** Executable canonical and physical contract for completed replays. */
 public final class AnimationInvariantValidator {
-    private static final double POSITION_ROUNDING = 0.15;
-    private static final double ACCELERATION_ROUNDING = 0.30;
+    /** Pure floating-point comparison guard; NOT a tolerance above the configured limit. */
+    private static final double EPS = 1e-9;
+    /** Ball-attached-to-carrier slack; the carried ball equals the carrier position exactly. */
+    private static final double CARRIER_SLACK = 0.05;
     private final AnimationPhysicsProfile profile;
 
     public AnimationInvariantValidator(AnimationPhysicsProfile profile) {
@@ -43,8 +45,9 @@ public final class AnimationInvariantValidator {
                 if (frame > 0) {
                     PitchPoint previous = replay.frames().get(frame - 1).positions().get(player);
                     double step = point.distanceTo(previous);
-                    if (step > profile.maxPlayerStep() + POSITION_ROUNDING)
-                        errors.add("frame " + frame + " player " + player + " speed " + step);
+                    if (step > profile.maxPlayerStep() + EPS)
+                        errors.add("frame " + frame + " player " + player + " step " + step
+                                + " over " + profile.maxPlayerStep());
                 }
                 if (frame > 1) {
                     PitchPoint before = replay.frames().get(frame - 2).positions().get(player);
@@ -52,19 +55,20 @@ public final class AnimationInvariantValidator {
                     double ax = (point.x() - previous.x()) - (previous.x() - before.x());
                     double ay = (point.y() - previous.y()) - (previous.y() - before.y());
                     double acceleration = Math.hypot(ax, ay);
-                    if (acceleration > profile.maxPlayerAcceleration() + ACCELERATION_ROUNDING)
-                        errors.add("frame " + frame + " player " + player + " acceleration " + acceleration);
+                    if (acceleration > profile.maxPlayerAcceleration() + EPS)
+                        errors.add("frame " + frame + " player " + player + " acceleration " + acceleration
+                                + " over " + profile.maxPlayerAcceleration());
                 }
             }
             if (frame > 0) {
                 double ballStep = current.ball().distanceTo(replay.frames().get(frame - 1).ball());
-                if (ballStep > profile.maxBallStep() + POSITION_ROUNDING)
-                    errors.add("frame " + frame + " ball speed " + ballStep);
+                if (ballStep > profile.maxBallStep() + EPS)
+                    errors.add("frame " + frame + " ball step " + ballStep + " over " + profile.maxBallStep());
             }
             if (current.ballCarrierId() != 0) {
                 int carrier = indexOf(replay.players(), current.ballCarrierId());
                 if (carrier < 0) errors.add("frame " + frame + " unknown carrier");
-                else if (current.ball().distanceTo(current.positions().get(carrier)) > POSITION_ROUNDING)
+                else if (current.ball().distanceTo(current.positions().get(carrier)) > CARRIER_SLACK)
                     errors.add("frame " + frame + " ball detached from carrier");
             }
         }
@@ -77,6 +81,7 @@ public final class AnimationInvariantValidator {
         if (!replay.key().equals(spec.key())) errors.add("identity changed");
         if (replay.minute() != spec.minute()) errors.add("minute changed");
         if (replay.firstHalfStoppage() != spec.firstHalfStoppage()) errors.add("stoppage changed");
+        if (replay.period() != spec.period()) errors.add("period changed");
         if (replay.scoringTeamId() != spec.scoringTeamId()
                 || replay.defendingTeamId() != spec.defendingTeamId()
                 || replay.homeTeamId() != spec.homeTeamId()) errors.add("teams changed");
@@ -85,12 +90,15 @@ public final class AnimationInvariantValidator {
         if (replay.scorerId() != spec.scorerId()) errors.add("scorer changed");
         if (!Objects.equals(replay.assisterId(), spec.assisterId())) errors.add("assist changed");
         if (replay.renderedWithVersion() != spec.generatorVersion()) errors.add("version changed");
+        if (replay.homeAttacksRight() != spec.homeAttacksRight()) errors.add("attack direction changed");
+        if (replay.scoringTeamAttacksRight() != spec.scoringTeamAttacksRight()) errors.add("scoring direction changed");
     }
 
     private static void validateEvents(AnimationReplay replay, MatchMomentSpec spec,
                                        Set<Long> ids, List<String> errors) {
         AnimationEvent shot = null;
         AnimationEvent lastPass = null;
+        boolean passIntoScorer = false;
         for (AnimationEvent event : replay.events()) {
             if (event.frame() < 0 || event.frame() > FrameCompiler.TOTAL_FRAMES)
                 errors.add("event outside frames");
@@ -100,7 +108,11 @@ public final class AnimationInvariantValidator {
                 errors.add("event receiver outside snapshot");
             if ("PASS".equals(event.type())) {
                 lastPass = event;
-                validatePass(replay, event, errors);
+                if (event.toPlayerId() == spec.scorerId()) passIntoScorer = true;
+                validateTransfer(replay, event, errors);
+            }
+            if ("LOOSE".equals(event.type())) {
+                validateTransfer(replay, event, errors);
             }
             if ("SHOT".equals(event.type())) {
                 if (shot != null) errors.add("multiple shots");
@@ -114,8 +126,12 @@ public final class AnimationInvariantValidator {
         if (shotFrame.ball().distanceTo(shotFrame.positions().get(scorerIndex)) > 3.0)
             errors.add("scorer does not touch ball at shot");
         if (spec.assisterId() != null) {
+            // Forward contract: the canonical assist plays the final clean pass into the scorer.
             if (lastPass == null || lastPass.fromPlayerId() != spec.assisterId()
                     || lastPass.toPlayerId() != spec.scorerId()) errors.add("canonical assist is not final pass");
+        } else {
+            // Inverse contract: with no assist there can be no clean team-mate pass into the scorer.
+            if (passIntoScorer) errors.add("unassisted goal has a clean pass into the scorer");
         }
 
         AnimationEvent result = replay.events().isEmpty() ? null : replay.events().get(replay.events().size() - 1);
@@ -153,11 +169,11 @@ public final class AnimationInvariantValidator {
         }
     }
 
-    private static void validatePass(AnimationReplay replay, AnimationEvent pass, List<String> errors) {
+    private static void validateTransfer(AnimationReplay replay, AnimationEvent pass, List<String> errors) {
         AnimationFrame release = replay.frames().get(pass.frame());
         int passer = indexOf(replay.players(), pass.fromPlayerId());
         if (passer >= 0 && release.ball().distanceTo(release.positions().get(passer)) > 3.0)
-            errors.add("pass not released by passer");
+            errors.add("ball not released by " + pass.type().toLowerCase() + " origin");
         for (int frame = pass.frame() + 1; frame < replay.frames().size(); frame++) {
             long carrier = replay.frames().get(frame).ballCarrierId();
             if (carrier == 0) continue;

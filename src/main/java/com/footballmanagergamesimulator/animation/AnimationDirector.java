@@ -35,20 +35,42 @@ public class AnimationDirector {
     public DirectedAnimation direct(MatchMomentSpec spec) {
         GeneratorCatalog.Generator generator = catalog.require(spec.generatorVersion());
         long seed = AnimationSeed.derive(spec.planSeed(), spec.fixtureKey(), spec.slotIndex(), spec.generatorVersion());
-        PlayPattern selected = select(spec, seed, generator);
-        AnimationReplay replay = render(spec, seed, selected, generator);
-        List<String> errors = validator.validate(replay, spec);
-        if (!errors.isEmpty() && selected.id() != PatternId.SAFE_FALLBACK) {
-            replay = render(spec, seed, generator.fallback(), generator);
-            errors = validator.validate(replay, spec);
-        }
-        if (!errors.isEmpty()) throw new IllegalStateException("cannot animate " + spec.key() + ": " + errors);
+        AnimationReplay replay = directReplay(spec, seed, generator);
 
         AnimationRecipe recipe = new AnimationRecipe(spec.fixtureKey(), spec.slotIndex(), spec.planSeed(), seed,
                 spec.generatorVersion(), replay.pattern(), spec.minute(), spec.firstHalfStoppage(),
-                spec.scoringTeamId(), spec.defendingTeamId(), spec.homeTeamId(), spec.phase(), spec.outcome(),
-                spec.scorerId(), spec.assisterId(), spec.playersOnPitch(), spec.tacticalContext(), profile);
+                spec.period(), spec.scoringTeamId(), spec.defendingTeamId(), spec.homeTeamId(), spec.phase(),
+                spec.outcome(), spec.scorerId(), spec.assisterId(), spec.playersOnPitch(), spec.tacticalContext(),
+                profile);
         return new DirectedAnimation(replay, recipe);
+    }
+
+    /**
+     * Renders a valid replay for any valid spec. A recoverable render failure or
+     * an invalid specialised replay is absorbed by a total safe fallback; the
+     * fallback preserves every canonical fact and honours the same physical
+     * limits. Only a fallback that itself cannot render — which the accepted
+     * physics domain forbids — surfaces as a programming error.
+     */
+    private AnimationReplay directReplay(MatchMomentSpec spec, long seed, GeneratorCatalog.Generator generator) {
+        PlayPattern selected = select(spec, seed, generator);
+        if (selected.id() != PatternId.SAFE_FALLBACK) {
+            try {
+                AnimationReplay replay = render(spec, seed, selected, generator);
+                if (validator.validate(replay, spec).isEmpty()) return replay;
+            } catch (RenderException recoverable) {
+                // fall through to the total fallback below
+            }
+        }
+        AnimationReplay fallback;
+        try {
+            fallback = render(spec, seed, generator.fallback(), generator);
+        } catch (RenderException impossible) {
+            throw new IllegalStateException("safe fallback cannot render accepted spec " + spec.key(), impossible);
+        }
+        List<String> errors = validator.validate(fallback, spec);
+        if (!errors.isEmpty()) throw new IllegalStateException("cannot animate " + spec.key() + ": " + errors);
+        return fallback;
     }
 
     public AnimationReplay replay(AnimationRecipe recipe) {

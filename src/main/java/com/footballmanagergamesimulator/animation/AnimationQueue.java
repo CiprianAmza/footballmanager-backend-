@@ -31,6 +31,7 @@ public final class AnimationQueue {
                 && left.homeTeamId() == right.homeTeamId()
                 && left.phase() == right.phase()
                 && left.outcome() == right.outcome()
+                && left.period() == right.period()
                 && left.pattern() == right.pattern()
                 && left.renderedWithVersion() == right.renderedWithVersion()
                 && left.scorerId() == right.scorerId()

@@ -12,6 +12,7 @@ public record AnimationRecipe(
         PatternId pattern,
         int minute,
         int firstHalfStoppage,
+        MatchPeriod period,
         long scoringTeamId,
         long defendingTeamId,
         long homeTeamId,
@@ -27,7 +28,7 @@ public record AnimationRecipe(
         if (pattern == null || physicsProfile == null) throw new IllegalArgumentException("pattern/profile required");
         playersOnPitch = playersOnPitch == null ? null : List.copyOf(playersOnPitch);
         MatchMomentSpec spec = new MatchMomentSpec(fixtureKey, slotIndex, planSeed, generatorVersion,
-                minute, firstHalfStoppage, scoringTeamId, defendingTeamId, homeTeamId,
+                minute, firstHalfStoppage, period, scoringTeamId, defendingTeamId, homeTeamId,
                 phase, outcome, scorerId, assisterId, playersOnPitch, tacticalContext);
         long expected = AnimationSeed.derive(planSeed, fixtureKey, slotIndex, generatorVersion);
         if (seed != expected) throw new IllegalArgumentException("recipe seed does not match " + spec.key());
@@ -35,7 +36,7 @@ public record AnimationRecipe(
 
     public MatchMomentSpec toSpec() {
         return new MatchMomentSpec(fixtureKey, slotIndex, planSeed, generatorVersion,
-                minute, firstHalfStoppage, scoringTeamId, defendingTeamId, homeTeamId,
+                minute, firstHalfStoppage, period, scoringTeamId, defendingTeamId, homeTeamId,
                 phase, outcome, scorerId, assisterId, playersOnPitch, tacticalContext);
     }
 

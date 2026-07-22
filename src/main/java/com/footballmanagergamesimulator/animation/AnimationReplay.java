@@ -8,6 +8,7 @@ public record AnimationReplay(
         int slotIndex,
         int minute,
         int firstHalfStoppage,
+        MatchPeriod period,
         long scoringTeamId,
         long defendingTeamId,
         long homeTeamId,
@@ -36,6 +37,7 @@ public record AnimationReplay(
     public long fingerprint() {
         long hash = AnimationSeed.mix(AnimationSeed.derive(0, fixtureKey, slotIndex, renderedWithVersion));
         hash = AnimationSeed.mix(hash ^ minute ^ pattern.ordinal());
+        hash = AnimationSeed.mix(hash ^ period.ordinal());
         for (AnimationFrame frame : frames) {
             hash = AnimationSeed.mix(hash ^ Double.doubleToLongBits(frame.ball().x()));
             hash = AnimationSeed.mix(hash ^ Double.doubleToLongBits(frame.ball().y()));

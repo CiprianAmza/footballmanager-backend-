@@ -1,7 +1,9 @@
 package com.footballmanagergamesimulator.animation;
 
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Immutable canonical truth consumed by the animation-only layer. */
@@ -12,6 +14,7 @@ public record MatchMomentSpec(
         int generatorVersion,
         int minute,
         int firstHalfStoppage,
+        MatchPeriod period,
         long scoringTeamId,
         long defendingTeamId,
         long homeTeamId,
@@ -22,11 +25,29 @@ public record MatchMomentSpec(
         List<PlayerSnapshot> playersOnPitch,
         TacticalContext tacticalContext) {
 
+    /**
+     * Stable ordering of tactical positions. Participants are canonicalised by
+     * (position rank, playerId) before any list-order-dependent consumption, so
+     * that the same set of players in any input order produces the exact same
+     * pattern, frames, fingerprint and recipe.
+     */
+    private static final Map<String, Integer> POSITION_RANK = Map.ofEntries(
+            Map.entry("GK", 0),
+            Map.entry("DL", 1), Map.entry("WBL", 2), Map.entry("DC", 3),
+            Map.entry("DR", 4), Map.entry("WBR", 5),
+            Map.entry("DM", 6), Map.entry("ML", 7), Map.entry("MC", 8), Map.entry("MR", 9),
+            Map.entry("AML", 10), Map.entry("AMC", 11), Map.entry("AMR", 12), Map.entry("ST", 13));
+
+    private static final Comparator<PlayerSnapshot> CANONICAL =
+            Comparator.comparingInt((PlayerSnapshot p) -> POSITION_RANK.getOrDefault(p.tacticalPosition(), 99))
+                    .thenComparingLong(PlayerSnapshot::playerId);
+
     public MatchMomentSpec {
         new AnimationKey(fixtureKey, slotIndex);
         if (generatorVersion <= 0) throw new IllegalArgumentException("generatorVersion must be positive");
         if (minute < 1) throw new IllegalArgumentException("minute must be positive");
         if (firstHalfStoppage < 0) throw new IllegalArgumentException("stoppage must be non-negative");
+        if (period == null) throw new IllegalArgumentException("period is required");
         if (scoringTeamId <= 0 || defendingTeamId <= 0 || homeTeamId <= 0)
             throw new IllegalArgumentException("team ids must be positive");
         if (scoringTeamId == defendingTeamId) throw new IllegalArgumentException("teams must differ");
@@ -68,12 +89,14 @@ public record MatchMomentSpec(
         return new AnimationKey(fixtureKey, slotIndex);
     }
 
+    /** Attackers in canonical (position rank, playerId) order, independent of snapshot input order. */
     public List<PlayerSnapshot> attackers() {
-        return playersOnPitch.stream().filter(p -> p.teamId() == scoringTeamId).toList();
+        return playersOnPitch.stream().filter(p -> p.teamId() == scoringTeamId).sorted(CANONICAL).toList();
     }
 
+    /** Defenders in canonical (position rank, playerId) order, independent of snapshot input order. */
     public List<PlayerSnapshot> defenders() {
-        return playersOnPitch.stream().filter(p -> p.teamId() == defendingTeamId).toList();
+        return playersOnPitch.stream().filter(p -> p.teamId() == defendingTeamId).sorted(CANONICAL).toList();
     }
 
     public PlayerSnapshot scorer() {
@@ -85,7 +108,14 @@ public record MatchMomentSpec(
         return playersOnPitch.stream().filter(p -> p.playerId() == assisterId).findFirst().orElseThrow();
     }
 
-    public boolean firstHalf() {
-        return minute <= 45 + firstHalfStoppage;
+    /** Canonical attack direction of the home team, derived from the explicit period. */
+    public boolean homeAttacksRight() {
+        return period.homeAttacksRight();
+    }
+
+    /** Whether the scoring team attacks the right-hand goal in this period. */
+    public boolean scoringTeamAttacksRight() {
+        boolean scoringIsHome = scoringTeamId == homeTeamId;
+        return scoringIsHome == homeAttacksRight();
     }
 }

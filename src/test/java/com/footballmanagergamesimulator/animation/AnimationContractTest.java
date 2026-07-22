@@ -11,7 +11,7 @@ class AnimationContractTest {
         List<PlayerSnapshot> players = new ArrayList<>(side(100, HOME, "Home"));
         players.addAll(side(200, AWAY, "Away"));
         MatchMomentSpec moment = new MatchMomentSpec(FIXTURE, 0, PLAN_SEED, 1, 30, 0,
-                HOME, AWAY, HOME, AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL,
+                MatchPeriod.FIRST_HALF, HOME, AWAY, HOME, AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL,
                 SCORER, ASSISTER, players, null);
         players.clear();
         assertEquals(22, moment.playersOnPitch().size());
@@ -23,7 +23,7 @@ class AnimationContractTest {
         players.addAll(side(200, AWAY, "Away"));
         players.add(new PlayerSnapshot(999, 30, "Intruder", 1, "MC", "CM", 60));
         assertThrows(IllegalArgumentException.class, () -> new MatchMomentSpec(FIXTURE, 0, PLAN_SEED, 1,
-                30, 0, HOME, AWAY, HOME, AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL,
+                30, 0, MatchPeriod.FIRST_HALF, HOME, AWAY, HOME, AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL,
                 SCORER, null, players, null));
     }
 
@@ -31,7 +31,7 @@ class AnimationContractTest {
         MatchMomentSpec s = spec();
         assertThrows(IllegalArgumentException.class, () -> new AnimationRecipe(s.fixtureKey(), s.slotIndex(),
                 s.planSeed(), 123, s.generatorVersion(), PatternId.SAFE_FALLBACK, s.minute(),
-                s.firstHalfStoppage(), s.scoringTeamId(), s.defendingTeamId(), s.homeTeamId(),
+                s.firstHalfStoppage(), s.period(), s.scoringTeamId(), s.defendingTeamId(), s.homeTeamId(),
                 s.phase(), s.outcome(), s.scorerId(), s.assisterId(), s.playersOnPitch(),
                 s.tacticalContext(), AnimationPhysicsProfile.defaults()));
     }
@@ -39,7 +39,7 @@ class AnimationContractTest {
     @Test void unavailableVersionFailsExplicitly() {
         MatchMomentSpec s = spec();
         MatchMomentSpec unavailable = new MatchMomentSpec(s.fixtureKey(), s.slotIndex(), s.planSeed(), 99,
-                s.minute(), s.firstHalfStoppage(), s.scoringTeamId(), s.defendingTeamId(), s.homeTeamId(),
+                s.minute(), s.firstHalfStoppage(), s.period(), s.scoringTeamId(), s.defendingTeamId(), s.homeTeamId(),
                 s.phase(), s.outcome(), s.scorerId(), s.assisterId(), s.playersOnPitch(), s.tacticalContext());
         assertThrows(UnsupportedAnimationVersionException.class, () -> new AnimationDirector().direct(unavailable));
     }

@@ -39,7 +39,8 @@ class AnimationQueueTest {
 
         AnimationReplay alteredMinute = new AnimationReplay(
                 replay.fixtureKey(), replay.slotIndex(), replay.minute() + 1, replay.firstHalfStoppage(),
-                replay.scoringTeamId(), replay.defendingTeamId(), replay.homeTeamId(), replay.phase(), replay.outcome(),
+                replay.period(), replay.scoringTeamId(), replay.defendingTeamId(), replay.homeTeamId(),
+                replay.phase(), replay.outcome(),
                 replay.pattern(), replay.renderedWithVersion(), replay.scorerId(), replay.assisterId(),
                 replay.homeAttacksRight(), replay.scoringTeamAttacksRight(), replay.players(), replay.frames(), replay.events());
 

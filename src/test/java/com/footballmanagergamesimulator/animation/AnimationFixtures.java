@@ -16,12 +16,24 @@ final class AnimationFixtures {
     private AnimationFixtures() { }
 
     static List<PlayerSnapshot> side(long firstId, long teamId, String prefix) {
+        return side(firstId, teamId, prefix, POSITIONS.length);
+    }
+
+    static List<PlayerSnapshot> side(long firstId, long teamId, String prefix, int count) {
         List<PlayerSnapshot> result = new ArrayList<>();
-        for (int i = 0; i < POSITIONS.length; i++) {
+        for (int i = 0; i < count; i++) {
             result.add(new PlayerSnapshot(firstId + i, teamId, prefix + " " + (i + 1),
                     i + 1, POSITIONS[i], "ROLE_" + POSITIONS[i], 60 + i));
         }
         return result;
+    }
+
+    /** Test convenience: map a minute to a period. The engine itself never derives direction from the minute. */
+    static MatchPeriod periodFor(int minute) {
+        if (minute <= 45) return MatchPeriod.FIRST_HALF;
+        if (minute <= 90) return MatchPeriod.SECOND_HALF;
+        if (minute <= 105) return MatchPeriod.EXTRA_TIME_FIRST_HALF;
+        return MatchPeriod.EXTRA_TIME_SECOND_HALF;
     }
 
     static MatchMomentSpec spec() {
@@ -38,9 +50,27 @@ final class AnimationFixtures {
         List<PlayerSnapshot> players = new ArrayList<>(side(100, HOME, "Home"));
         players.addAll(side(200, AWAY, "Away"));
         return new MatchMomentSpec(fixture, slot, PLAN_SEED,
-                AnimationDirector.CURRENT_GENERATOR_VERSION, minute, 2,
+                AnimationDirector.CURRENT_GENERATOR_VERSION, minute, 2, periodFor(minute),
                 HOME, AWAY, HOME, phase, outcome, SCORER, assist, players,
                 new TacticalContext("ATTACKING", "BALANCED", 55, 48));
+    }
+
+    /** Spec with an explicit period and a custom roster/scorer/assist, used by the new coverage tests. */
+    static MatchMomentSpec spec(MatchPeriod period, AnimationPhase phase, AnimationOutcome outcome, int slot,
+                                int minute, long scoringTeam, long defendingTeam, long homeTeam,
+                                long scorer, Long assist, List<PlayerSnapshot> players) {
+        return new MatchMomentSpec(FIXTURE, slot, PLAN_SEED, AnimationDirector.CURRENT_GENERATOR_VERSION,
+                minute, 2, period, scoringTeam, defendingTeam, homeTeam, phase, outcome, scorer, assist,
+                players, new TacticalContext("ATTACKING", "BALANCED", 55, 48));
+    }
+
+    /** Standard 11v11 GOAL spec with an explicit period, holding everything else fixed. */
+    static MatchMomentSpec specPeriod(MatchPeriod period, int slot, int minute, Long assist) {
+        List<PlayerSnapshot> players = new ArrayList<>(side(100, HOME, "Home"));
+        players.addAll(side(200, AWAY, "Away"));
+        return new MatchMomentSpec(FIXTURE, slot, PLAN_SEED, AnimationDirector.CURRENT_GENERATOR_VERSION,
+                minute, 2, period, HOME, AWAY, HOME, AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL,
+                SCORER, assist, players, new TacticalContext("ATTACKING", "BALANCED", 55, 48));
     }
 
     static void assertExact(AnimationReplay first, AnimationReplay second) {

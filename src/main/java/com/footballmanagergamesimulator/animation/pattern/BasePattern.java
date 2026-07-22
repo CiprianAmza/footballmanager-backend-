@@ -52,6 +52,22 @@ abstract class BasePattern implements PlayPattern {
         return new PlayScript.Touch(player.playerId(), point, dwell, bend);
     }
 
+    static PlayScript.Touch carry(PlayerSnapshot player, PitchPoint point, int dwell) {
+        return new PlayScript.Touch(player.playerId(), point, dwell, 0, PlayScript.ReceiveKind.CARRY);
+    }
+
+    /**
+     * A goal reached without a clean team-mate pass into the scorer: the scorer
+     * carries the ball solo from the first way-point to the shot. Used by every
+     * open-play pattern for its unassisted branch so the final delivery is never
+     * a clean assist. The last way-point is the shot location.
+     */
+    static PlayScript soloRun(PatternId id, MatchMomentSpec spec, List<PitchPoint> path, double shotBend) {
+        List<PlayScript.Touch> route = new ArrayList<>();
+        for (PitchPoint point : path) route.add(carry(spec.scorer(), point, 4));
+        return open(id, route, shotBend);
+    }
+
     static PlayScript open(PatternId id, List<PlayScript.Touch> touches, double shotBend) {
         return new PlayScript(id, touches, null, 0, shotBend);
     }
@@ -92,9 +108,5 @@ abstract class BasePattern implements PlayPattern {
 
     static PlayerSnapshot support(MatchMomentSpec spec, Random random, String... positions) {
         return support(spec, random, Set.of(), positions);
-    }
-
-    static PlayerSnapshot finalPasser(MatchMomentSpec spec, Random random, Set<Long> used, String... positions) {
-        return spec.assister() != null ? spec.assister() : support(spec, random, used, positions);
     }
 }
