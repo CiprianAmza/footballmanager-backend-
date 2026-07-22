@@ -58,7 +58,7 @@ public class LineupAdapter {
                 .map(v -> toContributor(v, skills, penaltyTakerId, freeKickTakerId)).collect(Collectors.toList());
 
         List<Lineup.SubMove> subs = simulateSubs(xi, bench, seed * 31 + teamId);
-        return new Lineup(xi, subs);
+        return new Lineup(xi, bench, subs);
     }
 
     private Contributor toContributor(PlayerView v, Map<Long, PlayerSkills> skills,
@@ -95,7 +95,7 @@ public class LineupAdapter {
 
         List<Lineup.SubMove> moves = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            moves.add(new Lineup.SubMove(minutes.get(i), outfieldStarters.get(i).playerId(), benchPool.get(i)));
+            moves.add(new Lineup.SubMove(i, minutes.get(i), outfieldStarters.get(i).playerId(), benchPool.get(i)));
         }
         return moves;
     }

@@ -4,11 +4,13 @@ import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.MatchPlanRepository;
+import com.footballmanagergamesimulator.repository.MatchAppearanceRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -31,6 +33,9 @@ public class MatchPlanService {
     @Autowired private InstantMatchExecutor instantExecutor;
     @Autowired private MatchEventRepository matchEventRepository;
     @Autowired private MatchPlanRepository matchPlanRepository;
+    @Autowired private MatchAppearanceRepository matchAppearanceRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchParticipantRepository matchParticipantRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchSubstitutionRepository matchSubstitutionRepository;
     @Autowired private CompetitionTeamInfoMatchRepository fixtureRepository;
     @Autowired private MatchEngineConfig engineConfig;
 
@@ -94,19 +99,33 @@ public class MatchPlanService {
         // observes and reuses the first transaction's terminal plan.
         lockCompetitionFixture(fixtureKey);
 
-        // Idempotent replay: a COMPLETED plan is reused as-is (0-0 => empty list).
+        // Reuse / regenerate policy:
+        //  - COMMITTED is immutable — always reuse, never regenerate, even on a
+        //    version mismatch (a finalized match must not be rewritten with today's
+        //    squads/attributes). A stale COMMITTED plan is migrated explicitly, not here.
+        //  - COMPLETED on the current version is reused as-is.
+        //  - PLANNED, or COMPLETED on a stale version (still pre-result-commit), may be
+        //    regenerated.
         MatchPlan existing = matchPlanRepository.findByFixtureKey(fixtureKey).orElse(null);
-        if (existing != null && isReusable(existing.getStatus())) {
-            return matchEventRepository.findByFixtureKeyOrderBySlotIndexAscEventOrderAsc(fixtureKey);
+        if (existing != null) {
+            boolean reuse = existing.getStatus() == MatchPlan.Status.COMMITTED
+                    || (existing.getStatus() == MatchPlan.Status.COMPLETED && isCurrentVersion(existing));
+            if (reuse) {
+                return matchEventRepository.findByFixtureKeyOrderBySlotIndexAscEventOrderAsc(fixtureKey);
+            }
+            deletePlanArtifacts(existing, fixtureKey); // safe: never COMMITTED here
         }
 
         long seed = seedFor(fixtureKey, competitionId, season, round, homeTeamId, awayTeamId);
-        MatchPlan plan = (existing != null) ? existing
-                : planningService.plan(fixtureKey, seed, homeTeamId, awayTeamId,
-                        homeScore90, awayScore90, homeScoreET, awayScoreET, homeShootout, awayShootout);
+        MatchPlan plan = planningService.plan(fixtureKey, seed, homeTeamId, awayTeamId,
+                homeScore90, awayScore90, homeScoreET, awayScoreET, homeShootout, awayShootout);
 
         Lineup home = lineupAdapter.build(homeTeamId, homeTactic, seed);
         Lineup away = lineupAdapter.build(awayTeamId, awayTactic, seed);
+
+        int duration = plan.hadExtraTime() ? 120 : 90;
+        MatchTimelineValidator.validate(home, duration);
+        MatchTimelineValidator.validate(away, duration);
 
         InstantMatchExecutor.MatchContext ctx =
                 new InstantMatchExecutor.MatchContext(fixtureKey, competitionId, season, round);
@@ -115,11 +134,70 @@ public class MatchPlanService {
         plan.setStatus(MatchPlan.Status.COMPLETED);
         matchPlanRepository.save(plan);          // plan + resolved slots
         matchEventRepository.saveAll(events);    // same transaction → atomic with the plan
+        persistTimeline(plan, home, homeTeamId, duration);
+        persistTimeline(plan, away, awayTeamId, duration);
         return events;
     }
 
-    private boolean isReusable(MatchPlan.Status status) {
-        return status == MatchPlan.Status.COMPLETED || status == MatchPlan.Status.COMMITTED;
+    /** Persist the canonical squad + substitutions, and the derived appearance projection. */
+    private void persistTimeline(MatchPlan plan, Lineup lineup, long teamId, int duration) {
+        List<MatchParticipant> participants = new ArrayList<>();
+        int index = 0;
+        for (Contributor c : lineup.getStartingXI()) {
+            participants.add(MatchParticipant.of(plan, teamId, index++, true, c));
+        }
+        for (Contributor c : lineup.getBench()) {
+            participants.add(MatchParticipant.of(plan, teamId, index++, false, c));
+        }
+        matchParticipantRepository.saveAll(participants);
+
+        List<MatchSubstitution> subs = new ArrayList<>();
+        for (Lineup.SubMove s : lineup.getSubs()) {
+            // subIndex comes from the SubMove's own sequence, not the persist order.
+            subs.add(new MatchSubstitution(plan, teamId, s.sequence(), s.minute(),
+                    s.offPlayerId(), s.on().playerId()));
+        }
+        matchSubstitutionRepository.saveAll(subs);
+
+        // Derived projection.
+        List<MatchAppearance> appearances = new ArrayList<>();
+        for (Lineup.Appearance a : lineup.appearances()) {
+            appearances.add(new MatchAppearance(plan, teamId, a.playerId(),
+                    a.startMinute(), a.exitMinute(), a.minutesPlayed(duration)));
+        }
+        matchAppearanceRepository.saveAll(appearances);
+    }
+
+    /** Remove a stale/leftover plan and every artifact that references it, then flush
+     *  so the fresh plan can reuse the unique fixture key. */
+    private void deletePlanArtifacts(MatchPlan plan, String fixtureKey) {
+        matchEventRepository.findByFixtureKey(fixtureKey).forEach(matchEventRepository::delete);
+        matchAppearanceRepository.findByMatchPlan(plan).forEach(matchAppearanceRepository::delete);
+        matchSubstitutionRepository.findByMatchPlanOrderByTeamIdAscSubIndexAsc(plan)
+                .forEach(matchSubstitutionRepository::delete);
+        matchParticipantRepository.findByMatchPlanOrderByTeamIdAscParticipantIndexAsc(plan).forEach(matchParticipantRepository::delete);
+        matchPlanRepository.delete(plan); // cascades goal slots
+        matchPlanRepository.flush();
+    }
+
+    /**
+     * Finalize the plan: COMPLETED → COMMITTED. Call this in the SAME transaction
+     * that persists the match result, {@code Scorer} and statistics, so a
+     * committed match is exactly one whose result is durably recorded — and from
+     * then on immutable. A no-op if the plan is missing or already committed.
+     */
+    @Transactional
+    public void markCommitted(String fixtureKey) {
+        matchPlanRepository.findByFixtureKey(fixtureKey).ifPresent(plan -> {
+            if (plan.getStatus() == MatchPlan.Status.COMPLETED) {
+                plan.setStatus(MatchPlan.Status.COMMITTED);
+                matchPlanRepository.save(plan);
+            }
+        });
+    }
+
+    private boolean isCurrentVersion(MatchPlan plan) {
+        return MatchPlanningService.ALGORITHM_VERSION.equals(plan.getAlgorithmVersion());
     }
 
     private void lockCompetitionFixture(String fixtureKey) {

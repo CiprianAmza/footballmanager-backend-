@@ -29,6 +29,9 @@ class MatchPlanIdempotencyTest {
 
     @Autowired private MatchPlanRepository planRepository;
     @Autowired private MatchEventRepository eventRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchAppearanceRepository appearanceRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchParticipantRepository participantRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchSubstitutionRepository substitutionRepository;
 
     private MatchPlanService service;
     private LineupAdapter lineupAdapter;
@@ -63,6 +66,9 @@ class MatchPlanIdempotencyTest {
         ReflectionTestUtils.setField(service, "instantExecutor", executor);
         ReflectionTestUtils.setField(service, "matchEventRepository", eventRepository);
         ReflectionTestUtils.setField(service, "matchPlanRepository", planRepository);
+        ReflectionTestUtils.setField(service, "matchAppearanceRepository", appearanceRepository);
+        ReflectionTestUtils.setField(service, "matchParticipantRepository", participantRepository);
+        ReflectionTestUtils.setField(service, "matchSubstitutionRepository", substitutionRepository);
         ReflectionTestUtils.setField(service, "fixtureRepository", fixtureRepository);
         ReflectionTestUtils.setField(service, "engineConfig", cfg);
     }
@@ -87,6 +93,23 @@ class MatchPlanIdempotencyTest {
         for (MatchEvent e : eventRepository.findByFixtureKey("CTIM:42")) {
             assertTrue(keys.add(e.getFixtureKey() + "|" + e.getSlotIndex() + "|" + e.getEventType()),
                     "duplicate event " + e.getSlotIndex() + "/" + e.getEventType());
+        }
+    }
+
+    @Test
+    void appearancesPersisted_everyScorerCoveredAndNotDuplicatedOnRetry() {
+        service.buildAndPersist("CTIM:55", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 3, 2);
+        service.buildAndPersist("CTIM:55", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 3, 2); // retry
+
+        MatchPlan plan = planRepository.findByFixtureKey("CTIM:55").orElseThrow();
+        List<MatchAppearance> apps = appearanceRepository.findByMatchPlan(plan);
+        assertEquals(22, apps.size(), "11 per team, not duplicated on retry");
+
+        for (MatchEvent e : eventRepository.findByFixtureKey("CTIM:55")) {
+            if (!"goal".equals(e.getEventType())) continue;
+            boolean covered = apps.stream()
+                    .anyMatch(a -> a.getPlayerId() == e.getPlayerId() && a.onPitchAt(e.getMinute()));
+            assertTrue(covered, "scorer " + e.getPlayerId() + " had no appearance at minute " + e.getMinute());
         }
     }
 
@@ -143,6 +166,51 @@ class MatchPlanIdempotencyTest {
         verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong());
         assertEquals(MatchPlan.Status.COMMITTED,
                 planRepository.findByFixtureKey("CTIM:8").orElseThrow().getStatus());
+    }
+
+    @Test
+    void committedStaleVersion_isImmutableAndNeverRegenerated() {
+        service.buildAndPersist("CTIM:9", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 1, 0);
+        MatchPlan plan = planRepository.findByFixtureKey("CTIM:9").orElseThrow();
+        long originalId = plan.getId();
+        plan.setStatus(MatchPlan.Status.COMMITTED);
+        ReflectionTestUtils.setField(plan, "algorithmVersion", "matchplan-OLD"); // stale + committed
+        planRepository.saveAndFlush(plan);
+
+        service.buildAndPersist("CTIM:9", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 1, 0);
+
+        MatchPlan after = planRepository.findByFixtureKey("CTIM:9").orElseThrow();
+        assertEquals(originalId, after.getId(), "a committed match must never be rewritten");
+        assertEquals(MatchPlan.Status.COMMITTED, after.getStatus());
+        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong()); // no regeneration
+    }
+
+    @Test
+    void markCommitted_finalizesCompletedPlanAndMakesItImmutable() {
+        service.buildAndPersist("CTIM:12", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 2, 1);
+        service.markCommitted("CTIM:12");
+
+        assertEquals(MatchPlan.Status.COMMITTED,
+                planRepository.findByFixtureKey("CTIM:12").orElseThrow().getStatus());
+
+        // Now immutable: a further call reuses it, never rebuilds.
+        service.buildAndPersist("CTIM:12", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 2, 1);
+        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void completedStaleVersion_isRegenerated() {
+        service.buildAndPersist("CTIM:11", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 1, 0);
+        MatchPlan plan = planRepository.findByFixtureKey("CTIM:11").orElseThrow();
+        ReflectionTestUtils.setField(plan, "algorithmVersion", "matchplan-OLD"); // stale, still COMPLETED
+        planRepository.saveAndFlush(plan);
+
+        service.buildAndPersist("CTIM:11", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 1, 0);
+
+        MatchPlan after = planRepository.findByFixtureKey("CTIM:11").orElseThrow();
+        assertEquals(MatchPlanningService.ALGORITHM_VERSION, after.getAlgorithmVersion());
+        assertEquals(1, planRepository.count(), "old plan replaced, not duplicated");
+        verify(lineupAdapter, times(4)).build(anyLong(), any(), anyLong()); // 2 first run + 2 regen
     }
 
     @Test

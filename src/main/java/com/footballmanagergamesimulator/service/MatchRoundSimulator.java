@@ -543,6 +543,15 @@ public class MatchRoundSimulator {
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
                             teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
                             personalizedTactic1.orElse(null), personalizedTactic2.orElse(null));
+
+                    // Result, Scorer and stats are now persisted in this same (simulateRound)
+                    // transaction — mark the plan COMMITTED so it becomes immutable and can
+                    // never be regenerated.
+                    if (matchPlanService.isEnabled()) {
+                        matchPlanService.markCommitted(
+                                com.footballmanagergamesimulator.matchplan.MatchPlanService
+                                        .competitionFixtureKey(match.getId()));
+                    }
                 }
 
                 // Full post-match processing for human matches (same for both

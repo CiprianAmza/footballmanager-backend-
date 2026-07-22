@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,6 +40,9 @@ class MatchPlanConcurrencyTest {
     @Autowired private MatchPlanRepository planRepository;
     @Autowired private MatchEventRepository eventRepository;
     @Autowired private CompetitionTeamInfoMatchRepository fixtureRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchAppearanceRepository appearanceRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchParticipantRepository participantRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchSubstitutionRepository substitutionRepository;
     @Autowired private PlatformTransactionManager txManager;
 
     @MockBean private LineupAdapter lineupAdapter;
@@ -55,8 +59,9 @@ class MatchPlanConcurrencyTest {
         long fixtureId = fixture.getId();
         String fixtureKey = MatchPlanService.competitionFixtureKey(fixtureId);
 
-        Lineup lineup = lineup(1L);
-        when(lineupAdapter.build(anyLong(), any(), anyLong())).thenReturn(lineup);
+        // Distinct player ids per team (a player belongs to one team per match).
+        when(lineupAdapter.build(eq(10L), any(), anyLong())).thenReturn(lineup(100L));
+        when(lineupAdapter.build(eq(20L), any(), anyLong())).thenReturn(lineup(200L));
 
         // Commit the fixture before worker transactions attempt SELECT ... FOR UPDATE.
         TestTransaction.flagForCommit();
@@ -90,7 +95,13 @@ class MatchPlanConcurrencyTest {
             executor.shutdownNow();
             new TransactionTemplate(txManager).executeWithoutResult(status -> {
                 eventRepository.findByFixtureKey(fixtureKey).forEach(eventRepository::delete);
-                planRepository.findByFixtureKey(fixtureKey).ifPresent(planRepository::delete);
+                planRepository.findByFixtureKey(fixtureKey).ifPresent(plan -> {
+                    appearanceRepository.findByMatchPlan(plan).forEach(appearanceRepository::delete);
+                    participantRepository.findByMatchPlanOrderByTeamIdAscParticipantIndexAsc(plan).forEach(participantRepository::delete);
+                    substitutionRepository.findByMatchPlanOrderByTeamIdAscSubIndexAsc(plan)
+                            .forEach(substitutionRepository::delete);
+                    planRepository.delete(plan);
+                });
                 fixtureRepository.deleteById(fixtureId);
             });
         }

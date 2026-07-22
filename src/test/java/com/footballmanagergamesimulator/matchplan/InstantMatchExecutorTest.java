@@ -58,7 +58,7 @@ class InstantMatchExecutorTest {
     void subbedOffPlayer_cannotScoreAfterExit() {
         // Home ST (110) subbed off at minute 30 for bench player 199.
         Lineup home = new Lineup(xi(100).getStartingXI(),
-                List.of(new Lineup.SubMove(30, 110L, p(199L, "ST"))));
+                List.of(new Lineup.SubMove(0, 30, 110L, p(199L, "ST"))));
         MatchPlan plan = planning.plan("fx", 55L, 10L, 20L, 6, 0);
         List<MatchEvent> events = executor.execute(plan, home, xi(200), ctx);
         for (MatchEvent e : events) {

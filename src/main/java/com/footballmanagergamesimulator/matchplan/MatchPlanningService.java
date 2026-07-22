@@ -23,7 +23,7 @@ public class MatchPlanningService {
 
     /** Bumped when the planning/resolution logic changes, so stale plans can be
      *  detected/regenerated. Stored on every plan. */
-    public static final String ALGORITHM_VERSION = "matchplan-1";
+    public static final String ALGORITHM_VERSION = "matchplan-2";
 
     private final MatchEngineConfig engineConfig;
 
