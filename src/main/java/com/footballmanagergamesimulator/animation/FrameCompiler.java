@@ -93,12 +93,14 @@ public final class FrameCompiler implements AnimationCompiler {
         assignFormation(spec.defenders(), true, formation, attackingCount);
         int goalkeeper = goalkeeperIndex(spec.defenders(), attackingCount, formation);
 
-        // The safe fallback is total for every accepted profile: its touches are pinned to each
-        // participant's own formation slot, so no player has to sprint across the pitch. The ball
-        // does all the travelling and its flight is always framed within the budget by ball speed.
-        PlayScript source = original.pattern() == PatternId.SAFE_FALLBACK
-                ? pinToFormation(original, index, formation) : original;
-        Schedule schedule = fit(source, index, formation);
+        // Start positions. Everyone begins in their formation slot, except:
+        //  - a dead-ball taker already stands over the stopped ball (not an open-play teleport);
+        //  - the safe fallback places its two participants at fixed advanced points and starts them
+        //    there, so this degraded, last-resort render needs neither long player travel nor long ball
+        //    flights and therefore fits the frame budget for every accepted profile and every position,
+        //    including a deep goalkeeper acting as scorer or assister.
+        PitchPoint[] starts = startPositions(original, index, formation);
+        Schedule schedule = fit(original, index, starts);
         PlayScript script = schedule.script();
         List<PlayScript.Touch> touches = script.touches();
         int finalTouch = touches.size() - 1;
@@ -146,14 +148,6 @@ public final class FrameCompiler implements AnimationCompiler {
         List<List<Span>> tracks = buildTracks(spec, players, formation, attackingCount, goalkeeper,
                 blocker, blockPoint, index, schedule, shotOrigin, targetY, keeperDirection);
 
-        // On a dead ball the play is stopped and the taker is already standing over the spot; that is
-        // not an open-play teleport. Everyone else starts in their formation slot and runs onto the ball.
-        PitchPoint[] starts = formation.clone();
-        if (script.deadBallSpot() != null) {
-            PitchPoint spot = script.deadBallSpot();
-            int taker = index.get(touches.get(0).playerId());
-            starts[taker] = clamp(new PitchPoint(spot.x() - 3, spot.y() + (spot.y() > 50 ? -2 : 2)));
-        }
         PitchPoint[][] positions = integrate(tracks, starts, players);
 
         verifyReachability(touches, index, positions, schedule, shotOrigin, goalkeeper, script);
@@ -197,22 +191,31 @@ public final class FrameCompiler implements AnimationCompiler {
 
     // ---- Scheduling -------------------------------------------------------
 
-    /** Pins every touch of a script to the toucher's formation slot (used by the total fallback). */
-    private static PlayScript pinToFormation(PlayScript script, Map<Long, Integer> index, PitchPoint[] formation) {
-        List<PlayScript.Touch> pinned = new ArrayList<>(script.touches().size());
-        for (PlayScript.Touch touch : script.touches()) {
-            Integer i = index.get(touch.playerId());
-            if (i == null) throw new RenderException("fallback uses non-snapshot player " + touch.playerId());
-            pinned.add(new PlayScript.Touch(touch.playerId(), formation[i], touch.dwellFrames(),
-                    touch.arrivalBend(), touch.receiveKind()));
+    /**
+     * Per-player start positions: formation slots, with a dead-ball taker settled over the spot and the
+     * two safe-fallback participants placed at their fixed advanced touch points (so the fallback needs
+     * no long travel). Positions are the reference for scheduling and integration.
+     */
+    private static PitchPoint[] startPositions(PlayScript script, Map<Long, Integer> index, PitchPoint[] formation) {
+        PitchPoint[] starts = formation.clone();
+        if (script.deadBallSpot() != null) {
+            PitchPoint spot = script.deadBallSpot();
+            starts[index.get(script.touches().get(0).playerId())] =
+                    clamp(new PitchPoint(spot.x() - 3, spot.y() + (spot.y() > 50 ? -2 : 2)));
+        } else if (script.pattern() == PatternId.SAFE_FALLBACK) {
+            for (PlayScript.Touch touch : script.touches()) {
+                Integer i = index.get(touch.playerId());
+                if (i == null) throw new RenderException("fallback uses non-snapshot player " + touch.playerId());
+                starts[i] = touch.target();
+            }
         }
-        return new PlayScript(script.pattern(), pinned, script.deadBallSpot(), script.preludeFrames(), script.shotBend());
+        return starts;
     }
 
-    private Schedule fit(PlayScript original, Map<Long, Integer> index, PitchPoint[] formation) {
+    private Schedule fit(PlayScript original, Map<Long, Integer> index, PitchPoint[] starts) {
         PlayScript script = original;
         while (true) {
-            Schedule schedule = trySchedule(script, index, formation);
+            Schedule schedule = trySchedule(script, index, starts);
             if (schedule != null) return schedule;
             if (script.touches().size() <= 3)
                 throw new RenderException("script does not fit " + (TOTAL_FRAMES + 1) + " frames: " + script.pattern());
@@ -224,7 +227,7 @@ public final class FrameCompiler implements AnimationCompiler {
     }
 
     /** Returns a schedule, or null if it does not fit (caller trims and retries). */
-    private Schedule trySchedule(PlayScript script, Map<Long, Integer> index, PitchPoint[] formation) {
+    private Schedule trySchedule(PlayScript script, Map<Long, Integer> index, PitchPoint[] starts) {
         List<PlayScript.Touch> touches = script.touches();
         int n = touches.size();
         int[] arrival = new int[n];
@@ -236,12 +239,9 @@ public final class FrameCompiler implements AnimationCompiler {
         PitchPoint firstTarget = script.deadBallSpot() != null ? script.deadBallSpot() : first.target();
         int firstIndex = index.get(first.playerId());
         arrival[0] = 0;
-        // Open play: the first toucher runs from their real formation slot onto the ball and is never
-        // teleported. Dead ball: the taker already stands over the stopped ball, so they only need to
-        // settle onto the spot during the prelude.
-        int reachFirst = script.deadBallSpot() != null
-                ? framesToReach(3.0)
-                : framesToReach(formation[firstIndex].distanceTo(firstTarget));
+        // The first toucher runs from their real start slot onto the ball and is never teleported.
+        // (Dead-ball takers and fallback participants already start on their point, so this is ~0.)
+        int reachFirst = framesToReach(starts[firstIndex].distanceTo(firstTarget));
         int preludeMin = script.deadBallSpot() != null ? Math.max(20, script.preludeFrames()) : 0;
         release[0] = Math.max(Math.max(MIN_DWELL, first.dwellFrames()), Math.max(reachFirst, preludeMin));
         lastRelease.put(first.playerId(), release[0]);
@@ -255,7 +255,7 @@ public final class FrameCompiler implements AnimationCompiler {
             if (pIdx == null) throw new RenderException("script uses non-snapshot player " + touch.playerId());
             PitchPoint target = touch.target();
             int startMove = lastRelease.getOrDefault(touch.playerId(), 0);
-            PitchPoint refPos = lastPos.getOrDefault(touch.playerId(), formation[pIdx]);
+            PitchPoint refPos = lastPos.getOrDefault(touch.playerId(), starts[pIdx]);
             int earliestPlayer = startMove + framesToReach(refPos.distanceTo(target));
             if (touch.receiveKind() == PlayScript.ReceiveKind.CARRY) {
                 arrival[t] = earliestPlayer;
