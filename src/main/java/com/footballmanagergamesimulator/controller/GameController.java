@@ -3,6 +3,10 @@ package com.footballmanagergamesimulator.controller;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.model.*;
+import com.footballmanagergamesimulator.person.CareerType;
+import com.footballmanagergamesimulator.person.ControlType;
+import com.footballmanagergamesimulator.person.PersonProfileRepository;
+import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.*;
 import com.footballmanagergamesimulator.user.User;
@@ -136,8 +140,12 @@ public class GameController {
     @Autowired GameStateService gameStateService;
     @Autowired GameLock gameLock;
     @Autowired FastForwardService fastForwardService;
+    @Autowired PersonProfileRepository personProfileRepository;
+    @Autowired PersonProfileService personProfileService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final int LEGACY_SAVE_VERSION = 5;
+    private static final int CURRENT_SAVE_VERSION = 6;
 
     // ==================== GAME SETUP ====================
 
@@ -697,7 +705,7 @@ public class GameController {
     @GetMapping("/export")
     public Map<String, Object> exportGame() {
         Map<String, Object> save = new LinkedHashMap<>();
-        save.put("saveVersion", 5);
+        save.put("saveVersion", CURRENT_SAVE_VERSION);
         save.put("savedAt", System.currentTimeMillis());
 
         Round activeRound = gameStateService.getRound();
@@ -767,8 +775,10 @@ public class GameController {
         save.put("personalizedTactics", personalizedTacticRepository.findAll());
         save.put("teamPlayerHistorical", teamPlayerHistoricalRelationRepository.findAll());
 
-        // User state (team associations, fired status)
-        save.put("users", userRepository.findAll());
+        // Save only career state. Authentication data and authorities are
+        // account state and must never be exported into a game save.
+        save.put("users", userRepository.findAll().stream().map(this::exportUserCareerState).toList());
+        save.put("personProfiles", personProfileRepository.findAll());
 
         return save;
     }
@@ -777,10 +787,10 @@ public class GameController {
     @Transactional
     public Map<String, Object> importGame(@RequestBody Map<String, Object> save) {
         Map<String, Object> result = new LinkedHashMap<>();
-        if (!(save.get("rounds") instanceof List<?> rounds) || rounds.isEmpty()
-                || !(save.get("gameCalendars") instanceof List<?> calendars) || calendars.isEmpty()) {
+        Optional<String> preflightError = validateSaveBeforeMutation(save);
+        if (preflightError.isPresent()) {
             result.put("success", false);
-            result.put("error", "Invalid save: rounds and gameCalendars are required");
+            result.put("error", preflightError.get());
             return result;
         }
 
@@ -802,6 +812,9 @@ public class GameController {
                     "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'PUBLIC'").getResultList();
             for (Object row : tables) {
                 String tableName = row instanceof Object[] ? (String) ((Object[]) row)[0] : (String) row;
+                if ("FLYWAY_SCHEMA_HISTORY".equalsIgnoreCase(tableName)
+                        || "USERS".equalsIgnoreCase(tableName)
+                        || "PERSON_PROFILE".equalsIgnoreCase(tableName)) continue;
                 entityManager.createNativeQuery("TRUNCATE TABLE \"" + tableName + "\" RESTART IDENTITY").executeUpdate();
             }
 
@@ -852,7 +865,15 @@ public class GameController {
             importNative(save, "personalizedTactics", "PERSONALIZED_TACTIC");
             importNative(save, "teamPlayerHistorical", "TEAM_PLAYER_HISTORICAL_RELATION");
             importNative(save, "financialRecords", "FINANCIAL_RECORD");
-            importNative(save, "users", "USERS");
+            restoreUserCareerState(save.get("users"));
+            importNative(save, "personProfiles", "PERSON_PROFILE");
+
+            Number saveVersion = (Number) save.get("saveVersion");
+            if (saveVersion.intValue() == LEGACY_SAVE_VERSION) {
+                entityManager.flush();
+                entityManager.clear();
+                personProfileService.backfill();
+            }
 
             // Loading an older save must respect the currently selected game
             // mode. Keep historical rows, but make every player selectable.
@@ -900,6 +921,155 @@ public class GameController {
             }
         }
         return result;
+    }
+
+    Optional<String> validateSaveBeforeMutation(Map<String, Object> save) {
+        if (save == null) return Optional.of("Invalid save: payload is required");
+        Object rawVersion = save.get("saveVersion");
+        if (!(rawVersion instanceof Number version)
+                || (version.intValue() != LEGACY_SAVE_VERSION && version.intValue() != CURRENT_SAVE_VERSION)) {
+            return Optional.of("Incompatible save version; expected 5 or 6");
+        }
+        if (!(save.get("rounds") instanceof List<?> rounds) || rounds.isEmpty()
+                || rounds.stream().anyMatch(row -> !(row instanceof Map<?, ?>))) {
+            return Optional.of("Invalid save: rounds must be a non-empty object list");
+        }
+        if (!(save.get("gameCalendars") instanceof List<?> calendars) || calendars.isEmpty()
+                || calendars.stream().anyMatch(row -> !(row instanceof Map<?, ?>))) {
+            return Optional.of("Invalid save: gameCalendars must be a non-empty object list");
+        }
+        Optional<String> userError = validateUsers(save.get("users"));
+        if (userError.isPresent()) return userError;
+        if (version.intValue() == CURRENT_SAVE_VERSION) {
+            Optional<String> profileError = validateProfiles(save.get("personProfiles"));
+            if (profileError.isPresent()) return profileError;
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> validateUsers(Object rawUsers) {
+        if (rawUsers == null) return Optional.empty();
+        if (!(rawUsers instanceof List<?> users)) return Optional.of("Invalid save: users must be a list");
+        Set<Object> ids = new HashSet<>();
+        Set<String> usernames = new HashSet<>();
+        Set<String> emails = new HashSet<>();
+        for (Object raw : users) {
+            if (!(raw instanceof Map<?, ?> user)) return Optional.of("Invalid save: user row must be an object");
+            Object id = user.get("id");
+            Object username = user.get("username");
+            Object email = user.get("email");
+            Object password = user.get("password");
+            if (!(id instanceof Number)) {
+                return Optional.of("Invalid save: every user needs an id");
+            }
+            if (password != null && !(password instanceof String)) {
+                return Optional.of("Invalid save: password value has an invalid type");
+            }
+            if (!ids.add(((Number) id).longValue())) {
+                return Optional.of("Invalid save: duplicate user identity");
+            }
+            if (username != null && (!(username instanceof String name) || name.isBlank()
+                    || !usernames.add(name.toLowerCase(Locale.ROOT)))) {
+                return Optional.of("Invalid save: invalid or duplicate username");
+            }
+            if (email instanceof String value && !value.isBlank()
+                    && !emails.add(value.toLowerCase(Locale.ROOT))) {
+                return Optional.of("Invalid save: duplicate user email");
+            }
+            for (String numericField : List.of("teamId", "lastTeamId", "managerId")) {
+                Object value = user.get(numericField);
+                if (value != null && !(value instanceof Number)) {
+                    return Optional.of("Invalid save: invalid user career state");
+                }
+            }
+            for (String booleanField : List.of("fired", "everManaged", "initialOffersGenerated")) {
+                Object value = user.get(booleanField);
+                if (value != null && !(value instanceof Boolean)) {
+                    return Optional.of("Invalid save: invalid user career state");
+                }
+            }
+            Object role = user.get("careerRole");
+            if (role != null) {
+                try {
+                    com.footballmanagergamesimulator.user.CareerRole.valueOf(String.valueOf(role));
+                } catch (IllegalArgumentException exception) {
+                    return Optional.of("Invalid save: unsupported career role");
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> validateProfiles(Object rawProfiles) {
+        if (!(rawProfiles instanceof List<?> profiles)) {
+            return Optional.of("Invalid save v6: personProfiles must be a list");
+        }
+        Set<Long> ids = new HashSet<>();
+        Set<Long> userIds = new HashSet<>();
+        Set<Long> humanIds = new HashSet<>();
+        for (Object raw : profiles) {
+            if (!(raw instanceof Map<?, ?> profile) || !(profile.get("id") instanceof Number id)) {
+                return Optional.of("Invalid save v6: profile row must contain an id");
+            }
+            if (!ids.add(id.longValue())) return Optional.of("Invalid save v6: duplicate profile id");
+            if (!addUniqueNullable(profile.get("userId"), userIds)
+                    || !addUniqueNullable(profile.get("humanId"), humanIds)) {
+                return Optional.of("Invalid save v6: duplicate profile identity link");
+            }
+            try {
+                CareerType.valueOf(String.valueOf(profile.get("careerType")));
+                ControlType.valueOf(String.valueOf(profile.get("controlType")));
+            } catch (IllegalArgumentException exception) {
+                return Optional.of("Invalid save v6: unsupported profile type");
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean addUniqueNullable(Object raw, Set<Long> values) {
+        if (raw == null) return true;
+        return raw instanceof Number number && values.add(number.longValue());
+    }
+
+    private Map<String, Object> exportUserCareerState(User user) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("id", user.getId());
+        state.put("teamId", user.getTeamId());
+        state.put("lastTeamId", user.getLastTeamId());
+        state.put("managerId", user.getManagerId());
+        state.put("fired", user.isFired());
+        state.put("everManaged", user.isEverManaged());
+        state.put("initialOffersGenerated", user.isInitialOffersGenerated());
+        return state;
+    }
+
+    private void restoreUserCareerState(Object rawUsers) {
+        if (!(rawUsers instanceof List<?> users)) return;
+        Map<String, String> allowed = Map.of(
+                "teamId", "TEAM_ID",
+                "lastTeamId", "LAST_TEAM_ID",
+                "managerId", "MANAGER_ID",
+                "fired", "FIRED",
+                "everManaged", "EVER_MANAGED",
+                "initialOffersGenerated", "INITIAL_OFFERS_GENERATED");
+        for (Object raw : users) {
+            if (!(raw instanceof Map<?, ?> row) || !(row.get("id") instanceof Number id)) continue;
+            List<String> assignments = new ArrayList<>();
+            List<Object> values = new ArrayList<>();
+            for (Map.Entry<String, String> field : allowed.entrySet()) {
+                if (!row.containsKey(field.getKey())) continue;
+                assignments.add(field.getValue() + " = ?");
+                values.add(row.get(field.getKey()));
+            }
+            if (assignments.isEmpty()) continue;
+            jakarta.persistence.Query query = entityManager.createNativeQuery(
+                    "UPDATE USERS SET " + String.join(", ", assignments) + " WHERE ID = ?");
+            for (int index = 0; index < values.size(); index++) {
+                query.setParameter(index + 1, values.get(index));
+            }
+            query.setParameter(values.size() + 1, id.longValue());
+            query.executeUpdate();
+        }
     }
 
     private boolean registerGameLockReleaseAfterTransaction() {
@@ -1055,12 +1225,11 @@ public class GameController {
 
             if (columns.isEmpty()) continue;
 
-            // The active user can be recreated by the authentication context
-            // while a large save is being imported. Importing USERS with an
-            // idempotent H2 MERGE avoids a duplicate-primary-key failure and
-            // still restores every value from the save.
+            // Person profiles survive the table truncation and are updated by
+            // identity. User account rows never pass through this generic
+            // importer; only an explicit allow-list of career fields is restored.
             String sql;
-            if ("USERS".equals(tableName)) {
+            if ("PERSON_PROFILE".equals(tableName)) {
                 sql = "MERGE INTO " + tableName + " (" + String.join(", ", columns)
                         + ") KEY(ID) VALUES ("
                         + columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ")";

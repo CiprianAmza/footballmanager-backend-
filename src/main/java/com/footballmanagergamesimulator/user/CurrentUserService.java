@@ -1,58 +1,56 @@
 package com.footballmanagergamesimulator.user;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 @Service
 public class CurrentUserService {
 
+    /** Retained only so legacy callers/tests compile. It is never trusted. */
+    @Deprecated
     public static final String USER_ID_HEADER = "X-User-Id";
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
 
-    public Integer getUserIdOrNull(HttpServletRequest request) {
-        String userIdHeader = request.getHeader(USER_ID_HEADER);
-        if (userIdHeader == null || userIdHeader.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(userIdHeader);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+    public CurrentUserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
     }
 
-    public User getUserOrNull(HttpServletRequest request) {
-        Integer userId = getUserIdOrNull(request);
-        if (userId == null) {
+    public Integer getUserIdOrNull(HttpServletRequest ignoredRequest) {
+        User user = getUserOrNull();
+        return user == null ? null : user.getId();
+    }
+
+    public User getUserOrNull(HttpServletRequest ignoredRequest) {
+        return getUserOrNull();
+    }
+
+    public User getUserOrNull() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
             return null;
         }
-        return userRepository.findById(userId).orElse(null);
+        return userRepository.findByUsernameIgnoreCase(authentication.getName()).orElse(null);
     }
 
-    public User requireUser(HttpServletRequest request) {
-        String userIdHeader = request.getHeader(USER_ID_HEADER);
-        if (userIdHeader == null || userIdHeader.isBlank()) {
-            throw new RuntimeException("Missing X-User-Id header");
-        }
-
-        final int userId;
-        try {
-            userId = Integer.parseInt(userIdHeader);
-        } catch (NumberFormatException e) {
-            throw new RuntimeException("Invalid X-User-Id header");
-        }
-
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+    public User requireUser(HttpServletRequest ignoredRequest) {
+        return requireUser();
     }
 
-    public long requireTeamId(HttpServletRequest request) {
-        User user = requireUser(request);
+    public User requireUser() {
+        User user = getUserOrNull();
+        if (user == null) throw new IllegalStateException("Authenticated user not found");
+        return user;
+    }
+
+    public long requireTeamId(HttpServletRequest ignoredRequest) {
+        User user = requireUser();
         if (user.getTeamId() == null || user.getTeamId() <= 0) {
-            throw new RuntimeException("User has no team assigned");
+            throw new IllegalStateException("User has no team assigned");
         }
         return user.getTeamId();
     }

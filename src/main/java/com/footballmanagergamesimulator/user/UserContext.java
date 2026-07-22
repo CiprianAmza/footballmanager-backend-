@@ -17,7 +17,7 @@ public class UserContext {
     private CurrentUserService currentUserService;
 
     /**
-     * Get the teamId for the current user from the X-User-Id header.
+     * Get the teamId for the authenticated server-side session principal.
      * Throws RuntimeException if user not found or has no team.
      */
     public long getTeamId(HttpServletRequest request) {
@@ -25,7 +25,7 @@ public class UserContext {
     }
 
     /**
-     * Get teamId or return null if header missing (for optional contexts).
+     * Get teamId or return null when no authenticated manager-team context exists.
      */
     public Long getTeamIdOrNull(HttpServletRequest request) {
         try {
@@ -55,7 +55,7 @@ public class UserContext {
     }
 
     /**
-     * Check if the current user (from header) is fired.
+     * Check if the authenticated session user is fired.
      */
     public boolean isCurrentUserFired(HttpServletRequest request) {
         User user = currentUserService.getUserOrNull(request);
