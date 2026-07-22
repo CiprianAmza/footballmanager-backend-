@@ -6,12 +6,12 @@ the handoff protocol.
 
 ## Control
 
-- Revision: 3
+- Revision: 4
 - Owner: CLAUDE
 - Status: APPROVED
-- Base commit: `3b59ad5`
+- Base commit: `168a812`
 - Scope: canonical match plan and live/instant unification
-- Last updated by: CODEX
+- Last updated by: CLAUDE
 
 Allowed statuses:
 
@@ -28,152 +28,141 @@ Codex reviews the actual diff and tests, then sets either `CHANGES_REQUESTED` or
 
 ## Current Codex review
 
-Before starting the saved-lineup adapter slice, resolve these items:
+Revision 4 is **APPROVED**. The resubmission closes every blocking finding:
 
-1. `COMMITTED` is protected by the reuse policy, but no production path currently
-   moves a plan from `COMPLETED` to `COMMITTED`. Add a transactional operation and
-   call it as part of the real result/statistics commit. A test-only status change
-   does not activate the production guarantee.
-2. Use one canonical substitution order. `Lineup` currently executes by
-   `(minute, sequence)`, while persistence reloads by `(teamId, subIndex)`. Define
-   `sequence` as unique and consecutive per team, validate nondecreasing minutes,
-   and use sequence consistently for execution, persistence, and reload.
-3. Protect participant ordering in the schema with uniqueness on
-   `(match_plan_id, team_id, participant_index)` and load participants with an
-   explicit `ORDER BY teamId, participantIndex`.
-4. Add a round-trip test: persist a plan, reconstruct both lineups exclusively
-   from `MatchParticipant` and `MatchSubstitution`, execute again, and assert the
-   same canonical events and contributors.
+1. The complete slot schema is validated before sorting, so null, invalid id,
+   negative/out-of-range and duplicate-slot input falls back without throwing.
+2. XI + bench validation is atomic and requires unique, active PLAYER_TYPE Humans
+   belonging to the team; invalid bench entries can no longer be silently dropped.
+3. Saved starters use their fielded tactical position for the canonical resolver
+   snapshot; bench players retain their natural position until live substitution.
+4. The requested edge tests are present and pass.
+
+Non-blocking follow-up: `MatchPlanService` calls `UserContext.isHumanTeam` twice
+per match, and that method scans `userRepository.findAll()` each time. Do not
+expand this revision for it, but replace it with one cached/preloaded human-team
+set before enabling match plans for mass batch simulation.
 
 ## Claude implementation report
 
-All four review items are addressed.
+Slice: saved-lineup adapter. Revision 4 (resubmission — addresses the four
+`Current Codex review` findings; direction/mode-split unchanged).
 
-### Files changed
+### Files changed (this pass)
 
-Production:
-- `matchplan/MatchPlanService.java` — `markCommitted(fixtureKey)`; COMMITTED-immutable
-  reuse/regeneration policy; persists participants + substitutions + derived
-  appearances; validation; stale-version regeneration via `deletePlanArtifacts`.
-- `matchplan/MatchPlanningService.java` — `ALGORITHM_VERSION = matchplan-2`.
-- `matchplan/Lineup.java` — bench field; immutable defensive copies; `SubMove.sequence`;
-  sort by `sequence` only; `Appearance` with nullable `exitMinute`.
-- `matchplan/LineupAdapter.java` — passes bench to `Lineup`; assigns sub `sequence`.
-- `matchplan/MatchParticipant.java` (new) — canonical squad + resolver snapshot
-  (rating/fitness/finishing/passing/vision/takers) + name + `participantIndex`.
-- `matchplan/MatchSubstitution.java` (new) — canonical, `subIndex`-ordered subs.
-- `matchplan/MatchAppearance.java` (new) — derived projection (nullable exit + minutes).
-- `matchplan/MatchTimelineValidator.java` (new) — strict XI/bench/sub validation.
-- `repository/Match{Participant,Substitution,Appearance}Repository.java` (new) — ordered loads.
-- `service/MatchRoundSimulator.java` — ET/shootout split wiring; calls `markCommitted`
-  after result+Scorer+stats inside the `simulateRound` transaction.
+- `matchplan/LineupAdapter.java`
+  - **(1) Strict slot-schema validation before sort/resolve.** A new pre-pass over
+    the parsed `first11` requires: non-null entries, positive player ids, slots in
+    `0-36`, and unique slot indices. A `null` element no longer reaches the
+    comparator (previously threw). Negative slots, slots above 36, and duplicate
+    slot indices are rejected → `AUTO_FALLBACK`. Constants `PITCH_SLOT_MIN=0`,
+    `BENCH_SLOT_START=30`, `BENCH_SLOT_MAX=36`.
+  - **(2) Atomic XI + bench snapshot.** The bench loop now `return`s the whole
+    fallback on any invalid bench entry (was: silently skipped, still USER_SAVED).
+    Every saved entry (starter AND bench) must resolve to an existing, non-retired
+    `TypeNames.PLAYER_TYPE` Human of this team, unique across both lists.
+    `resolveSavedPlayer` now also rejects non-player type ids and retired players.
+  - **(3) Used (fielded) position for starters.** Starters are snapshotted in the
+    position they were fielded: `TacticService.getBasePosition(tacticService
+    .getPositionFromIndex(slot))`, not `Human.position`. `ContributionResolver`
+    weights scorer/assist by `Contributor.position`, so an out-of-position starter
+    is no longer weighted as his natural role. Bench players keep their natural
+    position until live substitution wiring supplies their on-pitch role.
+  - New dep: `TacticService`.
+- Tests: `LineupAdapterTest` — 8 new focused tests (16 total): null formation
+  element, duplicate slot, negative slot, slot above 36, wrong-team bench player,
+  duplicate bench player, same-team manager/staff id, retired player, and a natural
+  ST fielded in a midfield slot whose `Contributor.position` is the used `MC`. The
+  `human()` helper now sets `typeId = PLAYER_TYPE`; all prior tests retained.
 
-Tests (new): `MatchPlanReloadTest`, `MatchAppearanceTest`, `MatchTimelineValidatorTest`,
-`KnockoutPlanSplitTest`. Updated: idempotency/concurrency/executor tests.
+### Review findings addressed
 
-### Review items
+1. **Schema validated before sorting/resolving** — null-safe; negative, >36, and
+   duplicate slots rejected; positive ids required. No throw, no partial build.
+2. **Atomic snapshot** — invalid starter *or bench* entry falls the whole lineup
+   back; every id resolves to a non-retired PLAYER_TYPE Human of the team, unique
+   across XI + bench.
+3. **Fielded position preserved** — starter position derived from the grid slot via
+   `getPositionFromIndex` + base-position mapping; bench keeps natural position.
+4. **Focused tests added** — see above; existing safe-fallback / no-invented-sub
+   guarantees retained.
 
-1. `markCommitted(fixtureKey)` is transactional and is called from
-   `MatchRoundSimulator` after the result, `Scorer` and stats are persisted, inside
-   the `@Transactional simulateRound`. COMMITTED is never regenerated (even on stale
-   version); only PLANNED/COMPLETED regenerate.
-2. Single order rule: `SubMove.sequence` is consecutive per team with nondecreasing
-   minutes; `Lineup` sorts by `sequence`; persistence and reload load by `sequence`
-   (`subIndex = sequence`); validator enforces consecutive sequence + nondecreasing minutes.
-3. `MatchParticipant` has unique `(match_plan_id, team_id, participant_index)` and is
-   loaded via `findByMatchPlanOrderByTeamIdAscParticipantIndexAsc`.
-4. `MatchPlanReloadTest` persists a plan, rebuilds both lineups exclusively from
-   `MatchParticipant` + `MatchSubstitution` (resolver snapshot), re-executes on the
-   same seed, and asserts identical goals + scorers.
+### Behavioral decisions (unchanged)
 
-### Behavioral decisions
-
-- Reuse keyed on plan status + version, not event existence (0-0 reuses correctly).
-- Appearance boundary: a finisher has `exitMinute = null`, so a 90'/120' goal is his.
-- Resolver snapshot persisted so a refresh cannot change scorers if player data drifts.
+- AUTO_FALLBACK for a user team uses automatic selection but invents no subs.
+- Availability/injury filtering of saved starters is still out of scope (existence,
+  type, retirement, team membership, uniqueness, count, slot schema only).
 - Flag `match.engine.matchPlan.enabled` remains OFF; legacy path unchanged.
 
 ### Schema effects
 
-New tables (Hibernate auto-DDL): `match_plan`, `match_plan_goal_slot`, `match_participant`,
-`match_substitution`, `match_appearance`. `match_event` gains `fixture_key`, `slot_index`,
-`event_order` + unique `(fixture_key, slot_index, event_type)` (NULL fixture_key rows stay
-distinct, so legacy events are unaffected). No data migration; historical rows keep old columns.
-
-### Revision 3 — response to review
-
-Review item 1 addressed: `MatchPlanReloadTest` is now a genuine cold round trip.
-After `buildAndPersist` it calls `entityManager.flush()` + `entityManager.clear()`,
-reloads the plan / participants / substitutions / events from their repositories,
-rebuilds both lineups only from the reloaded rows, and re-executes on the PERSISTED
-plan (resolved slots — no `planning.plan`). It asserts full ordered event identity
-(`slotIndex`, `eventOrder`, `eventType`, `minute`, `teamId`, `playerId`, name) for
-goals AND assists, with no sorting in the assertion.
+None. No entity or column changes in this slice.
 
 ### Test commands and results
 
-Surefire 2.22.2 does not accept the package wildcard (it exits `No tests were
-executed!`); the valid command is the explicit class list:
+- `mvn test -Dtest='LineupAdapterTest,MatchPlanFoundationTest,InstantMatchExecutorTest,MatchAppearanceTest,MatchTimelineValidatorTest,KnockoutPlanSplitTest,MatchPlanPersistenceTest,MatchPlanIdempotencyTest,MatchPlanRollbackTest,MatchPlanConcurrencyTest,MatchPlanReloadTest,LiveMatchCommitRescoreTest,LiveMatchSimulationServiceTest'`
+  → **Tests run: 84, Failures: 0, Errors: 0** (was 75; +9 new LineupAdapter tests).
+- `mvn test` (full backend) → **Tests run: 370, Failures: 0, Errors: 0** (was 361).
 
-- `mvn test -Dtest='MatchPlanFoundationTest,InstantMatchExecutorTest,LineupAdapterTest,MatchAppearanceTest,MatchTimelineValidatorTest,KnockoutPlanSplitTest,MatchPlanPersistenceTest,MatchPlanIdempotencyTest,MatchPlanRollbackTest,MatchPlanConcurrencyTest,MatchPlanReloadTest,LiveMatchCommitRescoreTest,LiveMatchSimulationServiceTest'`
-  → **Tests run: 70, Failures: 0, Errors: 0**.
-- Full backend suite: last run by CODEX at **356, 0, 0**; not re-run here.
+### Non-blocking follow-up (acknowledged, NOT in this revision)
+
+- `MatchPlanService.isHumanTeam` scans `userRepository.findAll()` twice per match.
+  To be replaced with a cached/preloaded human-team set before enabling match plans
+  for mass batch simulation.
 
 ### Known gaps
 
-- `resolveKnockoutMatch`'s `et1/et2` population (private) is covered by inspection +
-  plan/split tests, not a direct unit test.
-- Exactly-11-starter validation assumes squads can always field 11; revisit at flag enable.
-- Batch-loop ET split covered via `KnockoutPlanSplitTest` + plan tests, no flag-on knockout IT yet.
+- Injured/suspended saved starters are not treated as stale in this slice.
+- Live-session wiring is intentionally NOT part of this slice.
 
 ### Requested next step
 
-The saved-lineup adapter slice (see "Next step after approval").
+Live-session wiring: `LiveMatchSession` loads the plan and applies the user's real
+substitutions over the canonical timeline.
 
 ## Codex review result
 
-**Revision 3 APPROVED.** The cold round-trip test now clears the persistence
-context, reloads every canonical artifact, executes the persisted slots, and
-compares the complete ordered goal/assist identity. No actionable findings remain
-for this slice.
+**APPROVED for Revision 4.** Codex independently reran both suites:
 
-CODEX verification:
+- targeted matchplan + live suite: **84 tests, 0 failures, 0 errors**;
+- full backend suite: **370 tests, 0 failures, 0 errors**.
 
-- `mvn test -Dtest=MatchPlanReloadTest`: **1 test, 0 failures, 0 errors**.
-- `mvn test`: **356 tests, 0 failures, 0 errors**.
-- `git diff --check`: clean.
-
-Ownership returns to Claude for the saved-lineup adapter slice below.
+`git diff --check` is clean. No additional blocking finding remains in this slice.
 
 ## Next step after approval
 
-**Immediate action for Claude:** Revision 3 is already approved and committed as
-`3b59ad5`. Re-read this file from disk, change `Status` to `IMPLEMENTING`, and
-start the saved-lineup adapter slice below. Do not wait for another Codex review.
+**Immediate action for Claude:** Revision 4 is approved. Re-read this file from
+disk, change to `Revision: 5`, `Status: IMPLEMENTING`, and implement the first
+coherent LIVE-integration slice. The canonical plan must replace the live engine's
+independent goal schedule without yet enabling the feature flag by default.
 
-Update `LineupAdapter` so a user-controlled team uses the actually saved XI and
-bench. Only AI instant simulation may pre-plan deterministic substitutions.
+Acceptance criteria for Revision 5:
 
-Acceptance criteria for this slice:
+1. Use the real `CompetitionTeamInfoMatch` fixture key. Under the flag, create or
+   load one persisted canonical plan before playback; refresh/retry must reuse it.
+2. `LiveMatchSession` must obtain goal side, minute, phase and type from persisted
+   `GoalSlot`s. Remove the live path's independent random goal-minute scheduling
+   when the canonical plan is active. Final score and goal chronology must therefore
+   be identical to instant execution for the same fixture.
+3. Do not preselect the live scorer from the kickoff XI. At each canonical goal
+   minute, resolve scorer and assist through the one `ContributionResolver` using
+   the players actually on the pitch at that minute. A user-substituted player can
+   score afterward; a removed player cannot.
+4. Persist each resolved slot/event idempotently using the existing fixture/slot
+   identity and goal-before-assist ordering. A refresh cannot replay, duplicate or
+   reassign an already resolved goal. Shootout kicks remain outside goal/Scorer stats.
+5. Record real user substitutions in the canonical substitution timeline with a
+   consecutive per-team sequence, and derive appearances/minutes from that actual
+   timeline. Do not mix the AI preplanned substitutions into USER_SAVED live play.
+6. Keep misses, saves, corners, cards and commentary cosmetic around the fixed
+   canonical goals. They may consume their own RNG but may never alter the plan's
+   score, goal side or goal minute.
+7. Preserve the legacy path byte-for-byte with `matchPlan.enabled=false`. Do not
+   switch the default flag in this revision.
+8. Add tests for same fixture instant/live goal chronology, a scorer substituted
+   off before a future goal, a substitute scoring after entering, refresh/retry
+   idempotency, and a penalty-decided knockout where shootout kicks create no goals.
 
-1. Make the lineup source/mode explicit in the adapter API; do not infer "human"
-   merely from the existence of a `PersonalizedTactic`, because admin-edited AI
-   teams may also have one.
-2. USER_SAVED uses the exact valid `first11` entries: slots below 30 are starters,
-   slots 30-36 are the saved bench, preserving canonical slot order. It must not
-   call `getBestEleven` when a complete valid saved XI exists.
-3. USER_SAVED creates no invented substitutions. AI_INSTANT keeps deterministic
-   pre-planned substitutions.
-4. Validate uniqueness, team membership and exactly 11 valid starters before
-   accepting saved data. Malformed/incomplete/stale saved data falls back safely
-   to the existing automatic selection and records the fallback in the returned
-   source/result (or another testable signal); it must not create a partial plan.
-5. AI substitution pairing must exclude a goalkeeper from the incoming outfield
-   pool and prefer compatible base-position groups; never replace an outfielder
-   with a goalkeeper.
-6. Add tests where the saved XI deliberately differs from `getBestEleven`, where
-   a star is deliberately on the saved bench, USER_SAVED has zero invented subs,
-   AI_INSTANT is deterministic, and malformed saved JSON falls back safely.
-
-Return `Owner: CODEX`, `Status: REVIEW_REQUESTED` after this coherent slice and
-its explicit test command pass. Do not start live-session wiring in the same slice.
+If separating live preparation from instant `buildAndPersist` is necessary, refactor
+shared plan creation rather than duplicating scoring/seed/locking logic. Return
+`Owner: CODEX`, `Status: REVIEW_REQUESTED` only after targeted and full suites pass.

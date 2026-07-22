@@ -46,6 +46,7 @@ class MatchPlanConcurrencyTest {
     @Autowired private PlatformTransactionManager txManager;
 
     @MockBean private LineupAdapter lineupAdapter;
+    @MockBean private com.footballmanagergamesimulator.user.UserContext userContext;
 
     @Test
     void concurrentCalls_sameFixtureBothSucceedWithoutDuplicates() throws Exception {
@@ -60,8 +61,8 @@ class MatchPlanConcurrencyTest {
         String fixtureKey = MatchPlanService.competitionFixtureKey(fixtureId);
 
         // Distinct player ids per team (a player belongs to one team per match).
-        when(lineupAdapter.build(eq(10L), any(), anyLong())).thenReturn(lineup(100L));
-        when(lineupAdapter.build(eq(20L), any(), anyLong())).thenReturn(lineup(200L));
+        when(lineupAdapter.build(eq(10L), any(), anyLong(), any())).thenReturn(new LineupAdapter.Result(lineup(100L), LineupAdapter.Source.AI_INSTANT));
+        when(lineupAdapter.build(eq(20L), any(), anyLong(), any())).thenReturn(new LineupAdapter.Result(lineup(200L), LineupAdapter.Source.AI_INSTANT));
 
         // Commit the fixture before worker transactions attempt SELECT ... FOR UPDATE.
         TestTransaction.flagForCommit();
@@ -90,7 +91,7 @@ class MatchPlanConcurrencyTest {
                     .filter(p -> fixtureKey.equals(p.getFixtureKey())).count());
             assertEquals(firstResult.size(), eventRepository.findByFixtureKey(fixtureKey).size());
             // Only the winning transaction builds the two lineups.
-            verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong());
+            verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong(), any());
         } finally {
             executor.shutdownNow();
             new TransactionTemplate(txManager).executeWithoutResult(status -> {

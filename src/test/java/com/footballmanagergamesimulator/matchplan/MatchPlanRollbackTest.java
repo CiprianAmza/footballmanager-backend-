@@ -39,6 +39,7 @@ class MatchPlanRollbackTest {
     @MockBean private LineupAdapter lineupAdapter;
     @MockBean private MatchEventRepository matchEventRepository;
     @MockBean private CompetitionTeamInfoMatchRepository fixtureRepository;
+    @MockBean private com.footballmanagergamesimulator.user.UserContext userContext;
 
     private Contributor p(long id, String pos) {
         return new Contributor(id, "P" + id, pos, 15.0, 15, 15, 15, 100.0, false, false);
@@ -49,7 +50,7 @@ class MatchPlanRollbackTest {
         Lineup xi = new Lineup(List.of(
                 p(1, "GK"), p(2, "DC"), p(3, "MC"), p(4, "AMR"), p(5, "ST"), p(6, "ST"),
                 p(7, "AML"), p(8, "MC"), p(9, "DL"), p(10, "DR"), p(11, "DC")), List.of());
-        when(lineupAdapter.build(anyLong(), any(), anyLong())).thenReturn(xi);
+        when(lineupAdapter.build(anyLong(), any(), anyLong(), any())).thenReturn(new LineupAdapter.Result(xi, LineupAdapter.Source.AI_INSTANT));
         when(fixtureRepository.findByIdForUpdate(anyLong()))
                 .thenReturn(java.util.Optional.of(new CompetitionTeamInfoMatch()));
         when(matchEventRepository.saveAll(any())).thenThrow(new RuntimeException("event persist failed"));

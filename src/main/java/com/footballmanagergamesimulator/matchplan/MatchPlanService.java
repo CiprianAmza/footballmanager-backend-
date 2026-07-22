@@ -37,6 +37,7 @@ public class MatchPlanService {
     @Autowired private com.footballmanagergamesimulator.repository.MatchParticipantRepository matchParticipantRepository;
     @Autowired private com.footballmanagergamesimulator.repository.MatchSubstitutionRepository matchSubstitutionRepository;
     @Autowired private CompetitionTeamInfoMatchRepository fixtureRepository;
+    @Autowired private com.footballmanagergamesimulator.user.UserContext userContext;
     @Autowired private MatchEngineConfig engineConfig;
 
     public boolean isEnabled() {
@@ -120,8 +121,14 @@ public class MatchPlanService {
         MatchPlan plan = planningService.plan(fixtureKey, seed, homeTeamId, awayTeamId,
                 homeScore90, awayScore90, homeScoreET, awayScoreET, homeShootout, awayShootout);
 
-        Lineup home = lineupAdapter.build(homeTeamId, homeTactic, seed);
-        Lineup away = lineupAdapter.build(awayTeamId, awayTactic, seed);
+        // Mode is decided from the authoritative user-control signal, not from a
+        // PersonalizedTactic existing (admin-edited AI teams may have one).
+        LineupAdapter.Mode homeMode = userContext.isHumanTeam(homeTeamId)
+                ? LineupAdapter.Mode.USER_SAVED : LineupAdapter.Mode.AI_INSTANT;
+        LineupAdapter.Mode awayMode = userContext.isHumanTeam(awayTeamId)
+                ? LineupAdapter.Mode.USER_SAVED : LineupAdapter.Mode.AI_INSTANT;
+        Lineup home = lineupAdapter.build(homeTeamId, homeTactic, seed, homeMode).lineup();
+        Lineup away = lineupAdapter.build(awayTeamId, awayTactic, seed, awayMode).lineup();
 
         int duration = plan.hadExtraTime() ? 120 : 90;
         MatchTimelineValidator.validate(home, duration);

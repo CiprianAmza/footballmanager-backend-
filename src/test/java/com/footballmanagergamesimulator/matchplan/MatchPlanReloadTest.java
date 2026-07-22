@@ -73,8 +73,8 @@ class MatchPlanReloadTest {
         Lineup away = new Lineup(xi(200), List.of(c(220, "ST")), List.of());
 
         LineupAdapter adapter = mock(LineupAdapter.class);
-        when(adapter.build(eq(10L), any(), anyLong())).thenReturn(home);
-        when(adapter.build(eq(20L), any(), anyLong())).thenReturn(away);
+        when(adapter.build(eq(10L), any(), anyLong(), any())).thenReturn(new LineupAdapter.Result(home, LineupAdapter.Source.AI_INSTANT));
+        when(adapter.build(eq(20L), any(), anyLong(), any())).thenReturn(new LineupAdapter.Result(away, LineupAdapter.Source.AI_INSTANT));
 
         service = new MatchPlanService();
         ReflectionTestUtils.setField(service, "planningService", planning);
@@ -86,6 +86,8 @@ class MatchPlanReloadTest {
         ReflectionTestUtils.setField(service, "matchParticipantRepository", participantRepository);
         ReflectionTestUtils.setField(service, "matchSubstitutionRepository", substitutionRepository);
         ReflectionTestUtils.setField(service, "fixtureRepository", fixtureRepository);
+        ReflectionTestUtils.setField(service, "userContext",
+                mock(com.footballmanagergamesimulator.user.UserContext.class)); // isHumanTeam=false -> AI_INSTANT
         ReflectionTestUtils.setField(service, "engineConfig", cfg);
     }
 

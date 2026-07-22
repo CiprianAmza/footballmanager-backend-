@@ -55,8 +55,8 @@ class MatchPlanIdempotencyTest {
         InstantMatchExecutor executor = new InstantMatchExecutor(new ContributionResolver(cfg));
         lineupAdapter = mock(LineupAdapter.class);
         fixtureRepository = mock(CompetitionTeamInfoMatchRepository.class);
-        when(lineupAdapter.build(eq(10L), any(), anyLong())).thenReturn(xi(100));
-        when(lineupAdapter.build(eq(20L), any(), anyLong())).thenReturn(xi(200));
+        when(lineupAdapter.build(eq(10L), any(), anyLong(), any())).thenReturn(new LineupAdapter.Result(xi(100), LineupAdapter.Source.AI_INSTANT));
+        when(lineupAdapter.build(eq(20L), any(), anyLong(), any())).thenReturn(new LineupAdapter.Result(xi(200), LineupAdapter.Source.AI_INSTANT));
         when(fixtureRepository.findByIdForUpdate(anyLong()))
                 .thenReturn(java.util.Optional.of(new CompetitionTeamInfoMatch()));
 
@@ -70,6 +70,8 @@ class MatchPlanIdempotencyTest {
         ReflectionTestUtils.setField(service, "matchParticipantRepository", participantRepository);
         ReflectionTestUtils.setField(service, "matchSubstitutionRepository", substitutionRepository);
         ReflectionTestUtils.setField(service, "fixtureRepository", fixtureRepository);
+        ReflectionTestUtils.setField(service, "userContext",
+                mock(com.footballmanagergamesimulator.user.UserContext.class)); // isHumanTeam=false -> AI_INSTANT
         ReflectionTestUtils.setField(service, "engineConfig", cfg);
     }
 
@@ -125,7 +127,7 @@ class MatchPlanIdempotencyTest {
                 planRepository.findByFixtureKey("CTIM:7").orElseThrow().getStatus());
         assertTrue(eventRepository.findByFixtureKey("CTIM:7").isEmpty());
         // Second call short-circuited: lineups built only for the first run (2 teams).
-        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong());
+        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong(), any());
     }
 
     @Test
@@ -163,7 +165,7 @@ class MatchPlanIdempotencyTest {
         service.buildAndPersist("CTIM:8", 100L, 1, 5, 10L, 20L,
                 "4-4-2", "4-4-2", 1, 0);
 
-        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong());
+        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong(), any());
         assertEquals(MatchPlan.Status.COMMITTED,
                 planRepository.findByFixtureKey("CTIM:8").orElseThrow().getStatus());
     }
@@ -182,7 +184,7 @@ class MatchPlanIdempotencyTest {
         MatchPlan after = planRepository.findByFixtureKey("CTIM:9").orElseThrow();
         assertEquals(originalId, after.getId(), "a committed match must never be rewritten");
         assertEquals(MatchPlan.Status.COMMITTED, after.getStatus());
-        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong()); // no regeneration
+        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong(), any()); // no regeneration
     }
 
     @Test
@@ -195,7 +197,7 @@ class MatchPlanIdempotencyTest {
 
         // Now immutable: a further call reuses it, never rebuilds.
         service.buildAndPersist("CTIM:12", 100L, 1, 5, 10L, 20L, "4-4-2", "4-4-2", 2, 1);
-        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong());
+        verify(lineupAdapter, times(2)).build(anyLong(), any(), anyLong(), any());
     }
 
     @Test
@@ -210,7 +212,7 @@ class MatchPlanIdempotencyTest {
         MatchPlan after = planRepository.findByFixtureKey("CTIM:11").orElseThrow();
         assertEquals(MatchPlanningService.ALGORITHM_VERSION, after.getAlgorithmVersion());
         assertEquals(1, planRepository.count(), "old plan replaced, not duplicated");
-        verify(lineupAdapter, times(4)).build(anyLong(), any(), anyLong()); // 2 first run + 2 regen
+        verify(lineupAdapter, times(4)).build(anyLong(), any(), anyLong(), any()); // 2 first run + 2 regen
     }
 
     @Test
