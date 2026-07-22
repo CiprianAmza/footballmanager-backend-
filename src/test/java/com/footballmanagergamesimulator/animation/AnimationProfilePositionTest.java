@@ -103,6 +103,36 @@ class AnimationProfilePositionTest {
         assertTrue(checked > 1000, "matrix " + checked);
     }
 
+    @Test void goalkeeperScorerStartsAtItsAnchorAndTravelsContinuouslyToTheFinish() {
+        // No frame-0 teleport: at the slowest profile a goalkeeper scorer begins on the GK anchor and
+        // physically runs to the finish; the whole trajectory is present and within the physical limits.
+        MatchMomentSpec spec = spec(AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL,
+                MatchPeriod.EXTRA_TIME_FIRST_HALF, "GK", "ST", true, 11, 11);
+        AnimationDirector director = new AnimationDirector(SLOWEST);
+        AnimationReplay replay = director.direct(spec).replay();
+        assertTrue(new AnimationInvariantValidator(SLOWEST).validate(replay, spec).isEmpty());
+
+        int scorer = indexOf(replay.players(), HOME * 100 + 1);
+        PitchPoint frame0 = replay.frames().get(0).positions().get(scorer);
+        PitchPoint gkAnchor = new PitchPoint(4, 50);
+        assertTrue(frame0.distanceTo(gkAnchor) < 4.0, "GK scorer frame 0 not at its anchor: " + frame0);
+
+        PitchPoint last = replay.frames().get(replay.frames().size() - 1).positions().get(scorer);
+        assertTrue(last.distanceTo(frame0) > 30, "GK scorer did not travel a continuous trajectory: " + last);
+
+        // Every step of that trajectory respects the configured speed (no hidden jump).
+        for (int f = 1; f < replay.frames().size(); f++) {
+            double step = replay.frames().get(f).positions().get(scorer)
+                    .distanceTo(replay.frames().get(f - 1).positions().get(scorer));
+            assertTrue(step <= SLOWEST.maxPlayerStep(), "GK step " + step + " exceeds limit");
+        }
+    }
+
+    private static int indexOf(List<PlayerSnapshot> players, long id) {
+        for (int i = 0; i < players.size(); i++) if (players.get(i).playerId() == id) return i;
+        return -1;
+    }
+
     private static int minuteFor(MatchPeriod period) {
         return switch (period) {
             case FIRST_HALF -> 20;

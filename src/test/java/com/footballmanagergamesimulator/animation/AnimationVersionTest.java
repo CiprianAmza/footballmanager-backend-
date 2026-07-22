@@ -18,7 +18,7 @@ class AnimationVersionTest {
     /** Pre-upgrade golden fingerprint of the original version-1 replay (captured from commit 38e9b15). */
     private static final long GOLDEN_V1 = 4958526529101888831L;
     /** Golden fingerprint of the current version-2 replay for the same canonical facts. */
-    private static final long GOLDEN_V2 = -6353409510575470345L;
+    private static final long GOLDEN_V2 = -6125445712436773644L;
 
     private static MatchMomentSpec versioned(int version, MatchPeriod period) {
         List<PlayerSnapshot> players = new ArrayList<>(side(100, HOME, "Home"));

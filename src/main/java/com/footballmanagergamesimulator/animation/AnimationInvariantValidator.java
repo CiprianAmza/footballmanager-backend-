@@ -27,10 +27,12 @@ public final class AnimationInvariantValidator {
     public List<String> validate(AnimationReplay replay, MatchMomentSpec spec) {
         List<String> errors = new ArrayList<>();
         validateCanonical(replay, spec, errors);
-        if (replay.frames().size() != FrameCompiler.TOTAL_FRAMES + 1) {
-            errors.add("expected 151 frames, got " + replay.frames().size());
+        int expectedFrames = AnimationFrameBudget.framesFor(replay.renderedWithVersion(), profile) + 1;
+        if (replay.frames().size() != expectedFrames) {
+            errors.add("expected " + expectedFrames + " frames, got " + replay.frames().size());
             return errors;
         }
+        int lastFrame = replay.frames().size() - 1;
 
         boolean legacy = replay.renderedWithVersion() == LEGACY_VERSION;
         double stepTolerance = legacy ? LEGACY_POSITION_ROUNDING : EPS;
@@ -110,8 +112,9 @@ public final class AnimationInvariantValidator {
         AnimationEvent shot = null;
         AnimationEvent lastPass = null;
         boolean passIntoScorer = false;
+        int lastFrame = replay.frames().size() - 1;
         for (AnimationEvent event : replay.events()) {
-            if (event.frame() < 0 || event.frame() > FrameCompiler.TOTAL_FRAMES)
+            if (event.frame() < 0 || event.frame() > lastFrame)
                 errors.add("event outside frames");
             if (event.fromPlayerId() != 0 && !ids.contains(event.fromPlayerId()))
                 errors.add("event actor outside snapshot");
@@ -151,7 +154,7 @@ public final class AnimationInvariantValidator {
             errors.add("final event does not match outcome");
             return;
         }
-        int resultFrame = Math.min(result.frame(), FrameCompiler.TOTAL_FRAMES);
+        int resultFrame = Math.min(result.frame(), replay.frames().size() - 1);
         AnimationFrame atResult = replay.frames().get(resultFrame);
         double goalLine = replay.scoringTeamAttacksRight() ? 100 : 0;
         switch (spec.outcome()) {

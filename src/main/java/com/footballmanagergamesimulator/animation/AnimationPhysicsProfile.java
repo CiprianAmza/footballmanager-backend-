@@ -7,22 +7,19 @@ public record AnimationPhysicsProfile(
         double maxBallStep) {
 
     /**
-     * Smallest limits the engine can honour while still animating the full range
-     * of canonical moments inside {@link FrameCompiler#TOTAL_FRAMES} frames. A
-     * profile below any of these is physically impossible and is rejected at
-     * construction so no generation attempt can throw for an accepted profile.
+     * Smallest limits the engine can honour. A profile below any of these is physically impossible and
+     * is rejected at construction so no generation attempt can throw for an accepted profile. The frame
+     * budget itself scales with the profile (see {@link AnimationFrameBudget}).
      */
     public static final double MIN_PLAYER_STEP = 0.3;
     public static final double MIN_PLAYER_ACCELERATION = 0.1;
     public static final double MIN_BALL_STEP = 1.0;
     /**
-     * A player must be able to accelerate from rest to full stride within a small
-     * fraction of the frame budget; otherwise even the shortest fallback move
-     * cannot complete in {@link FrameCompiler#TOTAL_FRAMES} frames. The ramp cost
-     * is roughly stepCap/accelCap frames, so this bounds that ratio and keeps
-     * {@code direct()} total across the whole accepted profile domain.
+     * A player must be able to accelerate from rest to full stride within a bounded number of frames;
+     * otherwise the ramp alone would dominate any budget. This bounds the step/acceleration ratio and
+     * keeps {@code direct()} total across the whole accepted profile domain.
      */
-    public static final double MAX_ACCELERATION_RAMP_FRAMES = FrameCompiler.TOTAL_FRAMES / 6.0;
+    public static final double MAX_ACCELERATION_RAMP_FRAMES = 25.0;
 
     public AnimationPhysicsProfile {
         requirePositive(maxPlayerStep, "maxPlayerStep");

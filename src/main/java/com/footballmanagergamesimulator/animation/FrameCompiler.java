@@ -27,7 +27,6 @@ import java.util.Random;
 public final class FrameCompiler implements AnimationCompiler {
     /** Generator version 2: the remediated engine, current for all new moments. Version 1 is frozen legacy. */
     public static final int VERSION = 2;
-    public static final int TOTAL_FRAMES = 150;
     public static final double GOAL_MIN_Y = 44;
     public static final double GOAL_MAX_Y = 56;
 
@@ -53,6 +52,8 @@ public final class FrameCompiler implements AnimationCompiler {
     private final double stepCap;
     private final double accelCap;
     private final double ballCap;
+    /** Profile-adaptive number of animated frames for this render (the replay holds totalFrames + 1). */
+    private final int totalFrames;
     /**
      * "On the ball" radius: how close a mover must be to the declared target to
      * count as physically arriving. A discrete integrator can overshoot a target
@@ -73,6 +74,7 @@ public final class FrameCompiler implements AnimationCompiler {
         this.stepCap = profile.playerStepCap();
         this.accelCap = profile.playerAccelerationCap();
         this.ballCap = profile.ballStepCap();
+        this.totalFrames = AnimationFrameBudget.framesFor(profile);
         this.reachTolerance = stepCap + 0.15;
     }
 
@@ -142,7 +144,7 @@ public final class FrameCompiler implements AnimationCompiler {
             default -> ballFlightFrames(shotOrigin, new PitchPoint(100, targetY), script.shotBend());
         };
         int shotArrival = shotFrame + shotFlight;
-        if (shotArrival > TOTAL_FRAMES - SHOT_TAIL)
+        if (shotArrival > totalFrames - SHOT_TAIL)
             throw new RenderException("shot does not fit frame budget: " + script.pattern());
 
         List<List<Span>> tracks = buildTracks(spec, players, formation, attackingCount, goalkeeper,
@@ -169,15 +171,15 @@ public final class FrameCompiler implements AnimationCompiler {
         boolean scoringAttacksRight = spec.scoringTeamAttacksRight();
         boolean mirror = !scoringAttacksRight;
         if (mirror) {
-            for (int frame = 0; frame <= TOTAL_FRAMES; frame++) {
+            for (int frame = 0; frame <= totalFrames; frame++) {
                 ball[frame] = ball[frame].mirrorX();
                 for (int player = 0; player < playerCount; player++)
                     positions[frame][player] = positions[frame][player].mirrorX();
             }
         }
 
-        List<AnimationFrame> frames = new ArrayList<>(TOTAL_FRAMES + 1);
-        for (int frame = 0; frame <= TOTAL_FRAMES; frame++) {
+        List<AnimationFrame> frames = new ArrayList<>(totalFrames + 1);
+        for (int frame = 0; frame <= totalFrames; frame++) {
             List<PitchPoint> framePositions = new ArrayList<>(playerCount);
             for (int player = 0; player < playerCount; player++)
                 framePositions.add(positions[frame][player].rounded());
@@ -202,12 +204,6 @@ public final class FrameCompiler implements AnimationCompiler {
             PitchPoint spot = script.deadBallSpot();
             starts[index.get(script.touches().get(0).playerId())] =
                     clamp(new PitchPoint(spot.x() - 3, spot.y() + (spot.y() > 50 ? -2 : 2)));
-        } else if (script.pattern() == PatternId.SAFE_FALLBACK) {
-            for (PlayScript.Touch touch : script.touches()) {
-                Integer i = index.get(touch.playerId());
-                if (i == null) throw new RenderException("fallback uses non-snapshot player " + touch.playerId());
-                starts[i] = touch.target();
-            }
         }
         return starts;
     }
@@ -218,7 +214,7 @@ public final class FrameCompiler implements AnimationCompiler {
             Schedule schedule = trySchedule(script, index, starts);
             if (schedule != null) return schedule;
             if (script.touches().size() <= 3)
-                throw new RenderException("script does not fit " + (TOTAL_FRAMES + 1) + " frames: " + script.pattern());
+                throw new RenderException("script does not fit " + (totalFrames + 1) + " frames: " + script.pattern());
             List<PlayScript.Touch> tail = script.touches()
                     .subList(script.touches().size() - 3, script.touches().size());
             script = new PlayScript(script.pattern(), tail, script.deadBallSpot(),
@@ -270,7 +266,7 @@ public final class FrameCompiler implements AnimationCompiler {
             prevRelease = release[t];
         }
         int shotFrame = release[n - 1];
-        if (shotFrame > TOTAL_FRAMES - 25) return null;
+        if (shotFrame > totalFrames - 25) return null;
         return new Schedule(script, arrival, release, shotFrame);
     }
 
@@ -315,7 +311,7 @@ public final class FrameCompiler implements AnimationCompiler {
             boolean attacking = i < attackingCount;
             PitchPoint ambient = ambientTarget(formation[i], positionGroup(players.get(i).tacticalPosition()),
                     attacking, players.get(i).playerId());
-            tracks.get(i).add(new Span(0, TOTAL_FRAMES + 1, ambient, true));
+            tracks.get(i).add(new Span(0, totalFrames + 1, ambient, true));
         }
 
         for (int t = 0; t < touches.size(); t++) {
@@ -330,13 +326,13 @@ public final class FrameCompiler implements AnimationCompiler {
             if (t < finalTouch) {
                 PitchPoint drift = clamp(new PitchPoint(Math.min(92, target.x() + 6),
                         target.y() + (50 - target.y()) * 0.2));
-                tracks.get(p).add(new Span(release, TOTAL_FRAMES + 1, drift, false));
+                tracks.get(p).add(new Span(release, totalFrames + 1, drift, false));
             }
         }
 
         // Scorer follow-through after the shot.
         int scorer = index.get(touches.get(finalTouch).playerId());
-        tracks.get(scorer).add(new Span(shotFrame, TOTAL_FRAMES + 1,
+        tracks.get(scorer).add(new Span(shotFrame, totalFrames + 1,
                 clamp(new PitchPoint(Math.min(95, shotOrigin.x() + 4),
                         shotOrigin.y() + (targetY - shotOrigin.y()) * 0.12)), false));
 
@@ -347,11 +343,11 @@ public final class FrameCompiler implements AnimationCompiler {
                 case GOAL -> clampY(50 + keeperDirection * 9);
                 default -> clampY(50 + keeperDirection * 2);
             };
-            tracks.get(goalkeeper).add(new Span(shotFrame, TOTAL_FRAMES + 1, new PitchPoint(98, diveY), false));
+            tracks.get(goalkeeper).add(new Span(shotFrame, totalFrames + 1, new PitchPoint(98, diveY), false));
         }
         if (blocker >= 0 && blockPoint != null) {
             tracks.get(blocker).add(new Span(Math.max(0, shotFrame - framesToReach(
-                    formation[blocker].distanceTo(blockPoint))), TOTAL_FRAMES + 1, blockPoint, false));
+                    formation[blocker].distanceTo(blockPoint))), totalFrames + 1, blockPoint, false));
         }
         return tracks;
     }
@@ -398,9 +394,9 @@ public final class FrameCompiler implements AnimationCompiler {
 
     private PitchPoint[] compileBall(List<BallLeg> legs, PitchPoint[][] positions, int shotArrival,
                                      AnimationOutcome outcome, PitchPoint shotEnd, double reboundDirection) {
-        PitchPoint[] ball = new PitchPoint[TOTAL_FRAMES + 1];
+        PitchPoint[] ball = new PitchPoint[totalFrames + 1];
         for (BallLeg leg : legs) {
-            for (int frame = leg.from(); frame <= Math.min(leg.to(), TOTAL_FRAMES); frame++) {
+            for (int frame = leg.from(); frame <= Math.min(leg.to(), totalFrames); frame++) {
                 switch (leg.kind()) {
                     case DEAD -> ball[frame] = leg.fixedStart();
                     case CARRIED -> ball[frame] = positions[frame][leg.carrier()];
@@ -416,7 +412,7 @@ public final class FrameCompiler implements AnimationCompiler {
         int settle = Math.max(tuning.shotSettleBase(), (int) Math.ceil(
                 2 * shotEnd.distanceTo(rest(outcome, shotEnd, reboundDirection)) / ballCap));
         PitchPoint rest = rest(outcome, shotEnd, reboundDirection);
-        for (int frame = shotArrival + 1; frame <= TOTAL_FRAMES; frame++) {
+        for (int frame = shotArrival + 1; frame <= totalFrames; frame++) {
             double t = Math.min(1, (double) (frame - shotArrival) / settle);
             double eased = 1 - (1 - t) * (1 - t);
             ball[frame] = lerp(shotEnd, rest, eased);
@@ -432,11 +428,11 @@ public final class FrameCompiler implements AnimationCompiler {
         };
     }
 
-    private static long[] compileCarriers(List<BallLeg> legs, List<PlayerSnapshot> players) {
-        long[] carriers = new long[TOTAL_FRAMES + 1];
+    private long[] compileCarriers(List<BallLeg> legs, List<PlayerSnapshot> players) {
+        long[] carriers = new long[totalFrames + 1];
         for (BallLeg leg : legs) {
             if (leg.kind() != BallKind.CARRIED) continue;
-            for (int frame = leg.from(); frame < Math.min(leg.to(), TOTAL_FRAMES + 1); frame++)
+            for (int frame = leg.from(); frame < Math.min(leg.to(), totalFrames + 1); frame++)
                 carriers[frame] = players.get(leg.carrier()).playerId();
         }
         return carriers;
@@ -471,10 +467,10 @@ public final class FrameCompiler implements AnimationCompiler {
 
     private PitchPoint[][] integrate(List<List<Span>> tracks, PitchPoint[] starts, List<PlayerSnapshot> players) {
         int count = starts.length;
-        PitchPoint[][] positions = new PitchPoint[TOTAL_FRAMES + 1][count];
+        PitchPoint[][] positions = new PitchPoint[totalFrames + 1][count];
         double[][] velocity = new double[count][2];
         for (int player = 0; player < count; player++) positions[0][player] = starts[player];
-        for (int frame = 1; frame <= TOTAL_FRAMES; frame++) {
+        for (int frame = 1; frame <= totalFrames; frame++) {
             for (int player = 0; player < count; player++) {
                 Span active = activeSpan(tracks.get(player), frame);
                 PitchPoint target = active.target();
