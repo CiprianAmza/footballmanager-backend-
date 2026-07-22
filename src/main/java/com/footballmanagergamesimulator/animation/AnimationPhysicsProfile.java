@@ -15,6 +15,14 @@ public record AnimationPhysicsProfile(
     public static final double MIN_PLAYER_STEP = 0.3;
     public static final double MIN_PLAYER_ACCELERATION = 0.1;
     public static final double MIN_BALL_STEP = 1.0;
+    /**
+     * A player must be able to accelerate from rest to full stride within a small
+     * fraction of the frame budget; otherwise even the shortest fallback move
+     * cannot complete in {@link FrameCompiler#TOTAL_FRAMES} frames. The ramp cost
+     * is roughly stepCap/accelCap frames, so this bounds that ratio and keeps
+     * {@code direct()} total across the whole accepted profile domain.
+     */
+    public static final double MAX_ACCELERATION_RAMP_FRAMES = FrameCompiler.TOTAL_FRAMES / 6.0;
 
     public AnimationPhysicsProfile {
         requirePositive(maxPlayerStep, "maxPlayerStep");
@@ -27,6 +35,12 @@ public record AnimationPhysicsProfile(
         if (maxBallStep < maxPlayerStep)
             throw new IllegalArgumentException("maxBallStep " + maxBallStep
                     + " is physically impossible below maxPlayerStep " + maxPlayerStep);
+        // The step/acceleration ratio must leave room to move within the frame budget.
+        double rampFrames = playerStepCapFor(maxPlayerStep) / playerAccelerationCapFor(maxPlayerAcceleration);
+        if (rampFrames > MAX_ACCELERATION_RAMP_FRAMES)
+            throw new IllegalArgumentException("maxPlayerStep " + maxPlayerStep + " relative to acceleration "
+                    + maxPlayerAcceleration + " needs " + Math.ceil(rampFrames)
+                    + " frames to reach stride, over the budget of " + (int) MAX_ACCELERATION_RAMP_FRAMES);
     }
 
     public static AnimationPhysicsProfile defaults() {
@@ -38,7 +52,7 @@ public record AnimationPhysicsProfile(
      * rounding, no serialized step exceeds {@link #maxPlayerStep}.
      */
     public double playerStepCap() {
-        return headroom(maxPlayerStep, 2 * PitchPoint.ROUNDING_HALF_STEP);
+        return playerStepCapFor(maxPlayerStep);
     }
 
     /**
@@ -47,12 +61,20 @@ public record AnimationPhysicsProfile(
      * A second difference touches three rounded points (weights 1, -2, 1).
      */
     public double playerAccelerationCap() {
-        return headroom(maxPlayerAcceleration, 4 * PitchPoint.ROUNDING_HALF_STEP);
+        return playerAccelerationCapFor(maxPlayerAcceleration);
     }
 
     /** Largest ball step the compiler may command so rounding stays within {@link #maxBallStep}. */
     public double ballStepCap() {
         return headroom(maxBallStep, 2 * PitchPoint.ROUNDING_HALF_STEP);
+    }
+
+    private static double playerStepCapFor(double maxPlayerStep) {
+        return headroom(maxPlayerStep, 2 * PitchPoint.ROUNDING_HALF_STEP);
+    }
+
+    private static double playerAccelerationCapFor(double maxPlayerAcceleration) {
+        return headroom(maxPlayerAcceleration, 4 * PitchPoint.ROUNDING_HALF_STEP);
     }
 
     private static double headroom(double limit, double rounding) {

@@ -19,13 +19,7 @@ final class OverlapAndCrossPattern extends BasePattern {
         Set<Long> used = new LinkedHashSet<>(); List<PlayScript.Touch> route = new ArrayList<>();
         PlayerSnapshot midfielder = support(s, r, used, "MC", "DM", "AMC"); used.add(midfielder.playerId());
         route.add(touch(midfielder, point(r, 49, 57, 34, 66), 5, 0));
-        // Optional overlapping wing-back — WBL/WBR are first-class wide overlap candidates.
-        PlayerSnapshot overlapper = support(s, r, used,
-                left ? "WBL" : "WBR", left ? "DL" : "DR", left ? "ML" : "MR", left ? "AML" : "AMR");
-        if (overlapper != null) {
-            used.add(overlapper.playerId());
-            route.add(touch(overlapper, new PitchPoint(between(r, 68, 74), left ? between(r, 10, 18) : between(r, 82, 90)), 4, left ? 3 : -3));
-        }
+        // The wide crosser is the canonical assister — WBL/WBR/full-backs/wingers all deliver here.
         route.add(touch(s.assister(), new PitchPoint(between(r, 82, 88), left ? between(r, 8, 16) : between(r, 84, 92)), 4, left ? 4 : -4));
         route.add(touch(s.scorer(), point(r, 88, 92, 45, 55), 4, left ? 7 : -7));
         return open(id(), route, between(r, -2, 2));

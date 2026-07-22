@@ -26,10 +26,20 @@ class AnimationProfileTest {
         assertThrows(IllegalArgumentException.class, () -> new AnimationPhysicsProfile(1.5, 0.6, 1.2));
     }
 
-    @Test void feasibleProfilesAreAccepted() {
+    @Test void extremeStepToAccelerationRatioIsRejected() {
+        // These previously passed the constructor but made every render throw from the safe fallback,
+        // because reaching full stride cost more than the whole frame budget.
+        assertThrows(IllegalArgumentException.class, () -> new AnimationPhysicsProfile(10.0, 0.1, 10.0));
+        assertThrows(IllegalArgumentException.class, () -> new AnimationPhysicsProfile(100.0, 0.1, 100.0));
+        assertThrows(IllegalArgumentException.class, () -> new AnimationPhysicsProfile(5.0, 0.1, 5.0));
+    }
+
+    @Test void feasibleProfilesAcrossTheDomainAreAccepted() {
         assertDoesNotThrow(AnimationPhysicsProfile::defaults);
         assertDoesNotThrow(() -> new AnimationPhysicsProfile(0.6, 0.25, 4.0));
         assertDoesNotThrow(() -> new AnimationPhysicsProfile(0.5, 0.2, 1.5));
+        assertDoesNotThrow(() -> new AnimationPhysicsProfile(0.3, 0.1, 1.0)); // slowest accepted
+        assertDoesNotThrow(() -> new AnimationPhysicsProfile(2.0, 0.6, 6.0)); // fast, well-proportioned
     }
 
     @Test void settingsExposeTheConfiguredProfile() {

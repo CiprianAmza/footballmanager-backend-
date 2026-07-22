@@ -6,9 +6,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** direct() is total: it returns a valid replay for every valid spec and accepted profile. */
 class AnimationFallbackTest {
+    // Spans the accepted profile domain: default, tight ball, slowest accepted, and fast well-proportioned.
     private static final AnimationPhysicsProfile[] PROFILES = {
             AnimationPhysicsProfile.defaults(),
             new AnimationPhysicsProfile(0.5, 0.2, 1.5),
+            new AnimationPhysicsProfile(0.3, 0.1, 1.0),
+            new AnimationPhysicsProfile(2.0, 0.6, 6.0),
             new AnimationPhysicsProfile(1.2, 0.6, 6.0)
     };
 

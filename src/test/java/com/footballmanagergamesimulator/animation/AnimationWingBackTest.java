@@ -68,18 +68,23 @@ class AnimationWingBackTest {
                         "overlap " + home.get(i) + " / " + home.get(j));
     }
 
-    @Test void wingBackCanDeliverTheAssistInAWidePattern() {
-        MatchMomentSpec spec = spec(HOME * 100 + 4); // WBL assists
-        Random random = new Random(AnimationSeed.derive(spec.planSeed(), spec.fixtureKey(),
-                spec.slotIndex(), spec.generatorVersion()));
-        AnimationReplay replay = new FrameCompiler(AnimationPhysicsProfile.defaults())
-                .compile(spec, PatternLibrary.find(PatternId.OVERLAP_AND_CROSS).create(spec, random), random);
-        assertTrue(validator.validate(replay, spec).isEmpty());
-        AnimationEvent lastPass = null;
-        for (AnimationEvent e : replay.events()) if ("PASS".equals(e.type())) lastPass = e;
-        assertNotNull(lastPass);
-        assertEquals(HOME * 100 + 4, lastPass.fromPlayerId(), "WBL should deliver the assist");
-        assertEquals(HOME * 100 + 11, lastPass.toPlayerId());
+    @Test void wingBackDeliversTheAssistWhenItIsTheCanonicalAssister() {
+        // A left wing-back as the canonical assister always plays the final pass into the scorer,
+        // whether a wide pattern or the safe fallback is chosen.
+        for (int slot = 0; slot < 6; slot++) {
+            List<PlayerSnapshot> players = new ArrayList<>(homeWithWingBacks());
+            players.addAll(standardAway());
+            MatchMomentSpec spec = new MatchMomentSpec("CTIM:WB" + slot, slot, 5L,
+                    AnimationDirector.CURRENT_GENERATOR_VERSION, 30, 2, MatchPeriod.FIRST_HALF, HOME, AWAY, HOME,
+                    AnimationPhase.OPEN_PLAY, AnimationOutcome.GOAL, HOME * 100 + 11, HOME * 100 + 4, players, null);
+            AnimationReplay replay = director.direct(spec).replay();
+            assertTrue(validator.validate(replay, spec).isEmpty());
+            AnimationEvent lastPass = null;
+            for (AnimationEvent e : replay.events()) if ("PASS".equals(e.type())) lastPass = e;
+            assertNotNull(lastPass, "assisted goal must contain the assist pass");
+            assertEquals(HOME * 100 + 4, lastPass.fromPlayerId(), "WBL should deliver the assist");
+            assertEquals(HOME * 100 + 11, lastPass.toPlayerId());
+        }
     }
 
     @Test void directorAnimatesWingBackRostersForEveryOutcome() {

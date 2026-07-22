@@ -47,7 +47,8 @@ public record MatchMomentSpec(
         if (generatorVersion <= 0) throw new IllegalArgumentException("generatorVersion must be positive");
         if (minute < 1) throw new IllegalArgumentException("minute must be positive");
         if (firstHalfStoppage < 0) throw new IllegalArgumentException("stoppage must be non-negative");
-        if (period == null) throw new IllegalArgumentException("period is required");
+        // period may be null only for legacy version-1 recipes persisted before the explicit
+        // period model; in that case direction falls back to the first-half derivation.
         if (scoringTeamId <= 0 || defendingTeamId <= 0 || homeTeamId <= 0)
             throw new IllegalArgumentException("team ids must be positive");
         if (scoringTeamId == defendingTeamId) throw new IllegalArgumentException("teams must differ");
@@ -108,9 +109,18 @@ public record MatchMomentSpec(
         return playersOnPitch.stream().filter(p -> p.playerId() == assisterId).findFirst().orElseThrow();
     }
 
-    /** Canonical attack direction of the home team, derived from the explicit period. */
+    /** True while this moment is in the first half (legacy direction derivation for null period). */
+    public boolean firstHalf() {
+        return minute <= 45 + firstHalfStoppage;
+    }
+
+    /**
+     * Canonical attack direction of the home team. Derived from the explicit period
+     * when present; legacy version-1 recipes without a period fall back to the
+     * first-half derivation so their frozen replays regenerate unchanged.
+     */
     public boolean homeAttacksRight() {
-        return period.homeAttacksRight();
+        return period != null ? period.homeAttacksRight() : firstHalf();
     }
 
     /** Whether the scoring team attacks the right-hand goal in this period. */

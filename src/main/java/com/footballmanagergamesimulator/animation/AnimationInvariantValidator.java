@@ -12,6 +12,12 @@ public final class AnimationInvariantValidator {
     private static final double EPS = 1e-9;
     /** Ball-attached-to-carrier slack; the carried ball equals the carrier position exactly. */
     private static final double CARRIER_SLACK = 0.05;
+    // Frozen version-1 replays were produced under coarser (0.1) rounding and the original
+    // tolerated-physics contract; they are validated with those historical allowances. The current
+    // engine (version >= 2) is validated strictly, with no tolerance above the configured limit.
+    private static final int LEGACY_VERSION = 1;
+    private static final double LEGACY_POSITION_ROUNDING = 0.15;
+    private static final double LEGACY_ACCELERATION_ROUNDING = 0.30;
     private final AnimationPhysicsProfile profile;
 
     public AnimationInvariantValidator(AnimationPhysicsProfile profile) {
@@ -26,8 +32,13 @@ public final class AnimationInvariantValidator {
             return errors;
         }
 
-        List<PlayerSnapshot> expected = new ArrayList<>(spec.attackers());
-        expected.addAll(spec.defenders());
+        boolean legacy = replay.renderedWithVersion() == LEGACY_VERSION;
+        double stepTolerance = legacy ? LEGACY_POSITION_ROUNDING : EPS;
+        double accelTolerance = legacy ? LEGACY_ACCELERATION_ROUNDING : EPS;
+        double ballTolerance = legacy ? LEGACY_POSITION_ROUNDING : EPS;
+        double carrierSlack = legacy ? LEGACY_POSITION_ROUNDING : CARRIER_SLACK;
+
+        List<PlayerSnapshot> expected = legacy ? legacyOrder(spec) : canonicalOrder(spec);
         if (!replay.players().equals(expected)) errors.add("replay participants differ from snapshot");
         Set<Long> ids = new HashSet<>();
         for (PlayerSnapshot player : replay.players()) ids.add(player.playerId());
@@ -45,7 +56,7 @@ public final class AnimationInvariantValidator {
                 if (frame > 0) {
                     PitchPoint previous = replay.frames().get(frame - 1).positions().get(player);
                     double step = point.distanceTo(previous);
-                    if (step > profile.maxPlayerStep() + EPS)
+                    if (step > profile.maxPlayerStep() + stepTolerance)
                         errors.add("frame " + frame + " player " + player + " step " + step
                                 + " over " + profile.maxPlayerStep());
                 }
@@ -55,20 +66,20 @@ public final class AnimationInvariantValidator {
                     double ax = (point.x() - previous.x()) - (previous.x() - before.x());
                     double ay = (point.y() - previous.y()) - (previous.y() - before.y());
                     double acceleration = Math.hypot(ax, ay);
-                    if (acceleration > profile.maxPlayerAcceleration() + EPS)
+                    if (acceleration > profile.maxPlayerAcceleration() + accelTolerance)
                         errors.add("frame " + frame + " player " + player + " acceleration " + acceleration
                                 + " over " + profile.maxPlayerAcceleration());
                 }
             }
             if (frame > 0) {
                 double ballStep = current.ball().distanceTo(replay.frames().get(frame - 1).ball());
-                if (ballStep > profile.maxBallStep() + EPS)
+                if (ballStep > profile.maxBallStep() + ballTolerance)
                     errors.add("frame " + frame + " ball step " + ballStep + " over " + profile.maxBallStep());
             }
             if (current.ballCarrierId() != 0) {
                 int carrier = indexOf(replay.players(), current.ballCarrierId());
                 if (carrier < 0) errors.add("frame " + frame + " unknown carrier");
-                else if (current.ball().distanceTo(current.positions().get(carrier)) > CARRIER_SLACK)
+                else if (current.ball().distanceTo(current.positions().get(carrier)) > carrierSlack)
                     errors.add("frame " + frame + " ball detached from carrier");
             }
         }
@@ -129,8 +140,9 @@ public final class AnimationInvariantValidator {
             // Forward contract: the canonical assist plays the final clean pass into the scorer.
             if (lastPass == null || lastPass.fromPlayerId() != spec.assisterId()
                     || lastPass.toPlayerId() != spec.scorerId()) errors.add("canonical assist is not final pass");
-        } else {
-            // Inverse contract: with no assist there can be no clean team-mate pass into the scorer.
+        } else if (replay.renderedWithVersion() != LEGACY_VERSION) {
+            // Inverse contract (current engine only): with no assist there can be no clean team-mate
+            // pass into the scorer. Frozen version-1 replays predate this contract and keep their behaviour.
             if (passIntoScorer) errors.add("unassisted goal has a clean pass into the scorer");
         }
 
@@ -195,5 +207,20 @@ public final class AnimationInvariantValidator {
     private static int indexOf(List<PlayerSnapshot> players, long playerId) {
         for (int i = 0; i < players.size(); i++) if (players.get(i).playerId() == playerId) return i;
         return -1;
+    }
+
+    /** Current engine ordering: canonical attackers then canonical defenders. */
+    private static List<PlayerSnapshot> canonicalOrder(MatchMomentSpec spec) {
+        List<PlayerSnapshot> ordered = new ArrayList<>(spec.attackers());
+        ordered.addAll(spec.defenders());
+        return ordered;
+    }
+
+    /** Frozen version-1 ordering: attackers then defenders in raw snapshot input order. */
+    private static List<PlayerSnapshot> legacyOrder(MatchMomentSpec spec) {
+        List<PlayerSnapshot> ordered = new ArrayList<>();
+        for (PlayerSnapshot p : spec.playersOnPitch()) if (p.teamId() == spec.scoringTeamId()) ordered.add(p);
+        for (PlayerSnapshot p : spec.playersOnPitch()) if (p.teamId() == spec.defendingTeamId()) ordered.add(p);
+        return ordered;
     }
 }

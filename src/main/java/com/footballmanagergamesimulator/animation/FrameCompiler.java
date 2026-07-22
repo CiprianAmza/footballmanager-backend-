@@ -24,8 +24,9 @@ import java.util.Random;
  * physical travel, and a self-check rejects any schedule where a receiver does
  * not actually reach the declared target — the director then falls back.
  */
-public final class FrameCompiler {
-    public static final int VERSION = 1;
+public final class FrameCompiler implements AnimationCompiler {
+    /** Generator version 2: the remediated engine, current for all new moments. Version 1 is frozen legacy. */
+    public static final int VERSION = 2;
     public static final int TOTAL_FRAMES = 150;
     public static final double GOAL_MIN_Y = 44;
     public static final double GOAL_MAX_Y = 56;
@@ -33,12 +34,11 @@ public final class FrameCompiler {
     private static final int MIN_DWELL = 3;
     private static final int SHOT_TAIL = 2;
 
-    /** Frozen per-version cosmetic tuning; different values produce different, still-valid frames. */
+    /** Frozen cosmetic tuning for this version. */
     public record CompilerTuning(double patrolAmplitudeX, double patrolAmplitudeY,
                                  double ambientPushScale, int shotSettleBase) { }
 
-    public static final CompilerTuning TUNING_V1 = new CompilerTuning(1.2, 1.4, 1.0, 18);
-    public static final CompilerTuning TUNING_V2 = new CompilerTuning(0.8, 1.0, 1.15, 24);
+    public static final CompilerTuning TUNING = new CompilerTuning(1.2, 1.4, 1.0, 18);
 
     private enum BallKind { DEAD, CARRIED, FLIGHT }
 
@@ -63,7 +63,7 @@ public final class FrameCompiler {
     private final double reachTolerance;
 
     public FrameCompiler(AnimationPhysicsProfile profile) {
-        this(profile, VERSION, TUNING_V1);
+        this(profile, VERSION, TUNING);
     }
 
     public FrameCompiler(AnimationPhysicsProfile profile, int version, CompilerTuning tuning) {
@@ -136,7 +136,15 @@ public final class FrameCompiler {
         List<List<Span>> tracks = buildTracks(spec, players, formation, attackingCount, goalkeeper,
                 blocker, blockPoint, index, schedule, shotOrigin, targetY, keeperDirection);
 
-        PitchPoint[][] positions = integrate(tracks, formation, players);
+        // On a dead ball the play is stopped and the taker is already standing over the spot; that is
+        // not an open-play teleport. Everyone else starts in their formation slot and runs onto the ball.
+        PitchPoint[] starts = formation.clone();
+        if (script.deadBallSpot() != null) {
+            PitchPoint spot = script.deadBallSpot();
+            int taker = index.get(touches.get(0).playerId());
+            starts[taker] = clamp(new PitchPoint(spot.x() - 3, spot.y() + (spot.y() > 50 ? -2 : 2)));
+        }
+        PitchPoint[][] positions = integrate(tracks, starts, players);
 
         verifyReachability(touches, index, positions, schedule, shotOrigin, goalkeeper, script);
 
@@ -206,9 +214,12 @@ public final class FrameCompiler {
         PitchPoint firstTarget = script.deadBallSpot() != null ? script.deadBallSpot() : first.target();
         int firstIndex = index.get(first.playerId());
         arrival[0] = 0;
-        // The first toucher runs from their real formation slot onto the ball; they are never
-        // teleported onto the target. Give them enough frames to physically arrive.
-        int reachFirst = framesToReach(formation[firstIndex].distanceTo(firstTarget));
+        // Open play: the first toucher runs from their real formation slot onto the ball and is never
+        // teleported. Dead ball: the taker already stands over the stopped ball, so they only need to
+        // settle onto the spot during the prelude.
+        int reachFirst = script.deadBallSpot() != null
+                ? framesToReach(3.0)
+                : framesToReach(formation[firstIndex].distanceTo(firstTarget));
         int preludeMin = script.deadBallSpot() != null ? Math.max(20, script.preludeFrames()) : 0;
         release[0] = Math.max(Math.max(MIN_DWELL, first.dwellFrames()), Math.max(reachFirst, preludeMin));
         lastRelease.put(first.playerId(), release[0]);
