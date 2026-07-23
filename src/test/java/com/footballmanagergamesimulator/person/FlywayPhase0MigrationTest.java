@@ -52,7 +52,7 @@ class FlywayPhase0MigrationTest {
     }
 
     private void migrate(String url) {
-        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration")
+        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration/h2")
                 .baselineOnMigrate(true).baselineVersion("0").load().migrate();
     }
 

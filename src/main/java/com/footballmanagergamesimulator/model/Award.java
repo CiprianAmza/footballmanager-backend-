@@ -24,11 +24,11 @@ public class Award {
     private String value; // nullable - e.g. "23 goals"
 
     // Structured evidence for historical award pages and player profile badges.
-    @Column(columnDefinition = "double default 0")
+    @Column(columnDefinition = "double precision default 0")
     private double votingPoints;
     @Column(columnDefinition = "int default 0")
     private int firstPlaceVotes;
-    @Column(columnDefinition = "double default 0")
+    @Column(columnDefinition = "double precision default 0")
     private double averageRating;
     @Column(columnDefinition = "int default 0")
     private int goals;
@@ -36,9 +36,9 @@ public class Award {
     private int assists;
     @Column(columnDefinition = "int default 0")
     private int appearances;
-    @Column(columnDefinition = "double default 0")
+    @Column(columnDefinition = "double precision default 0")
     private double chancesCreated;
-    @Column(columnDefinition = "double default 0")
+    @Column(columnDefinition = "double precision default 0")
     private double dribblesCompleted;
     @Column(columnDefinition = "int default 0")
     private int saves;
