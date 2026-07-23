@@ -69,6 +69,15 @@ gameplay:
   player-availability-disabled: true
 
 # =============================================================
+# Team Dynamics (CONCORD)
+# =============================================================
+# Master switch for the real Dynamics section: hierarchy, social groups,
+# happiness, monthly team meeting and player conversations. Default OFF until
+# rollout; when false the API returns explicit empty/disabled states.
+dynamics:
+  enabled: false
+
+# =============================================================
 # Global award weighting
 # =============================================================
 # Championships are ranked by the average rating of each club's best 11 players.
