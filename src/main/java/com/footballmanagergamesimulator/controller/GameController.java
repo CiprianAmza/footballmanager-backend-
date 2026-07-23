@@ -781,11 +781,11 @@ public class GameController {
         gameLock.lock();
         try {
             GameSaveImportService.ImportPlan plan = gameSaveImportService.prepare(save);
-            gameSaveImportService.apply(plan, gameplayFeatures.isPlayerAvailabilityDisabled());
             // H2 ALTER ... RESTART is implicit-commit DDL, intentionally kept
-            // outside the rollbackable DML transaction and preflighted against
-            // the isolated schema clone before apply.
-            gameSaveImportService.alignGeneratorsAfterCommit(plan);
+            // before the rollbackable DML transaction. If any statement fails,
+            // apply never starts and the previous world remains intact.
+            gameSaveImportService.alignGeneratorsBeforeApply(plan);
+            gameSaveImportService.apply(plan, gameplayFeatures.isPlayerAvailabilityDisabled());
 
             result.put("success", true);
             result.put("message", "Game loaded successfully");

@@ -63,9 +63,9 @@ class GameSaveCrossInstanceIT {
         GameSaveImportService targetService = new GameSaveImportService(
                 targetDataSource, objectMapper, mock(PersonProfileService.class));
         GameSaveImportService.ImportPlan plan = targetService.prepare(save);
+        targetService.alignGeneratorsBeforeApply(plan);
         new TransactionTemplate(new DataSourceTransactionManager(targetDataSource))
                 .executeWithoutResult(status -> targetService.apply(plan, false));
-        targetService.alignGeneratorsAfterCommit(plan);
 
         assertThat(target.queryForObject(
                 "SELECT COUNT(*) FROM MATCH_PLAN WHERE FIXTURE_KEY = 'TARGET:STALE'", Integer.class)).isZero();

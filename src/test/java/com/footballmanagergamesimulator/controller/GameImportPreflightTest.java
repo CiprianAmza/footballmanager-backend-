@@ -87,8 +87,8 @@ class GameImportPreflightTest {
         Map<String, Object> v5 = validSave(5);
         v5.put("users", List.of(Map.of("id", 1, "teamId", 999, "managerId", 999)));
         GameSaveImportService.ImportPlan v5Plan = service.prepare(v5);
+        service.alignGeneratorsBeforeApply(v5Plan);
         service.apply(v5Plan, false);
-        service.alignGeneratorsAfterCommit(v5Plan);
         assertImportedStateAndIdentity();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM MATCH_PLAN", Integer.class)).isZero();
 
@@ -98,8 +98,8 @@ class GameImportPreflightTest {
                 "id", 500, "userId", 1, "humanId", 999,
                 "careerType", "CHAIRMAN", "controlType", "USER", "displayName", "Attacker")));
         GameSaveImportService.ImportPlan v6Plan = service.prepare(v6);
+        service.alignGeneratorsBeforeApply(v6Plan);
         service.apply(v6Plan, false);
-        service.alignGeneratorsAfterCommit(v6Plan);
         assertImportedStateAndIdentity();
     }
 

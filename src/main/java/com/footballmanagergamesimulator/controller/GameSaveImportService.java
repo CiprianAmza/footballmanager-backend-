@@ -20,6 +20,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -271,15 +272,16 @@ public class GameSaveImportService {
 
     /**
      * H2's generator-alignment statements are DDL and therefore implicitly
-     * commit. They are deliberately executed only after {@link #apply} has
-     * committed its fully validated DML transaction. Every exact target and
-     * statement shape was already executed on the isolated H2 clone in
-     * {@link #prepare}; this phase never participates in rollback semantics.
+     * commit. They are deliberately executed before {@link #apply}: if any DDL
+     * fails, live DML never starts and the old world remains intact. If apply
+     * later rolls back, only counters may remain safely advanced beyond both
+     * the old and imported maxima. Every exact statement was already executed
+     * on the isolated H2 clone in {@link #prepare}.
      */
-    public void alignGeneratorsAfterCommit(ImportPlan plan) {
+    public void alignGeneratorsBeforeApply(ImportPlan plan) {
         Objects.requireNonNull(plan, "import plan");
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            throw new IllegalStateException("H2 generator DDL must run after the import transaction commits");
+            throw new IllegalStateException("H2 generator DDL must run before the import transaction starts");
         }
         Connection live = DataSourceUtils.getConnection(dataSource);
         try {
@@ -290,7 +292,7 @@ public class GameSaveImportService {
                 executeUpdate(live, reset.sql(reset.minimumNextValue()));
             }
         } catch (SQLException exception) {
-            throw new IllegalStateException("Imported world committed, but H2 generator alignment failed: "
+            throw new IllegalStateException("H2 generator alignment failed before import; world was not modified: "
                     + rootMessage(exception), exception);
         } finally {
             DataSourceUtils.releaseConnection(live, dataSource);
@@ -352,7 +354,15 @@ public class GameSaveImportService {
             reconcileAiProfiles(isolated);
             validateWorld(isolated);
             validateAccountCompatibility(isolated, plan);
-            List<GeneratorReset> resets = discoverGeneratorResets(isolated);
+            Map<String, GeneratorReset> liveResets = new HashMap<>();
+            for (GeneratorReset reset : discoverGeneratorResets(live)) {
+                liveResets.put(reset.sortKey(), reset);
+            }
+            List<GeneratorReset> resets = discoverGeneratorResets(isolated).stream()
+                    .map(reset -> reset.withMinimumNextValue(Math.max(
+                            reset.minimumNextValue(),
+                            liveResets.getOrDefault(reset.sortKey(), reset).minimumNextValue())))
+                    .toList();
             for (GeneratorReset reset : resets) {
                 executeUpdate(isolated, reset.sql(reset.minimumNextValue()));
             }
@@ -705,6 +715,10 @@ public class GameSaveImportService {
 
         String sortKey() {
             return kind + ":" + generatorName;
+        }
+
+        GeneratorReset withMinimumNextValue(long nextValue) {
+            return new GeneratorReset(kind, generatorName, tableName, columnName, nextValue);
         }
     }
 

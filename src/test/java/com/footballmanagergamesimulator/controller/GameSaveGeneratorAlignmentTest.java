@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 @SpringJUnitConfig(GameSaveGeneratorAlignmentTest.Config.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
@@ -45,8 +46,8 @@ class GameSaveGeneratorAlignmentTest {
     @Test
     void explicitCrossInstanceIdsAdvanceEveryIdentityAndNamedSequencePastImportedMax() {
         GameSaveImportService.ImportPlan plan = service.prepare(highIdSave());
+        service.alignGeneratorsBeforeApply(plan);
         service.apply(plan, false);
-        service.alignGeneratorsAfterCommit(plan);
 
         for (String table : GameSaveImportService.manifestTableNames()) {
             jdbc.update("INSERT INTO \"" + table + "\" DEFAULT VALUES");
@@ -62,18 +63,21 @@ class GameSaveGeneratorAlignmentTest {
     }
 
     @Test
-    void failedTransactionalReplacementLeavesSentinelRowsAndLiveCountersUntouched() {
+    void successfulAlignmentThenFailedReplacementRollsBackWorldAndLeavesCounterSafelyAdvanced() {
         GameSaveImportService.ImportPlan plan = service.prepare(highIdSave());
-        doThrow(new IllegalStateException("forced before post-commit generator phase"))
+        service.alignGeneratorsBeforeApply(plan);
+        doThrow(new IllegalStateException("forced after replacement DML started"))
                 .when(profiles).backfill();
 
         assertThatThrownBy(() -> service.apply(plan, false))
-                .hasMessageContaining("forced before post-commit generator phase");
+                .hasMessageContaining("forced after replacement DML started");
+        verify(profiles).backfill();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM TEAM WHERE ID = 1", Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM TEAM WHERE ID = 1000", Integer.class)).isZero();
 
         jdbc.update("INSERT INTO TEAM DEFAULT VALUES");
         long generated = jdbc.queryForObject("SELECT MAX(ID) FROM TEAM", Long.class);
-        assertThat(generated).isEqualTo(2L);
+        assertThat(generated).isGreaterThan(1000L);
     }
 
     private Map<String, Object> highIdSave() {
