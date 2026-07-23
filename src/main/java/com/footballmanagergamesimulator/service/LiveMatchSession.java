@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -394,28 +395,66 @@ public class LiveMatchSession {
             Human animAssister = rg.assistId() != null
                     ? svc.findById(home ? team1All : team2All, rg.assistId()) : null;
             if (animScorer != null) {
-                // Seed the animation from fixtureKey + slotIndex (not scorer + minute), so
-                // a same-minute goal gets a distinct animation and a refresh/replay
-                // regenerates the identical one. Cleared right after (thread-local).
-                svc.goalAnimationService.setAnimationSeed(animationSeed(slotIndex));
-                // Animate as the canonical goal type (penalty / free kick / open play).
                 LivePlanSnapshot.SlotView sv = slotByIndex.get(slotIndex);
                 String playType = sv != null ? sv.goalType() : "OPEN_PLAY";
-                GoalAnimationData anim;
-                try {
-                    anim = svc.buildAttackAnimation(
-                            svc.filterOnPitch(home ? team1All : team2All, matchStates),
-                            svc.filterOnPitch(home ? team2All : team1All, matchStates),
-                            animScorer, animAssister,
-                            teamId, home ? teamId2 : teamId1, teamId1, min, "GOAL", playType);
-                } finally {
-                    svc.goalAnimationService.clearAnimationSeed();
+                // Presentation-only Animation Engine V3 first (feature flag, default off). It only
+                // renders the already-persisted canonical facts and can never change them; empty ⇒
+                // flag off or unrenderable ⇒ the legacy engine below runs with unchanged behaviour.
+                GoalAnimationData anim =
+                        buildCanonicalGoalAnimationV3(min, slotIndex, home, sv, scorerId, rg.assistId())
+                                .orElse(null);
+                if (anim == null) {
+                    // Seed the animation from fixtureKey + slotIndex (not scorer + minute), so
+                    // a same-minute goal gets a distinct animation and a refresh/replay
+                    // regenerates the identical one. Cleared right after (thread-local).
+                    svc.goalAnimationService.setAnimationSeed(animationSeed(slotIndex));
+                    // Animate as the canonical goal type (penalty / free kick / open play).
+                    try {
+                        anim = svc.buildAttackAnimation(
+                                svc.filterOnPitch(home ? team1All : team2All, matchStates),
+                                svc.filterOnPitch(home ? team2All : team1All, matchStates),
+                                animScorer, animAssister,
+                                teamId, home ? teamId2 : teamId1, teamId1, min, "GOAL", playType);
+                    } finally {
+                        svc.goalAnimationService.clearAnimationSeed();
+                    }
                 }
                 // Canonical goal: appended to the ordered (minute, slotIndex) list so
                 // simultaneous goals never overwrite each other.
                 addCanonicalAnimation(min, slotIndex, anim);
             }
         }
+    }
+
+    /**
+     * Try the presentation-only Animation Engine V3 for this canonical goal (feature flag,
+     * default off). Returns empty when the flag is off, the bean is absent, or the moment
+     * cannot be rendered — in which case the caller falls back to the legacy engine. The V3
+     * engine is strictly non-authoritative: it renders the already-decided canonical facts
+     * (scorer, assister, minute, slot, period, on-pitch lot) and can never alter them. It
+     * derives its own restart-stable seed from {@code (planSeed, fixtureKey, slotIndex)}, so a
+     * refresh/replay regenerates the identical animation and two same-minute goals stay
+     * distinct by {@code slotIndex} without any new RNG.
+     */
+    private Optional<GoalAnimationData> buildCanonicalGoalAnimationV3(
+            int min, int slotIndex, boolean home, LivePlanSnapshot.SlotView sv,
+            long scorerId, Long assistId) {
+        if (svc.animationV3GoalAdapter == null || !svc.animationV3GoalAdapter.enabled()) return Optional.empty();
+        List<Contributor> attackers = canonicalOnPitch(home);
+        List<Contributor> defenders = canonicalOnPitch(!home);
+        if (attackers.isEmpty() || defenders.isEmpty()) return Optional.empty();
+        long scoringTeamId = home ? teamId1 : teamId2;
+        long defendingTeamId = home ? teamId2 : teamId1;
+        boolean extraTime = sv != null && sv.phase() == GoalPhase.EXTRA_TIME;
+        String goalType = sv != null ? sv.goalType() : "OPEN_PLAY";
+        long planSeed = canonicalPlan != null ? canonicalPlan.seed() : 0L;
+        Map<Long, Integer> shirtNumbers = new HashMap<>();
+        for (Human h : team1All) shirtNumbers.put(h.getId(), h.getShirtNumber());
+        for (Human h : team2All) shirtNumbers.put(h.getId(), h.getShirtNumber());
+        return svc.animationV3GoalAdapter.tryBuildCanonicalGoal(
+                canonicalFixtureKey, slotIndex, planSeed, min, extraTime,
+                scoringTeamId, defendingTeamId, teamId1, goalType, scorerId, assistId,
+                attackers, defenders, shirtNumbers);
     }
 
     /** Deterministic per-goal animation seed: the plan seed (derived from the fixture

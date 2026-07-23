@@ -8,7 +8,8 @@ import java.util.Map;
 import java.util.Random;
 
 /**
- * Versioned script -> 151 continuous physical frames.
+ * Versioned script -> a profile-adaptive number of continuous physical frames
+ * ({@link AnimationFrameBudget#framesFor}; the replay holds {@code totalFrames + 1} snapshots).
  *
  * <p>Two properties are guaranteed by construction rather than by validator
  * tolerance:
@@ -95,12 +96,11 @@ public final class FrameCompiler implements AnimationCompiler {
         assignFormation(spec.defenders(), true, formation, attackingCount);
         int goalkeeper = goalkeeperIndex(spec.defenders(), attackingCount, formation);
 
-        // Start positions. Everyone begins in their formation slot, except:
-        //  - a dead-ball taker already stands over the stopped ball (not an open-play teleport);
-        //  - the safe fallback places its two participants at fixed advanced points and starts them
-        //    there, so this degraded, last-resort render needs neither long player travel nor long ball
-        //    flights and therefore fits the frame budget for every accepted profile and every position,
-        //    including a deep goalkeeper acting as scorer or assister.
+        // Start positions. Everyone begins in their real formation slot; the only exception is a
+        // dead-ball taker, who already stands over the stopped ball (not an open-play teleport). No
+        // participant is ever pre-placed at an advanced touch point: totality comes from the
+        // profile-adaptive frame budget, so even a deep goalkeeper acting as scorer or assister runs
+        // continuously from its anchor to the finish within the caps for every accepted profile.
         PitchPoint[] starts = startPositions(original, index, formation);
         Schedule schedule = fit(original, index, starts);
         PlayScript script = schedule.script();
@@ -194,9 +194,9 @@ public final class FrameCompiler implements AnimationCompiler {
     // ---- Scheduling -------------------------------------------------------
 
     /**
-     * Per-player start positions: formation slots, with a dead-ball taker settled over the spot and the
-     * two safe-fallback participants placed at their fixed advanced touch points (so the fallback needs
-     * no long travel). Positions are the reference for scheduling and integration.
+     * Per-player start positions: real formation slots, with only a dead-ball taker settled over the
+     * spot. No participant is pre-placed at an advanced touch point. Positions are the reference for
+     * scheduling and integration.
      */
     private static PitchPoint[] startPositions(PlayScript script, Map<Long, Integer> index, PitchPoint[] formation) {
         PitchPoint[] starts = formation.clone();
@@ -236,7 +236,7 @@ public final class FrameCompiler implements AnimationCompiler {
         int firstIndex = index.get(first.playerId());
         arrival[0] = 0;
         // The first toucher runs from their real start slot onto the ball and is never teleported.
-        // (Dead-ball takers and fallback participants already start on their point, so this is ~0.)
+        // (Only a dead-ball taker already stands on the spot, so for those this is ~0.)
         int reachFirst = framesToReach(starts[firstIndex].distanceTo(firstTarget));
         int preludeMin = script.deadBallSpot() != null ? Math.max(20, script.preludeFrames()) : 0;
         release[0] = Math.max(Math.max(MIN_DWELL, first.dwellFrames()), Math.max(reachFirst, preludeMin));
