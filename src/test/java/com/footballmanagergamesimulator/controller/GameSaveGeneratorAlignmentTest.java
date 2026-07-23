@@ -82,7 +82,7 @@ class GameSaveGeneratorAlignmentTest {
 
     private Map<String, Object> highIdSave() {
         Map<String, Object> save = new LinkedHashMap<>();
-        save.put("saveVersion", 6);
+        save.put("saveVersion", 7);
         for (String key : GameSaveImportService.manifestKeys()) {
             save.put(key, List.of(Map.of("id", 1000L)));
         }
@@ -92,6 +92,29 @@ class GameSaveGeneratorAlignmentTest {
         save.put("gameCalendars", List.of(Map.of("id", 1000L, "season", 1)));
         save.put("humans", List.of(Map.of(
                 "id", 1000L, "typeId", 4L, "retired", false, "name", "Imported manager")));
+        save.put("personalAccounts", List.of(Map.of(
+                "ID", 1000L, "PROFILE_ID", 1000L, "OWNER_HUMAN_ID", 1000L,
+                "CASH_BALANCE", 0L, "LIFETIME_CAREER_EARNINGS", 0L,
+                "REALIZED_INVESTMENT_GAIN", 0L, "VERSION", 0L)));
+        save.put("assetCatalogItems", List.of(Map.of(
+                "ID", 1000L, "CODE", "GENERATOR_TEST", "ASSET_TYPE", "CAR",
+                "NAME", "Generator test", "ICON_KEY", "test", "PURCHASE_PRICE", 1L,
+                "RESALE_HAIRCUT_BPS", 0, "ACTIVE", true, "VERSION", 0L)));
+        save.put("ownedAssets", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("ACCOUNT_ID", 1000L),
+                Map.entry("PROFILE_ID", 1000L), Map.entry("CATALOG_ITEM_ID", 1000L),
+                Map.entry("PURCHASE_PRICE", 0L), Map.entry("CURRENT_VALUE", 0L),
+                Map.entry("PURCHASE_SEASON", 0), Map.entry("PURCHASE_DAY", 0),
+                Map.entry("STATUS", "OWNED"), Map.entry("PURCHASE_IDEMPOTENCY_KEY", "generator-test"),
+                Map.entry("VERSION", 0L))));
+        save.put("personalLedgerEntries", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("ACCOUNT_ID", 1000L),
+                Map.entry("PROFILE_ID", 1000L), Map.entry("SEASON_NUMBER", 0),
+                Map.entry("GAME_DAY", 0), Map.entry("ENTRY_TYPE", "MIGRATION_OPENING"),
+                Map.entry("SIGNED_AMOUNT", 0L), Map.entry("CAREER_EARNINGS_DELTA", 0L),
+                Map.entry("BALANCE_AFTER", 0L), Map.entry("CORRELATION_ID", "generator-test"),
+                Map.entry("IDEMPOTENCY_KEY", "generator-test"), Map.entry("DESCRIPTION", "generator test"),
+                Map.entry("CREATED_AT", 0L))));
         return save;
     }
 
@@ -116,6 +139,28 @@ class GameSaveGeneratorAlignmentTest {
                         case "ROUND" -> ", SEASON BIGINT";
                         case "GAME_CALENDAR" -> ", SEASON INTEGER";
                         case "HUMAN" -> ", TYPE_ID BIGINT, RETIRED BOOLEAN, NAME VARCHAR(255)";
+                        case "PERSONAL_ACCOUNT" -> ", PROFILE_ID BIGINT DEFAULT 0, OWNER_USER_ID INTEGER, "
+                                + "OWNER_HUMAN_ID BIGINT, CASH_BALANCE BIGINT DEFAULT 0, "
+                                + "LIFETIME_CAREER_EARNINGS BIGINT DEFAULT 0, REALIZED_INVESTMENT_GAIN BIGINT DEFAULT 0, "
+                                + "VERSION BIGINT DEFAULT 0";
+                        case "ASSET_CATALOG_ITEM" -> ", CODE VARCHAR(60) DEFAULT 'TEST', "
+                                + "ASSET_TYPE VARCHAR(20) DEFAULT 'CAR', APARTMENT_ROOMS INTEGER, "
+                                + "NAME VARCHAR(120) DEFAULT 'Test', ICON_KEY VARCHAR(80) DEFAULT 'test', "
+                                + "PURCHASE_PRICE BIGINT DEFAULT 1, RESALE_HAIRCUT_BPS INTEGER DEFAULT 0, "
+                                + "ACTIVE BOOLEAN DEFAULT TRUE, VERSION BIGINT DEFAULT 0";
+                        case "OWNED_ASSET" -> ", ACCOUNT_ID BIGINT DEFAULT 1, PROFILE_ID BIGINT DEFAULT 0, "
+                                + "CATALOG_ITEM_ID BIGINT DEFAULT 1, PURCHASE_PRICE BIGINT DEFAULT 0, "
+                                + "CURRENT_VALUE BIGINT DEFAULT 0, PURCHASE_SEASON INTEGER DEFAULT 0, "
+                                + "PURCHASE_DAY INTEGER DEFAULT 0, STATUS VARCHAR(20) DEFAULT 'OWNED', "
+                                + "PURCHASE_IDEMPOTENCY_KEY VARCHAR(160) DEFAULT 'test', SALE_IDEMPOTENCY_KEY VARCHAR(160), "
+                                + "SALE_PRICE BIGINT, SALE_SEASON INTEGER, SALE_DAY INTEGER, VERSION BIGINT DEFAULT 0";
+                        case "PERSONAL_LEDGER_ENTRY" -> ", ACCOUNT_ID BIGINT DEFAULT 1, PROFILE_ID BIGINT DEFAULT 0, "
+                                + "SEASON_NUMBER INTEGER DEFAULT 0, GAME_DAY INTEGER DEFAULT 0, "
+                                + "ENTRY_TYPE VARCHAR(40) DEFAULT 'MIGRATION_OPENING', SIGNED_AMOUNT BIGINT DEFAULT 0, "
+                                + "CAREER_EARNINGS_DELTA BIGINT DEFAULT 0, BALANCE_AFTER BIGINT DEFAULT 0, "
+                                + "CORRELATION_ID VARCHAR(120) DEFAULT 'test', IDEMPOTENCY_KEY VARCHAR(160) DEFAULT 'test', "
+                                + "COUNTERPART_TEAM_ID BIGINT, COUNTERPART_ASSET_ID BIGINT, "
+                                + "DESCRIPTION VARCHAR(300) DEFAULT 'test', CREATED_AT BIGINT DEFAULT 0";
                         default -> "";
                     };
                     statement.execute("CREATE TABLE \"" + table + "\" (ID BIGINT" + defaultValue

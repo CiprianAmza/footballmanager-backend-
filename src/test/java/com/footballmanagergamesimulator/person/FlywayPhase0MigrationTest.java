@@ -21,7 +21,10 @@ class FlywayPhase0MigrationTest {
         try (Connection connection = DriverManager.getConnection(url, "sa", "");
              Statement statement = connection.createStatement()) {
             assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '1' AND \"success\" = TRUE")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '2' AND \"success\" = TRUE")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM person_profile")).isZero();
+            assertThat(count(statement, "SELECT COUNT(*) FROM asset_catalog_item")).isEqualTo(8);
+            assertThat(count(statement, "SELECT COUNT(*) FROM asset_catalog_item WHERE asset_type='APARTMENT' AND apartment_rooms BETWEEN 1 AND 4")).isEqualTo(4);
         }
     }
 
@@ -48,6 +51,8 @@ class FlywayPhase0MigrationTest {
             assertThat(count(statement, "SELECT COUNT(*) FROM person_profile WHERE user_id=3 AND human_id IS NULL")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM person_profile WHERE human_id=11 AND user_id IS NULL")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM users WHERE password LIKE '$2%' AND email IS NOT NULL")).isEqualTo(3);
+            assertThat(count(statement, "SELECT COUNT(*) FROM personal_account")).isEqualTo(4);
+            assertThat(count(statement, "SELECT COUNT(*) FROM personal_account a WHERE a.cash_balance <> COALESCE((SELECT SUM(l.signed_amount) FROM personal_ledger_entry l WHERE l.account_id=a.id), 0)")).isZero();
         }
     }
 

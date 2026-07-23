@@ -9,10 +9,12 @@ import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.context.event.EventListener;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -76,15 +78,41 @@ public class PersonProfileService {
     }
 
     @EventListener(ApplicationReadyEvent.class)
+    @Order(10)
     @Transactional
     public void backfillOnStartup() {
         backfill();
     }
 
     @Transactional
+    public PersonProfile ensureForHuman(Human human) {
+        if (human.getTypeId() != TypeNames.PLAYER_TYPE && human.getTypeId() != TypeNames.MANAGER_TYPE) {
+            throw new IllegalArgumentException("Only player and manager identities have personal economy profiles");
+        }
+        return profileRepository.findByHumanId(human.getId()).orElseGet(() -> {
+            PersonProfile profile = new PersonProfile();
+            profile.setHumanId(human.getId());
+            profile.setCareerType(human.getTypeId() == TypeNames.MANAGER_TYPE
+                    ? CareerType.MANAGER : CareerType.PLAYER);
+            profile.setControlType(ControlType.AI);
+            profile.setDisplayName(normalizedName(human.getName(), null, "human-" + human.getId()));
+            profile.setActive(!human.isRetired());
+            profile.setRetired(human.isRetired());
+            return profileRepository.save(profile);
+        });
+    }
+
+    @Transactional
     public void backfill() {
         Map<Long, User> usersByManager = new HashMap<>();
-        for (User user : userRepository.findAll()) {
+        List<User> users = userRepository.findAll();
+        Map<Long, PersonProfile> profilesByHuman = new HashMap<>();
+        Map<Integer, PersonProfile> profilesByUser = new HashMap<>();
+        for (PersonProfile profile : profileRepository.findAll()) {
+            if (profile.getHumanId() != null) profilesByHuman.put(profile.getHumanId(), profile);
+            if (profile.getUserId() != null) profilesByUser.put(profile.getUserId(), profile);
+        }
+        for (User user : users) {
             if (user.getCareerRole() == null) user.setCareerRole(CareerRole.MANAGER);
             if (user.getRoles() == null || user.getRoles().isBlank()) user.setRoles("USER");
             if (user.getManagerId() != null) {
@@ -94,10 +122,16 @@ public class PersonProfileService {
         }
 
         for (Human human : humanRepository.findAll()) {
+            if (human.getTypeId() != TypeNames.PLAYER_TYPE && human.getTypeId() != TypeNames.MANAGER_TYPE) {
+                PersonProfile unsupported = profilesByHuman.remove(human.getId());
+                if (unsupported != null && unsupported.getUserId() == null) {
+                    profileRepository.delete(unsupported);
+                }
+                continue;
+            }
             User linkedUser = usersByManager.get(human.getId());
-            PersonProfile humanProfile = profileRepository.findByHumanId(human.getId()).orElse(null);
-            PersonProfile userProfile = linkedUser == null ? null
-                    : profileRepository.findByUserId(linkedUser.getId()).orElse(null);
+            PersonProfile humanProfile = profilesByHuman.get(human.getId());
+            PersonProfile userProfile = linkedUser == null ? null : profilesByUser.get(linkedUser.getId());
             PersonProfile profile;
             if (userProfile != null) {
                 if (userProfile.getHumanId() != null && !userProfile.getHumanId().equals(human.getId())) {
@@ -112,6 +146,7 @@ public class PersonProfileService {
                     }
                     profileRepository.delete(humanProfile);
                     profileRepository.flush();
+                    profilesByHuman.remove(human.getId());
                 }
                 profile = userProfile;
             } else {
@@ -126,12 +161,15 @@ public class PersonProfileService {
                     linkedUser != null ? linkedUser.getUsername() : null, "human-" + human.getId()));
             profile.setActive(!human.isRetired());
             profile.setRetired(human.isRetired());
-            profileRepository.save(profile);
+            profile = profileRepository.save(profile);
+            profilesByHuman.put(human.getId(), profile);
+            if (linkedUser != null) profilesByUser.put(linkedUser.getId(), profile);
         }
 
-        for (User user : userRepository.findAll()) {
-            if (profileRepository.findByUserId(user.getId()).isEmpty()) {
-                createForUser(user, user.getFirstName() + " " + user.getLastName());
+        for (User user : users) {
+            if (!profilesByUser.containsKey(user.getId())) {
+                PersonProfile profile = createForUser(user, user.getFirstName() + " " + user.getLastName());
+                profilesByUser.put(user.getId(), profile);
             }
         }
     }

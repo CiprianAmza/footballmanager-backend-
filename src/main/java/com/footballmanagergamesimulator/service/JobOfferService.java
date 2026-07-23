@@ -7,6 +7,8 @@ import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.economy.PersonalPayrollService;
+import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,8 @@ public class JobOfferService {
     @Autowired private UserContext userContext;
     @Autowired private GameStateService gameStateService;
     @Autowired private OwnershipService ownershipService;
+    @Autowired private PersonalPayrollService personalPayrollService;
+    @Autowired private RegentEconomyProperties regentEconomyProperties;
 
     private static final int OFFER_VALIDITY_DAYS = 7;
 
@@ -280,6 +284,17 @@ public class JobOfferService {
         user.setEverManaged(true);
         userRepository.save(user);
         if (oldTeamId > 0) humanService.ensureTeamHasManager(oldTeamId);
+
+        // Phase 1: a signing bonus is one correlated club debit and personal
+        // career-income credit. The feature-off path keeps legacy behaviour.
+        if (regentEconomyProperties.isEnabled() && user.getManagerId() != null
+                && offer.getSigningBonus() > 0) {
+            Team payingTeam = teamRepository.findById(newTeamId)
+                    .orElseThrow(() -> new IllegalStateException("Offering team disappeared"));
+            personalPayrollService.payCareerBonus(payingTeam, user.getManagerId(),
+                    offer.getSigningBonus(), offer.getSeasonOffered(), offer.getDayOffered(),
+                    "JOB-OFFER:" + offer.getId(), "Signing bonus from " + offer.getTeamName());
+        }
 
         // For free-agent → first-job, the canonical Round.humanTeamId is still 0.
         // Sync it now so all the team-scoped reads (getCurrentSeason, etc.) line up.

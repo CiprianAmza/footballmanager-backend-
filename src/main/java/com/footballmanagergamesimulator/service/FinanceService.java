@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
@@ -15,6 +16,13 @@ public class FinanceService {
     /** Matchday income request accumulated by the round simulator. */
     public record MatchDayIncomeInput(long teamId, int day, long opponentId,
                                       String competitionName) {}
+
+    public record MonthlyPayrollResult(long totalWages, Map<Long, Long> personalCredits,
+                                       boolean replayed) {
+        public MonthlyPayrollResult {
+            personalCredits = Map.copyOf(personalCredits);
+        }
+    }
 
     @Autowired
     private TeamRepository teamRepository;
@@ -255,6 +263,92 @@ public class FinanceService {
         }
 
         return totalWages;
+    }
+
+    /**
+     * Phase-1 payroll journal. The club-side WAGES row is unique for one
+     * team/game-day and the returned personal allocation is credited through
+     * idempotent personal-ledger entries by {@code PersonalPayrollService}.
+     * Manager salary is included in the same club debit, so it is no longer
+     * minted by a standalone career-earnings increment.
+     */
+    @Transactional
+    public MonthlyPayrollResult processTeamMonthlyPayroll(Team team, int season, int day) {
+        Team lockedTeam = teamRepository.findByIdForUpdate(team.getId()).orElse(team);
+        Map<Long, Long> personalCredits = new LinkedHashMap<>();
+        long totalWages = 0;
+        for (Human human : humanRepository.findAllByTeamId(lockedTeam.getId())) {
+            if (human.isRetired()) continue;
+            long amount;
+            if (human.getTypeId() == com.footballmanagergamesimulator.util.TypeNames.MANAGER_TYPE) {
+                amount = human.getSalary();
+                if (amount <= 0) {
+                    amount = Math.max(2_000L, lockedTeam.getReputation() * 5L);
+                    human.setSalary(amount);
+                    humanRepository.save(human);
+                }
+                personalCredits.put(human.getId(), amount);
+            } else {
+                amount = Math.max(0, human.getWage());
+                if (human.getTypeId() == com.footballmanagergamesimulator.util.TypeNames.PLAYER_TYPE && amount > 0) {
+                    personalCredits.put(human.getId(), amount);
+                }
+            }
+            totalWages = Math.addExact(totalWages, amount);
+        }
+        for (Scout scout : scoutRepository.findAllByTeamId(lockedTeam.getId())) {
+            totalWages = Math.addExact(totalWages, Math.max(0, scout.getWage()));
+        }
+
+        String description = "Monthly wages [PAYROLL:" + season + ":" + day + ":" + lockedTeam.getId() + "]";
+        Optional<FinancialRecord> existing = financialRecordRepository
+                .findFirstByTeamIdAndSeasonNumberAndDayAndCategoryAndDescriptionOrderByIdAsc(
+                        lockedTeam.getId(), season, day, "WAGES", description);
+        if (existing.isPresent()) {
+            return new MonthlyPayrollResult(Math.abs(existing.get().getAmount()), personalCredits, true);
+        }
+        // Persist a zero-value marker too: the logical payroll event must stay
+        // closed if a retry observes a different roster later that same day.
+        FinancialRecord record = new FinancialRecord();
+        record.setTeamId(lockedTeam.getId());
+        record.setSeasonNumber(season);
+        record.setDay(day);
+        record.setCategory("WAGES");
+        record.setDescription(description);
+        record.setAmount(Math.negateExact(totalWages));
+        financialRecordRepository.save(record);
+        if (totalWages > 0) {
+            lockedTeam.setTotalFinances(Math.subtractExact(lockedTeam.getTotalFinances(), totalWages));
+            teamRepository.save(lockedTeam);
+        }
+        return new MonthlyPayrollResult(totalWages, personalCredits, false);
+    }
+
+    @Transactional
+    public boolean processCareerBonusDebit(Team team, long amount, int season, int day, String correlationId) {
+        if (amount <= 0) throw new IllegalArgumentException("Career bonus must be positive");
+        Team lockedTeam = teamRepository.findByIdForUpdate(team.getId()).orElse(team);
+        String description = "Career bonus [" + correlationId + "]";
+        Optional<FinancialRecord> existing = financialRecordRepository
+                .findFirstByTeamIdAndSeasonNumberAndDayAndCategoryAndDescriptionOrderByIdAsc(
+                        lockedTeam.getId(), season, day, "BONUSES", description);
+        if (existing.isPresent()) {
+            if (existing.get().getAmount() != Math.negateExact(amount)) {
+                throw new IllegalStateException("Bonus correlation was already used with a different amount");
+            }
+            return true;
+        }
+        FinancialRecord record = new FinancialRecord();
+        record.setTeamId(lockedTeam.getId());
+        record.setSeasonNumber(season);
+        record.setDay(day);
+        record.setCategory("BONUSES");
+        record.setDescription(description);
+        record.setAmount(Math.negateExact(amount));
+        financialRecordRepository.save(record);
+        lockedTeam.setTotalFinances(Math.subtractExact(lockedTeam.getTotalFinances(), amount));
+        teamRepository.save(lockedTeam);
+        return false;
     }
 
     /**

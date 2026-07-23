@@ -24,6 +24,8 @@ import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.economy.PersonalPayrollService;
+import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -83,6 +85,8 @@ public class CalendarEventDispatcher {
     @Autowired @Lazy private ScoutManagementController scoutManagementController;
     @Autowired private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired @Lazy private FinanceService financeService;
+    @Autowired private PersonalPayrollService personalPayrollService;
+    @Autowired private RegentEconomyProperties regentEconomyProperties;
     @Autowired @Lazy private FriendlyMatchService friendlyMatchService;
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
     @Autowired private InjuryTimelineService injuryTimelineService;
@@ -377,7 +381,9 @@ public class CalendarEventDispatcher {
         List<Team> allTeams = teamRepository.findAll();
         for (Team team : allTeams) {
             // Process wages through finance service (records transaction + updates totalFinances)
-            long wagesPaid = financeService.processTeamMonthlyWages(team, season, currentDay);
+            long wagesPaid = regentEconomyProperties.isEnabled()
+                    ? personalPayrollService.processTeam(team, season, currentDay)
+                    : financeService.processTeamMonthlyWages(team, season, currentDay);
 
             // Process monthly merchandising income for all teams
             financeService.processMerchandisingIncome(team.getId(), season, currentDay);
@@ -389,7 +395,7 @@ public class CalendarEventDispatcher {
             financeService.checkAndCreateDebt(team.getId());
 
             // Credit the team's manager their monthly salary into career earnings.
-            accrueManagerSalary(team);
+            if (!regentEconomyProperties.isEnabled()) accrueManagerSalary(team);
 
             // Send financial report to human managers
             if (userContext.isHumanTeam(team.getId())) {

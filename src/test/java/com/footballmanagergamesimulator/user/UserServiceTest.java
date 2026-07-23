@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.user;
 
 import com.footballmanagergamesimulator.person.PersonProfileService;
+import com.footballmanagergamesimulator.person.PersonProfile;
+import com.footballmanagergamesimulator.economy.PersonalAccountingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -16,13 +18,21 @@ class UserServiceTest {
 
     private UserRepository repository;
     private PersonProfileService profileService;
+    private PersonalAccountingService accountingService;
     private UserService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(UserRepository.class);
         profileService = mock(PersonProfileService.class);
-        service = new UserService(repository, new BCryptPasswordEncoder(4), profileService);
+        accountingService = mock(PersonalAccountingService.class);
+        service = new UserService(repository, new BCryptPasswordEncoder(4), profileService, accountingService);
+        when(accountingService.registrationStartingWealth(any(), any())).thenReturn(10_000_000L);
+        when(profileService.createForUser(any(), any())).thenAnswer(invocation -> {
+            PersonProfile profile = new PersonProfile();
+            profile.setId(21L);
+            return profile;
+        });
         when(repository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
             user.setId(11);

@@ -11,6 +11,11 @@ public record RegisterRequest(
         @NotBlank @Email @Size(max = 254) String email,
         @NotBlank @Size(min = 10, max = 128) String password,
         @NotBlank @Size(min = 2, max = 100) String displayName,
-        @NotNull CareerRole careerRole
+        @NotNull CareerRole careerRole,
+        Long startingWealth
 ) {
+    public RegisterRequest(String username, String email, String password,
+                           String displayName, CareerRole careerRole) {
+        this(username, email, password, displayName, careerRole, null);
+    }
 }

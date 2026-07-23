@@ -3,8 +3,10 @@ package com.footballmanagergamesimulator.controller;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.person.PersonProfileService;
+import com.footballmanagergamesimulator.economy.PersonalEconomyBootstrapService;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -39,23 +42,24 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class GameSaveImportService {
 
     static final int LEGACY_SAVE_VERSION = 5;
-    static final int CURRENT_SAVE_VERSION = 6;
+    static final int SAVE_VERSION_6 = 6;
+    static final int CURRENT_SAVE_VERSION = 7;
 
     private static final List<TableSpec> MANIFEST = List.of(
-            new TableSpec("competitionTypes", "COMPETITION_TYPE", CURRENT_SAVE_VERSION),
-            new TableSpec("humanTypes", "HUMAN_TYPE", CURRENT_SAVE_VERSION),
-            new TableSpec("transferStrategies", "TRANSFER_STRATEGY", CURRENT_SAVE_VERSION),
+            new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
+            new TableSpec("humanTypes", "HUMAN_TYPE", SAVE_VERSION_6),
+            new TableSpec("transferStrategies", "TRANSFER_STRATEGY", SAVE_VERSION_6),
             new TableSpec("rounds", "ROUND"),
             new TableSpec("competitions", "COMPETITION"),
             new TableSpec("teams", "TEAM"),
-            new TableSpec("teamCompetitionRelations", "TEAM_COMPETITION_RELATION", CURRENT_SAVE_VERSION),
-            new TableSpec("teamTransferStrategyRelations", "TEAM_TRANSFER_STRATEGY_RELATION", CURRENT_SAVE_VERSION),
+            new TableSpec("teamCompetitionRelations", "TEAM_COMPETITION_RELATION", SAVE_VERSION_6),
+            new TableSpec("teamTransferStrategyRelations", "TEAM_TRANSFER_STRATEGY_RELATION", SAVE_VERSION_6),
             new TableSpec("teamFacilities", "TEAM_FACILITIES"),
             new TableSpec("stadiums", "STADIUM"),
             new TableSpec("gameCalendars", "GAME_CALENDAR"),
             new TableSpec("calendarEvents", "CALENDAR_EVENT"),
             new TableSpec("humans", "HUMAN"),
-            new TableSpec("humanTeamRelations", "HUMAN_TEAM_RELATION", CURRENT_SAVE_VERSION),
+            new TableSpec("humanTeamRelations", "HUMAN_TEAM_RELATION", SAVE_VERSION_6),
             new TableSpec("playerSkills", "PLAYER_SKILLS"),
             new TableSpec("youthPlayers", "YOUTH_PLAYER"),
             new TableSpec("playerInteractions", "PLAYER_INTERACTION"),
@@ -70,16 +74,16 @@ public class GameSaveImportService {
             new TableSpec("matchEvents", "MATCH_EVENT"),
             new TableSpec("matchStats", "MATCH_STATS"),
             new TableSpec("playerSeasonStats", "PLAYER_SEASON_STAT"),
-            new TableSpec("matchPlayerRatings", "MATCH_PLAYER_RATING", CURRENT_SAVE_VERSION),
-            new TableSpec("matchSquads", "MATCH_SQUAD", CURRENT_SAVE_VERSION),
-            new TableSpec("matchPlans", "MATCH_PLAN", CURRENT_SAVE_VERSION),
-            new TableSpec("matchPlanGoalSlots", "MATCH_PLAN_GOAL_SLOT", CURRENT_SAVE_VERSION),
-            new TableSpec("matchParticipants", "MATCH_PARTICIPANT", CURRENT_SAVE_VERSION),
-            new TableSpec("matchAppearances", "MATCH_APPEARANCE", CURRENT_SAVE_VERSION),
-            new TableSpec("matchSubstitutions", "MATCH_SUBSTITUTION", CURRENT_SAVE_VERSION),
-            new TableSpec("matchAnimationRecipes", "MATCH_ANIMATION_RECIPE", CURRENT_SAVE_VERSION),
-            new TableSpec("liveCommitContexts", "LIVE_COMMIT_CONTEXT", CURRENT_SAVE_VERSION),
-            new TableSpec("predeterminedScores", "PREDETERMINED_SCORE", CURRENT_SAVE_VERSION),
+            new TableSpec("matchPlayerRatings", "MATCH_PLAYER_RATING", SAVE_VERSION_6),
+            new TableSpec("matchSquads", "MATCH_SQUAD", SAVE_VERSION_6),
+            new TableSpec("matchPlans", "MATCH_PLAN", SAVE_VERSION_6),
+            new TableSpec("matchPlanGoalSlots", "MATCH_PLAN_GOAL_SLOT", SAVE_VERSION_6),
+            new TableSpec("matchParticipants", "MATCH_PARTICIPANT", SAVE_VERSION_6),
+            new TableSpec("matchAppearances", "MATCH_APPEARANCE", SAVE_VERSION_6),
+            new TableSpec("matchSubstitutions", "MATCH_SUBSTITUTION", SAVE_VERSION_6),
+            new TableSpec("matchAnimationRecipes", "MATCH_ANIMATION_RECIPE", SAVE_VERSION_6),
+            new TableSpec("liveCommitContexts", "LIVE_COMMIT_CONTEXT", SAVE_VERSION_6),
+            new TableSpec("predeterminedScores", "PREDETERMINED_SCORE", SAVE_VERSION_6),
             new TableSpec("transfers", "TRANSFER"),
             new TableSpec("transferOffers", "TRANSFER_OFFER"),
             new TableSpec("loans", "LOAN"),
@@ -100,15 +104,19 @@ public class GameSaveImportService {
             new TableSpec("personalizedTactics", "PERSONALIZED_TACTIC"),
             new TableSpec("teamPlayerHistorical", "TEAM_PLAYER_HISTORICAL_RELATION"),
             new TableSpec("financialRecords", "FINANCIAL_RECORD"),
-            new TableSpec("friendlyMatches", "FRIENDLY_MATCH", CURRENT_SAVE_VERSION),
-            new TableSpec("jobOffers", "JOB_OFFER", CURRENT_SAVE_VERSION),
-            new TableSpec("scouts", "SCOUT", CURRENT_SAVE_VERSION),
-            new TableSpec("scoutAssignments", "SCOUT_ASSIGNMENT", CURRENT_SAVE_VERSION),
-            new TableSpec("shortlists", "SHORTLIST", CURRENT_SAVE_VERSION),
-            new TableSpec("assets", "ASSET", CURRENT_SAVE_VERSION),
-            new TableSpec("clubShareholdings", "CLUB_SHAREHOLDING", CURRENT_SAVE_VERSION),
-            new TableSpec("ownerships", "OWNERSHIP", CURRENT_SAVE_VERSION),
-            new TableSpec("coachPermissions", "COACH_PERMISSIONS", CURRENT_SAVE_VERSION)
+            new TableSpec("friendlyMatches", "FRIENDLY_MATCH", SAVE_VERSION_6),
+            new TableSpec("jobOffers", "JOB_OFFER", SAVE_VERSION_6),
+            new TableSpec("scouts", "SCOUT", SAVE_VERSION_6),
+            new TableSpec("scoutAssignments", "SCOUT_ASSIGNMENT", SAVE_VERSION_6),
+            new TableSpec("shortlists", "SHORTLIST", SAVE_VERSION_6),
+            new TableSpec("assets", "ASSET", SAVE_VERSION_6),
+            new TableSpec("clubShareholdings", "CLUB_SHAREHOLDING", SAVE_VERSION_6),
+            new TableSpec("ownerships", "OWNERSHIP", SAVE_VERSION_6),
+            new TableSpec("coachPermissions", "COACH_PERMISSIONS", SAVE_VERSION_6),
+            new TableSpec("personalAccounts", "PERSONAL_ACCOUNT", CURRENT_SAVE_VERSION),
+            new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", CURRENT_SAVE_VERSION),
+            new TableSpec("ownedAssets", "OWNED_ASSET", CURRENT_SAVE_VERSION),
+            new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", CURRENT_SAVE_VERSION)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
@@ -144,13 +152,23 @@ public class GameSaveImportService {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final PersonProfileService personProfileService;
+    private final PersonalEconomyBootstrapService economyBootstrapService;
+
+    @Autowired
+    public GameSaveImportService(DataSource dataSource,
+                                 ObjectMapper objectMapper,
+                                 PersonProfileService personProfileService,
+                                 Optional<PersonalEconomyBootstrapService> economyBootstrapService) {
+        this.dataSource = dataSource;
+        this.objectMapper = objectMapper;
+        this.personProfileService = personProfileService;
+        this.economyBootstrapService = economyBootstrapService.orElse(null);
+    }
 
     public GameSaveImportService(DataSource dataSource,
                                  ObjectMapper objectMapper,
                                  PersonProfileService personProfileService) {
-        this.dataSource = dataSource;
-        this.objectMapper = objectMapper;
-        this.personProfileService = personProfileService;
+        this(dataSource, objectMapper, personProfileService, Optional.empty());
     }
 
     static List<String> manifestKeys() {
@@ -164,7 +182,7 @@ public class GameSaveImportService {
     }
 
     /**
-     * Parses and migrates v5/v6 into a complete immutable game-only plan. The
+     * Parses and migrates v5/v6/v7 into a complete immutable game-only plan. The
      * legacy users/personProfiles sections are deliberately never part of it.
      */
     public ImportPlan prepare(Map<String, Object> save) {
@@ -214,7 +232,7 @@ public class GameSaveImportService {
     }
 
     /**
-     * Exports every V6 world-state table that is not already emitted by the
+     * Exports every versioned world-state table introduced in V6 or later that is not already emitted by the
      * legacy controller contract. Rows use physical column names so no entity
      * or animation implementation has to be modified merely to make save state
      * exhaustive.
@@ -226,7 +244,7 @@ public class GameSaveImportService {
             validateSchemaDisposition(live);
             Map<String, Object> result = new LinkedHashMap<>();
             for (TableSpec spec : MANIFEST) {
-                if (spec.introducedVersion() == CURRENT_SAVE_VERSION) {
+                if (spec.introducedVersion() >= SAVE_VERSION_6) {
                     result.put(spec.jsonKey(), readRows(live, spec.tableName()));
                 }
             }
@@ -261,6 +279,7 @@ public class GameSaveImportService {
                         + "WHERE LOWER(CURRENT_STATUS) LIKE 'injur%'");
             }
             personProfileService.backfill();
+            if (economyBootstrapService != null) economyBootstrapService.ensureAllAccounts();
             validateWorld(live);
             validateAccountCompatibility(live, plan);
         } catch (SQLException exception) {
@@ -403,8 +422,9 @@ public class GameSaveImportService {
 
     private void insertPlan(Connection connection, ImportPlan plan) throws SQLException {
         for (TableRows table : plan.tables()) {
+            List<RowValues> rowsToInsert = rowsForInsert(connection, table);
             Map<List<String>, List<RowValues>> rowsByShape = new LinkedHashMap<>();
-            for (RowValues row : table.rows()) {
+            for (RowValues row : rowsToInsert) {
                 rowsByShape.computeIfAbsent(row.columns(), ignored -> new ArrayList<>()).add(row);
             }
             for (Map.Entry<List<String>, List<RowValues>> group : rowsByShape.entrySet()) {
@@ -425,6 +445,69 @@ public class GameSaveImportService {
         }
     }
 
+    /**
+     * PersonProfile is installation identity, while Phase-1 balances are world
+     * state. Remap imported account/profile references by stable user/human
+     * identity after imported Humans exist, rather than trusting source-local
+     * PersonProfile ids.
+     */
+    private List<RowValues> rowsForInsert(Connection connection, TableRows table) throws SQLException {
+        String tableName = table.spec().tableName();
+        if ("PERSONAL_ACCOUNT".equals(tableName)) reconcileAiProfiles(connection);
+        if (!Set.of("PERSONAL_ACCOUNT", "OWNED_ASSET", "PERSONAL_LEDGER_ENTRY").contains(tableName)) {
+            return table.rows();
+        }
+        List<RowValues> remapped = new ArrayList<>();
+        for (RowValues row : table.rows()) {
+            LinkedHashMap<String, Object> values = new LinkedHashMap<>(row.asMap());
+            long profileId;
+            if ("PERSONAL_ACCOUNT".equals(tableName)) {
+                Long userId = nullableLong(values.get("OWNER_USER_ID"));
+                Long humanId = nullableLong(values.get("OWNER_HUMAN_ID"));
+                profileId = resolveProfileId(connection, userId, humanId);
+            } else {
+                Long accountId = nullableLong(values.get("ACCOUNT_ID"));
+                if (accountId == null) throw invalid(table.spec().jsonKey() + " row has no account id");
+                profileId = queryRequiredLong(connection,
+                        "SELECT PROFILE_ID FROM PERSONAL_ACCOUNT WHERE ID = ?", accountId,
+                        table.spec().jsonKey() + " references missing account " + accountId);
+            }
+            values.put("PROFILE_ID", profileId);
+            remapped.add(RowValues.from(values));
+        }
+        return List.copyOf(remapped);
+    }
+
+    private long resolveProfileId(Connection connection, Long userId, Long humanId) throws SQLException {
+        if (userId != null) {
+            return queryRequiredLong(connection, "SELECT ID FROM PERSON_PROFILE WHERE USER_ID = ?", userId,
+                    "personal account references missing user identity " + userId);
+        }
+        if (humanId != null) {
+            return queryRequiredLong(connection, "SELECT ID FROM PERSON_PROFILE WHERE HUMAN_ID = ?", humanId,
+                    "personal account references missing Human identity " + humanId);
+        }
+        throw invalid("personal account has neither ownerUserId nor ownerHumanId");
+    }
+
+    private long queryRequiredLong(Connection connection, String sql, long parameter, String message)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, parameter);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) throw invalid(message);
+                return result.getLong(1);
+            }
+        }
+    }
+
+    private static Long nullableLong(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.longValue();
+        try { return Long.parseLong(value.toString()); }
+        catch (NumberFormatException exception) { throw invalid("identity reference is not numeric"); }
+    }
+
     private void reconcileAiProfiles(Connection connection) throws SQLException {
         executeUpdate(connection, "DELETE FROM PERSON_PROFILE WHERE USER_ID IS NULL AND "
                 + "(HUMAN_ID IS NULL OR NOT EXISTS (SELECT 1 FROM HUMAN WHERE HUMAN.ID = PERSON_PROFILE.HUMAN_ID))");
@@ -434,7 +517,8 @@ public class GameSaveImportService {
                 SELECT h.ID, CASE WHEN h.TYPE_ID = 4 THEN 'MANAGER' ELSE 'PLAYER' END, 'AI',
                        COALESCE(NULLIF(TRIM(h.NAME), ''), CONCAT('human-', h.ID)), 0, 0, NOT h.RETIRED, h.RETIRED
                 FROM HUMAN h
-                WHERE NOT EXISTS (SELECT 1 FROM PERSON_PROFILE p WHERE p.HUMAN_ID = h.ID)
+                WHERE h.TYPE_ID IN (1, 4)
+                  AND NOT EXISTS (SELECT 1 FROM PERSON_PROFILE p WHERE p.HUMAN_ID = h.ID)
                 """);
     }
 
@@ -458,6 +542,29 @@ public class GameSaveImportService {
                 }
             }
         }
+        validateEconomy(connection);
+    }
+
+    private void validateEconomy(Connection connection) throws SQLException {
+        long invalidAccounts = scalarLong(connection, """
+                SELECT COUNT(*) FROM PERSONAL_ACCOUNT a
+                WHERE a.CASH_BALANCE < 0 OR a.LIFETIME_CAREER_EARNINGS < 0
+                   OR a.CASH_BALANCE <> COALESCE((
+                       SELECT SUM(l.SIGNED_AMOUNT) FROM PERSONAL_LEDGER_ENTRY l WHERE l.ACCOUNT_ID = a.ID), 0)
+                   OR a.LIFETIME_CAREER_EARNINGS <> COALESCE((
+                       SELECT SUM(l.CAREER_EARNINGS_DELTA) FROM PERSONAL_LEDGER_ENTRY l WHERE l.ACCOUNT_ID = a.ID), 0)
+                """);
+        if (invalidAccounts != 0) throw invalid("personal account does not reconcile with its ledger");
+        long invalidAssets = scalarLong(connection, """
+                SELECT COUNT(*) FROM OWNED_ASSET owned
+                LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = owned.ACCOUNT_ID
+                LEFT JOIN ASSET_CATALOG_ITEM catalog ON catalog.ID = owned.CATALOG_ITEM_ID
+                WHERE account.ID IS NULL OR catalog.ID IS NULL
+                   OR owned.PROFILE_ID <> account.PROFILE_ID
+                   OR owned.PURCHASE_PRICE < 0 OR owned.CURRENT_VALUE < 0
+                   OR (owned.STATUS = 'OWNED' AND owned.SALE_PRICE IS NOT NULL)
+                """);
+        if (invalidAssets != 0) throw invalid("owned asset state is inconsistent");
     }
 
     private void validateAccountCompatibility(Connection connection, ImportPlan plan) throws SQLException {
@@ -595,11 +702,12 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5 or 6");
+            throw invalid("saveVersion must be integer 5, 6 or 7");
         }
         int version = number.intValue();
-        if (version != LEGACY_SAVE_VERSION && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5 or 6");
+        if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
+                && version != CURRENT_SAVE_VERSION) {
+            throw invalid("incompatible save version; expected 5, 6 or 7");
         }
         return version;
     }

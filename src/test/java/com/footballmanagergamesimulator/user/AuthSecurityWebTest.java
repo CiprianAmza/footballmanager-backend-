@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.JobOfferService;
+import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +60,7 @@ class AuthSecurityWebTest {
     @MockBean private TeamRepository teamRepository;
     @MockBean private RoundRepository roundRepository;
     @MockBean private JobOfferService jobOfferService;
+    @MockBean private RegentEconomyProperties regentEconomyProperties;
     @SpyBean private CareerOnboardingService onboardingService;
 
     private User user;
@@ -153,6 +155,7 @@ class AuthSecurityWebTest {
     void boardroomIsUnavailableAndUserIsNotAdminWhileFeatureIsOff() throws Exception {
         MockHttpSession session = login();
         mockMvc.perform(get("/boardroom/humans").session(session)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/me/wealth").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(get("/admin/users").session(session)).andExpect(status().isForbidden());
     }
 

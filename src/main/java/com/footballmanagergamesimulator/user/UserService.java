@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.user;
 
 import com.footballmanagergamesimulator.person.PersonProfileService;
+import com.footballmanagergamesimulator.person.PersonProfile;
+import com.footballmanagergamesimulator.economy.PersonalAccountingService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -17,13 +19,16 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final PersonProfileService personProfileService;
+    private final PersonalAccountingService accountingService;
 
     public UserService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
-                       PersonProfileService personProfileService) {
+                       PersonProfileService personProfileService,
+                       PersonalAccountingService accountingService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.personProfileService = personProfileService;
+        this.accountingService = accountingService;
     }
 
     public User getCurrentAuthenticatedUser() {
@@ -46,6 +51,8 @@ public class UserService {
             throw new IllegalArgumentException("Email already registered");
         }
 
+        long startingWealth = accountingService.registrationStartingWealth(
+                request.careerRole(), request.startingWealth());
         User user = new User();
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(request.password()));
@@ -66,7 +73,9 @@ public class UserService {
 
         try {
             User saved = userRepository.saveAndFlush(user);
-            personProfileService.createForUser(saved, request.displayName());
+            PersonProfile profile = personProfileService.createForUser(saved, request.displayName());
+            accountingService.openRegistrationAccount(profile, startingWealth,
+                    "USER:" + saved.getId());
             return saved;
         } catch (DataIntegrityViolationException exception) {
             throw new IllegalArgumentException("Username or email already registered", exception);

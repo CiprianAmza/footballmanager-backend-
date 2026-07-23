@@ -69,8 +69,7 @@ class PersonProfileServiceTest {
         victimProfile.setHumanId(10L);
         when(users.findAll()).thenReturn(List.of(attacker, victimUser));
         when(humans.findAll()).thenReturn(List.of(manager));
-        when(profiles.findByHumanId(10L)).thenReturn(Optional.of(victimProfile));
-        when(profiles.findByUserId(1)).thenReturn(Optional.of(attackerProfile));
+        when(profiles.findAll()).thenReturn(List.of(attackerProfile, victimProfile));
 
         assertThatThrownBy(service::backfill)
                 .isInstanceOf(CareerControlConflictException.class)
