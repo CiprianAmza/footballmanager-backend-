@@ -96,6 +96,13 @@ awards:
 # so behaviour is unchanged unless explicitly overridden.
 
 match:
+  # ADI Analytics Option B, Phase 0 — canonical identity, provenance & parity gate.
+  # Mandatory default OFF: while OFF no provenance rows are written on any commit
+  # path and the /api/v2 read layer reports every fixture as LEGACY_UNVERSIONED.
+  # Distinct prefix from the existing match.engine.analytics section.
+  analytics:
+    provenance-v2:
+      enabled: false
   animation:
     v3:
       enabled: false

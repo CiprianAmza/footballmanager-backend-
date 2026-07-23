@@ -42,7 +42,10 @@ class RegentPhase2MarketSaveLoadIT {
 
         priceService.processDay(91, 10);
         Map<String, Object> saveAtDayTen = gameController.exportGame();
-        assertThat(saveAtDayTen.get("saveVersion")).isEqualTo(8);
+        // ADI Analytics Phase 0 raised the H2 save version 8 -> 9 (adds the H2-only
+        // match_provenance ledger). The market price-path reproducibility asserted
+        // below is unchanged. Overlap: ATLAS reconciles the number vs REGENT Phase 3.
+        assertThat(saveAtDayTen.get("saveVersion")).isEqualTo(9);
 
         priceService.processDay(91, 20);
         List<PriceFingerprint> expected = fingerprints(instrument.getId(), 91, 11, 20);

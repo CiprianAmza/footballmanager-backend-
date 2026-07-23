@@ -37,8 +37,8 @@ class GameSaveManifestCoverageTest {
         Set<String> expected = new HashSet<>(GameSaveImportService.manifestTableNames());
         expected.addAll(preservedInstallationState);
 
-        assertThat(GameSaveImportService.manifestTableNames()).hasSize(75);
-        assertThat(GameSaveImportService.manifestKeys()).hasSize(75).doesNotHaveDuplicates();
+        assertThat(GameSaveImportService.manifestTableNames()).hasSize(76);
+        assertThat(GameSaveImportService.manifestKeys()).hasSize(76).doesNotHaveDuplicates();
         assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
     }
 }

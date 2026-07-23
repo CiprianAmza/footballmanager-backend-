@@ -43,7 +43,12 @@ public class GameSaveImportService {
     static final int LEGACY_SAVE_VERSION = 5;
     static final int SAVE_VERSION_6 = 6;
     static final int SAVE_VERSION_7 = 7;
-    static final int CURRENT_SAVE_VERSION = 8;
+    static final int SAVE_VERSION_8 = 8;
+    // ADI Analytics Option B Phase 0: adds the H2-only match_provenance table.
+    // NOTE (overlap): REGENT Phase 3 also branches from base 90cf15b (v8) and will
+    // independently claim v9 + an h2/V4 migration; ATLAS reconciles the numbering
+    // at integration.
+    static final int CURRENT_SAVE_VERSION = 9;
 
     private static final List<TableSpec> MANIFEST = List.of(
             new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
@@ -117,10 +122,12 @@ public class GameSaveImportService {
             new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", SAVE_VERSION_7),
             new TableSpec("ownedAssets", "OWNED_ASSET", SAVE_VERSION_7),
             new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", SAVE_VERSION_7),
-            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", CURRENT_SAVE_VERSION),
-            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", CURRENT_SAVE_VERSION),
-            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", CURRENT_SAVE_VERSION),
-            new TableSpec("marketTrades", "MARKET_TRADE", CURRENT_SAVE_VERSION)
+            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", SAVE_VERSION_8),
+            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", SAVE_VERSION_8),
+            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", SAVE_VERSION_8),
+            new TableSpec("marketTrades", "MARKET_TRADE", SAVE_VERSION_8),
+            // ADI Analytics Option B Phase 0 — H2-only canonical provenance ledger (v9).
+            new TableSpec("matchProvenances", "MATCH_PROVENANCE", CURRENT_SAVE_VERSION)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
@@ -247,10 +254,10 @@ public class GameSaveImportService {
     }
 
     /**
-     * REGENT raises the save version to {@link #CURRENT_SAVE_VERSION} only where
-     * the economy schema actually exists (the H2-only REGENT runtime). On a
-     * vendor without the economy migrations the export stays at {@link #SAVE_VERSION_6}
-     * and carries no economy sections, so cross-database save/load is unaffected.
+     * The H2 runtime raises the save version to {@link #CURRENT_SAVE_VERSION} — the
+     * H2-only economy schema (v8) plus the ADI provenance ledger (v9) — while any
+     * vendor without those migrations stays at {@link #SAVE_VERSION_6} and carries
+     * neither section, so cross-database save/load is unaffected.
      */
     public int effectiveSaveVersion() {
         Connection live = DataSourceUtils.getConnection(dataSource);
@@ -633,7 +640,7 @@ public class GameSaveImportService {
         if (schema.dialect() == DatabaseDialect.H2) {
             // Phase-1 economy reconciliation is H2-only; the economy tables and
             // their ledger invariants are not part of the cross-database v6 contract.
-            validateEconomy(connection, plan.sourceVersion() >= CURRENT_SAVE_VERSION);
+            validateEconomy(connection, plan.sourceVersion() >= SAVE_VERSION_8);
         }
     }
 
@@ -811,12 +818,13 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7 or 8");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8 or 9");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
-                && version != SAVE_VERSION_7 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7 or 8");
+                && version != SAVE_VERSION_7 && version != SAVE_VERSION_8
+                && version != CURRENT_SAVE_VERSION) {
+            throw invalid("incompatible save version; expected 5, 6, 7, 8 or 9");
         }
         return version;
     }
