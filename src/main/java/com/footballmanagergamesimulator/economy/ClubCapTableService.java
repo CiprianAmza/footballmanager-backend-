@@ -91,10 +91,10 @@ public class ClubCapTableService {
     }
 
     CapTable reconcileLocked(MarketInstrument instrument, ClubCapTableState state) {
-        List<PortfolioPosition> positions = positionRepository
-                .findPositiveByInstrumentIdForUpdate(instrument.getId());
+        List<PortfolioPosition> allPositions = positionRepository
+                .findAllByInstrumentIdForUpdate(instrument.getId());
         long held = 0;
-        for (PortfolioPosition position : positions) {
+        for (PortfolioPosition position : allPositions) {
             if (position.getQuantity() < 0 || position.getTotalCostBasis() < 0) {
                 throw new EconomyConflictException("CAP_TABLE_INVALID", "Negative club holding is not allowed");
             }
@@ -103,6 +103,8 @@ public class ClubCapTableService {
         if (held > instrument.getTotalSupply()) {
             throw new EconomyConflictException("CAP_TABLE_OVER_ALLOCATED", "Club holdings exceed issued shares");
         }
+        List<PortfolioPosition> positions = allPositions.stream()
+                .filter(position -> position.getQuantity() > 0).toList();
         instrument.setAvailableSupply(instrument.getTotalSupply() - held);
         Long controller = positions.stream()
                 .filter(position -> controls(position.getQuantity(), instrument.getTotalSupply(), controlThreshold()))
@@ -140,11 +142,15 @@ public class ClubCapTableService {
 
     private void migrateLegacy(MarketInstrument instrument, ClubCapTableState state) {
         List<PortfolioPosition> existing = positionRepository
-                .findPositiveByInstrumentIdForUpdate(instrument.getId());
-        if (!existing.isEmpty()) {
-            state.setMigrationVersion(MIGRATION_VERSION);
-            stateRepository.save(state);
-            return;
+                .findAllByInstrumentIdForUpdate(instrument.getId());
+        Map<Long, PortfolioPosition> positionsByAccount = new java.util.TreeMap<>();
+        long existingHeld = 0;
+        for (PortfolioPosition position : existing) {
+            if (position.getQuantity() < 0 || position.getTotalCostBasis() < 0) {
+                throw new EconomyConflictException("CAP_TABLE_INVALID", "Negative club holding is not allowed");
+            }
+            existingHeld = add(existingHeld, position.getQuantity());
+            positionsByAccount.put(position.getAccountId(), position);
         }
         Map<Long, BigDecimal> percentagesByHuman = new java.util.TreeMap<>();
         for (ClubShareholding legacy : legacyShareRepository.findAllByTeamId(state.getTeamId())) {
@@ -157,19 +163,42 @@ public class ClubCapTableService {
         if (allocated.compareTo(BigDecimal.valueOf(100)) > 0) {
             throw new EconomyConflictException("CAP_TABLE_OVER_ALLOCATED", "Legacy club stakes exceed 100 percent");
         }
+        Map<Long, Long> legacyQuantityByAccount = new java.util.TreeMap<>();
+        Map<Long, PersonalAccount> legacyAccounts = new HashMap<>();
         for (Map.Entry<Long, BigDecimal> entry : percentagesByHuman.entrySet()) {
             PersonalAccount account = accountRepository.findByOwnerHumanId(entry.getKey())
                     .orElseThrow(() -> new EconomyConflictException("CAP_TABLE_MIGRATION_IDENTITY_MISSING",
                             "Legacy shareholder has no canonical personal account"));
             long quantity = entry.getValue().multiply(BigDecimal.valueOf(instrument.getTotalSupply()))
                     .divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN).longValueExact();
+            if (entry.getValue().signum() > 0 && quantity == 0) {
+                throw new EconomyConflictException("CAP_TABLE_MIGRATION_PRECISION_LOSS",
+                        "Legacy club stake is smaller than one issued share");
+            }
             if (quantity == 0) continue;
-            PortfolioPosition position = new PortfolioPosition();
-            position.setAccountId(account.getId());
-            position.setProfileId(account.getProfileId());
-            position.setInstrumentId(instrument.getId());
-            position.setQuantity(quantity);
-            position.setTotalCostBasis(multiply(quantity, instrument.getCurrentPrice()));
+            legacyQuantityByAccount.merge(account.getId(), quantity, ClubCapTableService::add);
+            legacyAccounts.put(account.getId(), account);
+        }
+        long legacyHeld = legacyQuantityByAccount.values().stream()
+                .reduce(0L, ClubCapTableService::add);
+        if (add(existingHeld, legacyHeld) > instrument.getTotalSupply()) {
+            throw new EconomyConflictException("CAP_TABLE_OVER_ALLOCATED",
+                    "Combined market and legacy club holdings exceed issued shares");
+        }
+        for (Map.Entry<Long, Long> entry : legacyQuantityByAccount.entrySet()) {
+            PersonalAccount account = legacyAccounts.get(entry.getKey());
+            PortfolioPosition position = positionsByAccount.get(entry.getKey());
+            if (position == null) {
+                position = new PortfolioPosition();
+                position.setAccountId(account.getId());
+                position.setProfileId(account.getProfileId());
+                position.setInstrumentId(instrument.getId());
+                position.setQuantity(0);
+                position.setTotalCostBasis(0);
+            }
+            position.setQuantity(add(position.getQuantity(), entry.getValue()));
+            position.setTotalCostBasis(add(position.getTotalCostBasis(),
+                    multiply(entry.getValue(), instrument.getCurrentPrice())));
             positionRepository.save(position);
         }
         state.setMigrationVersion(MIGRATION_VERSION);

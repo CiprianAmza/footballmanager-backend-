@@ -88,6 +88,28 @@ class ClubValuationServiceTest {
     }
 
     @Test
+    void performanceIncludesEveryCompetitionFromTheLatestDistinctSeasons() {
+        properties.getClub().setPerformanceLookbackSeasons(2);
+        Team team = team(1_000, 0, 0);
+        when(humans.findAllByTeamIdAndTypeId(7, TypeNames.PLAYER_TYPE)).thenReturn(List.of());
+        when(stadiums.findByTeamId(7)).thenReturn(Optional.empty());
+        when(facilities.findByTeamId(7)).thenReturn(null);
+        when(histories.findByTeamId(7)).thenReturn(List.of(
+                history(5, 1, 10, 30),
+                history(5, 2, 10, 30),
+                history(4, 3, 10, 0),
+                history(3, 4, 10, 30)));
+        when(obligations.findAllByTeamIdAndSettledFalseOrderByDueSeasonAscDueDayAscIdAsc(7))
+                .thenReturn(List.of());
+
+        ClubValuationService.Valuation value = service.value(team);
+
+        assertThat(value.recentPerformanceBps()).isEqualTo(333);
+        assertThat(value.recentPerformanceValue()).isEqualTo(33);
+        assertThat(value.totalValue()).isEqualTo(1_033);
+    }
+
+    @Test
     void overflowIsRejectedAndEquityUsesExactFiniteSupply() {
         Team team = team(Long.MIN_VALUE, 1, 0);
         when(humans.findAllByTeamIdAndTypeId(7, TypeNames.PLAYER_TYPE)).thenReturn(List.of());
@@ -121,6 +143,15 @@ class ClubValuationServiceTest {
         human.setTransferValue(value);
         human.setRetired(retired);
         return human;
+    }
+
+    private CompetitionHistory history(long season, long competition, int games, int points) {
+        CompetitionHistory value = new CompetitionHistory();
+        value.setSeasonNumber(season);
+        value.setCompetitionId(competition);
+        value.setGames(games);
+        value.setPoints(points);
+        return value;
     }
 
     private static RegentEconomyProperties properties() {
