@@ -3,20 +3,26 @@ package com.footballmanagergamesimulator.integration;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.matchplan.MatchAppearance;
-import com.footballmanagergamesimulator.matchplan.Lineup;
 import com.footballmanagergamesimulator.matchplan.MatchEventProjection;
 import com.footballmanagergamesimulator.matchplan.MatchPlan;
 import com.footballmanagergamesimulator.matchplan.MatchPlanService;
 import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.model.Scorer;
+import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.MatchAppearanceRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.MatchPlanRepository;
+import com.footballmanagergamesimulator.repository.MatchPlayerRatingRepository;
+import com.footballmanagergamesimulator.repository.MatchStatsRepository;
+import com.footballmanagergamesimulator.repository.PlayerSeasonStatRepository;
 import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -26,15 +32,24 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -45,14 +60,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Asserts, for every AI fixture of a league round: a committed MatchPlan exists; the
  * goal-event count equals the persisted match score (90' + extra time, never the
  * shootout); the projected Scorer goals/assists equal the MatchEvent tally exactly; and
- * every scorer/assister was actually on the pitch at the goal minute. Also proves
- * idempotency (a re-run adds no duplicate plan/event/scorer) and reports a legacy-vs-
- * canonical timing benchmark for a representative round.
+ * every scorer/assister was actually on the pitch at the goal minute.
+ *
+ * <p>Idempotency is proven through the REAL entry point: re-running the same round via
+ * {@code simulateRound} is a clean no-op (no exception, and no change to any effect —
+ * fixture score, plan/events, Scorer, MatchStats, result details, standings, player stats,
+ * ratings). A concurrent same-round race proves a single commit with the loser no-opping.
+ *
+ * <p>The datasource pins a high H2 {@code LOCK_TIMEOUT} so the losing thread of the
+ * concurrency race waits for the winner's fixture lock and then no-ops, rather than timing
+ * out — the design serializes on the fixture row, it does not fail the loser.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
         "match.engine.match-plan.enabled=true",
-        "gameplay.player-availability-disabled=false"
+        "gameplay.player-availability-disabled=false",
+        "spring.datasource.url=jdbc:h2:mem:sentinelfastpath;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=30000"
 })
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @DisplayName("Canonical AI fast-path — flag ON")
@@ -65,7 +88,11 @@ class CanonicalAiFastPathIT {
     @Autowired private MatchEventRepository matchEventRepository;
     @Autowired private MatchAppearanceRepository matchAppearanceRepository;
     @Autowired private ScorerRepository scorerRepository;
-    @Autowired private MatchPlanService matchPlanService;
+    @Autowired private MatchStatsRepository matchStatsRepository;
+    @Autowired private CompetitionTeamInfoDetailRepository detailRepository;
+    @Autowired private TeamCompetitionDetailRepository teamCompDetailRepository;
+    @Autowired private MatchPlayerRatingRepository matchPlayerRatingRepository;
+    @Autowired private PlayerSeasonStatRepository playerSeasonStatRepository;
     @Autowired private MatchEngineConfig engineConfig;
 
     private Competition firstLeague() {
@@ -142,7 +169,7 @@ class CanonicalAiFastPathIT {
             // --- Every contributor was actually on the pitch at the goal minute. ---
             Map<Long, List<MatchAppearance>> appearancesByTeam = new HashMap<>();
             for (MatchAppearance a : matchAppearanceRepository.findByMatchPlan(plan)) {
-                appearancesByTeam.computeIfAbsent(a.getTeamId(), k -> new java.util.ArrayList<>()).add(a);
+                appearancesByTeam.computeIfAbsent(a.getTeamId(), k -> new ArrayList<>()).add(a);
             }
             for (MatchEvent e : events) {
                 if (!"goal".equals(e.getEventType()) && !"assist".equals(e.getEventType())) continue;
@@ -155,26 +182,14 @@ class CanonicalAiFastPathIT {
         }
         assertEquals(fixtures.size(), planCount, "one canonical plan per AI fixture");
 
-        // -------- Idempotency: retrying the SAME fixture reuses the committed plan and adds
-        // no duplicate plan / goal slot / event. A committed plan short-circuits before any
-        // resolution, so passing empty lineups is safe — nothing is re-resolved. --------
-        long plansBefore = matchPlanRepository.count();
-        for (CompetitionTeamInfoMatch fixtureRow : fixtures) {
-            CompetitionTeamInfoMatch fixture = matchRepository.findById(fixtureRow.getId()).orElseThrow();
-            String key = MatchPlanService.competitionFixtureKey(fixture.getId());
-            List<MatchEvent> before = matchEventRepository.findByFixtureKey(key);
-            List<MatchEvent> retried = matchPlanService.buildAndPersistLive(
-                    key, league.getId(), season, round, fixture.getTeam1Id(), fixture.getTeam2Id(),
-                    new Lineup(List.of(), List.of()), new Lineup(List.of(), List.of()),
-                    fixture.getTeam1Score(), fixture.getTeam2Score());
-            assertEquals(before.size(), retried.size(),
-                    "retry of committed fixture " + key + " reuses the exact event timeline");
-            assertEquals(before.size(), matchEventRepository.findByFixtureKey(key).size(),
-                    "retry duplicates no canonical MatchEvent for " + key);
-            assertTrue(matchPlanService.isPlanCommitted(key), "plan remains committed for " + key);
-        }
-        assertEquals(plansBefore, matchPlanRepository.count(),
-                "committed plans are immutable — a retry creates none");
+        // -------- Idempotency through the REAL entry point: re-running the SAME round must be
+        // a clean no-op — no exception, and NOTHING changes (score, plan/events, Scorer,
+        // MatchStats, result details, standings, player stats, ratings). --------
+        Map<String, Long> before = roundStateSnapshot(league, season, round, fixtures);
+        competitionController.simulateRound(String.valueOf(league.getId()), String.valueOf(round));
+        Map<String, Long> after = roundStateSnapshot(league, season, round, fixtures);
+        assertEquals(before, after,
+                "re-running a committed round through simulateRound must be a clean no-op");
     }
 
     @Test
@@ -206,6 +221,102 @@ class CanonicalAiFastPathIT {
         // Loose ceiling (guards against an accidental per-player query storm), not a micro-bench.
         assertTrue(canonicalMs <= Math.max(2000, legacyMs * 8 + 1500),
                 "canonical round unexpectedly slow: legacy=" + legacyMs + "ms canonical=" + canonicalMs + "ms");
+    }
+
+    @Test
+    @Order(30)
+    @DisplayName("Concurrent same-round race: single commit, single set of effects, loser no-ops")
+    void concurrentSameRound_singleCommitLoserNoOps() throws Exception {
+        Competition league = firstLeague();
+        int season = 1;
+        int round = 4; // a fresh round not simulated by the earlier tests
+        List<CompetitionTeamInfoMatch> fixtures = matchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(league.getId(), (long) round, "1");
+        assertFalse(fixtures.isEmpty(), "precondition: round-4 fixtures exist");
+        engineConfig.getMatchPlan().setEnabled(true);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch startGate = new CountDownLatch(1);
+        Callable<Throwable> race = () -> {
+            startGate.await();
+            try {
+                competitionController.simulateRound(String.valueOf(league.getId()), String.valueOf(round));
+                return null;
+            } catch (Throwable t) {
+                return t;
+            }
+        };
+        Future<Throwable> f1 = pool.submit(race);
+        Future<Throwable> f2 = pool.submit(race);
+        startGate.countDown();
+        Throwable e1 = f1.get(120, TimeUnit.SECONDS);
+        Throwable e2 = f2.get(120, TimeUnit.SECONDS);
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+
+        // The fixture lock serializes the two rounds; the loser observes the committed plan and
+        // no-ops. Neither request may fail (no duplicate, no error), per the idempotency contract.
+        assertNull(e1, "first concurrent simulateRound threw: " + e1);
+        assertNull(e2, "second concurrent simulateRound threw: " + e2);
+
+        // Single set of effects: exactly one committed plan, one detail row, and events==score.
+        List<CompetitionTeamInfoDetail> details = detailRepository
+                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(league.getId(), round, season);
+        assertEquals(fixtures.size(), details.size(),
+                "each fixture produced exactly one detail row (no duplication from the race)");
+
+        for (CompetitionTeamInfoMatch fixtureRow : fixtures) {
+            CompetitionTeamInfoMatch fixture = matchRepository.findById(fixtureRow.getId()).orElseThrow();
+            String key = MatchPlanService.competitionFixtureKey(fixture.getId());
+            MatchPlan plan = matchPlanRepository.findByFixtureKey(key).orElse(null);
+            assertNotNull(plan, "committed plan for " + key);
+            assertEquals(MatchPlan.Status.COMMITTED, plan.getStatus());
+            long goalEvents = matchEventRepository.findByFixtureKey(key).stream()
+                    .filter(e -> "goal".equals(e.getEventType())).count();
+            assertEquals(fixture.getTeam1Score() + fixture.getTeam2Score(), goalEvents,
+                    "single set of goal events == score for " + key);
+        }
+    }
+
+    /**
+     * A comparable snapshot of every match effect a re-run could duplicate. Global counts detect
+     * duplicated rows; standings sums and per-fixture scores detect double-application / divergence.
+     */
+    private Map<String, Long> roundStateSnapshot(Competition league, int season, int round,
+                                                 List<CompetitionTeamInfoMatch> fixtures) {
+        Map<String, Long> m = new TreeMap<>();
+        m.put("plans", matchPlanRepository.count());
+        m.put("events", matchEventRepository.count());
+        m.put("matchStats", (long) matchStatsRepository
+                .findAllByCompetitionIdAndSeasonNumber(league.getId(), season).size());
+        m.put("details", (long) detailRepository
+                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(league.getId(), round, season).size());
+        m.put("ratings", matchPlayerRatingRepository.count());
+        m.put("seasonStats", playerSeasonStatRepository.count());
+
+        List<Scorer> scorers = scorerRepository.findAllByCompetitionIdAndSeasonNumber(league.getId(), season);
+        m.put("scorerRows", (long) scorers.size());
+        m.put("scorerGoals", scorers.stream().mapToLong(Scorer::getGoals).sum());
+        m.put("scorerAssists", scorers.stream().mapToLong(Scorer::getAssists).sum());
+
+        long games = 0, points = 0, goalsFor = 0, goalsAgainst = 0;
+        for (TeamCompetitionDetail t : teamCompDetailRepository.findAllByCompetitionId(league.getId())) {
+            games += t.getGames();
+            points += t.getPoints();
+            goalsFor += t.getGoalsFor();
+            goalsAgainst += t.getGoalsAgainst();
+        }
+        m.put("standingsGames", games);
+        m.put("standingsPoints", points);
+        m.put("standingsGoalsFor", goalsFor);
+        m.put("standingsGoalsAgainst", goalsAgainst);
+
+        for (CompetitionTeamInfoMatch f : fixtures) {
+            CompetitionTeamInfoMatch fresh = matchRepository.findById(f.getId()).orElseThrow();
+            m.put("fixtureScore:" + f.getId(),
+                    fresh.getTeam1Score() * 1000L + fresh.getTeam2Score());
+        }
+        return m;
     }
 
     private long countPlansForRound(Competition league, int round) {

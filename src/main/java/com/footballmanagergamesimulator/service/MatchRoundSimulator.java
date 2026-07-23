@@ -360,6 +360,23 @@ public class MatchRoundSimulator {
                 continue;
             }
 
+            // Durable idempotency + concurrency guard (flag ON only): a fixture whose canonical
+            // plan is already COMMITTED was fully processed in a prior/parallel run — result,
+            // scorers, stats and EVERY post-match effect. Skip the whole iteration BEFORE score
+            // RNG and before any effect, so re-running the same round is a clean no-op that never
+            // re-runs scoring, never duplicates MatchStats/standings/finance, and never diverges
+            // from the immutable plan. The pessimistic fixture lock serializes two concurrent
+            // rounds on the same fixture: the loser blocks until the winner commits, then observes
+            // the committed plan here and no-ops instead of racing the same inserts.
+            if (matchPlanService.isEnabled()) {
+                String committedKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                        .competitionFixtureKey(match.getId());
+                matchPlanService.lockFixture(committedKey);
+                if (matchPlanService.isPlanCommitted(committedKey)) {
+                    continue;
+                }
+            }
+
             boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
 
             int teamScore1, teamScore2;
@@ -682,33 +699,28 @@ public class MatchRoundSimulator {
                 List<Scorer> team1Scorers;
                 List<Scorer> team2Scorers;
                 if (matchPlanService.isEnabled()) {
+                    // A COMMITTED fixture never reaches here — it is short-circuited at the top of
+                    // the loop. So this always builds the plan fresh for a not-yet-committed fixture.
                     String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                             .competitionFixtureKey(match.getId());
-                    if (matchPlanService.isPlanCommitted(fixtureKey)) {
-                        // Durable idempotency: a committed plan means this fixture's canonical
-                        // artifacts + Scorer rows already exist — never resolve or project again.
-                        team1Scorers = List.of();
-                        team2Scorers = List.of();
-                    } else {
-                        int _season = Integer.parseInt(getCurrentSeason());
-                        long seed = com.footballmanagergamesimulator.matchplan.MatchPlanService
-                                .seedFor(fixtureKey, _competitionId, _season, (int) _roundId, teamId1, teamId2);
-                        Lineup homeLineup = buildAiCanonicalLineup(teamId1, seed);
-                        Lineup awayLineup = buildAiCanonicalLineup(teamId2, seed);
-                        List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersistLive(
-                                fixtureKey, _competitionId, _season, (int) _roundId,
-                                teamId1, teamId2, homeLineup, awayLineup,
-                                planSplit.score90Home(), planSplit.score90Away(),
-                                planSplit.etHome(), planSplit.etAway(),
-                                planSplit.shootoutHome(), planSplit.shootoutAway());
-                        team1Scorers = getScorersForTeamCanonical(
-                                teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId,
-                                homeLineup, tallyForTeam(canonicalEvents, teamId1));
-                        team2Scorers = getScorersForTeamCanonical(
-                                teamId2, teamId1, teamScore2, teamScore1, _competitionId, (int) _roundId,
-                                awayLineup, tallyForTeam(canonicalEvents, teamId2));
-                        canonicalAiFixtureKeys.add(fixtureKey);
-                    }
+                    int _season = Integer.parseInt(getCurrentSeason());
+                    long seed = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                            .seedFor(fixtureKey, _competitionId, _season, (int) _roundId, teamId1, teamId2);
+                    Lineup homeLineup = buildAiCanonicalLineup(teamId1, seed);
+                    Lineup awayLineup = buildAiCanonicalLineup(teamId2, seed);
+                    List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersistLive(
+                            fixtureKey, _competitionId, _season, (int) _roundId,
+                            teamId1, teamId2, homeLineup, awayLineup,
+                            planSplit.score90Home(), planSplit.score90Away(),
+                            planSplit.etHome(), planSplit.etAway(),
+                            planSplit.shootoutHome(), planSplit.shootoutAway());
+                    team1Scorers = getScorersForTeamCanonical(
+                            teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId,
+                            homeLineup, tallyForTeam(canonicalEvents, teamId1));
+                    team2Scorers = getScorersForTeamCanonical(
+                            teamId2, teamId1, teamScore2, teamScore1, _competitionId, (int) _roundId,
+                            awayLineup, tallyForTeam(canonicalEvents, teamId2));
+                    canonicalAiFixtureKeys.add(fixtureKey);
                 } else {
                     team1Scorers = getScorersForTeamSimplified(
                             teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId);
