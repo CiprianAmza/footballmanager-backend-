@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.user;
 
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.economy.PersonalAccountingService;
+import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.person.CareerType;
 import com.footballmanagergamesimulator.person.ControlType;
@@ -41,7 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.flyway.enabled=false"
 })
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({CareerOnboardingService.class, PersonProfileService.class})
+@Import({CareerOnboardingService.class, PersonProfileService.class,
+        PersonalAccountingService.class, RegentEconomyProperties.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class CareerOnboardingConcurrencyTest {
 

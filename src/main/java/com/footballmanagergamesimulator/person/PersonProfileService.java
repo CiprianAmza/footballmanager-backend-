@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.person;
 
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.economy.PersonalAccountingService;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.user.CareerRole;
 import com.footballmanagergamesimulator.user.CareerControlConflictException;
@@ -23,13 +24,16 @@ public class PersonProfileService {
     private final PersonProfileRepository profileRepository;
     private final UserRepository userRepository;
     private final HumanRepository humanRepository;
+    private final PersonalAccountingService accountingService;
 
     public PersonProfileService(PersonProfileRepository profileRepository,
                                 UserRepository userRepository,
-                                HumanRepository humanRepository) {
+                                HumanRepository humanRepository,
+                                PersonalAccountingService accountingService) {
         this.profileRepository = profileRepository;
         this.userRepository = userRepository;
         this.humanRepository = humanRepository;
+        this.accountingService = accountingService;
     }
 
     @Transactional
@@ -61,9 +65,13 @@ public class PersonProfileService {
         }
         if (humanProfile != null && humanProfile.getId() != profile.getId()) {
             // The Human profile is AI-only. Preserve the user's canonical
-            // profile and remove only the unowned AI duplicate.
+            // profile and its stable id, merge the AI manager's economy, then
+            // remove only the now-unreferenced AI duplicate.
+            accountingService.mergeProfiles(profile, humanProfile, user.getId(), manager.getId());
             profileRepository.delete(humanProfile);
             profileRepository.flush();
+        } else {
+            accountingService.mergeProfiles(profile, profile, user.getId(), manager.getId());
         }
         profile.setHumanId(manager.getId());
         profile.setCareerType(CareerType.MANAGER);
@@ -144,6 +152,8 @@ public class PersonProfileService {
                         throw new CareerControlConflictException(
                                 "Human identity is controlled by another user");
                     }
+                    accountingService.mergeProfiles(userProfile, humanProfile,
+                            linkedUser.getId(), human.getId());
                     profileRepository.delete(humanProfile);
                     profileRepository.flush();
                     profilesByHuman.remove(human.getId());

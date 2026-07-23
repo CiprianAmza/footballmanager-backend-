@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.person;
 
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.economy.PersonalAccountingService;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.user.CareerControlConflictException;
 import com.footballmanagergamesimulator.user.User;
@@ -22,8 +23,9 @@ class PersonProfileServiceTest {
     @Test
     void attachingAnotherUsersHumanNeverDeletesOrReassignsVictimProfile() {
         PersonProfileRepository profiles = mock(PersonProfileRepository.class);
+        PersonalAccountingService accounting = mock(PersonalAccountingService.class);
         PersonProfileService service = new PersonProfileService(
-                profiles, mock(UserRepository.class), mock(HumanRepository.class));
+                profiles, mock(UserRepository.class), mock(HumanRepository.class), accounting);
         User attacker = new User();
         attacker.setId(1);
         Human manager = new Human();
@@ -49,7 +51,8 @@ class PersonProfileServiceTest {
         PersonProfileRepository profiles = mock(PersonProfileRepository.class);
         UserRepository users = mock(UserRepository.class);
         HumanRepository humans = mock(HumanRepository.class);
-        PersonProfileService service = new PersonProfileService(profiles, users, humans);
+        PersonProfileService service = new PersonProfileService(
+                profiles, users, humans, mock(PersonalAccountingService.class));
         User attacker = new User();
         attacker.setId(1);
         attacker.setManagerId(10L);

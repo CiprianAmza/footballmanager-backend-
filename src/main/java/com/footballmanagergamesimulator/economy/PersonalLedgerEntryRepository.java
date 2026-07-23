@@ -12,6 +12,7 @@ import java.util.List;
 public interface PersonalLedgerEntryRepository extends JpaRepository<PersonalLedgerEntry, Long> {
     Optional<PersonalLedgerEntry> findByAccountIdAndIdempotencyKey(long accountId, String idempotencyKey);
     List<PersonalLedgerEntry> findAllByCorrelationId(String correlationId);
+    List<PersonalLedgerEntry> findAllByAccountIdOrderByCreatedAtAscIdAsc(long accountId);
     Page<PersonalLedgerEntry> findAllByAccountId(long accountId, Pageable pageable);
 
     @Query("select coalesce(sum(entry.signedAmount), 0) from PersonalLedgerEntry entry where entry.accountId = :accountId")

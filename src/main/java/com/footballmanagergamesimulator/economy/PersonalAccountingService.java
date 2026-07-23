@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -20,17 +21,178 @@ public class PersonalAccountingService {
 
     private final PersonalAccountRepository accountRepository;
     private final PersonalLedgerEntryRepository ledgerRepository;
+    private final OwnedAssetRepository ownedAssetRepository;
     private final HumanRepository humanRepository;
     private final RegentEconomyProperties properties;
 
     public PersonalAccountingService(PersonalAccountRepository accountRepository,
                                      PersonalLedgerEntryRepository ledgerRepository,
+                                     OwnedAssetRepository ownedAssetRepository,
                                      HumanRepository humanRepository,
                                      RegentEconomyProperties properties) {
         this.accountRepository = accountRepository;
         this.ledgerRepository = ledgerRepository;
+        this.ownedAssetRepository = ownedAssetRepository;
         this.humanRepository = humanRepository;
         this.properties = properties;
+    }
+
+    /**
+     * Merges the economy identity created at registration with the economy identity of an
+     * existing AI-controlled Human. The user profile is the surviving canonical profile.
+     *
+     * <p>This is deliberately an accounting merge rather than a cascading delete: a manager
+     * may already own assets or have career earnings before a user takes control. All ledger
+     * rows and assets remain auditable, while their account/profile ownership is moved to the
+     * surviving identity.</p>
+     */
+    @Transactional
+    public void mergeProfiles(PersonProfile survivingProfile, PersonProfile absorbedProfile,
+                              Integer ownerUserId, Long ownerHumanId) {
+        if (survivingProfile.getId() == absorbedProfile.getId()) {
+            synchronizeOwners(survivingProfile.getId(), ownerUserId, ownerHumanId);
+            return;
+        }
+
+        PersonalAccount surviving = accountRepository.findByProfileIdForUpdate(survivingProfile.getId())
+                .orElse(null);
+        PersonalAccount absorbed = accountRepository.findByProfileIdForUpdate(absorbedProfile.getId())
+                .orElse(null);
+
+        if (absorbed == null) {
+            if (surviving != null) {
+                surviving.setOwnerUserId(ownerUserId);
+                surviving.setOwnerHumanId(ownerHumanId);
+                accountRepository.saveAndFlush(surviving);
+                mirror(surviving);
+            }
+            return;
+        }
+
+        // Release unique owner columns before assigning them to the surviving account.
+        absorbed.setOwnerUserId(null);
+        absorbed.setOwnerHumanId(null);
+        accountRepository.saveAndFlush(absorbed);
+
+        if (surviving == null) {
+            reparentAccount(absorbed, survivingProfile.getId(), ownerUserId, ownerHumanId);
+            mirror(absorbed);
+            return;
+        }
+
+        surviving.setCashBalance(safeAdd(surviving.getCashBalance(), absorbed.getCashBalance()));
+        surviving.setLifetimeCareerEarnings(safeAdd(
+                surviving.getLifetimeCareerEarnings(), absorbed.getLifetimeCareerEarnings()));
+        surviving.setRealizedInvestmentGain(safeAdd(
+                surviving.getRealizedInvestmentGain(), absorbed.getRealizedInvestmentGain()));
+        surviving.setOwnerUserId(ownerUserId);
+        surviving.setOwnerHumanId(ownerHumanId);
+
+        mergeLedger(absorbed, surviving, survivingProfile.getId(), absorbedProfile.getId());
+        mergeAssets(absorbed, surviving, survivingProfile.getId(), absorbedProfile.getId());
+        accountRepository.saveAndFlush(surviving);
+        accountRepository.delete(absorbed);
+        accountRepository.flush();
+        mirror(surviving);
+    }
+
+    private void synchronizeOwners(long profileId, Integer ownerUserId, Long ownerHumanId) {
+        accountRepository.findByProfileIdForUpdate(profileId).ifPresent(account -> {
+            account.setOwnerUserId(ownerUserId);
+            account.setOwnerHumanId(ownerHumanId);
+            accountRepository.saveAndFlush(account);
+            mirror(account);
+        });
+    }
+
+    private void reparentAccount(PersonalAccount account, long profileId,
+                                 Integer ownerUserId, Long ownerHumanId) {
+        for (PersonalLedgerEntry entry : ledgerRepository
+                .findAllByAccountIdOrderByCreatedAtAscIdAsc(account.getId())) {
+            entry.setProfileId(profileId);
+        }
+        for (OwnedAsset asset : ownedAssetRepository.findAllByAccountIdOrderByIdAsc(account.getId())) {
+            asset.setProfileId(profileId);
+        }
+        ledgerRepository.flush();
+        ownedAssetRepository.flush();
+        account.setProfileId(profileId);
+        account.setOwnerUserId(ownerUserId);
+        account.setOwnerHumanId(ownerHumanId);
+        accountRepository.saveAndFlush(account);
+    }
+
+    private void mergeLedger(PersonalAccount absorbed, PersonalAccount surviving,
+                             long survivingProfileId, long absorbedProfileId) {
+        List<PersonalLedgerEntry> survivingEntries = new ArrayList<>(ledgerRepository
+                .findAllByAccountIdOrderByCreatedAtAscIdAsc(surviving.getId()));
+        Set<String> usedKeys = new HashSet<>();
+        survivingEntries.forEach(entry -> usedKeys.add(entry.getIdempotencyKey()));
+
+        List<PersonalLedgerEntry> absorbedEntries = new ArrayList<>(ledgerRepository
+                .findAllByAccountIdOrderByCreatedAtAscIdAsc(absorbed.getId()));
+        for (PersonalLedgerEntry entry : absorbedEntries) {
+            entry.setAccountId(surviving.getId());
+            entry.setProfileId(survivingProfileId);
+            entry.setIdempotencyKey(uniqueMergeKey(entry.getIdempotencyKey(), usedKeys,
+                    absorbedProfileId, entry.getId(), 160));
+            survivingEntries.add(entry);
+        }
+        survivingEntries.sort(Comparator.comparingLong(PersonalLedgerEntry::getCreatedAt)
+                .thenComparingLong(PersonalLedgerEntry::getId));
+        long runningBalance = 0;
+        for (PersonalLedgerEntry entry : survivingEntries) {
+            runningBalance = safeAdd(runningBalance, entry.getSignedAmount());
+            entry.setBalanceAfter(runningBalance);
+        }
+        if (runningBalance != surviving.getCashBalance()) {
+            throw new IllegalStateException("Merged personal account does not reconcile");
+        }
+        ledgerRepository.saveAllAndFlush(survivingEntries);
+    }
+
+    private void mergeAssets(PersonalAccount absorbed, PersonalAccount surviving,
+                             long survivingProfileId, long absorbedProfileId) {
+        List<OwnedAsset> survivingAssets = ownedAssetRepository.findAllByAccountIdOrderByIdAsc(surviving.getId());
+        Set<String> purchaseKeys = new HashSet<>();
+        Set<String> saleKeys = new HashSet<>();
+        for (OwnedAsset asset : survivingAssets) {
+            purchaseKeys.add(asset.getPurchaseIdempotencyKey());
+            if (asset.getSaleIdempotencyKey() != null) saleKeys.add(asset.getSaleIdempotencyKey());
+        }
+
+        List<OwnedAsset> absorbedAssets = ownedAssetRepository.findAllByAccountIdOrderByIdAsc(absorbed.getId());
+        for (OwnedAsset asset : absorbedAssets) {
+            asset.setAccountId(surviving.getId());
+            asset.setProfileId(survivingProfileId);
+            asset.setPurchaseIdempotencyKey(uniqueMergeKey(asset.getPurchaseIdempotencyKey(), purchaseKeys,
+                    absorbedProfileId, asset.getId(), 160));
+            if (asset.getSaleIdempotencyKey() != null) {
+                asset.setSaleIdempotencyKey(uniqueMergeKey(asset.getSaleIdempotencyKey(), saleKeys,
+                        absorbedProfileId, asset.getId(), 160));
+            }
+        }
+        ownedAssetRepository.saveAllAndFlush(absorbedAssets);
+    }
+
+    private static String uniqueMergeKey(String original, Set<String> used,
+                                         long sourceProfileId, long rowId, int maxLength) {
+        if (used.add(original)) return original;
+        String suffix = ":MERGED:" + sourceProfileId + ":" + rowId;
+        int prefixLength = Math.max(0, maxLength - suffix.length());
+        String candidate = original.substring(0, Math.min(original.length(), prefixLength)) + suffix;
+        if (!used.add(candidate)) {
+            throw new IllegalStateException("Unable to preserve an idempotency key during profile merge");
+        }
+        return candidate;
+    }
+
+    private static long safeAdd(long left, long right) {
+        try {
+            return Math.addExact(left, right);
+        } catch (ArithmeticException exception) {
+            throw new EconomyConflictException("MONEY_OVERFLOW", "Merged personal wealth exceeds supported range");
+        }
     }
 
     public long registrationStartingWealth(CareerRole role, Long requested) {

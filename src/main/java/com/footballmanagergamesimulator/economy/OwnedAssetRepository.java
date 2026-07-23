@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface OwnedAssetRepository extends JpaRepository<OwnedAsset, Long> {
+    List<OwnedAsset> findAllByAccountIdOrderByIdAsc(long accountId);
     List<OwnedAsset> findAllByAccountIdAndStatusOrderByIdAsc(long accountId, OwnedAssetStatus status);
     List<OwnedAsset> findAllByStatus(OwnedAssetStatus status);
     Optional<OwnedAsset> findByAccountIdAndPurchaseIdempotencyKey(long accountId, String key);

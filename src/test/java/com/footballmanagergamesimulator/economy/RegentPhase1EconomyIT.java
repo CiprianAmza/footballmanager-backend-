@@ -13,6 +13,8 @@ import com.footballmanagergamesimulator.repository.FinancialRecordRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.user.CareerRole;
+import com.footballmanagergamesimulator.user.CareerOnboardingService;
+import com.footballmanagergamesimulator.user.ManagerSetupRequest;
 import com.footballmanagergamesimulator.user.RegisterRequest;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserService;
@@ -61,6 +63,7 @@ class RegentPhase1EconomyIT {
     @Autowired private AssetCatalogItemRepository catalogRepository;
     @Autowired private OwnedAssetRepository ownedAssetRepository;
     @Autowired private PersonalAccountingService accountingService;
+    @Autowired private CareerOnboardingService onboardingService;
     @Autowired private PersonalAssetService assetService;
     @Autowired private PersonalPayrollService payrollService;
     @Autowired private WealthQueryService wealthQueryService;
@@ -69,6 +72,50 @@ class RegentPhase1EconomyIT {
     @Autowired private FinancialRecordRepository financialRecordRepository;
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
+
+    @Test
+    void managerSetupMergesAiEconomyIntoStableUserProfile() {
+        Team team = new Team();
+        team.setName("Identity Merge FC");
+        team = teamRepository.saveAndFlush(team);
+
+        Human aiManager = person("Existing AI Manager", 4, team.getId());
+        aiManager.setWealth(1_000_000L);
+        aiManager.setCareerEarnings(200_000L);
+        aiManager = humanRepository.saveAndFlush(aiManager);
+        PersonProfile aiProfile = profileService.ensureForHuman(aiManager);
+        PersonalAccount aiAccount = accountingService.ensureAccount(aiProfile);
+        AssetCatalogItem apartment = catalogRepository.findAll().stream()
+                .filter(item -> item.getCode().equals("APARTMENT_1_ROOM")).findFirst().orElseThrow();
+        assetService.purchase(aiProfile, apartment.getId(), "AI-MANAGER-ASSET");
+
+        User user = userService.register(new RegisterRequest("identity-manager", "identity-manager@example.com",
+                "correct-password", "Identity Manager", CareerRole.MANAGER));
+        PersonProfile registeredProfile = profileService.requireForUser(user);
+        long stableProfileId = registeredProfile.getId();
+
+        onboardingService.setupManager(user,
+                new ManagerSetupRequest("Human Manager", 41, team.getId(), false));
+
+        PersonProfile claimed = profileService.requireForUser(user);
+        assertThat(claimed.getId()).isEqualTo(stableProfileId);
+        assertThat(claimed.getHumanId()).isEqualTo(aiManager.getId());
+        assertThat(profileRepository.findById(aiProfile.getId())).isEmpty();
+        assertThat(accountRepository.findById(aiAccount.getId())).isEmpty();
+
+        PersonalAccount merged = accountRepository.findByProfileId(stableProfileId).orElseThrow();
+        assertThat(merged.getOwnerUserId()).isEqualTo(user.getId());
+        assertThat(merged.getOwnerHumanId()).isEqualTo(aiManager.getId());
+        assertThat(merged.getCashBalance()).isEqualTo(850_000L);
+        assertThat(merged.getLifetimeCareerEarnings()).isEqualTo(200_000L);
+        assertThat(accountRepository.findByOwnerHumanId(aiManager.getId())).get()
+                .extracting(PersonalAccount::getId).isEqualTo(merged.getId());
+        assertThat(ownedAssetRepository.findAllByAccountIdAndStatusOrderByIdAsc(
+                merged.getId(), OwnedAssetStatus.OWNED))
+                .singleElement()
+                .satisfies(asset -> assertThat(asset.getProfileId()).isEqualTo(stableProfileId));
+        accountingService.assertReconciled(merged.getId());
+    }
 
     @Test
     void registrationAndLedgerAreExactAndIdempotencyRejectsPayloadReuse() {
