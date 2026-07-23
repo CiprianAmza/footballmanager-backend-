@@ -7,5 +7,7 @@ public enum LedgerEntryType {
     BONUS,
     ASSET_PURCHASE,
     ASSET_SALE,
+    INVESTMENT_BUY,
+    INVESTMENT_SELL,
     ADMIN_ADJUSTMENT
 }

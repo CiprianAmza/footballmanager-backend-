@@ -24,6 +24,8 @@ public class WealthQueryService {
     private final PersonProfileRepository profileRepository;
     private final OwnedAssetRepository ownedAssetRepository;
     private final AssetCatalogItemRepository catalogRepository;
+    private final PortfolioPositionRepository positionRepository;
+    private final MarketInstrumentRepository instrumentRepository;
     private final RegentEconomyProperties properties;
 
     public WealthQueryService(PersonalEconomyBootstrapService bootstrapService,
@@ -32,6 +34,8 @@ public class WealthQueryService {
                               PersonProfileRepository profileRepository,
                               OwnedAssetRepository ownedAssetRepository,
                               AssetCatalogItemRepository catalogRepository,
+                              PortfolioPositionRepository positionRepository,
+                              MarketInstrumentRepository instrumentRepository,
                               RegentEconomyProperties properties) {
         this.bootstrapService = bootstrapService;
         this.accountRepository = accountRepository;
@@ -39,6 +43,8 @@ public class WealthQueryService {
         this.profileRepository = profileRepository;
         this.ownedAssetRepository = ownedAssetRepository;
         this.catalogRepository = catalogRepository;
+        this.positionRepository = positionRepository;
+        this.instrumentRepository = instrumentRepository;
         this.properties = properties;
     }
 
@@ -60,7 +66,7 @@ public class WealthQueryService {
     public EconomyDtos.WealthView wealth(long profileId) {
         PersonalAccount account = requireAccount(profileId);
         long assets = ownedAssetRepository.sumCurrentValue(account.getId(), OwnedAssetStatus.OWNED);
-        return wealth(account, assets);
+        return wealth(account, assets, investmentValue(account.getId(), instrumentPrices()));
     }
 
     public EconomyDtos.PublicProfileView publicProfile(long profileId) {
@@ -82,12 +88,25 @@ public class WealthQueryService {
         for (OwnedAsset asset : ownedAssetRepository.findAllByStatus(OwnedAssetStatus.OWNED)) {
             assetsByAccount.merge(asset.getAccountId(), asset.getCurrentValue(), Math::addExact);
         }
+        Map<Long, Long> investmentByAccount = new HashMap<>();
+        Map<Long, Long> prices = instrumentPrices();
+        for (PortfolioPosition position : positionRepository.findAllByQuantityGreaterThan(0)) {
+            Long price = prices.get(position.getInstrumentId());
+            if (price == null) continue;
+            long value = marketValue(position.getQuantity(), price);
+            try {
+                investmentByAccount.merge(position.getAccountId(), value, Math::addExact);
+            } catch (ArithmeticException exception) {
+                throw new EconomyConflictException("MONEY_OVERFLOW", "Investment value exceeds supported range");
+            }
+        }
 
         List<Rankable> rows = new ArrayList<>();
         for (PersonalAccount account : accountRepository.findAll()) {
             PersonProfile profile = profiles.get(account.getProfileId());
             if (profile == null || !roleFilter.matches(profile) || !controlFilter.matches(profile)) continue;
-            EconomyDtos.WealthView wealth = wealth(account, assetsByAccount.getOrDefault(account.getId(), 0L));
+            EconomyDtos.WealthView wealth = wealth(account, assetsByAccount.getOrDefault(account.getId(), 0L),
+                    investmentByAccount.getOrDefault(account.getId(), 0L));
             rows.add(new Rankable(profile, wealth));
         }
         rows.sort(rankingSort.comparator().thenComparingLong(row -> row.profile().getId()));
@@ -143,8 +162,7 @@ public class WealthQueryService {
                 entry.getCounterpartAssetId(), entry.getDescription());
     }
 
-    private EconomyDtos.WealthView wealth(PersonalAccount account, long assetValue) {
-        long investments = 0;
+    private EconomyDtos.WealthView wealth(PersonalAccount account, long assetValue, long investments) {
         long clubEquity = 0;
         long netWorth;
         try {
@@ -156,6 +174,35 @@ public class WealthQueryService {
         return new EconomyDtos.WealthView(account.getProfileId(), money(account.getCashBalance()),
                 money(assetValue), money(investments), money(clubEquity), money(netWorth),
                 money(account.getLifetimeCareerEarnings()), money(account.getRealizedInvestmentGain()));
+    }
+
+    private Map<Long, Long> instrumentPrices() {
+        Map<Long, Long> prices = new HashMap<>();
+        instrumentRepository.findAll().forEach(value -> prices.put(value.getId(), value.getCurrentPrice()));
+        return prices;
+    }
+
+    private long investmentValue(long accountId, Map<Long, Long> prices) {
+        long total = 0;
+        for (PortfolioPosition position : positionRepository
+                .findAllByAccountIdAndQuantityGreaterThanOrderByInstrumentIdAsc(accountId, 0)) {
+            Long price = prices.get(position.getInstrumentId());
+            if (price == null) continue;
+            try {
+                total = Math.addExact(total, marketValue(position.getQuantity(), price));
+            } catch (ArithmeticException exception) {
+                throw new EconomyConflictException("MONEY_OVERFLOW", "Investment value exceeds supported range");
+            }
+        }
+        return total;
+    }
+
+    private long marketValue(long quantity, long price) {
+        try {
+            return Math.multiplyExact(quantity, price);
+        } catch (ArithmeticException exception) {
+            throw new EconomyConflictException("MONEY_OVERFLOW", "Investment value exceeds supported range");
+        }
     }
 
     private EconomyDtos.PublicProfileView publicProfile(PersonProfile profile, EconomyDtos.WealthView wealth) {

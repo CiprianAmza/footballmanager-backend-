@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 
-@RestControllerAdvice(assignableTypes = PersonalEconomyController.class)
+@RestControllerAdvice(assignableTypes = {PersonalEconomyController.class, MarketController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class EconomyApiExceptionHandler {
 
