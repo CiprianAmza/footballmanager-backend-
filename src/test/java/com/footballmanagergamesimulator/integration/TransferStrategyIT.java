@@ -47,9 +47,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>These tests pin the fix for the inverted-sell bug: before the fix each
  * strategy sold the <i>tail</i> of its sorted candidate list (the opposite of
  * its intent); after the fix it sells the <i>head</i>. The directional
- * assertions below (Academy sells higher-rated than BuyTopSellWorst; SellHigh
- * variants sell higher-value than the squad average) fail on the buggy code and
- * pass on the corrected code.
+ * assertions below validate the strongest feasible selection after positional
+ * minimums and protected-player constraints are applied. They deliberately do
+ * not compare SellHigh against the whole-squad average: indispensable players
+ * are not legal sale candidates, so that average is not a valid strategy oracle.
  */
 @SpringBootTest
 @TestPropertySource(properties = "bootstrap.seed=20260528")
@@ -138,24 +139,40 @@ class TransferStrategyIT {
     @Test
     @DisplayName("BuyYoungSellHigh & BuyFreeSellHigh sell their HIGHEST transfer-value players")
     void sellHighStrategiesSellTopValue() {
-        Map<Long, Long> valueById = new HashMap<>();
-        for (Human h : squad) valueById.put(h.getId(), h.getTransferValue());
-        double squadAvgValue = squad.stream().mapToLong(Human::getTransferValue).average().orElseThrow();
-
+        long[] controlledSeeds = {0L, 1L, 2L, 3L, 4L, 42L, SEED, Long.MAX_VALUE};
         for (long stratId : new long[]{
                 TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH,
                 TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH}) {
-            List<PlayerTransferView> sold = sell(stratId);
-            assertThat(sold).as("strategy %d must pick players to sell", stratId).isNotEmpty();
+            for (long seed : controlledSeeds) {
+                List<Long> soldIds = sell(stratId, seed).stream()
+                        .map(PlayerTransferView::getPlayerId)
+                        .toList();
+                List<Long> repeatedIds = sell(stratId, seed).stream()
+                        .map(PlayerTransferView::getPlayerId)
+                        .toList();
+                List<Long> soldValues = soldIds.stream()
+                        .map(id -> squad.stream()
+                                .filter(player -> player.getId() == id)
+                                .findFirst()
+                                .orElseThrow()
+                                .getTransferValue())
+                        .toList();
 
-            double soldAvgValue = sold.stream()
-                    .mapToLong(v -> valueById.getOrDefault(v.getPlayerId(), 0L))
-                    .average().orElseThrow();
-
-            assertThat(soldAvgValue)
-                    .as("strategy %d (sell high) sold avg value (%.0f) must exceed squad avg (%.0f)",
-                            stratId, soldAvgValue, squadAvgValue)
-                    .isGreaterThan(squadAvgValue);
+                assertThat(soldIds)
+                        .as("strategy %d seed %d must pick players to sell", stratId, seed)
+                        .isNotEmpty()
+                        .doesNotHaveDuplicates();
+                assertThat(repeatedIds)
+                        .as("strategy %d seed %d must be reproducible", stratId, seed)
+                        .containsExactlyElementsOf(soldIds);
+                assertThat(soldValues)
+                        .as("strategy %d seed %d must preserve descending transfer-value order", stratId, seed)
+                        .isSortedAccordingTo(Comparator.reverseOrder());
+                assertThat(soldValues.stream().mapToLong(Long::longValue).sum())
+                        .as("strategy %d seed %d must maximize total feasible sale value", stratId, seed)
+                        .isEqualTo(optimalSellHighValue(soldIds.size()));
+                assertMinimumPositionCoverageAfterSales(soldIds, stratId, seed);
+            }
         }
     }
 
@@ -453,9 +470,63 @@ class TransferStrategyIT {
     // ============================================================
 
     private List<PlayerTransferView> sell(long stratId) {
+        return sell(stratId, SEED);
+    }
+
+    private List<PlayerTransferView> sell(long stratId, long seed) {
         team.setStrategy(stratId);
-        strategy.setRandomForTesting(new Random(SEED));
+        strategy.setRandomForTesting(new Random(seed));
         return strategy.playersToSell(team, humanRepository, minPos);
+    }
+
+    /**
+     * Independent oracle for the SellHigh contract. A position may contribute
+     * at most {@code squadCount - minimumRequired} sale slots. Greedily taking
+     * the globally highest-value legal player is optimal for these independent
+     * per-position capacities; protected players remain in the squad and are
+     * never candidates.
+     */
+    private long optimalSellHighValue(int count) {
+        Map<String, Integer> squadCount = new HashMap<>();
+        for (Human player : squad) {
+            squadCount.merge(TacticService.getBasePosition(player.getPosition()), 1, Integer::sum);
+        }
+
+        Map<String, Integer> saleCapacity = new HashMap<>();
+        squadCount.forEach((position, players) -> saleCapacity.put(
+                position,
+                Math.max(0, players - minPos.getOrDefault(position, 0))));
+
+        List<Human> candidates = squad.stream()
+                .filter(player -> !player.isWillNeverLeave())
+                .sorted(Comparator.comparingLong(Human::getTransferValue)
+                        .reversed())
+                .toList();
+
+        long optimalValue = 0;
+        int selected = 0;
+        for (Human candidate : candidates) {
+            String position = TacticService.getBasePosition(candidate.getPosition());
+            int remainingCapacity = saleCapacity.getOrDefault(position, 0);
+            if (remainingCapacity == 0) continue;
+            optimalValue += candidate.getTransferValue();
+            selected++;
+            saleCapacity.put(position, remainingCapacity - 1);
+            if (selected == count) break;
+        }
+        return optimalValue;
+    }
+
+    private void assertMinimumPositionCoverageAfterSales(List<Long> soldIds, long stratId, long seed) {
+        Map<String, Integer> remaining = new HashMap<>();
+        for (Human player : squad) {
+            if (!soldIds.contains(player.getId())) {
+                remaining.merge(TacticService.getBasePosition(player.getPosition()), 1, Integer::sum);
+            }
+        }
+        minPos.forEach((position, minimum) -> assertThat(remaining.getOrDefault(position, 0))
+                .as("strategy %d seed %d must retain minimum coverage for %s", stratId, seed, position)
+                .isGreaterThanOrEqualTo(minimum));
     }
 
     private BuyPlanTransferView buy(long stratId) {
