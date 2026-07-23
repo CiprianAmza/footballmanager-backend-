@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.model.ClubShareholding;
 import com.footballmanagergamesimulator.model.FinancialRecord;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.person.ControlType;
 import com.footballmanagergamesimulator.person.PersonProfile;
+import com.footballmanagergamesimulator.person.PersonProfileRepository;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.repository.ClubShareholdingRepository;
 import com.footballmanagergamesimulator.repository.FinancialRecordRepository;
@@ -59,6 +61,7 @@ class RegentPhase3ClubEconomyIT {
     @Autowired private UserService userService;
     @Autowired private UserRepository userRepository;
     @Autowired private PersonProfileService profileService;
+    @Autowired private PersonProfileRepository profileRepository;
     @Autowired private PersonalAccountRepository accountRepository;
     @Autowired private PersonalLedgerEntryRepository ledgerRepository;
     @Autowired private PersonalAccountingService accountingService;
@@ -116,6 +119,74 @@ class RegentPhase3ClubEconomyIT {
     }
 
     @Test
+    void mixedMarketAndLegacyMigrationMergesProtectedHolderRejectsCombinedOverAllocationAndReplays() {
+        PersonProfile marketProfile = chairman("mixed-market-holder", RICH);
+        PersonalAccount marketAccount = accountRepository.findByProfileId(marketProfile.getId()).orElseThrow();
+        PersonalAccount protectedLegacyAccount = protectLegacyHumanAccount("mixed-legacy-holder");
+
+        Team mixedTeam = freshTeam(11);
+        MarketInstrument mixedInstrument = instrumentRepository.findByTeamId(mixedTeam.getId()).orElseThrow();
+        stateRepository.findByInstrumentId(mixedInstrument.getId()).ifPresent(stateRepository::delete);
+        stateRepository.flush();
+        savePosition(marketAccount, mixedInstrument, 250_000);
+        mixedInstrument.setAvailableSupply(750_000);
+        instrumentRepository.saveAndFlush(mixedInstrument);
+        legacyShareRepository.saveAndFlush(legacy(
+                protectedLegacyAccount.getOwnerHumanId(), mixedTeam.getId(), 10));
+
+        ClubCapTableService.CapTable migrated = capTableService.ensureMigrated(mixedTeam.getId());
+
+        assertThat(migrated.holdings()).hasSize(2);
+        assertThat(migrated.holdings()).anySatisfy(value -> {
+            assertThat(value.accountId()).isEqualTo(marketAccount.getId());
+            assertThat(value.quantity()).isEqualTo(250_000);
+        }).anySatisfy(value -> {
+            assertThat(value.accountId()).isEqualTo(protectedLegacyAccount.getId());
+            assertThat(value.quantity()).isEqualTo(100_000);
+            assertThat(value.protectedUser()).isTrue();
+        });
+        assertThat(migrated.freeFloat()).isEqualTo(650_000);
+        assertSupply(mixedInstrument.getId());
+        assertThat(legacyShareRepository.findByHumanIdAndTeamId(
+                protectedLegacyAccount.getOwnerHumanId(), mixedTeam.getId())).isPresent();
+        int positionCount = positionRepository
+                .findAllByInstrumentIdAndQuantityGreaterThanOrderByAccountIdAsc(mixedInstrument.getId(), 0).size();
+
+        ClubCapTableService.CapTable replay = capTableService.ensureMigrated(mixedTeam.getId());
+
+        assertThat(replay).usingRecursiveComparison().ignoringFields("version").isEqualTo(migrated);
+        assertThat(positionRepository
+                .findAllByInstrumentIdAndQuantityGreaterThanOrderByAccountIdAsc(mixedInstrument.getId(), 0))
+                .hasSize(positionCount);
+        assertThat(replay.holdings()).anySatisfy(value -> {
+            assertThat(value.accountId()).isEqualTo(protectedLegacyAccount.getId());
+            assertThat(value.protectedUser()).isTrue();
+        });
+
+        Team overAllocatedTeam = freshTeam(12);
+        MarketInstrument overAllocatedInstrument = instrumentRepository
+                .findByTeamId(overAllocatedTeam.getId()).orElseThrow();
+        stateRepository.findByInstrumentId(overAllocatedInstrument.getId()).ifPresent(stateRepository::delete);
+        stateRepository.flush();
+        savePosition(marketAccount, overAllocatedInstrument, 700_000);
+        overAllocatedInstrument.setAvailableSupply(300_000);
+        instrumentRepository.saveAndFlush(overAllocatedInstrument);
+        legacyShareRepository.saveAndFlush(legacy(
+                protectedLegacyAccount.getOwnerHumanId(), overAllocatedTeam.getId(), 40));
+
+        assertCode(() -> capTableService.ensureMigrated(overAllocatedTeam.getId()),
+                "CAP_TABLE_OVER_ALLOCATED");
+        assertThat(positionRepository.findByAccountIdAndInstrumentId(
+                marketAccount.getId(), overAllocatedInstrument.getId()).orElseThrow().getQuantity())
+                .isEqualTo(700_000);
+        assertThat(positionRepository.findByAccountIdAndInstrumentId(
+                protectedLegacyAccount.getId(), overAllocatedInstrument.getId())).isEmpty();
+        assertThat(legacyShareRepository.findByHumanIdAndTeamId(
+                protectedLegacyAccount.getOwnerHumanId(), overAllocatedTeam.getId())).isPresent();
+        assertSupply(overAllocatedInstrument.getId());
+    }
+
+    @Test
     void takeoverHappyPathRetryStaleCashMinorityAndConcurrentLastControl() throws Exception {
         Team happyTeam = freshTeam(20);
         PersonProfile happy = chairman("takeover-happy", RICH);
@@ -126,6 +197,9 @@ class RegentPhase3ClubEconomyIT {
         TakeoverService.ExecutionResult replay = takeoverService.execute(
                 happy, happyTeam.getId(), quote.quote().getQuoteKey(), "happy-execute");
         assertThat(replay.replayed()).isTrue();
+        Team wrongReplayTeam = freshTeam(25);
+        assertCode(() -> takeoverService.execute(happy, wrongReplayTeam.getId(),
+                quote.quote().getQuoteKey(), "happy-execute"), "IDEMPOTENCY_KEY_REUSED");
         assertThat(executionRepository.count()).isGreaterThanOrEqualTo(1);
         PersonalAccount happyAccount = accountRepository.findByProfileId(happy.getId()).orElseThrow();
         MarketInstrument happyInstrument = instrumentRepository.findByTeamId(happyTeam.getId()).orElseThrow();
@@ -361,8 +435,41 @@ class RegentPhase3ClubEconomyIT {
         return value;
     }
 
+    private PortfolioPosition savePosition(PersonalAccount account, MarketInstrument instrument, long quantity) {
+        PortfolioPosition position = new PortfolioPosition();
+        position.setAccountId(account.getId());
+        position.setProfileId(account.getProfileId());
+        position.setInstrumentId(instrument.getId());
+        position.setQuantity(quantity);
+        position.setTotalCostBasis(Math.multiplyExact(quantity, instrument.getCurrentPrice()));
+        return positionRepository.saveAndFlush(position);
+    }
+
     private PersonProfile chairman(String username, long wealth) {
         return profileService.requireForUser(register(username, CareerRole.CHAIRMAN, wealth));
+    }
+
+    private PersonalAccount protectLegacyHumanAccount(String username) {
+        PersonalAccount account = accountRepository.findAll().stream()
+                .filter(value -> value.getOwnerHumanId() != null && value.getOwnerUserId() == null)
+                .findFirst().orElseThrow();
+        User user = new User();
+        user.setUsername(username);
+        user.setEmail(username + "@example.com");
+        user.setPassword("legacy-migration-fixture");
+        user.setFirstName(username);
+        user.setLastName("fixture");
+        user.setActive(true);
+        user.setRoles("USER");
+        user.setCareerRole(CareerRole.MANAGER);
+        user.setManagerId(account.getOwnerHumanId());
+        user = userRepository.saveAndFlush(user);
+        PersonProfile profile = profileRepository.findById(account.getProfileId()).orElseThrow();
+        profile.setUserId(user.getId());
+        profile.setControlType(ControlType.USER);
+        profileRepository.saveAndFlush(profile);
+        account.setOwnerUserId(user.getId());
+        return accountRepository.saveAndFlush(account);
     }
 
     private User register(String username, CareerRole role, Long wealth) {

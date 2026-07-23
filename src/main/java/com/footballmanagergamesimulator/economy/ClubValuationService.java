@@ -133,11 +133,19 @@ public class ClubValuationService {
     }
 
     private int performanceBps(long teamId, RegentEconomyProperties.Club config) {
-        List<CompetitionHistory> histories = historyRepository.findByTeamId(teamId).stream()
+        List<CompetitionHistory> eligible = historyRepository.findByTeamId(teamId).stream()
                 .filter(value -> value.getGames() > 0)
                 .sorted(Comparator.comparingLong(CompetitionHistory::getSeasonNumber).reversed()
                         .thenComparingLong(CompetitionHistory::getCompetitionId))
+                .toList();
+        List<Long> recentSeasons = eligible.stream()
+                .mapToLong(CompetitionHistory::getSeasonNumber)
+                .distinct()
                 .limit(config.getPerformanceLookbackSeasons())
+                .boxed()
+                .toList();
+        List<CompetitionHistory> histories = eligible.stream()
+                .filter(value -> recentSeasons.contains(value.getSeasonNumber()))
                 .toList();
         if (histories.isEmpty()) return 0;
         long games = histories.stream().mapToLong(CompetitionHistory::getGames).sum();

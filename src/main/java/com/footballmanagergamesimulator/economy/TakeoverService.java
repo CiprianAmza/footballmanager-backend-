@@ -135,7 +135,8 @@ public class TakeoverService {
                 .findByBuyerAccountIdAndIdempotencyKey(buyer.getId(), idempotencyKey).orElse(null);
         if (replay != null) {
             TakeoverQuote replayQuote = quoteRepository.findById(replay.getQuoteId()).orElseThrow();
-            if (!replayQuote.getQuoteKey().equals(quoteKey)) throw reused();
+            if (replay.getTeamId() != expectedTeamId || replayQuote.getTeamId() != expectedTeamId
+                    || !replayQuote.getQuoteKey().equals(quoteKey)) throw reused();
             return new ExecutionResult(replay, true);
         }
 
