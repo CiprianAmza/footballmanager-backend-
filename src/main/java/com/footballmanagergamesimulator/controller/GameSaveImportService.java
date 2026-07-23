@@ -43,7 +43,9 @@ public class GameSaveImportService {
     static final int LEGACY_SAVE_VERSION = 5;
     static final int SAVE_VERSION_6 = 6;
     static final int SAVE_VERSION_7 = 7;
-    static final int CURRENT_SAVE_VERSION = 8;
+    static final int SAVE_VERSION_8 = 8;
+    static final int SAVE_VERSION_9 = 9;
+    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_9;
 
     private static final List<TableSpec> MANIFEST = List.of(
             new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
@@ -117,10 +119,16 @@ public class GameSaveImportService {
             new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", SAVE_VERSION_7),
             new TableSpec("ownedAssets", "OWNED_ASSET", SAVE_VERSION_7),
             new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", SAVE_VERSION_7),
-            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", CURRENT_SAVE_VERSION),
-            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", CURRENT_SAVE_VERSION),
-            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", CURRENT_SAVE_VERSION),
-            new TableSpec("marketTrades", "MARKET_TRADE", CURRENT_SAVE_VERSION)
+            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", SAVE_VERSION_8),
+            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", SAVE_VERSION_8),
+            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", SAVE_VERSION_8),
+            new TableSpec("marketTrades", "MARKET_TRADE", SAVE_VERSION_8),
+            // Press Conference V2 (SAVE_VERSION_9). Like the REGENT economy tables
+            // these are gated H2-only in import/export (introducedVersion >= V7), so
+            // cross-database save/load is unchanged.
+            new TableSpec("pressConferenceSessions", "PRESS_CONFERENCE_SESSION", SAVE_VERSION_9),
+            new TableSpec("pressConferenceQuestions", "PRESS_CONFERENCE_QUESTION", SAVE_VERSION_9),
+            new TableSpec("pressConferenceAnswers", "PRESS_CONFERENCE_ANSWER", SAVE_VERSION_9)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
