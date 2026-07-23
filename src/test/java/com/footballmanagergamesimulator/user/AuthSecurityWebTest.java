@@ -207,10 +207,12 @@ class AuthSecurityWebTest {
     void corsAllowsOnlyConfiguredCredentialedOrigin() throws Exception {
         mockMvc.perform(options("/api/auth/me")
                         .header("Origin", "http://localhost:4200")
-                        .header("Access-Control-Request-Method", "GET"))
+                        .header("Access-Control-Request-Method", "GET")
+                        .header("Access-Control-Request-Headers", "X-Admin-Token"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:4200"))
-                .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"))
+                .andExpect(header().string("Access-Control-Allow-Headers", "X-Admin-Token"));
 
         mockMvc.perform(options("/api/auth/me")
                         .header("Origin", "https://attacker.invalid")
