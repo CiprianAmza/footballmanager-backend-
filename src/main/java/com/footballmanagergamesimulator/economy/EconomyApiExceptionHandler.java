@@ -8,14 +8,18 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 
-@RestControllerAdvice(assignableTypes = {PersonalEconomyController.class, MarketController.class})
+@RestControllerAdvice(assignableTypes = {PersonalEconomyController.class, MarketController.class,
+        ClubController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class EconomyApiExceptionHandler {
 
     @ExceptionHandler(EconomyConflictException.class)
     public ResponseEntity<EconomyDtos.ApiError> conflict(EconomyConflictException exception) {
-        HttpStatus status = exception.getCode().endsWith("NOT_FOUND")
-                ? HttpStatus.NOT_FOUND : HttpStatus.CONFLICT;
+        HttpStatus status;
+        if (exception.getCode().endsWith("NOT_FOUND")) status = HttpStatus.NOT_FOUND;
+        else if (exception.getCode().endsWith("FORBIDDEN")
+                || exception.getCode().endsWith("_REQUIRED")) status = HttpStatus.FORBIDDEN;
+        else status = HttpStatus.CONFLICT;
         return ResponseEntity.status(status)
                 .body(new EconomyDtos.ApiError(exception.getCode(), exception.getMessage()));
     }

@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.controller;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.economy.MarketBootstrapService;
+import com.footballmanagergamesimulator.economy.ClubCapTableService;
 import com.footballmanagergamesimulator.economy.PersonalEconomyBootstrapService;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import org.springframework.jdbc.datasource.DataSourceUtils;
@@ -43,7 +44,8 @@ public class GameSaveImportService {
     static final int LEGACY_SAVE_VERSION = 5;
     static final int SAVE_VERSION_6 = 6;
     static final int SAVE_VERSION_7 = 7;
-    static final int CURRENT_SAVE_VERSION = 8;
+    static final int SAVE_VERSION_8 = 8;
+    static final int CURRENT_SAVE_VERSION = 9;
 
     private static final List<TableSpec> MANIFEST = List.of(
             new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
@@ -117,10 +119,15 @@ public class GameSaveImportService {
             new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", SAVE_VERSION_7),
             new TableSpec("ownedAssets", "OWNED_ASSET", SAVE_VERSION_7),
             new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", SAVE_VERSION_7),
-            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", CURRENT_SAVE_VERSION),
-            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", CURRENT_SAVE_VERSION),
-            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", CURRENT_SAVE_VERSION),
-            new TableSpec("marketTrades", "MARKET_TRADE", CURRENT_SAVE_VERSION)
+            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", SAVE_VERSION_8),
+            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", SAVE_VERSION_8),
+            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", SAVE_VERSION_8),
+            new TableSpec("marketTrades", "MARKET_TRADE", SAVE_VERSION_8),
+            new TableSpec("clubFinancialObligations", "CLUB_FINANCIAL_OBLIGATION", CURRENT_SAVE_VERSION),
+            new TableSpec("clubCapTableStates", "CLUB_CAP_TABLE_STATE", CURRENT_SAVE_VERSION),
+            new TableSpec("takeoverQuotes", "TAKEOVER_QUOTE", CURRENT_SAVE_VERSION),
+            new TableSpec("takeoverExecutions", "TAKEOVER_EXECUTION", CURRENT_SAVE_VERSION),
+            new TableSpec("clubCashTransfers", "CLUB_CASH_TRANSFER", CURRENT_SAVE_VERSION)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
@@ -158,24 +165,27 @@ public class GameSaveImportService {
     private final PersonProfileService personProfileService;
     private final PersonalEconomyBootstrapService economyBootstrapService;
     private final MarketBootstrapService marketBootstrapService;
+    private final ClubCapTableService capTableService;
 
     @Autowired
     public GameSaveImportService(DataSource dataSource,
                                  ObjectMapper objectMapper,
                                  PersonProfileService personProfileService,
                                  Optional<PersonalEconomyBootstrapService> economyBootstrapService,
-                                 Optional<MarketBootstrapService> marketBootstrapService) {
+                                 Optional<MarketBootstrapService> marketBootstrapService,
+                                 Optional<ClubCapTableService> capTableService) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.personProfileService = personProfileService;
         this.economyBootstrapService = economyBootstrapService.orElse(null);
         this.marketBootstrapService = marketBootstrapService.orElse(null);
+        this.capTableService = capTableService.orElse(null);
     }
 
     public GameSaveImportService(DataSource dataSource,
                                  ObjectMapper objectMapper,
                                  PersonProfileService personProfileService) {
-        this(dataSource, objectMapper, personProfileService, Optional.empty(), Optional.empty());
+        this(dataSource, objectMapper, personProfileService, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     static List<String> manifestKeys() {
@@ -189,7 +199,7 @@ public class GameSaveImportService {
     }
 
     /**
-     * Parses and migrates v5/v6/v7/v8 into a complete immutable game-only plan. The
+     * Parses and migrates v5/v6/v7/v8/v9 into a complete immutable game-only plan. The
      * legacy users/personProfiles sections are deliberately never part of it.
      */
     public ImportPlan prepare(Map<String, Object> save) {
@@ -324,6 +334,7 @@ public class GameSaveImportService {
             personProfileService.backfill();
             if (economyBootstrapService != null) economyBootstrapService.ensureAllAccounts();
             if (marketBootstrapService != null) marketBootstrapService.ensureAllInstruments();
+            if (capTableService != null) capTableService.ensureAllMigrated();
             validateWorld(live, schema, plan);
             validateAccountCompatibility(live, plan, schema);
         } catch (SQLException exception) {
@@ -533,7 +544,8 @@ public class GameSaveImportService {
     private List<RowValues> rowsForInsert(Connection connection, SchemaCatalog schema, TableRows table) throws SQLException {
         String tableName = table.spec().tableName();
         if (!Set.of("PERSONAL_ACCOUNT", "OWNED_ASSET", "PERSONAL_LEDGER_ENTRY",
-                "PORTFOLIO_POSITION", "MARKET_TRADE").contains(tableName)
+                "PORTFOLIO_POSITION", "MARKET_TRADE", "TAKEOVER_QUOTE",
+                "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER").contains(tableName)
                 || table.rows().isEmpty()) {
             return table.rows();
         }
@@ -547,13 +559,16 @@ public class GameSaveImportService {
                 Long humanId = nullableLong(values.get("OWNER_HUMAN_ID"));
                 profileId = resolveProfileId(connection, userId, humanId);
             } else {
-                Long accountId = nullableLong(values.get("ACCOUNT_ID"));
+                String accountColumn = Set.of("TAKEOVER_QUOTE", "TAKEOVER_EXECUTION").contains(tableName)
+                        ? "BUYER_ACCOUNT_ID" : "ACCOUNT_ID";
+                Long accountId = nullableLong(values.get(accountColumn));
                 if (accountId == null) throw invalid(table.spec().jsonKey() + " row has no account id");
                 profileId = queryRequiredLong(connection,
                         "SELECT PROFILE_ID FROM PERSONAL_ACCOUNT WHERE ID = ?", accountId,
                         table.spec().jsonKey() + " references missing account " + accountId);
             }
-            values.put("PROFILE_ID", profileId);
+            values.put(Set.of("TAKEOVER_QUOTE", "TAKEOVER_EXECUTION").contains(tableName)
+                    ? "BUYER_PROFILE_ID" : "PROFILE_ID", profileId);
             remapped.add(RowValues.from(values));
         }
         return List.copyOf(remapped);
@@ -633,11 +648,13 @@ public class GameSaveImportService {
         if (schema.dialect() == DatabaseDialect.H2) {
             // Phase-1 economy reconciliation is H2-only; the economy tables and
             // their ledger invariants are not part of the cross-database v6 contract.
-            validateEconomy(connection, plan.sourceVersion() >= CURRENT_SAVE_VERSION);
+            validateEconomy(connection, plan.sourceVersion() >= SAVE_VERSION_8,
+                    plan.sourceVersion() >= CURRENT_SAVE_VERSION);
         }
     }
 
-    private void validateEconomy(Connection connection, boolean validatePhase2) throws SQLException {
+    private void validateEconomy(Connection connection, boolean validatePhase2,
+                                 boolean validatePhase3) throws SQLException {
         long invalidAccounts = scalarLong(connection, """
                 SELECT COUNT(*) FROM PERSONAL_ACCOUNT a
                 WHERE a.CASH_BALANCE < 0 OR a.LIFETIME_CAREER_EARNINGS < 0
@@ -711,6 +728,55 @@ public class GameSaveImportService {
                    OR trade.GROSS_AMOUNT <> trade.UNIT_PRICE * trade.QUANTITY
                 """);
         if (invalidTrades != 0) throw invalid("market trade state is inconsistent");
+        if (!validatePhase3) return;
+        long invalidCapTables = scalarLong(connection, """
+                SELECT COUNT(*) FROM CLUB_CAP_TABLE_STATE state
+                LEFT JOIN MARKET_INSTRUMENT instrument ON instrument.ID = state.INSTRUMENT_ID
+                WHERE instrument.ID IS NULL OR instrument.INSTRUMENT_TYPE <> 'CLUB'
+                   OR instrument.TEAM_ID <> state.TEAM_ID
+                   OR state.CONTROL_THRESHOLD_BPS NOT BETWEEN 5001 AND 10000
+                   OR (state.CONTROLLING_ACCOUNT_ID IS NOT NULL AND NOT EXISTS (
+                       SELECT 1 FROM PORTFOLIO_POSITION position
+                       WHERE position.ACCOUNT_ID = state.CONTROLLING_ACCOUNT_ID
+                         AND position.INSTRUMENT_ID = state.INSTRUMENT_ID
+                         AND position.QUANTITY * 10000 >= instrument.TOTAL_SUPPLY * state.CONTROL_THRESHOLD_BPS))
+                """);
+        if (invalidCapTables != 0) throw invalid("club cap-table state is inconsistent");
+        long invalidQuotes = scalarLong(connection, """
+                SELECT COUNT(*) FROM TAKEOVER_QUOTE quote
+                LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = quote.BUYER_ACCOUNT_ID
+                LEFT JOIN MARKET_INSTRUMENT instrument ON instrument.ID = quote.INSTRUMENT_ID
+                WHERE account.ID IS NULL OR instrument.ID IS NULL
+                   OR quote.BUYER_PROFILE_ID <> account.PROFILE_ID OR quote.TEAM_ID <> instrument.TEAM_ID
+                   OR quote.SHARES_TO_ACQUIRE <= 0 OR quote.UNIT_PRICE <= 0
+                   OR quote.TOTAL_CONSIDERATION <> quote.SHARES_TO_ACQUIRE * quote.UNIT_PRICE
+                """);
+        if (invalidQuotes != 0) throw invalid("takeover quote state is inconsistent");
+        long invalidExecutions = scalarLong(connection, """
+                SELECT COUNT(*) FROM TAKEOVER_EXECUTION execution
+                LEFT JOIN TAKEOVER_QUOTE quote ON quote.ID = execution.QUOTE_ID
+                LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = execution.BUYER_ACCOUNT_ID
+                WHERE quote.ID IS NULL OR account.ID IS NULL OR quote.STATUS <> 'EXECUTED'
+                   OR execution.BUYER_PROFILE_ID <> account.PROFILE_ID
+                   OR execution.TEAM_ID <> quote.TEAM_ID OR execution.INSTRUMENT_ID <> quote.INSTRUMENT_ID
+                   OR execution.TOTAL_CONSIDERATION <> execution.SHARES_ACQUIRED * execution.UNIT_PRICE
+                """);
+        if (invalidExecutions != 0) throw invalid("takeover execution state is inconsistent");
+        long invalidTransfers = scalarLong(connection, """
+                SELECT COUNT(*) FROM CLUB_CASH_TRANSFER transfer
+                LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = transfer.ACCOUNT_ID
+                WHERE account.ID IS NULL OR transfer.PROFILE_ID <> account.PROFILE_ID
+                   OR transfer.AMOUNT <= 0 OR transfer.PERSONAL_BALANCE_AFTER < 0
+                   OR transfer.CLUB_BALANCE_AFTER < 0 OR NOT EXISTS (
+                       SELECT 1 FROM PERSONAL_LEDGER_ENTRY ledger
+                       WHERE ledger.ACCOUNT_ID = transfer.ACCOUNT_ID
+                         AND ledger.CORRELATION_ID = transfer.CORRELATION_ID)
+                   OR NOT EXISTS (
+                       SELECT 1 FROM FINANCIAL_RECORD financial
+                       WHERE financial.TEAM_ID = transfer.TEAM_ID
+                         AND LOCATE(transfer.CORRELATION_ID, financial.DESCRIPTION) > 0)
+                """);
+        if (invalidTransfers != 0) throw invalid("club cash transfer does not reconcile with mirrored ledgers");
     }
 
     private void validateAccountCompatibility(Connection connection, ImportPlan plan,
@@ -811,12 +877,13 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7 or 8");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8 or 9");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
-                && version != SAVE_VERSION_7 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7 or 8");
+                && version != SAVE_VERSION_7 && version != SAVE_VERSION_8
+                && version != CURRENT_SAVE_VERSION) {
+            throw invalid("incompatible save version; expected 5, 6, 7, 8 or 9");
         }
         return version;
     }

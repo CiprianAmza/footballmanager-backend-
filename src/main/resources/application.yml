@@ -42,6 +42,21 @@ regent:
     chairman-starting-wealth-default: 10000000
     chairman-starting-wealth-min: 1000000
     chairman-starting-wealth-max: 10000000000
+  club:
+    valuation-version: club-valuation-v1
+    minimum-valuation: 1000000
+    stadium-seat-value: 250
+    stadium-level-value: 2000000
+    facility-level-value: 1000000
+    reputation-point-value: 50000
+    performance-cap-bps: 1500
+    performance-lookback-seasons: 3
+    control-threshold-bps: 5001
+    takeover-premium-bps: 2000
+    takeover-quote-expiry-days: 7
+    minimum-protected-reserve: 1000000
+    protected-wage-months: 3
+    withdrawal-allowed-with-debt: false
 
 # =============================================================
 # Matchday simulation scheduling

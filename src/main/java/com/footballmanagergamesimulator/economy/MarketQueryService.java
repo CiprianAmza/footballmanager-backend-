@@ -17,19 +17,22 @@ public class MarketQueryService {
     private final MarketTradeRepository tradeRepository;
     private final PersonalAccountRepository accountRepository;
     private final RegentEconomyProperties properties;
+    private final ClubValuationService clubValuationService;
 
     public MarketQueryService(MarketInstrumentRepository instrumentRepository,
                               MarketPriceSnapshotRepository snapshotRepository,
                               PortfolioPositionRepository positionRepository,
                               MarketTradeRepository tradeRepository,
                               PersonalAccountRepository accountRepository,
-                              RegentEconomyProperties properties) {
+                              RegentEconomyProperties properties,
+                              ClubValuationService clubValuationService) {
         this.instrumentRepository = instrumentRepository;
         this.snapshotRepository = snapshotRepository;
         this.positionRepository = positionRepository;
         this.tradeRepository = tradeRepository;
         this.accountRepository = accountRepository;
         this.properties = properties;
+        this.clubValuationService = clubValuationService;
     }
 
     @Transactional(readOnly = true)
@@ -91,10 +94,13 @@ public class MarketQueryService {
     }
 
     private MarketDtos.InstrumentView instrumentView(MarketInstrument value) {
+        ClubValuationService.Valuation valuation = value.getInstrumentType() == MarketInstrumentType.CLUB
+                ? clubValuationService.value(value.getTeamId()) : null;
         return new MarketDtos.InstrumentView(value.getId(), value.getCode(), value.getInstrumentType(),
                 value.getTeamId(), value.getName(), money(value.getCurrentPrice()), value.getTotalSupply(),
                 value.getAvailableSupply(), value.getDailyLimitBps(), value.getWeeklyLimitBps(),
-                value.getPriceAlgorithmVersion());
+                value.getPriceAlgorithmVersion(), valuation == null ? null : money(valuation.totalValue()),
+                valuation == null ? null : valuation.formulaVersion());
     }
 
     private MarketDtos.PriceView priceView(MarketPriceSnapshot value) {

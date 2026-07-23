@@ -13,6 +13,10 @@ public interface PersonalAccountRepository extends JpaRepository<PersonalAccount
     Optional<PersonalAccount> findByOwnerHumanId(Long ownerHumanId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select account from PersonalAccount account where account.id = :accountId")
+    Optional<PersonalAccount> findByIdForUpdate(@Param("accountId") long accountId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from PersonalAccount account where account.profileId = :profileId")
     Optional<PersonalAccount> findByProfileIdForUpdate(@Param("profileId") long profileId);
 }

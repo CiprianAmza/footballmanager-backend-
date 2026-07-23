@@ -12,7 +12,8 @@ public final class MarketDtos {
     public record InstrumentView(long id, String code, MarketInstrumentType type, Long teamId,
                                  String name, EconomyDtos.Money price, long totalSupply,
                                  long availableSupply, int dailyLimitBps, int weeklyLimitBps,
-                                 String algorithmVersion) { }
+                                 String algorithmVersion, EconomyDtos.Money underlyingClubValuation,
+                                 String clubValuationVersion) { }
     public record PriceView(long id, int season, int day, EconomyDtos.Money previousClose,
                             EconomyDtos.Money closePrice, EconomyDtos.Money weeklyAnchorPrice,
                             int dailyChangeBps, String algorithmVersion) { }
