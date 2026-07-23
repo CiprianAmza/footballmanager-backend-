@@ -80,6 +80,23 @@ class GameSaveGeneratorAlignmentTest {
         assertThat(generated).isGreaterThan(1000L);
     }
 
+    @Test
+    void failedReplacementNeverRewindsIdentityBelowTheExistingWorldMaximum() {
+        jdbc.update("INSERT INTO TEAM (ID) VALUES (2000)");
+        GameSaveImportService.ImportPlan plan = service.prepare(highIdSave());
+        service.alignGeneratorsBeforeApply(plan);
+        doThrow(new IllegalStateException("forced after replacement DML started"))
+                .when(profiles).backfill();
+
+        assertThatThrownBy(() -> service.apply(plan, false))
+                .hasMessageContaining("forced after replacement DML started");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM TEAM WHERE ID = 2000", Integer.class)).isOne();
+
+        jdbc.update("INSERT INTO TEAM DEFAULT VALUES");
+        long generated = jdbc.queryForObject("SELECT MAX(ID) FROM TEAM", Long.class);
+        assertThat(generated).isGreaterThan(2000L);
+    }
+
     private Map<String, Object> highIdSave() {
         Map<String, Object> save = new LinkedHashMap<>();
         save.put("saveVersion", 7);

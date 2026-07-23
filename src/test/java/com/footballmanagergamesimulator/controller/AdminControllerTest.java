@@ -20,6 +20,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
@@ -36,6 +40,25 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AdminControllerTest {
+
+    @Test
+    void adminLoginCreatesAnAdminSessionForTheSecuredEndpoints() {
+        AdminController controller = new AdminController();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        ResponseEntity<?> result = controller.login(
+                Map.of("username", "admin", "password", "admin"), request, response);
+
+        assertEquals(200, result.getStatusCode().value());
+        assertNotNull(request.getSession(false));
+        SecurityContext context = (SecurityContext) request.getSession(false).getAttribute(
+                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+        assertNotNull(context);
+        assertEquals("admin", context.getAuthentication().getName());
+        org.junit.jupiter.api.Assertions.assertTrue(context.getAuthentication().getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority())));
+    }
 
     @Test
     void upcomingMatchesDoesNotRevealEuropeanDrawBeforeItsCalendarEvent() {

@@ -16,8 +16,14 @@ import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,6 +41,8 @@ public class AdminController {
     private static final String ADMIN_PASS = "admin";
     private static final String ADMIN_TOKEN = "admin-token-2026";
     private static final String TOKEN_HEADER = "X-Admin-Token";
+    private final HttpSessionSecurityContextRepository securityContextRepository =
+            new HttpSessionSecurityContextRepository();
 
     @Autowired
     private HumanRepository humanRepository;
@@ -112,12 +120,27 @@ public class AdminController {
 
     /** POST /admin/login {username, password} -> {success, token} */
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> body,
+                                   HttpServletRequest request,
+                                   HttpServletResponse response) {
         String user = body.get("username");
         String pass = body.get("password");
         if (ADMIN_USER.equals(user) && ADMIN_PASS.equals(pass)) {
+            var authentication = UsernamePasswordAuthenticationToken.authenticated(
+                    ADMIN_USER,
+                    null,
+                    List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+            SecurityContext context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(authentication);
+            SecurityContextHolder.setContext(context);
+            if (request.getSession(false) != null) {
+                request.getSession(false).invalidate();
+            }
+            request.getSession(true);
+            securityContextRepository.saveContext(context, request, response);
             return ResponseEntity.ok(Map.of("success", true, "token", ADMIN_TOKEN));
         }
+        SecurityContextHolder.clearContext();
         return ResponseEntity.status(401).body(Map.of("success", false, "message", "Invalid credentials"));
     }
 

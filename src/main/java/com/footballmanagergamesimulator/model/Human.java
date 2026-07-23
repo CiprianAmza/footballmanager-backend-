@@ -175,11 +175,11 @@ public class Human {
      * lopsided coach develops an identity. Seeded at generation from the club's level with
      * independent noise, so a coach can be (e.g.) attack-strong but defence-weak.
      */
-    @Column(columnDefinition = "double default 50")
+    @Column(columnDefinition = "double precision default 50")
     private double offensiveAbility = 50;
 
     /** Manager's DEFENSIVE coaching ability on a 0-100 scale (see {@link #offensiveAbility}). */
-    @Column(columnDefinition = "double default 50")
+    @Column(columnDefinition = "double precision default 50")
     private double defensiveAbility = 50;
 
     // Manager responsibilities
@@ -243,9 +243,9 @@ public class Human {
      * responses and the size of the owner's restrictions; high humiliation pushes the
      * coach toward leaving and drags squad morale down.
      */
-    @Column(columnDefinition = "double default 0")
+    @Column(columnDefinition = "double precision default 0")
     private double ownerArrogance = 0;
-    @Column(columnDefinition = "double default 0")
+    @Column(columnDefinition = "double precision default 0")
     private double coachHumiliation = 0;
 
 }
