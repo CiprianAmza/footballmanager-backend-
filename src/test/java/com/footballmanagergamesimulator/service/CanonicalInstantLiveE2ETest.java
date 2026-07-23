@@ -145,10 +145,22 @@ class CanonicalInstantLiveE2ETest {
                 .map(e -> new GoalKey(e.getMinute(), e.getTeamId(), e.getPlayerId()))
                 .toList();
 
+        // Full canonical contribution set (goals AND assists), ordered by slot then event order.
+        // The live goal timeline does not surface a separate assist row, so the durable MatchEvent
+        // store is the source of truth for assists; instant and live must persist identical ones.
+        List<ContributionKey> expectedContrib = contributionKeys(instantEvents);
+        List<ContributionKey> persistedContrib = contributionKeys(eventRepository.findByFixtureKey(fixtureKey));
+
         assertEquals(3, live.getHomeScore());
         assertEquals(2, live.getAwayScore());
         assertEquals(expected, persisted, "instant and live resolve the same canonical slots");
         assertEquals(persisted, displayed, "the UI displays exactly the durable canonical goals");
+        assertEquals(expectedContrib, persistedContrib,
+                "instant and live persist identical canonical goals AND assists");
+        assertTrue(persistedContrib.size() >= persisted.size(),
+                "contribution set includes the goal events");
+        assertTrue(persistedContrib.stream().anyMatch(c -> "assist".equals(c.eventType())),
+                "at least one canonical assist was resolved and compared");
 
         matchPlanService.finishLivePlan(fixtureKey);
         assertEquals(MatchPlan.Status.COMPLETED,
@@ -182,6 +194,16 @@ class CanonicalInstantLiveE2ETest {
                 .toList();
     }
 
+    /** Goal AND assist events, canonically ordered (slot, then event order within a slot). */
+    private List<ContributionKey> contributionKeys(List<MatchEvent> events) {
+        return events.stream()
+                .filter(e -> "goal".equals(e.getEventType()) || "assist".equals(e.getEventType()))
+                .sorted(java.util.Comparator.comparingInt(MatchEvent::getSlotIndex)
+                        .thenComparingInt(MatchEvent::getEventOrder))
+                .map(e -> new ContributionKey(e.getMinute(), e.getTeamId(), e.getPlayerId(), e.getEventType()))
+                .toList();
+    }
+
     private Lineup lineup(long base) {
         List<Contributor> xi = new ArrayList<>();
         String[] positions = {"GK", "DC", "DC", "DL", "DR", "MC", "MC", "AML", "AMR", "ST", "ST"};
@@ -209,4 +231,6 @@ class CanonicalInstantLiveE2ETest {
     }
 
     private record GoalKey(int minute, long teamId, long playerId) {}
+
+    private record ContributionKey(int minute, long teamId, long playerId, String eventType) {}
 }

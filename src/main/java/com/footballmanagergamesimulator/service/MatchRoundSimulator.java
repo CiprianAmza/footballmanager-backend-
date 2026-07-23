@@ -49,6 +49,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import com.footballmanagergamesimulator.model.MatchEvent;
+import com.footballmanagergamesimulator.matchplan.Contributor;
+import com.footballmanagergamesimulator.matchplan.Lineup;
+import com.footballmanagergamesimulator.matchplan.LineupAdapter;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -91,6 +94,7 @@ public class MatchRoundSimulator {
     @Autowired @Lazy private FinanceService financeService;
     @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private com.footballmanagergamesimulator.matchplan.MatchPlanService matchPlanService;
+    @Autowired private LineupAdapter lineupAdapter;
     @Autowired private MatchStatsService matchStatsService;
     @Autowired private CompetitionService competitionService;
     @Autowired private TeamPostMatchService teamPostMatchService;
@@ -235,6 +239,9 @@ public class MatchRoundSimulator {
         List<LineupRatingService.AiLineupInput> batchedLineups = new ArrayList<>();
         List<PlayerMatchStatService.TeamMatchInput> batchedPlayerStats = new ArrayList<>();
         List<FinanceService.MatchDayIncomeInput> batchedMatchdayIncome = new ArrayList<>();
+        // Canonical AI fixtures whose plan is resolved+persisted this round; marked COMMITTED
+        // (immutable) only after ALL batched match effects are persisted at round end.
+        List<String> canonicalAiFixtureKeys = new ArrayList<>();
 
         // Pre-cache competition type IDs (avoids repeated findAll per match)
         Set<Long> cachedLeagueCompIds = gameStateService.getLeagueCompetitionIdsCached();
@@ -641,23 +648,75 @@ public class MatchRoundSimulator {
                     teamScore2 = scores.get(1);
                 }
 
+                // The regular-time (90') score, captured before resolveKnockoutMatch folds in
+                // any extra-time goals — this, not the ET-inclusive score, is the plan's score90.
+                int score90Home = teamScore1;
+                int score90Away = teamScore2;
+                com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit planSplit =
+                        com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit
+                                .regularOnly(score90Home, score90Away);
+
                 if (knockout) {
                     knockoutResolution = resolveKnockoutMatch(
                             match, teamId1, teamPower1, teamId2, teamPower2,
                             teamScore1, teamScore2, firstLegScores);
                     teamScore1 = knockoutResolution.score1();
                     teamScore2 = knockoutResolution.score2();
+
+                    // ET goals + shootout per team, already oriented to home/away; the split
+                    // just separates them for the plan (shootout kicks are not goal slots).
+                    planSplit = com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit.knockout(
+                            score90Home, score90Away,
+                            knockoutResolution.et1(), knockoutResolution.et2(),
+                            knockoutResolution.penalty1(), knockoutResolution.penalty2());
                 }
 
-                _ts = System.nanoTime();
-                List<Scorer> team1Scorers = getScorersForTeamSimplified(
-                        teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId);
-                List<Scorer> team2Scorers = getScorersForTeamSimplified(
-                        teamId2, teamId1, teamScore2, teamScore1, _competitionId, (int) _roundId);
-                batchedScorers.addAll(team1Scorers);
-                batchedScorers.addAll(team2Scorers);
                 String aiTactic1 = getManagerTacticCached(teamId1);
                 String aiTactic2 = getManagerTacticCached(teamId2);
+
+                _ts = System.nanoTime();
+                // Canonical pipeline (flag ON): build ONE MatchPlan for the fixture, resolve its
+                // slots through InstantMatchExecutor + ContributionResolver, persist the canonical
+                // MatchEvent timeline, and project the Scorer rows from those events (no separate
+                // RNG for scorer/assist/participation). Flag OFF: the legacy simplified path.
+                List<Scorer> team1Scorers;
+                List<Scorer> team2Scorers;
+                if (matchPlanService.isEnabled()) {
+                    String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                            .competitionFixtureKey(match.getId());
+                    if (matchPlanService.isPlanCommitted(fixtureKey)) {
+                        // Durable idempotency: a committed plan means this fixture's canonical
+                        // artifacts + Scorer rows already exist — never resolve or project again.
+                        team1Scorers = List.of();
+                        team2Scorers = List.of();
+                    } else {
+                        int _season = Integer.parseInt(getCurrentSeason());
+                        long seed = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                                .seedFor(fixtureKey, _competitionId, _season, (int) _roundId, teamId1, teamId2);
+                        Lineup homeLineup = buildAiCanonicalLineup(teamId1, seed);
+                        Lineup awayLineup = buildAiCanonicalLineup(teamId2, seed);
+                        List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersistLive(
+                                fixtureKey, _competitionId, _season, (int) _roundId,
+                                teamId1, teamId2, homeLineup, awayLineup,
+                                planSplit.score90Home(), planSplit.score90Away(),
+                                planSplit.etHome(), planSplit.etAway(),
+                                planSplit.shootoutHome(), planSplit.shootoutAway());
+                        team1Scorers = getScorersForTeamCanonical(
+                                teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId,
+                                homeLineup, tallyForTeam(canonicalEvents, teamId1));
+                        team2Scorers = getScorersForTeamCanonical(
+                                teamId2, teamId1, teamScore2, teamScore1, _competitionId, (int) _roundId,
+                                awayLineup, tallyForTeam(canonicalEvents, teamId2));
+                        canonicalAiFixtureKeys.add(fixtureKey);
+                    }
+                } else {
+                    team1Scorers = getScorersForTeamSimplified(
+                            teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId);
+                    team2Scorers = getScorersForTeamSimplified(
+                            teamId2, teamId1, teamScore2, teamScore1, _competitionId, (int) _roundId);
+                }
+                batchedScorers.addAll(team1Scorers);
+                batchedScorers.addAll(team2Scorers);
                 batchedLineups.add(new LineupRatingService.AiLineupInput(
                         teamId1, aiTactic1, starterSlotsCache.get(teamId1),
                         substitutionsCache.get(teamId1), team1Scorers));
@@ -812,6 +871,13 @@ public class MatchRoundSimulator {
         if (!batchedInjuries.isEmpty()) injuryRepository.saveAll(batchedInjuries);
         // Players and managers came from this transaction's round preload; their morale,
         // fitness, injury status and reputation changes are flushed by JPA dirty checking.
+
+        // Every canonical AI plan resolved this round is now COMMITTED — immutable, and only
+        // after its Scorer/rating/stats effects are durably persisted above (all in this one
+        // transaction, so a rollback un-commits the plan too and a retry re-runs cleanly).
+        for (String fixtureKey : canonicalAiFixtureKeys) {
+            matchPlanService.markCommitted(fixtureKey);
+        }
 
         long _tBatchDone = System.nanoTime();
 
@@ -1945,13 +2011,29 @@ public class MatchRoundSimulator {
         // 4. Assign match performance ratings (1-10 scale)
         matchSimulationService.assignMatchRatings(possibleScorers, teamScore, opponentScore);
 
-        // 5. Leaderboard entries were locked and loaded once for the whole round. Keep the
-        // fallback for direct/ad-hoc calls that do not run inside simulateRound.
+        // 5. Leaderboard rollup (round-cached, with an ad-hoc fallback). Shared with the
+        // canonical projection so both write leaderboard stats identically.
+        updateScorerLeaderboards(possibleScorers, competitionId);
+
+        // Scorers, lineups and analytics are flushed once at the end of the competition round.
+        // Leaderboard rows are managed entities and are persisted by JPA dirty checking.
+        return possibleScorers;
+    }
+
+    /**
+     * Per-player leaderboard rollup for a batch of {@link Scorer} rows. Uses the round-cached
+     * {@code leaderboardByPlayer} map when inside {@code simulateRound}, else an ad-hoc batch
+     * load. Extracted verbatim from the simplified path so the canonical AI projection and the
+     * legacy path update leaderboards identically.
+     */
+    private void updateScorerLeaderboards(List<Scorer> scorers, long competitionId) {
+        if (scorers.isEmpty()) return;
+        RoundContext context = roundContext.get();
         Map<Long, ScorerLeaderboardEntry> leaderboardMap;
         if (context != null) {
             leaderboardMap = context.leaderboardByPlayer();
         } else {
-            List<Long> playerIds = possibleScorers.stream().map(Scorer::getPlayerId).toList();
+            List<Long> playerIds = scorers.stream().map(Scorer::getPlayerId).toList();
             leaderboardMap = scorerLeaderboardRepository.findAllByPlayerIdIn(playerIds)
                     .stream()
                     .collect(Collectors.toMap(
@@ -1963,7 +2045,7 @@ public class MatchRoundSimulator {
         Set<Long> cachedCupCompIds = gameStateService.getCupCompetitionIdsCached();
         Set<Long> cachedSecondLeagueCompIds = gameStateService.getSecondLeagueCompetitionIdsCached();
 
-        for (Scorer scorer : possibleScorers) {
+        for (Scorer scorer : scorers) {
             ScorerLeaderboardEntry lb = leaderboardMap.get(scorer.getPlayerId());
             if (lb != null) {
                 lb.setMatches(lb.getMatches() + 1);
@@ -1989,10 +2071,6 @@ public class MatchRoundSimulator {
                 }
             }
         }
-
-        // Scorers, lineups and analytics are flushed once at the end of the competition round.
-        // Leaderboard rows are managed entities and are persisted by JPA dirty checking.
-        return possibleScorers;
     }
 
     private double simplifiedAssistWeight(Scorer scorer) {
@@ -2007,6 +2085,156 @@ public class MatchRoundSimulator {
         double weight = positionWeights.getOrDefault(scorer.getPosition(), 1.0)
                 * Math.max(scorer.getRating(), 1.0);
         return scorer.isSubstitute() ? weight / 2.0 : weight;
+    }
+
+    // ============================================================
+    //  Canonical AI fast-path (flag ON): plan → InstantMatchExecutor
+    //  → ContributionResolver → MatchEvent → projected Scorer.
+    // ============================================================
+
+    /**
+     * Build the canonical {@link Lineup} for an AI team ENTIRELY from the warm per-round caches
+     * ({@code starterSlotsCache}, {@code substitutionsCache}, and the squad skills cached in
+     * {@code formationSquadCache}). Issues ZERO queries — the whole point of the fast-path is to
+     * keep season fast-forward query-free. Starters carry their FIELDED position (so the resolver
+     * weights scorer/assist by the tactical role), bench keep their natural position. Deterministic
+     * pre-planned substitutions are added via {@link LineupAdapter#buildFromSnapshot}, so a subbed-off
+     * player can no longer score after his exit minute and subs get canonical appearance rows.
+     */
+    private Lineup buildAiCanonicalLineup(long teamId, long planSeed) {
+        List<TacticController.StarterSlot> starters = starterSlotsCache.getOrDefault(teamId, List.of());
+        List<PlayerView> bench = substitutionsCache.getOrDefault(teamId, List.of());
+        FormationEvaluationSquad squad = formationSquadCache.get(teamId);
+        Map<Long, PlayerSkills> skillsById = squad != null ? squad.skillsByPlayerId() : Map.of();
+
+        RoundContext context = roundContext.get();
+        PersonalizedTactic pt = context != null ? context.tacticsByTeam().get(teamId) : null;
+        Long penaltyTakerId = pt != null ? pt.getPenaltyTakerId() : null;
+        Long freeKickTakerId = pt != null ? pt.getFreeKickTakerId() : null;
+
+        List<Contributor> xi = new ArrayList<>();
+        for (TacticController.StarterSlot slot : starters) {
+            xi.add(toCanonicalContributor(slot.player(), slot.usedPosition(),
+                    skillsById, penaltyTakerId, freeKickTakerId));
+        }
+        List<Contributor> benchContributors = new ArrayList<>();
+        for (PlayerView pv : bench) {
+            benchContributors.add(toCanonicalContributor(pv, pv.getPosition(),
+                    skillsById, penaltyTakerId, freeKickTakerId));
+        }
+        // planSeed*31+teamId mirrors LineupAdapter.buildAutomatic's AI_INSTANT sub-seed derivation.
+        return lineupAdapter.buildFromSnapshot(xi, benchContributors, planSeed * 31 + teamId, true);
+    }
+
+    private Contributor toCanonicalContributor(PlayerView pv, String position,
+            Map<Long, PlayerSkills> skillsById, Long penaltyTakerId, Long freeKickTakerId) {
+        PlayerSkills s = skillsById.get(pv.getId());
+        return new Contributor(pv.getId(), pv.getName(), position, pv.getRating(),
+                s != null ? s.getFinishing() : 0, s != null ? s.getPassing() : 0,
+                s != null ? s.getVision() : 0, pv.getFitness(),
+                penaltyTakerId != null && penaltyTakerId == pv.getId(),
+                freeKickTakerId != null && freeKickTakerId == pv.getId());
+    }
+
+    /**
+     * Canonical twin of {@link #getScorersForTeamSimplified}: builds a {@link Scorer} row for every
+     * player who took the field (the canonical XI plus the substitutes who actually came on, per the
+     * lineup's timeline), then credits goals/assists STRICTLY from the canonical MatchEvent tally
+     * (never RNG). No separate distribution for scorer, assist, or participation. Match ratings and
+     * the leaderboard rollup are applied exactly as the simplified path does, so only the source of
+     * goals/assists differs. Returns the rows for the round-level batch save.
+     */
+    private List<Scorer> getScorersForTeamCanonical(long teamId, long opponentTeamId,
+            int teamScore, int opponentScore, long competitionId, int roundNumber,
+            Lineup lineup, Map<Long, int[]> tally) {
+
+        List<TacticController.StarterSlot> starterSlots = starterSlotsCache.getOrDefault(teamId, List.of());
+        List<PlayerView> starterViews = bestElevenCache.getOrDefault(teamId, List.of());
+        List<PlayerView> benchViews = substitutionsCache.getOrDefault(teamId, List.of());
+        if (starterSlots.isEmpty() && starterViews.isEmpty()) return List.of();
+
+        String currentSeason = getCurrentSeason();
+        long competitionTypeId;
+        String competitionName;
+        RoundContext context = roundContext.get();
+        if (context != null && context.competition() != null
+                && context.competition().getId() == competitionId) {
+            competitionTypeId = context.competitionTypeId();
+            competitionName = context.competitionName();
+        } else {
+            Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
+            competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
+            competitionName = competitionRepository.findNameById(competitionId);
+        }
+        String teamName = roundTeamName(teamId);
+        String opponentName = roundTeamName(opponentTeamId);
+
+        Map<Long, PlayerView> viewById = new HashMap<>();
+        for (PlayerView pv : starterViews) viewById.put(pv.getId(), pv);
+        for (PlayerView pv : benchViews) viewById.put(pv.getId(), pv);
+
+        List<Scorer> scorers = new ArrayList<>();
+        Map<Long, Scorer> byPlayer = new HashMap<>();
+
+        // Starters (took the field at kickoff). Position shown is the player's natural
+        // position, matching the simplified path and the historical lineup snapshot.
+        for (TacticController.StarterSlot slot : starterSlots) {
+            PlayerView pv = slot.player();
+            Scorer s = newCanonicalScorer(pv.getId(), pv.getPosition(), pv.getRating(),
+                    teamId, opponentTeamId, teamScore, opponentScore, competitionId, competitionTypeId,
+                    teamName, opponentName, competitionName, currentSeason, roundNumber, false);
+            scorers.add(s);
+            byPlayer.put(pv.getId(), s);
+        }
+        // Substitutes who actually came on, per the canonical timeline (appearance rows).
+        for (Lineup.SubMove sub : lineup.getSubs()) {
+            long onId = sub.on().playerId();
+            if (byPlayer.containsKey(onId)) continue;
+            PlayerView pv = viewById.get(onId);
+            String position = pv != null ? pv.getPosition() : sub.on().position();
+            double rating = pv != null ? pv.getRating() : sub.on().rating();
+            Scorer s = newCanonicalScorer(onId, position, rating,
+                    teamId, opponentTeamId, teamScore, opponentScore, competitionId, competitionTypeId,
+                    teamName, opponentName, competitionName, currentSeason, roundNumber, true);
+            scorers.add(s);
+            byPlayer.put(onId, s);
+        }
+
+        // Goals + assists: canonical MatchEvent tally only. Every tally player was on the pitch at
+        // its goal minute (the resolver only picks from onPitchAt), so it has a Scorer row above.
+        for (Map.Entry<Long, int[]> entry : tally.entrySet()) {
+            Scorer s = byPlayer.get(entry.getKey());
+            if (s == null) continue; // defensive; canonically unreachable
+            s.setGoals(s.getGoals() + entry.getValue()[0]);
+            s.setAssists(s.getAssists() + entry.getValue()[1]);
+        }
+
+        matchSimulationService.assignMatchRatings(scorers, teamScore, opponentScore);
+        updateScorerLeaderboards(scorers, competitionId);
+        return scorers;
+    }
+
+    private Scorer newCanonicalScorer(long playerId, String position, double rating,
+            long teamId, long opponentTeamId, int teamScore, int opponentScore,
+            long competitionId, long competitionTypeId, String teamName, String opponentName,
+            String competitionName, String season, int roundNumber, boolean substitute) {
+        Scorer scorer = new Scorer();
+        scorer.setPlayerId(playerId);
+        scorer.setSeasonNumber(Integer.parseInt(season));
+        scorer.setRoundNumber(roundNumber);
+        scorer.setTeamId(teamId);
+        scorer.setOpponentTeamId(opponentTeamId);
+        scorer.setPosition(position);
+        scorer.setTeamScore(teamScore);
+        scorer.setOpponentScore(opponentScore);
+        scorer.setCompetitionId(competitionId);
+        scorer.setCompetitionTypeId((int) competitionTypeId);
+        scorer.setTeamName(teamName);
+        scorer.setOpponentTeamName(opponentName);
+        scorer.setCompetitionName(competitionName);
+        scorer.setRating(rating);
+        scorer.setSubstitute(substitute);
+        return scorer;
     }
 
     // ============================================================

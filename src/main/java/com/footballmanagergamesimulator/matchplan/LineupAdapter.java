@@ -82,6 +82,26 @@ public class LineupAdapter {
         return new Result(buildAutomatic(teamId, tactic, seed, true), Source.AI_INSTANT);
     }
 
+    /**
+     * Build a lineup from already-selected {@link Contributor}s. The AI batch fast-path
+     * feeds these from its warm per-round caches (best eleven, bench, squad skills), so
+     * NO per-player query is issued here — the sole reason this seam exists is to keep
+     * the fast-forward path query-free while still going through the one canonical
+     * pipeline. The same deterministic {@link #simulateSubs} used by {@code AI_INSTANT}
+     * is applied when {@code withSubs} is true, so a snapshot-fed lineup fields exactly
+     * the pre-planned substitutions the canonical {@link ContributionResolver} reads.
+     *
+     * @param subSeed the already-mixed per-team seed (callers pass {@code planSeed*31+teamId}
+     *                to match the {@code AI_INSTANT} derivation) so subs are reproducible.
+     */
+    public Lineup buildFromSnapshot(List<Contributor> startingXI, List<Contributor> bench,
+                                    long subSeed, boolean withSubs) {
+        List<Contributor> xi = startingXI != null ? startingXI : List.of();
+        List<Contributor> benchList = bench != null ? bench : List.of();
+        List<Lineup.SubMove> subs = withSubs ? simulateSubs(xi, benchList, subSeed) : List.of();
+        return new Lineup(xi, benchList, subs);
+    }
+
     // ---------------- USER_SAVED ----------------
 
     /**
