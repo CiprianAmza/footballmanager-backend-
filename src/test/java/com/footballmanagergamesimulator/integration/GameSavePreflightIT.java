@@ -49,15 +49,16 @@ class GameSavePreflightIT {
     @Autowired private MockMvc mockMvc;
 
     @Test
-    void completeLiveWorldExportPreflightsAsV8() {
+    void completeLiveWorldExportPreflightsAsV9() {
         Round activeRound = rounds.findById(1L).orElseThrow();
         calendars.getOrCreateCalendar((int) activeRound.getSeason());
-        Map<String, Object> v8 = controller.exportGame();
+        Map<String, Object> v9 = controller.exportGame();
 
-        assertThat(v8).doesNotContainKeys("users", "personProfiles");
-        assertThat(v8).containsKeys("marketInstruments", "marketPriceSnapshots",
-                "portfolioPositions", "marketTrades");
-        assertThat(importService.prepare(v8).sourceVersion()).isEqualTo(8);
+        assertThat(v9).doesNotContainKeys("users", "personProfiles");
+        assertThat(v9).containsKeys("marketInstruments", "marketPriceSnapshots",
+                "portfolioPositions", "marketTrades", "clubCapTableStates",
+                "takeoverQuotes", "takeoverExecutions", "clubCashTransfers");
+        assertThat(importService.prepare(v9).sourceVersion()).isEqualTo(9);
     }
 
     @Test

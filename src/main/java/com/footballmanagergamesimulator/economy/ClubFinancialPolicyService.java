@@ -43,6 +43,9 @@ public class ClubFinancialPolicyService {
             restricted |= obligation.isRestrictsWithdrawal();
         }
         RegentEconomyProperties.Club config = properties.getClub();
+        if (config.getMinimumProtectedReserve() < 0 || config.getProtectedWageMonths() < 0) {
+            throw new IllegalStateException("Invalid REGENT club reserve configuration");
+        }
         long reserve = add(config.getMinimumProtectedReserve(),
                 multiply(monthlyWages, config.getProtectedWageMonths()));
         long distributable;

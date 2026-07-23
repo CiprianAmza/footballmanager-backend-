@@ -90,7 +90,8 @@ public class TakeoverService {
         }
         ClubValuationService.Valuation valuation = valuationService.value(teamId);
         int premium = properties.getClub().getTakeoverPremiumBps();
-        if (premium < 0 || premium > 100_000) {
+        int expiryDays = properties.getClub().getTakeoverQuoteExpiryDays();
+        if (premium < 0 || premium > 100_000 || expiryDays < 0) {
             throw new IllegalStateException("Takeover premium configuration is invalid");
         }
         long baseUnit = valuationService.perSharePrice(valuation, instrument.getTotalSupply());
@@ -114,7 +115,7 @@ public class TakeoverService {
         quote.setTotalConsideration(total);
         quote.setQuotedSeason(date.season());
         quote.setQuotedDay(date.day());
-        quote.setExpiresAbsoluteDay(add(date.absoluteDay(), properties.getClub().getTakeoverQuoteExpiryDays()));
+        quote.setExpiresAbsoluteDay(add(date.absoluteDay(), expiryDays));
         quote.setIdempotencyKey(idempotencyKey);
         quote.setStatus(TakeoverQuoteStatus.OPEN);
         return new QuoteResult(quoteRepository.save(quote), false);
@@ -309,8 +310,12 @@ public class TakeoverService {
     }
 
     private static long applyPremium(long value, int bps) {
-        return BigInteger.valueOf(value).multiply(BigInteger.valueOf(10_000L + bps))
-                .add(BigInteger.valueOf(9_999L)).divide(BigInteger.valueOf(10_000L)).longValueExact();
+        try {
+            return BigInteger.valueOf(value).multiply(BigInteger.valueOf(10_000L + bps))
+                    .add(BigInteger.valueOf(9_999L)).divide(BigInteger.valueOf(10_000L)).longValueExact();
+        } catch (ArithmeticException exception) {
+            throw overflow();
+        }
     }
 
     private static void validateKey(String value) {

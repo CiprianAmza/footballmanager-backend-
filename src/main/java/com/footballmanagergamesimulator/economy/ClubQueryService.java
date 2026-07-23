@@ -64,6 +64,12 @@ public class ClubQueryService {
                 treasury(policy), principalAccount != null && principalAccount.equals(cap.controllingAccountId()));
     }
 
+    @Transactional
+    public ClubDtos.CapTableView ownership(long teamId) {
+        ClubCapTableService.CapTable cap = capTableService.ensureMigrated(teamId);
+        return capTable(cap, valuationService.value(teamId));
+    }
+
     public ClubDtos.TakeoverQuoteView quote(TakeoverService.QuoteResult result) {
         TakeoverQuote value = result.quote();
         return new ClubDtos.TakeoverQuoteView(value.getQuoteKey(), value.getTeamId(), value.getSharesToAcquire(),

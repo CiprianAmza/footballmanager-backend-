@@ -42,7 +42,7 @@ class RegentPhase2MarketSaveLoadIT {
 
         priceService.processDay(91, 10);
         Map<String, Object> saveAtDayTen = gameController.exportGame();
-        assertThat(saveAtDayTen.get("saveVersion")).isEqualTo(8);
+        assertThat(saveAtDayTen.get("saveVersion")).isEqualTo(9);
 
         priceService.processDay(91, 20);
         List<PriceFingerprint> expected = fingerprints(instrument.getId(), 91, 11, 20);

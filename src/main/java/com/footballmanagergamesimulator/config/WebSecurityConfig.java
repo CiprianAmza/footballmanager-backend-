@@ -106,9 +106,11 @@ public class WebSecurityConfig {
                     requests.requestMatchers("/boardroom/**").denyAll();
                     if (!regentEnabled) {
                         requests.requestMatchers("/api/me/**", "/api/people/**", "/api/market/**", "/api/clubs/**",
+                                "/api/club-cash-transfers",
                                 "/api/assets/**", "/api/wealth-rankings/**").denyAll();
                     } else {
                         requests.requestMatchers("/api/me/**", "/api/people/**", "/api/market/**", "/api/clubs/**",
+                                "/api/club-cash-transfers",
                                 "/api/assets/**", "/api/wealth-rankings/**").authenticated();
                     }
                     requests.requestMatchers("/admin/login").permitAll();

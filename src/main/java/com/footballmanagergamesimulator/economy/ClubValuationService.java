@@ -114,9 +114,14 @@ public class ClubValuationService {
         int capacity = stadium == null ? Math.max(0, fallbackCapacity) : Math.max(0, stadium.getEffectiveCapacity());
         long levels = 0;
         if (stadium != null) {
-            levels = stadium.getExpansionLevel() + stadium.getVipBoxesLevel() + stadium.getCateringLevel()
-                    + stadium.getFanShopLevel() + stadium.getFastFoodLevel() + stadium.getHeadquartersLevel()
-                    + stadium.getTrainingPitchLevel() + stadium.getParkingLevel();
+            levels = exactAdd(levels, Math.max(0, stadium.getExpansionLevel()));
+            levels = exactAdd(levels, Math.max(0, stadium.getVipBoxesLevel()));
+            levels = exactAdd(levels, Math.max(0, stadium.getCateringLevel()));
+            levels = exactAdd(levels, Math.max(0, stadium.getFanShopLevel()));
+            levels = exactAdd(levels, Math.max(0, stadium.getFastFoodLevel()));
+            levels = exactAdd(levels, Math.max(0, stadium.getHeadquartersLevel()));
+            levels = exactAdd(levels, Math.max(0, stadium.getTrainingPitchLevel()));
+            levels = exactAdd(levels, Math.max(0, stadium.getParkingLevel()));
         }
         TeamFacilities facilities = facilitiesRepository.findByTeamId(teamId);
         long facilityLevels = facilities == null ? 0 : exactAdd(exactAdd(

@@ -157,6 +157,10 @@ class AuthSecurityWebTest {
         mockMvc.perform(get("/boardroom/humans").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/me/wealth").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/market/instruments").session(session)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/clubs").session(session)).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/club-cash-transfers").session(session).with(csrf())
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
         mockMvc.perform(get("/admin/users").session(session)).andExpect(status().isForbidden());
     }
 

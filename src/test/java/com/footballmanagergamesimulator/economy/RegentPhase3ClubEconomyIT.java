@@ -89,7 +89,8 @@ class RegentPhase3ClubEconomyIT {
         List<PersonalAccount> humans = accountRepository.findAll().stream()
                 .filter(value -> value.getOwnerHumanId() != null).limit(2).toList();
         assertThat(humans).hasSize(2);
-        removeCapState(team, instrument);
+        stateRepository.findByInstrumentId(instrument.getId()).ifPresent(stateRepository::delete);
+        stateRepository.flush();
         legacyShareRepository.save(legacy(humans.get(0).getOwnerHumanId(), team.getId(), 60));
         ClubShareholding excess = legacyShareRepository.save(
                 legacy(humans.get(1).getOwnerHumanId(), team.getId(), 41));
@@ -317,6 +318,14 @@ class RegentPhase3ClubEconomyIT {
                         .contentType("application/json")
                         .content("{\"direction\":\"INJECTION\",\"amount\":1,\"idempotencyKey\":\"not-owner\"}"))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("CLUB_CONTROL_REQUIRED"));
+        mockMvc.perform(post("/api/club-cash-transfers").session(chairman).with(csrf())
+                        .contentType("application/json")
+                        .content("{\"teamId\":" + team.getId()
+                                + ",\"direction\":\"INJECTION\",\"amount\":1,"
+                                + "\"idempotencyKey\":\"not-owner-canonical\"}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("CLUB_CONTROL_REQUIRED"));
+        mockMvc.perform(get("/api/clubs/{teamId}/ownership", team.getId()).session(manager))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.issuedShares").value(1_000_000));
         mockMvc.perform(get("/api/clubs/{teamId}/chairman-dashboard", team.getId()).session(chairman))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.teamId").value(team.getId()));
     }
