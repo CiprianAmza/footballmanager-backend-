@@ -95,7 +95,11 @@ public class WebSecurityConfig {
                     requests.requestMatchers("/h2-console/**").denyAll();
                     requests.requestMatchers(HttpMethod.POST, "/game/setup").denyAll();
                     requests.requestMatchers(HttpMethod.GET, "/game/isSetupComplete").denyAll();
-                    requests.requestMatchers(HttpMethod.GET, "/game/export").hasRole("ADMIN");
+                    // Save files contain the shared football world but deliberately
+                    // exclude account credentials and identity bindings. Every
+                    // authenticated career must therefore be able to download a
+                    // save, while restoring that global world remains admin-only.
+                    requests.requestMatchers(HttpMethod.GET, "/game/export").authenticated();
                     requests.requestMatchers(HttpMethod.POST, "/game/import").hasRole("ADMIN");
                     // The legacy Boardroom accepts caller-supplied owner IDs and
                     // client prices. It is never a Phase-1 compatibility API.

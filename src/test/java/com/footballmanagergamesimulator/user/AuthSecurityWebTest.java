@@ -161,10 +161,12 @@ class AuthSecurityWebTest {
     }
 
     @Test
-    void globalSaveMatrixIsAdminOnlyAndImportStillRequiresCsrf() throws Exception {
+    void authenticatedCareersCanExportButOnlyAdminCanImportGlobalSave() throws Exception {
+        mockMvc.perform(get("/game/export")).andExpect(status().isUnauthorized());
+
         for (String username : new String[]{"alice", "chairman"}) {
             MockHttpSession session = login(username);
-            mockMvc.perform(get("/game/export").session(session)).andExpect(status().isForbidden());
+            mockMvc.perform(get("/game/export").session(session)).andExpect(status().isOk());
             mockMvc.perform(post("/game/import").session(session).with(csrf())
                             .contentType("application/json").content("{}"))
                     .andExpect(status().isForbidden());
