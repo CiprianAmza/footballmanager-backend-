@@ -99,7 +99,7 @@ class GameSaveGeneratorAlignmentTest {
 
     private Map<String, Object> highIdSave() {
         Map<String, Object> save = new LinkedHashMap<>();
-        save.put("saveVersion", 7);
+        save.put("saveVersion", 8);
         for (String key : GameSaveImportService.manifestKeys()) {
             save.put(key, List.of(Map.of("id", 1000L)));
         }
@@ -132,6 +132,34 @@ class GameSaveGeneratorAlignmentTest {
                 Map.entry("BALANCE_AFTER", 0L), Map.entry("CORRELATION_ID", "generator-test"),
                 Map.entry("IDEMPOTENCY_KEY", "generator-test"), Map.entry("DESCRIPTION", "generator test"),
                 Map.entry("CREATED_AT", 0L))));
+        save.put("marketInstruments", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("CODE", "GENERATOR_MARKET"),
+                Map.entry("INSTRUMENT_TYPE", "COMPANY"), Map.entry("NAME", "Generator market"),
+                Map.entry("TOTAL_SUPPLY", 10L), Map.entry("AVAILABLE_SUPPLY", 9L),
+                Map.entry("CURRENT_PRICE", 100L), Map.entry("PRICE_SEED", 42L),
+                Map.entry("DAILY_LIMIT_BPS", 500), Map.entry("WEEKLY_LIMIT_BPS", 1500),
+                Map.entry("ACTIVE", true), Map.entry("VERSION", 0L))));
+        save.put("marketPriceSnapshots", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("INSTRUMENT_ID", 1000L),
+                Map.entry("SEASON_NUMBER", 1), Map.entry("GAME_DAY", 1),
+                Map.entry("PREVIOUS_CLOSE", 100L), Map.entry("CLOSE_PRICE", 100L),
+                Map.entry("WEEKLY_ANCHOR_PRICE", 100L), Map.entry("DAILY_CHANGE_BPS", 0))));
+        save.put("portfolioPositions", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("ACCOUNT_ID", 1000L),
+                Map.entry("PROFILE_ID", 1000L), Map.entry("INSTRUMENT_ID", 1000L),
+                Map.entry("QUANTITY", 1L), Map.entry("TOTAL_COST_BASIS", 100L),
+                Map.entry("VERSION", 0L))));
+        save.put("marketTrades", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("ACCOUNT_ID", 1000L),
+                Map.entry("PROFILE_ID", 1000L), Map.entry("INSTRUMENT_ID", 1000L),
+                Map.entry("SIDE", "BUY"), Map.entry("QUANTITY", 1L),
+                Map.entry("UNIT_PRICE", 100L), Map.entry("GROSS_AMOUNT", 100L),
+                Map.entry("COST_BASIS_AMOUNT", 100L), Map.entry("REALIZED_GAIN", 0L),
+                Map.entry("SEASON_NUMBER", 1), Map.entry("GAME_DAY", 1),
+                Map.entry("IDEMPOTENCY_KEY", "generator-market"),
+                Map.entry("CORRELATION_ID", "generator-market"),
+                Map.entry("CASH_BALANCE_AFTER", 0L), Map.entry("QUANTITY_AFTER", 1L),
+                Map.entry("COST_BASIS_AFTER", 100L))));
         return save;
     }
 
@@ -178,6 +206,30 @@ class GameSaveGeneratorAlignmentTest {
                                 + "CORRELATION_ID VARCHAR(120) DEFAULT 'test', IDEMPOTENCY_KEY VARCHAR(160) DEFAULT 'test', "
                                 + "COUNTERPART_TEAM_ID BIGINT, COUNTERPART_ASSET_ID BIGINT, "
                                 + "DESCRIPTION VARCHAR(300) DEFAULT 'test', CREATED_AT BIGINT DEFAULT 0";
+                        case "MARKET_INSTRUMENT" -> ", CODE VARCHAR(80) DEFAULT 'TEST', "
+                                + "INSTRUMENT_TYPE VARCHAR(20) DEFAULT 'COMPANY', TEAM_ID BIGINT, "
+                                + "NAME VARCHAR(160) DEFAULT 'Test', TOTAL_SUPPLY BIGINT DEFAULT 1, "
+                                + "AVAILABLE_SUPPLY BIGINT DEFAULT 1, CURRENT_PRICE BIGINT DEFAULT 1, "
+                                + "PRICE_SEED BIGINT DEFAULT 1, PRICE_ALGORITHM_VERSION VARCHAR(32) DEFAULT 'market-v1', "
+                                + "DAILY_LIMIT_BPS INTEGER DEFAULT 500, "
+                                + "WEEKLY_LIMIT_BPS INTEGER DEFAULT 1500, ACTIVE BOOLEAN DEFAULT TRUE, "
+                                + "VERSION BIGINT DEFAULT 0";
+                        case "MARKET_PRICE_SNAPSHOT" -> ", INSTRUMENT_ID BIGINT DEFAULT 1, "
+                                + "SEASON_NUMBER INTEGER DEFAULT 0, GAME_DAY INTEGER DEFAULT 0, "
+                                + "PREVIOUS_CLOSE BIGINT DEFAULT 1, CLOSE_PRICE BIGINT DEFAULT 1, "
+                                + "WEEKLY_ANCHOR_PRICE BIGINT DEFAULT 1, DAILY_CHANGE_BPS INTEGER DEFAULT 0, "
+                                + "ALGORITHM_VERSION VARCHAR(32) DEFAULT 'market-v1', DETERMINISTIC_HASH BIGINT DEFAULT 0";
+                        case "PORTFOLIO_POSITION" -> ", ACCOUNT_ID BIGINT DEFAULT 1, PROFILE_ID BIGINT DEFAULT 0, "
+                                + "INSTRUMENT_ID BIGINT DEFAULT 1, QUANTITY BIGINT DEFAULT 0, "
+                                + "TOTAL_COST_BASIS BIGINT DEFAULT 0, VERSION BIGINT DEFAULT 0";
+                        case "MARKET_TRADE" -> ", ACCOUNT_ID BIGINT DEFAULT 1, PROFILE_ID BIGINT DEFAULT 0, "
+                                + "INSTRUMENT_ID BIGINT DEFAULT 1, SIDE VARCHAR(10) DEFAULT 'BUY', "
+                                + "QUANTITY BIGINT DEFAULT 1, UNIT_PRICE BIGINT DEFAULT 1, "
+                                + "GROSS_AMOUNT BIGINT DEFAULT 1, COST_BASIS_AMOUNT BIGINT DEFAULT 1, "
+                                + "REALIZED_GAIN BIGINT DEFAULT 0, SEASON_NUMBER INTEGER DEFAULT 0, "
+                                + "GAME_DAY INTEGER DEFAULT 0, IDEMPOTENCY_KEY VARCHAR(160) DEFAULT 'test', "
+                                + "CORRELATION_ID VARCHAR(160) DEFAULT 'test', CASH_BALANCE_AFTER BIGINT DEFAULT 0, "
+                                + "QUANTITY_AFTER BIGINT DEFAULT 1, COST_BASIS_AFTER BIGINT DEFAULT 1";
                         default -> "";
                     };
                     statement.execute("CREATE TABLE \"" + table + "\" (ID BIGINT" + defaultValue

@@ -90,6 +90,74 @@ class GameSaveRealSchemaTest {
                 .hasMessageContaining("does not reconcile");
     }
 
+    @Test
+    void v8MarketPreflightAcceptsConservedSupplyAndRejectsMintedShares() {
+        Map<String, Object> v8 = realSchemaSave(8);
+        v8.put("personalAccounts", List.of(Map.of(
+                "ID", 700L, "PROFILE_ID", 999L, "OWNER_HUMAN_ID", 10L,
+                "CASH_BALANCE", 900L, "LIFETIME_CAREER_EARNINGS", 0L,
+                "REALIZED_INVESTMENT_GAIN", 0L, "VERSION", 0L)));
+        v8.put("personalLedgerEntries", List.of(
+                Map.ofEntries(
+                        Map.entry("ID", 703L), Map.entry("ACCOUNT_ID", 700L),
+                        Map.entry("PROFILE_ID", 999L), Map.entry("SEASON_NUMBER", 0),
+                        Map.entry("GAME_DAY", 0), Map.entry("ENTRY_TYPE", "MIGRATION_OPENING"),
+                        Map.entry("SIGNED_AMOUNT", 1_000L), Map.entry("CAREER_EARNINGS_DELTA", 0L),
+                        Map.entry("BALANCE_AFTER", 1_000L), Map.entry("CORRELATION_ID", "save-open"),
+                        Map.entry("IDEMPOTENCY_KEY", "save-open"), Map.entry("DESCRIPTION", "Save opening"),
+                        Map.entry("CREATED_AT", 1L)),
+                Map.ofEntries(
+                        Map.entry("ID", 704L), Map.entry("ACCOUNT_ID", 700L),
+                        Map.entry("PROFILE_ID", 999L), Map.entry("SEASON_NUMBER", 1),
+                        Map.entry("GAME_DAY", 1), Map.entry("ENTRY_TYPE", "INVESTMENT_BUY"),
+                        Map.entry("SIGNED_AMOUNT", -100L), Map.entry("CAREER_EARNINGS_DELTA", 0L),
+                        Map.entry("BALANCE_AFTER", 900L), Map.entry("CORRELATION_ID", "MARKET-TRADE:save-buy"),
+                        Map.entry("IDEMPOTENCY_KEY", "MARKET:save-buy"), Map.entry("DESCRIPTION", "Saved buy"),
+                        Map.entry("CREATED_AT", 2L))));
+        v8.put("marketInstruments", List.of(Map.ofEntries(
+                Map.entry("ID", 800L), Map.entry("CODE", "SAVE-CO"),
+                Map.entry("INSTRUMENT_TYPE", "COMPANY"), Map.entry("NAME", "Save Company"),
+                Map.entry("TOTAL_SUPPLY", 1_000L), Map.entry("AVAILABLE_SUPPLY", 900L),
+                Map.entry("CURRENT_PRICE", 1L), Map.entry("PRICE_SEED", 42L),
+                Map.entry("PRICE_ALGORITHM_VERSION", "market-v1"),
+                Map.entry("DAILY_LIMIT_BPS", 500), Map.entry("WEEKLY_LIMIT_BPS", 1_500),
+                Map.entry("ACTIVE", true), Map.entry("VERSION", 0L))));
+        v8.put("marketPriceSnapshots", List.of(Map.of(
+                "ID", 801L, "INSTRUMENT_ID", 800L, "SEASON_NUMBER", 1, "GAME_DAY", 1,
+                "PREVIOUS_CLOSE", 1L, "CLOSE_PRICE", 1L, "WEEKLY_ANCHOR_PRICE", 1L,
+                "DAILY_CHANGE_BPS", 0, "ALGORITHM_VERSION", "market-v1", "DETERMINISTIC_HASH", 42L)));
+        v8.put("portfolioPositions", List.of(Map.of(
+                "ID", 802L, "ACCOUNT_ID", 700L, "PROFILE_ID", 999L,
+                "INSTRUMENT_ID", 800L, "QUANTITY", 100L,
+                "TOTAL_COST_BASIS", 100L, "VERSION", 0L)));
+        v8.put("marketTrades", List.of(Map.ofEntries(
+                Map.entry("ID", 803L), Map.entry("ACCOUNT_ID", 700L),
+                Map.entry("PROFILE_ID", 999L), Map.entry("INSTRUMENT_ID", 800L),
+                Map.entry("SIDE", "BUY"), Map.entry("QUANTITY", 100L),
+                Map.entry("UNIT_PRICE", 1L), Map.entry("GROSS_AMOUNT", 100L),
+                Map.entry("COST_BASIS_AMOUNT", 100L), Map.entry("REALIZED_GAIN", 0L),
+                Map.entry("SEASON_NUMBER", 1), Map.entry("GAME_DAY", 1),
+                Map.entry("IDEMPOTENCY_KEY", "save-buy"),
+                Map.entry("CORRELATION_ID", "MARKET-TRADE:save-buy"),
+                Map.entry("CASH_BALANCE_AFTER", 900L), Map.entry("QUANTITY_AFTER", 100L),
+                Map.entry("COST_BASIS_AFTER", 100L))));
+
+        assertThat(importService.prepare(v8).sourceVersion()).isEqualTo(8);
+
+        Map<String, Object> minted = new LinkedHashMap<>(v8);
+        minted.put("marketInstruments", List.of(Map.ofEntries(
+                Map.entry("ID", 800L), Map.entry("CODE", "SAVE-CO"),
+                Map.entry("INSTRUMENT_TYPE", "COMPANY"), Map.entry("NAME", "Save Company"),
+                Map.entry("TOTAL_SUPPLY", 1_000L), Map.entry("AVAILABLE_SUPPLY", 901L),
+                Map.entry("CURRENT_PRICE", 1L), Map.entry("PRICE_SEED", 42L),
+                Map.entry("PRICE_ALGORITHM_VERSION", "market-v1"),
+                Map.entry("DAILY_LIMIT_BPS", 500), Map.entry("WEEKLY_LIMIT_BPS", 1_500),
+                Map.entry("ACTIVE", true), Map.entry("VERSION", 0L))));
+        assertThatThrownBy(() -> importService.prepare(minted))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("supply does not reconcile");
+    }
+
     private Map<String, Object> realSchemaSave(int version) {
         Map<String, Object> save = new LinkedHashMap<>();
         save.put("saveVersion", version);

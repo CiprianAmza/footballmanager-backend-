@@ -2,8 +2,9 @@ package com.footballmanagergamesimulator.controller;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.footballmanagergamesimulator.person.PersonProfileService;
+import com.footballmanagergamesimulator.economy.MarketBootstrapService;
 import com.footballmanagergamesimulator.economy.PersonalEconomyBootstrapService;
+import com.footballmanagergamesimulator.person.PersonProfileService;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,7 +42,8 @@ public class GameSaveImportService {
 
     static final int LEGACY_SAVE_VERSION = 5;
     static final int SAVE_VERSION_6 = 6;
-    static final int CURRENT_SAVE_VERSION = 7;
+    static final int SAVE_VERSION_7 = 7;
+    static final int CURRENT_SAVE_VERSION = 8;
 
     private static final List<TableSpec> MANIFEST = List.of(
             new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
@@ -111,10 +113,14 @@ public class GameSaveImportService {
             new TableSpec("clubShareholdings", "CLUB_SHAREHOLDING", SAVE_VERSION_6),
             new TableSpec("ownerships", "OWNERSHIP", SAVE_VERSION_6),
             new TableSpec("coachPermissions", "COACH_PERMISSIONS", SAVE_VERSION_6),
-            new TableSpec("personalAccounts", "PERSONAL_ACCOUNT", CURRENT_SAVE_VERSION),
-            new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", CURRENT_SAVE_VERSION),
-            new TableSpec("ownedAssets", "OWNED_ASSET", CURRENT_SAVE_VERSION),
-            new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", CURRENT_SAVE_VERSION)
+            new TableSpec("personalAccounts", "PERSONAL_ACCOUNT", SAVE_VERSION_7),
+            new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", SAVE_VERSION_7),
+            new TableSpec("ownedAssets", "OWNED_ASSET", SAVE_VERSION_7),
+            new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", SAVE_VERSION_7),
+            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", CURRENT_SAVE_VERSION),
+            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", CURRENT_SAVE_VERSION),
+            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", CURRENT_SAVE_VERSION),
+            new TableSpec("marketTrades", "MARKET_TRADE", CURRENT_SAVE_VERSION)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
@@ -151,22 +157,25 @@ public class GameSaveImportService {
     private final ObjectMapper objectMapper;
     private final PersonProfileService personProfileService;
     private final PersonalEconomyBootstrapService economyBootstrapService;
+    private final MarketBootstrapService marketBootstrapService;
 
     @Autowired
     public GameSaveImportService(DataSource dataSource,
                                  ObjectMapper objectMapper,
                                  PersonProfileService personProfileService,
-                                 Optional<PersonalEconomyBootstrapService> economyBootstrapService) {
+                                 Optional<PersonalEconomyBootstrapService> economyBootstrapService,
+                                 Optional<MarketBootstrapService> marketBootstrapService) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.personProfileService = personProfileService;
         this.economyBootstrapService = economyBootstrapService.orElse(null);
+        this.marketBootstrapService = marketBootstrapService.orElse(null);
     }
 
     public GameSaveImportService(DataSource dataSource,
                                  ObjectMapper objectMapper,
                                  PersonProfileService personProfileService) {
-        this(dataSource, objectMapper, personProfileService, Optional.empty());
+        this(dataSource, objectMapper, personProfileService, Optional.empty(), Optional.empty());
     }
 
     static List<String> manifestKeys() {
@@ -180,7 +189,7 @@ public class GameSaveImportService {
     }
 
     /**
-     * Parses and migrates v5/v6/v7 into a complete immutable game-only plan. The
+     * Parses and migrates v5/v6/v7/v8 into a complete immutable game-only plan. The
      * legacy users/personProfiles sections are deliberately never part of it.
      */
     public ImportPlan prepare(Map<String, Object> save) {
@@ -196,9 +205,9 @@ public class GameSaveImportService {
             Map<String, Set<String>> schemaColumns = readSchemaColumns(schema);
             List<TableRows> tables = new ArrayList<>();
             for (TableSpec spec : MANIFEST) {
-                if (spec.introducedVersion() == CURRENT_SAVE_VERSION
+                if (spec.introducedVersion() >= SAVE_VERSION_7
                         && (dialect != DatabaseDialect.H2 || !schema.hasTable(spec.tableName()))) {
-                    // Phase-1 economy tables are H2-only. On any other dialect (even
+                    // REGENT economy tables are H2-only. On any other dialect (even
                     // when JPA create-drop materializes them) they are excluded from
                     // the import plan, so cross-database save/load is unchanged.
                     continue;
@@ -238,15 +247,15 @@ public class GameSaveImportService {
     }
 
     /**
-     * Phase 1 raises the save version to {@link #CURRENT_SAVE_VERSION} only where
-     * the economy schema actually exists (the H2-only Phase-1 runtime). On a
-     * vendor without the Phase-1 migration the export stays at {@link #SAVE_VERSION_6}
+     * REGENT raises the save version to {@link #CURRENT_SAVE_VERSION} only where
+     * the economy schema actually exists (the H2-only REGENT runtime). On a
+     * vendor without the economy migrations the export stays at {@link #SAVE_VERSION_6}
      * and carries no economy sections, so cross-database save/load is unaffected.
      */
     public int effectiveSaveVersion() {
         Connection live = DataSourceUtils.getConnection(dataSource);
         try {
-            // Phase 1 is H2-only. The elevated v7 save (personal-economy state) is
+            // REGENT economy persistence is H2-only. The elevated save is
             // produced only on H2; other dialects keep the cumulative cross-database
             // v6 contract even when JPA create-drop materializes the economy tables.
             return DatabaseDialect.detect(live) == DatabaseDialect.H2
@@ -274,7 +283,7 @@ public class GameSaveImportService {
             Map<String, Object> result = new LinkedHashMap<>();
             for (TableSpec spec : MANIFEST) {
                 if (spec.introducedVersion() >= SAVE_VERSION_6 && schema.hasTable(spec.tableName())
-                        && (spec.introducedVersion() < CURRENT_SAVE_VERSION || dialect == DatabaseDialect.H2)) {
+                        && (spec.introducedVersion() < SAVE_VERSION_7 || dialect == DatabaseDialect.H2)) {
                     result.put(spec.jsonKey(), readRows(live, schema, spec.tableName()));
                 }
             }
@@ -314,7 +323,8 @@ public class GameSaveImportService {
             }
             personProfileService.backfill();
             if (economyBootstrapService != null) economyBootstrapService.ensureAllAccounts();
-            validateWorld(live, schema);
+            if (marketBootstrapService != null) marketBootstrapService.ensureAllInstruments();
+            validateWorld(live, schema, plan);
             validateAccountCompatibility(live, plan, schema);
         } catch (SQLException exception) {
             throw new IllegalStateException("Atomic database import failed: " + rootMessage(exception), exception);
@@ -403,16 +413,16 @@ public class GameSaveImportService {
                 DatabaseDialect dialect = DatabaseDialect.detect(sandbox);
                 SchemaCatalog schema = SchemaCatalog.inspect(sandbox, dialect);
                 Map<String, GeneratorReset> liveResets = new HashMap<>();
-                for (GeneratorReset reset : discoverGeneratorResets(sandbox, schema, dialect)) {
+                for (GeneratorReset reset : discoverGeneratorResets(sandbox, schema, dialect, plan)) {
                     liveResets.put(reset.sortKey(), reset);
                 }
                 validateAccountCompatibility(sandbox, plan, schema);
                 deleteImportedWorld(sandbox, plan, schema);
                 insertPlan(sandbox, plan, schema);
                 reconcileAiProfiles(sandbox, schema);
-                validateWorld(sandbox, schema);
+                validateWorld(sandbox, schema, plan);
                 validateAccountCompatibility(sandbox, plan, schema);
-                return discoverGeneratorResets(sandbox, schema, dialect).stream()
+                return discoverGeneratorResets(sandbox, schema, dialect, plan).stream()
                         .map(reset -> reset.withMinimumNextValue(Math.max(
                                 reset.minimumNextValue(),
                                 liveResets.getOrDefault(reset.sortKey(), reset).minimumNextValue())))
@@ -426,9 +436,11 @@ public class GameSaveImportService {
 
     private List<GeneratorReset> discoverGeneratorResets(Connection connection,
                                                           SchemaCatalog schema,
-                                                          DatabaseDialect dialect) throws SQLException {
-        Set<String> worldTables = new HashSet<>();
-        MANIFEST.forEach(spec -> worldTables.add(spec.tableName()));
+                                                          DatabaseDialect dialect,
+                                                          ImportPlan plan) throws SQLException {
+        Set<String> worldTables = plan.tables().stream()
+                .map(table -> table.spec().tableName())
+                .collect(java.util.stream.Collectors.toSet());
         List<GeneratorReset> resets = new ArrayList<>();
         DatabaseMetaData metadata = connection.getMetaData();
         for (String table : worldTables) {
@@ -460,6 +472,7 @@ public class GameSaveImportService {
             }
         }
         for (NamedSequence sequence : NAMED_SEQUENCES) {
+            if (!worldTables.contains(sequence.tableName())) continue;
             long next = scalarLong(connection,
                     "SELECT COALESCE(MAX(" + schema.column(sequence.tableName(), "ID") + "), 0) + 1 FROM "
                             + schema.table(sequence.tableName()));
@@ -519,7 +532,8 @@ public class GameSaveImportService {
      */
     private List<RowValues> rowsForInsert(Connection connection, SchemaCatalog schema, TableRows table) throws SQLException {
         String tableName = table.spec().tableName();
-        if (!Set.of("PERSONAL_ACCOUNT", "OWNED_ASSET", "PERSONAL_LEDGER_ENTRY").contains(tableName)
+        if (!Set.of("PERSONAL_ACCOUNT", "OWNED_ASSET", "PERSONAL_LEDGER_ENTRY",
+                "PORTFOLIO_POSITION", "MARKET_TRADE").contains(tableName)
                 || table.rows().isEmpty()) {
             return table.rows();
         }
@@ -597,7 +611,7 @@ public class GameSaveImportService {
                 + " = h." + schema.columnRawQuoted("HUMAN", "ID") + ")");
     }
 
-    private void validateWorld(Connection connection, SchemaCatalog schema) throws SQLException {
+    private void validateWorld(Connection connection, SchemaCatalog schema, ImportPlan plan) throws SQLException {
         long rounds = scalarLong(connection, "SELECT COUNT(*) FROM " + schema.table("ROUND"));
         long calendars = scalarLong(connection, "SELECT COUNT(*) FROM " + schema.table("GAME_CALENDAR"));
         if (rounds == 0 || calendars == 0) {
@@ -619,11 +633,11 @@ public class GameSaveImportService {
         if (schema.dialect() == DatabaseDialect.H2) {
             // Phase-1 economy reconciliation is H2-only; the economy tables and
             // their ledger invariants are not part of the cross-database v6 contract.
-            validateEconomy(connection);
+            validateEconomy(connection, plan.sourceVersion() >= CURRENT_SAVE_VERSION);
         }
     }
 
-    private void validateEconomy(Connection connection) throws SQLException {
+    private void validateEconomy(Connection connection, boolean validatePhase2) throws SQLException {
         long invalidAccounts = scalarLong(connection, """
                 SELECT COUNT(*) FROM PERSONAL_ACCOUNT a
                 WHERE a.CASH_BALANCE < 0 OR a.LIFETIME_CAREER_EARNINGS < 0
@@ -643,6 +657,60 @@ public class GameSaveImportService {
                    OR (owned.STATUS = 'OWNED' AND owned.SALE_PRICE IS NOT NULL)
                 """);
         if (invalidAssets != 0) throw invalid("owned asset state is inconsistent");
+        if (!validatePhase2) return;
+        long invalidPositions = scalarLong(connection, """
+                SELECT COUNT(*) FROM PORTFOLIO_POSITION position
+                LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = position.ACCOUNT_ID
+                LEFT JOIN MARKET_INSTRUMENT instrument ON instrument.ID = position.INSTRUMENT_ID
+                WHERE account.ID IS NULL OR instrument.ID IS NULL
+                   OR position.PROFILE_ID <> account.PROFILE_ID
+                   OR position.QUANTITY < 0 OR position.TOTAL_COST_BASIS < 0
+                   OR (position.QUANTITY = 0 AND position.TOTAL_COST_BASIS <> 0)
+                """);
+        if (invalidPositions != 0) throw invalid("portfolio position state is inconsistent");
+        long invalidSupply = scalarLong(connection, """
+                SELECT COUNT(*) FROM MARKET_INSTRUMENT instrument
+                WHERE instrument.TOTAL_SUPPLY <= 0 OR instrument.AVAILABLE_SUPPLY < 0
+                   OR instrument.CURRENT_PRICE <= 0
+                   OR instrument.DAILY_LIMIT_BPS < 0 OR instrument.DAILY_LIMIT_BPS > 10000
+                   OR instrument.WEEKLY_LIMIT_BPS < instrument.DAILY_LIMIT_BPS
+                   OR instrument.WEEKLY_LIMIT_BPS > 10000
+                   OR instrument.PRICE_ALGORITHM_VERSION <> 'market-v1'
+                   OR instrument.AVAILABLE_SUPPLY + COALESCE((
+                       SELECT SUM(position.QUANTITY) FROM PORTFOLIO_POSITION position
+                       WHERE position.INSTRUMENT_ID = instrument.ID), 0) <> instrument.TOTAL_SUPPLY
+                """);
+        if (invalidSupply != 0) throw invalid("market instrument supply does not reconcile");
+        long invalidSnapshots = scalarLong(connection, """
+                SELECT COUNT(*) FROM MARKET_PRICE_SNAPSHOT snapshot
+                LEFT JOIN MARKET_INSTRUMENT instrument ON instrument.ID = snapshot.INSTRUMENT_ID
+                WHERE instrument.ID IS NULL
+                   OR snapshot.ALGORITHM_VERSION <> instrument.PRICE_ALGORITHM_VERSION
+                   OR snapshot.SEASON_NUMBER < 1 OR snapshot.GAME_DAY < 1 OR snapshot.GAME_DAY > 366
+                   OR snapshot.PREVIOUS_CLOSE <= 0 OR snapshot.CLOSE_PRICE <= 0
+                   OR snapshot.WEEKLY_ANCHOR_PRICE <= 0
+                """);
+        if (invalidSnapshots != 0) throw invalid("market price history is inconsistent");
+        long staleCurrentPrices = scalarLong(connection, """
+                SELECT COUNT(*) FROM MARKET_INSTRUMENT instrument
+                WHERE EXISTS (SELECT 1 FROM MARKET_PRICE_SNAPSHOT snapshot
+                              WHERE snapshot.INSTRUMENT_ID = instrument.ID)
+                  AND instrument.CURRENT_PRICE <> (SELECT snapshot.CLOSE_PRICE
+                      FROM MARKET_PRICE_SNAPSHOT snapshot
+                      WHERE snapshot.INSTRUMENT_ID = instrument.ID
+                      ORDER BY snapshot.SEASON_NUMBER DESC, snapshot.GAME_DAY DESC LIMIT 1)
+                """);
+        if (staleCurrentPrices != 0) throw invalid("market current price does not match latest close");
+        long invalidTrades = scalarLong(connection, """
+                SELECT COUNT(*) FROM MARKET_TRADE trade
+                LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = trade.ACCOUNT_ID
+                LEFT JOIN MARKET_INSTRUMENT instrument ON instrument.ID = trade.INSTRUMENT_ID
+                WHERE account.ID IS NULL OR instrument.ID IS NULL
+                   OR trade.PROFILE_ID <> account.PROFILE_ID OR trade.QUANTITY <= 0
+                   OR trade.UNIT_PRICE <= 0 OR trade.GROSS_AMOUNT <= 0
+                   OR trade.GROSS_AMOUNT <> trade.UNIT_PRICE * trade.QUANTITY
+                """);
+        if (invalidTrades != 0) throw invalid("market trade state is inconsistent");
     }
 
     private void validateAccountCompatibility(Connection connection, ImportPlan plan,
@@ -743,12 +811,12 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6 or 7");
+            throw invalid("saveVersion must be integer 5, 6, 7 or 8");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
-                && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6 or 7");
+                && version != SAVE_VERSION_7 && version != CURRENT_SAVE_VERSION) {
+            throw invalid("incompatible save version; expected 5, 6, 7 or 8");
         }
         return version;
     }

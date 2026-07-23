@@ -25,6 +25,7 @@ import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import com.footballmanagergamesimulator.economy.PersonalPayrollService;
+import com.footballmanagergamesimulator.economy.DeterministicMarketPriceService;
 import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -87,6 +88,7 @@ public class CalendarEventDispatcher {
     @Autowired @Lazy private FinanceService financeService;
     @Autowired private PersonalPayrollService personalPayrollService;
     @Autowired private RegentEconomyProperties regentEconomyProperties;
+    @Autowired private DeterministicMarketPriceService deterministicMarketPriceService;
     @Autowired @Lazy private FriendlyMatchService friendlyMatchService;
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
     @Autowired private InjuryTimelineService injuryTimelineService;
@@ -354,6 +356,7 @@ public class CalendarEventDispatcher {
             facilityUpgradeService.checkUpgradeCompletion(teamId, day, season);
         }
         scoutManagementController.processCompletedAssignments(season, day);
+        deterministicMarketPriceService.processDay(season, day);
     }
 
     private Human resolveCurrentManager(long teamId, List<Human> managers) {
