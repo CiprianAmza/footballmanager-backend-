@@ -38,6 +38,9 @@ class GameSaveGeneratorAlignmentTest {
             "SCORER", "SCORER_SEQ",
             "PLAYER_SKILLS", "PLAYER_SKILLS_SEQ",
             "TEAM_PLAYER_HISTORICAL_RELATION", "TPHR_SEQ");
+    private static final Set<String> PHASE_3_TABLES = Set.of(
+            "CLUB_FINANCIAL_OBLIGATION", "CLUB_CAP_TABLE_STATE", "TAKEOVER_QUOTE",
+            "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER");
 
     @jakarta.annotation.Resource private GameSaveImportService service;
     @jakarta.annotation.Resource private JdbcTemplate jdbc;
@@ -53,7 +56,11 @@ class GameSaveGeneratorAlignmentTest {
             jdbc.update("INSERT INTO \"" + table + "\" DEFAULT VALUES");
             long generated = jdbc.queryForObject(
                     "SELECT MAX(\"ID\") FROM \"" + table + "\"", Long.class);
-            assertThat(generated).as(table + " next generated id").isGreaterThan(1000L);
+            if (PHASE_3_TABLES.contains(table)) {
+                assertThat(generated).as(table + " remains absent from a v8 save").isGreaterThan(1L);
+            } else {
+                assertThat(generated).as(table + " next generated id").isGreaterThan(1000L);
+            }
         }
         assertThat(plan.generatorResets()).hasSize(GameSaveImportService.manifestTableNames().size());
         assertThat(plan.generatorResets().stream()

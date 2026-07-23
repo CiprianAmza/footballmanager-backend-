@@ -739,7 +739,9 @@ public class GameSaveImportService {
                        SELECT 1 FROM PORTFOLIO_POSITION position
                        WHERE position.ACCOUNT_ID = state.CONTROLLING_ACCOUNT_ID
                          AND position.INSTRUMENT_ID = state.INSTRUMENT_ID
-                         AND position.QUANTITY * 10000 >= instrument.TOTAL_SUPPLY * state.CONTROL_THRESHOLD_BPS))
+                         AND CAST(position.QUANTITY AS DECIMAL(38, 0)) * 10000
+                             >= CAST(instrument.TOTAL_SUPPLY AS DECIMAL(38, 0))
+                                * state.CONTROL_THRESHOLD_BPS))
                 """);
         if (invalidCapTables != 0) throw invalid("club cap-table state is inconsistent");
         long invalidQuotes = scalarLong(connection, """
@@ -749,7 +751,8 @@ public class GameSaveImportService {
                 WHERE account.ID IS NULL OR instrument.ID IS NULL
                    OR quote.BUYER_PROFILE_ID <> account.PROFILE_ID OR quote.TEAM_ID <> instrument.TEAM_ID
                    OR quote.SHARES_TO_ACQUIRE <= 0 OR quote.UNIT_PRICE <= 0
-                   OR quote.TOTAL_CONSIDERATION <> quote.SHARES_TO_ACQUIRE * quote.UNIT_PRICE
+                   OR CAST(quote.TOTAL_CONSIDERATION AS DECIMAL(38, 0))
+                      <> CAST(quote.SHARES_TO_ACQUIRE AS DECIMAL(38, 0)) * quote.UNIT_PRICE
                 """);
         if (invalidQuotes != 0) throw invalid("takeover quote state is inconsistent");
         long invalidExecutions = scalarLong(connection, """
@@ -759,7 +762,8 @@ public class GameSaveImportService {
                 WHERE quote.ID IS NULL OR account.ID IS NULL OR quote.STATUS <> 'EXECUTED'
                    OR execution.BUYER_PROFILE_ID <> account.PROFILE_ID
                    OR execution.TEAM_ID <> quote.TEAM_ID OR execution.INSTRUMENT_ID <> quote.INSTRUMENT_ID
-                   OR execution.TOTAL_CONSIDERATION <> execution.SHARES_ACQUIRED * execution.UNIT_PRICE
+                   OR CAST(execution.TOTAL_CONSIDERATION AS DECIMAL(38, 0))
+                      <> CAST(execution.SHARES_ACQUIRED AS DECIMAL(38, 0)) * execution.UNIT_PRICE
                 """);
         if (invalidExecutions != 0) throw invalid("takeover execution state is inconsistent");
         long invalidTransfers = scalarLong(connection, """

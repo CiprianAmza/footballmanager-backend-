@@ -55,6 +55,10 @@ public final class ClubDtos {
     public record TreasuryTransferRequest(@NotNull ClubCashTransferDirection direction,
                                           @Positive long amount,
                                           @NotBlank String idempotencyKey) { }
+    public record ClubCashTransferRequest(@Positive long teamId,
+                                          @NotNull ClubCashTransferDirection direction,
+                                          @Positive long amount,
+                                          @NotBlank String idempotencyKey) { }
     public record TreasuryTransferView(String transferId, long teamId,
                                        ClubCashTransferDirection direction,
                                        EconomyDtos.Money amount,

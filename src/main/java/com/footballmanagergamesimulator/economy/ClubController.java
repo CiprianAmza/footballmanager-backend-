@@ -51,6 +51,12 @@ public class ClubController {
         return queryService.dashboard(teamId, profile.getId());
     }
 
+    @GetMapping("/{teamId}/ownership")
+    public ClubDtos.CapTableView ownership(@PathVariable long teamId) {
+        currentProfile();
+        return queryService.ownership(teamId);
+    }
+
     @PostMapping("/{teamId}/takeover-quotes")
     public ClubDtos.TakeoverQuoteView quote(@PathVariable long teamId,
                                             @Valid @RequestBody ClubDtos.QuoteRequest request) {

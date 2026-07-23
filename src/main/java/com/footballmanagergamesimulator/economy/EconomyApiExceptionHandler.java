@@ -9,7 +9,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 
 @RestControllerAdvice(assignableTypes = {PersonalEconomyController.class, MarketController.class,
-        ClubController.class})
+        ClubController.class, ClubCashTransferController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class EconomyApiExceptionHandler {
 
