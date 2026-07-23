@@ -31,17 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({GameSaveImportService.class, GameSaveRealSchemaTest.Config.class})
 class GameSaveRealSchemaTest {
 
-    private static final List<String> MANIFEST_KEYS = List.of(
-            "rounds", "competitions", "teams", "teamFacilities", "stadiums", "gameCalendars",
-            "calendarEvents", "humans", "playerSkills", "youthPlayers", "playerInteractions",
-            "competitionTeamInfos", "competitionTeamInfoDetails", "competitionTeamInfoMatches",
-            "teamCompetitionDetails", "competitionHistories", "clubCoefficients", "scorers",
-            "scorerLeaderboard", "matchEvents", "matchStats", "playerSeasonStats", "transfers",
-            "transferOffers", "loans", "adminPlayerMovements", "injuries", "suspensions",
-            "sponsorships", "boardRequests", "facilityUpgrades", "awards", "awardOverrides",
-            "seasonObjectives", "managerHistories", "managerInbox", "pressConferences",
-            "nationalTeamCallups", "trainingSchedules", "personalizedTactics",
-            "teamPlayerHistorical", "financialRecords");
+    private static final List<String> MANIFEST_KEYS = GameSaveImportService.manifestKeys();
 
     @Autowired private GameSaveImportService importService;
     @MockBean private PersonProfileService personProfileService;

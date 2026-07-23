@@ -32,28 +32,24 @@ import static org.mockito.Mockito.mock;
 class GameImportPreflightTest {
 
     private static final List<String> SIMPLE_TABLES = List.of(
-            "COMPETITION", "TEAM_FACILITIES", "STADIUM", "CALENDAR_EVENT", "PLAYER_SKILLS",
+            "COMPETITION_TYPE", "HUMAN_TYPE", "TRANSFER_STRATEGY", "COMPETITION",
+            "TEAM_COMPETITION_RELATION", "TEAM_TRANSFER_STRATEGY_RELATION",
+            "TEAM_FACILITIES", "STADIUM", "CALENDAR_EVENT", "HUMAN_TEAM_RELATION", "PLAYER_SKILLS",
             "YOUTH_PLAYER", "PLAYER_INTERACTION", "COMPETITION_TEAM_INFO",
             "COMPETITION_TEAM_INFO_DETAIL", "COMPETITION_TEAM_INFO_MATCH", "TEAM_COMPETITION_DETAIL",
             "COMPETITION_HISTORY", "CLUB_COEFFICIENT", "SCORER", "SCORER_LEADERBOARD_ENTRY",
-            "MATCH_EVENT", "MATCH_STATS", "PLAYER_SEASON_STAT", "TRANSFER", "TRANSFER_OFFER",
+            "MATCH_EVENT", "MATCH_STATS", "PLAYER_SEASON_STAT", "MATCH_PLAYER_RATING", "MATCH_SQUAD",
+            "MATCH_PLAN", "MATCH_PLAN_GOAL_SLOT", "MATCH_PARTICIPANT", "MATCH_APPEARANCE",
+            "MATCH_SUBSTITUTION", "MATCH_ANIMATION_RECIPE", "LIVE_COMMIT_CONTEXT", "PREDETERMINED_SCORE",
+            "TRANSFER", "TRANSFER_OFFER",
             "LOAN", "ADMIN_PLAYER_MOVEMENT", "INJURY", "SUSPENSION", "SPONSORSHIP",
             "BOARD_REQUEST", "FACILITY_UPGRADE", "AWARD", "AWARD_OVERRIDE", "SEASON_OBJECTIVE",
             "MANAGER_HISTORY", "MANAGER_INBOX", "PRESS_CONFERENCE", "NATIONAL_TEAM_CALLUP",
             "TRAINING_SCHEDULE", "PERSONALIZED_TACTIC", "TEAM_PLAYER_HISTORICAL_RELATION",
-            "FINANCIAL_RECORD");
+            "FINANCIAL_RECORD", "FRIENDLY_MATCH", "JOB_OFFER", "SCOUT", "SCOUT_ASSIGNMENT",
+            "SHORTLIST", "ASSET", "CLUB_SHAREHOLDING", "OWNERSHIP", "COACH_PERMISSIONS");
 
-    private static final List<String> MANIFEST_KEYS = List.of(
-            "rounds", "competitions", "teams", "teamFacilities", "stadiums", "gameCalendars",
-            "calendarEvents", "humans", "playerSkills", "youthPlayers", "playerInteractions",
-            "competitionTeamInfos", "competitionTeamInfoDetails", "competitionTeamInfoMatches",
-            "teamCompetitionDetails", "competitionHistories", "clubCoefficients", "scorers",
-            "scorerLeaderboard", "matchEvents", "matchStats", "playerSeasonStats", "transfers",
-            "transferOffers", "loans", "adminPlayerMovements", "injuries", "suspensions",
-            "sponsorships", "boardRequests", "facilityUpgrades", "awards", "awardOverrides",
-            "seasonObjectives", "managerHistories", "managerInbox", "pressConferences",
-            "nationalTeamCallups", "trainingSchedules", "personalizedTactics",
-            "teamPlayerHistorical", "financialRecords");
+    private static final List<String> MANIFEST_KEYS = GameSaveImportService.manifestKeys();
 
     @jakarta.annotation.Resource private GameSaveImportService service;
     @jakarta.annotation.Resource private JdbcTemplate jdbc;
@@ -90,15 +86,20 @@ class GameImportPreflightTest {
     void cleanV5AndV6RoundTripPreservesWorldAndIgnoresIdentityPayloads() {
         Map<String, Object> v5 = validSave(5);
         v5.put("users", List.of(Map.of("id", 1, "teamId", 999, "managerId", 999)));
-        service.apply(service.prepare(v5), false);
+        GameSaveImportService.ImportPlan v5Plan = service.prepare(v5);
+        service.apply(v5Plan, false);
+        service.alignGeneratorsAfterCommit(v5Plan);
         assertImportedStateAndIdentity();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM MATCH_PLAN", Integer.class)).isZero();
 
         Map<String, Object> v6 = validSave(6);
         v6.put("users", List.of(Map.of("id", 1, "teamId", 999, "managerId", 999)));
         v6.put("personProfiles", List.of(Map.of(
                 "id", 500, "userId", 1, "humanId", 999,
                 "careerType", "CHAIRMAN", "controlType", "USER", "displayName", "Attacker")));
-        service.apply(service.prepare(v6), false);
+        GameSaveImportService.ImportPlan v6Plan = service.prepare(v6);
+        service.apply(v6Plan, false);
+        service.alignGeneratorsAfterCommit(v6Plan);
         assertImportedStateAndIdentity();
     }
 
@@ -135,19 +136,35 @@ class GameImportPreflightTest {
             dataSource.setURL("jdbc:h2:mem:regent-import-test-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1");
             dataSource.setUser("sa");
             try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+                statement.execute("CREATE SEQUENCE CTI_SEQ START WITH 1 INCREMENT BY 1");
+                statement.execute("CREATE SEQUENCE SCORER_SEQ START WITH 1 INCREMENT BY 1");
+                statement.execute("CREATE SEQUENCE PLAYER_SKILLS_SEQ START WITH 1 INCREMENT BY 1");
+                statement.execute("CREATE SEQUENCE TPHR_SEQ START WITH 1 INCREMENT BY 1");
                 statement.execute("CREATE TABLE ROUND (ID BIGINT PRIMARY KEY, ROUND BIGINT, SEASON BIGINT)");
                 statement.execute("CREATE TABLE TEAM (ID BIGINT PRIMARY KEY)");
                 statement.execute("CREATE TABLE GAME_CALENDAR (ID BIGINT PRIMARY KEY, SEASON INT)");
                 statement.execute("CREATE TABLE HUMAN (ID BIGINT PRIMARY KEY, TEAM_ID BIGINT, TYPE_ID BIGINT NOT NULL, RETIRED BOOLEAN NOT NULL, NAME VARCHAR(255))");
                 statement.execute("CREATE TABLE USERS (ID INT PRIMARY KEY, TEAM_ID BIGINT, LAST_TEAM_ID BIGINT, MANAGER_ID BIGINT)");
                 statement.execute("CREATE TABLE PERSON_PROFILE (ID BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, USER_ID INT UNIQUE, HUMAN_ID BIGINT UNIQUE, CAREER_TYPE VARCHAR(20) NOT NULL, CONTROL_TYPE VARCHAR(20) NOT NULL, DISPLAY_NAME VARCHAR(255) NOT NULL, CREATED_SEASON INT NOT NULL, CREATED_DAY INT NOT NULL, ACTIVE BOOLEAN NOT NULL, RETIRED BOOLEAN NOT NULL)");
-                for (String table : SIMPLE_TABLES) statement.execute("CREATE TABLE \"" + table + "\" (ID BIGINT PRIMARY KEY)");
+                for (String table : SIMPLE_TABLES) {
+                    String sequence = switch (table) {
+                        case "COMPETITION_TEAM_INFO" -> "CTI_SEQ";
+                        case "SCORER" -> "SCORER_SEQ";
+                        case "PLAYER_SKILLS" -> "PLAYER_SKILLS_SEQ";
+                        case "TEAM_PLAYER_HISTORICAL_RELATION" -> "TPHR_SEQ";
+                        default -> null;
+                    };
+                    String id = sequence == null ? "ID BIGINT PRIMARY KEY"
+                            : "ID BIGINT DEFAULT NEXT VALUE FOR " + sequence + " PRIMARY KEY";
+                    statement.execute("CREATE TABLE \"" + table + "\" (" + id + ")");
+                }
                 statement.execute("INSERT INTO TEAM VALUES (1), (99)");
                 statement.execute("INSERT INTO HUMAN VALUES (10, 1, 4, FALSE, 'Victim manager')");
                 statement.execute("INSERT INTO ROUND VALUES (77, 8, 1)");
                 statement.execute("INSERT INTO GAME_CALENDAR VALUES (77, 1)");
                 statement.execute("INSERT INTO USERS VALUES (1, 1, 1, 10)");
                 statement.execute("INSERT INTO PERSON_PROFILE (ID, USER_ID, HUMAN_ID, CAREER_TYPE, CONTROL_TYPE, DISPLAY_NAME, CREATED_SEASON, CREATED_DAY, ACTIVE, RETIRED) VALUES (1, 1, 10, 'MANAGER', 'USER', 'Victim profile', 0, 0, TRUE, FALSE)");
+                statement.execute("INSERT INTO MATCH_PLAN (ID) VALUES (77)");
             }
             return dataSource;
         }

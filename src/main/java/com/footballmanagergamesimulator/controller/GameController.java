@@ -757,6 +757,11 @@ public class GameController {
         save.put("personalizedTactics", personalizedTacticRepository.findAll());
         save.put("teamPlayerHistorical", teamPlayerHistoricalRelationRepository.findAll());
 
+        // V6 additions are exported from the physical H2 rows through the
+        // versioned manifest. This includes every persisted canonical match
+        // plan source/checkpoint and every previously omitted world-state table.
+        save.putAll(gameSaveImportService.exportVersion6State());
+
         // Account and PersonProfile identity are deliberately outside a global
         // game save. They remain bound to the authenticated installation and
         // can never be selected or reassociated by import payload IDs.
@@ -777,6 +782,10 @@ public class GameController {
         try {
             GameSaveImportService.ImportPlan plan = gameSaveImportService.prepare(save);
             gameSaveImportService.apply(plan, gameplayFeatures.isPlayerAvailabilityDisabled());
+            // H2 ALTER ... RESTART is implicit-commit DDL, intentionally kept
+            // outside the rollbackable DML transaction and preflighted against
+            // the isolated schema clone before apply.
+            gameSaveImportService.alignGeneratorsAfterCommit(plan);
 
             result.put("success", true);
             result.put("message", "Game loaded successfully");
