@@ -1,77 +1,97 @@
 package com.footballmanagergamesimulator.user;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
+import com.footballmanagergamesimulator.person.PersonProfile;
+import com.footballmanagergamesimulator.person.PersonProfileService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
 public class AuthController {
 
-    @Autowired
-    private UserRepository userRepository;
+    private final AuthenticationManager authenticationManager;
+    private final UserService userService;
+    private final CurrentUserService currentUserService;
+    private final PersonProfileService personProfileService;
+    private final HttpSessionSecurityContextRepository securityContextRepository =
+            new HttpSessionSecurityContextRepository();
 
-    /**
-     * Simple login: find user by username, no password check for now.
-     * Creates the user if it doesn't exist.
-     */
-    @PostMapping("/login")
-    public Map<String, Object> login(@RequestBody Map<String, String> body) {
-        String username = body.get("username");
-        Map<String, Object> result = new LinkedHashMap<>();
-
-        if (username == null || username.isBlank()) {
-            result.put("success", false);
-            result.put("error", "Username is required");
-            return result;
-        }
-
-        username = username.trim();
-
-        // Find or create user
-        Optional<User> existing = userRepository.findByUsername(username);
-        User user;
-        if (existing.isPresent()) {
-            user = existing.get();
-        } else {
-            user = new User();
-            user.setUsername(username);
-            user.setActive(true);
-            user.setRoles("USER");
-            userRepository.save(user);
-        }
-
-        result.put("success", true);
-        result.put("userId", user.getId());
-        result.put("username", user.getUsername());
-        result.put("teamId", user.getTeamId());
-        result.put("managerId", user.getManagerId());
-        return result;
+    public AuthController(AuthenticationManager authenticationManager,
+                          UserService userService,
+                          CurrentUserService currentUserService,
+                          PersonProfileService personProfileService) {
+        this.authenticationManager = authenticationManager;
+        this.userService = userService;
+        this.currentUserService = currentUserService;
+        this.personProfileService = personProfileService;
     }
 
-    /**
-     * Verify session / restore state on page refresh.
-     */
-    @GetMapping("/me")
-    public Map<String, Object> me(@RequestParam int userId) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            result.put("success", false);
-            result.put("error", "User not found");
-            return result;
-        }
+    @GetMapping("/csrf")
+    public Map<String, String> csrf(CsrfToken token) {
+        return Map.of("headerName", token.getHeaderName(), "token", token.getToken());
+    }
 
-        User user = userOpt.get();
-        result.put("success", true);
-        result.put("userId", user.getId());
-        result.put("username", user.getUsername());
-        result.put("teamId", user.getTeamId());
-        result.put("managerId", user.getManagerId());
-        return result;
+    @PostMapping("/register")
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+        try {
+            User user = userService.register(request);
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(AuthResponse.success(user, personProfileService.requireForUser(user)));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(AuthResponse.failure(exception.getMessage()));
+        }
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
+                                              HttpServletRequest servletRequest,
+                                              HttpServletResponse servletResponse) {
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    UsernamePasswordAuthenticationToken.unauthenticated(request.username(), request.password()));
+            SecurityContext context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(authentication);
+            SecurityContextHolder.setContext(context);
+            if (servletRequest.getSession(false) != null) {
+                servletRequest.getSession(false).invalidate();
+            }
+            servletRequest.getSession(true);
+            securityContextRepository.saveContext(context, servletRequest, servletResponse);
+
+            User user = currentUserService.requireUser();
+            PersonProfile profile = personProfileService.requireForUser(user);
+            return ResponseEntity.ok(AuthResponse.success(user, profile));
+        } catch (AuthenticationException exception) {
+            SecurityContextHolder.clearContext();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(AuthResponse.failure("Invalid username or password"));
+        }
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<AuthResponse> me() {
+        User user = currentUserService.getUserOrNull();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthResponse.failure("Not authenticated"));
+        }
+        return ResponseEntity.ok(AuthResponse.success(user, personProfileService.requireForUser(user)));
     }
 }

@@ -21,8 +21,12 @@ public class UserDetailsImpl implements UserDetails {
     public UserDetailsImpl(User user) {
         this.userName = user.getUsername();
         this.password = user.getPassword();
-        this.active = true;
-        this.authorities = Arrays.stream("USER,ADMIN".split(","))
+        this.active = user.isActive();
+        String persistedRoles = user.getRoles() == null ? "USER" : user.getRoles();
+        this.authorities = Arrays.stream(persistedRoles.split(","))
+                .map(String::trim)
+                .filter(role -> !role.isBlank())
+                .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList());
     }

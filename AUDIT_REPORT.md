@@ -272,7 +272,7 @@ Lista de roluri e **hard-coded**: orice utilizator care ajunge prin form-login S
 ```
 spring.datasource.url=jdbc:postgresql://c3l5o0rb2a6o4l.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com:5432/df061j2rqsomrf
 spring.datasource.username=u43vqtjlia7r5c
-spring.datasource.password=p9292642ff5fda9c62bb7df3c4bf31393a50a518512d6a2e8b6d534f9785c6dc5
+spring.datasource.password=<redacted-historical-credential>
 ```
 
 Chiar dacă instanța nu mai există, credențialele rămân în istoricul git (`.git/`). **Acțiune imediată**: rotire parolă/instanță Heroku + `git filter-repo` pentru curățarea istoricului + adăugare în `.gitignore` a fișierelor cu secrete + folosire de variabile de mediu (`application.yml` deja are placeholder-ele `${DB_PASSWORD:}`).
