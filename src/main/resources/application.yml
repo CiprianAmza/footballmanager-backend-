@@ -104,6 +104,204 @@ match:
       max-ball-step: 4.0
   engine:
 
+    # Compartment Engine V1 Phase 0/1 contract only. Nothing in the runtime scoring
+    # path consumes this section yet; false is the mandatory legacy fallback gate.
+    compartment:
+      enabled: false
+      rating:
+        attribute-min: 1
+        attribute-max: 20
+        score-scale: 100.0
+        context-factor-min: 0.60
+        context-factor-max: 1.40
+        total-context-min: 0.70
+        total-context-max: 1.30
+        context-coefficient-min: -1.0
+        context-coefficient-max: 1.0
+        role-fit-base: 0.85
+        role-fit-range: 0.30
+        fitness-floor: 0.70
+        morale-neutral: 70.0
+        morale-slope: 0.0004
+        default-position-multiplier: 1.0
+        default-role-multiplier: 1.0
+
+      # Each attribute table sums to 1.0. Stable enum keys are mapped to the
+      # existing PlayerSkillsService names only by a future runtime adapter.
+      compartments:
+        ATTACK:
+          attributes:
+            FINISHING: 0.18
+            OFF_THE_BALL: 0.14
+            DRIBBLING: 0.12
+            PASSING: 0.10
+            VISION: 0.09
+            TECHNIQUE: 0.08
+            FIRST_TOUCH: 0.08
+            ACCELERATION: 0.07
+            PACE: 0.06
+            COMPOSURE: 0.05
+            DECISIONS: 0.03
+        MIDFIELD:
+          attributes:
+            PASSING: 0.16
+            VISION: 0.14
+            FIRST_TOUCH: 0.11
+            TECHNIQUE: 0.10
+            DECISIONS: 0.10
+            TEAMWORK: 0.09
+            WORK_RATE: 0.08
+            STAMINA: 0.07
+            POSITIONING: 0.06
+            ANTICIPATION: 0.05
+            DRIBBLING: 0.04
+        DEFENSE:
+          attributes:
+            TACKLING: 0.16
+            MARKING: 0.15
+            POSITIONING: 0.14
+            ANTICIPATION: 0.10
+            CONCENTRATION: 0.10
+            DECISIONS: 0.08
+            STRENGTH: 0.07
+            HEADING: 0.06
+            BRAVERY: 0.05
+            PACE: 0.04
+            TEAMWORK: 0.03
+            JUMPING_REACH: 0.02
+
+      # Goalkeepers use a dedicated protection profile; other positions use the
+      # compartment defaults above. This keeps the pure model extensible by position.
+      position-compartment-overrides:
+        GK:
+          DEFENSE:
+            attributes:
+              HANDLING: 0.24
+              REFLEXES: 0.24
+              ONE_ON_ONES: 0.16
+              COMMAND_OF_AREA: 0.12
+              POSITIONING: 0.08
+              CONCENTRATION: 0.06
+              ANTICIPATION: 0.05
+              KICKING: 0.03
+              THROWING: 0.02
+
+      positions:
+        GK:  { attack: 0.15, midfield: 0.35, defense: 1.20 }
+        DC:  { attack: 0.35, midfield: 0.65, defense: 1.12 }
+        DL:  { attack: 0.60, midfield: 0.90, defense: 0.98 }
+        DR:  { attack: 0.60, midfield: 0.90, defense: 0.98 }
+        WBL: { attack: 0.78, midfield: 1.04, defense: 0.82 }
+        WBR: { attack: 0.78, midfield: 1.04, defense: 0.82 }
+        DM:  { attack: 0.55, midfield: 1.08, defense: 1.05 }
+        MC:  { attack: 0.78, midfield: 1.15, defense: 0.78 }
+        ML:  { attack: 0.98, midfield: 1.08, defense: 0.60 }
+        MR:  { attack: 0.98, midfield: 1.08, defense: 0.60 }
+        AMC: { attack: 1.10, midfield: 1.05, defense: 0.45 }
+        AML: { attack: 1.15, midfield: 0.92, defense: 0.38 }
+        AMR: { attack: 1.15, midfield: 0.92, defense: 0.38 }
+        ST:  { attack: 1.20, midfield: 0.60, defense: 0.25 }
+
+      roles:
+        GOALKEEPER:               { attack: 1.00, midfield: 0.95, defense: 1.08 }
+        SWEEPER_KEEPER:           { attack: 1.00, midfield: 1.12, defense: 1.02 }
+        CENTRAL_DEFENDER:         { attack: 0.98, midfield: 1.00, defense: 1.08 }
+        BALL_PLAYING_DEFENDER:    { attack: 1.00, midfield: 1.12, defense: 1.02 }
+        NO_NONSENSE_DEFENDER:     { attack: 0.92, midfield: 0.95, defense: 1.12 }
+        FULL_BACK:                { attack: 1.00, midfield: 1.02, defense: 1.04 }
+        WING_BACK:                { attack: 1.08, midfield: 1.06, defense: 0.95 }
+        INVERTED_WING_BACK:       { attack: 1.02, midfield: 1.10, defense: 0.98 }
+        CENTRAL_MIDFIELDER:       { attack: 1.00, midfield: 1.06, defense: 1.00 }
+        DEEP_LYING_PLAYMAKER:     { attack: 0.98, midfield: 1.12, defense: 1.00 }
+        BALL_WINNING_MIDFIELDER:  { attack: 0.94, midfield: 1.04, defense: 1.10 }
+        BOX_TO_BOX_MIDFIELDER:    { attack: 1.03, midfield: 1.12, defense: 1.03 }
+        ADVANCED_PLAYMAKER:       { attack: 1.06, midfield: 1.12, defense: 0.94 }
+        MEZZALA:                  { attack: 1.08, midfield: 1.08, defense: 0.92 }
+        WINGER:                   { attack: 1.10, midfield: 1.02, defense: 0.94 }
+        INSIDE_FORWARD:           { attack: 1.12, midfield: 0.95, defense: 0.90 }
+        WIDE_MIDFIELDER:          { attack: 1.02, midfield: 1.06, defense: 1.00 }
+        INVERTED_WINGER:          { attack: 1.08, midfield: 1.04, defense: 0.94 }
+        ADVANCED_FORWARD:         { attack: 1.10, midfield: 0.98, defense: 0.92 }
+        POACHER:                  { attack: 1.12, midfield: 0.90, defense: 0.88 }
+        TARGET_MAN:               { attack: 1.05, midfield: 1.05, defense: 0.96 }
+        DEEP_LYING_FORWARD:       { attack: 1.02, midfield: 1.10, defense: 0.96 }
+        PRESSING_FORWARD:         { attack: 1.04, midfield: 1.02, defense: 1.08 }
+        COMPLETE_FORWARD:         { attack: 1.10, midfield: 1.06, defense: 0.96 }
+
+      duties:
+        ATTACK:  { attack: 1.10, midfield: 0.98, defense: 0.80 }
+        SUPPORT: { attack: 0.98, midfield: 1.08, defense: 0.98 }
+        DEFEND:  { attack: 0.82, midfield: 0.98, defense: 1.12 }
+
+      mentalities:
+        VERY_ATTACKING:
+          midfield-to-attack: 0.90
+          midfield-to-defense: 0.10
+          transfer-from: DEFENSE
+          transfer-to: ATTACK
+          transfer-share: 0.20
+          openness: 1.15
+        ATTACKING:
+          midfield-to-attack: 0.70
+          midfield-to-defense: 0.30
+          transfer-from: DEFENSE
+          transfer-to: ATTACK
+          transfer-share: 0.08
+          openness: 1.07
+        BALANCED:
+          midfield-to-attack: 0.50
+          midfield-to-defense: 0.50
+          transfer-from: ATTACK
+          transfer-to: DEFENSE
+          transfer-share: 0.00
+          openness: 1.00
+        DEFENSIVE:
+          midfield-to-attack: 0.25
+          midfield-to-defense: 0.75
+          transfer-from: ATTACK
+          transfer-to: DEFENSE
+          transfer-share: 0.08
+          openness: 0.90
+        VERY_DEFENSIVE:
+          midfield-to-attack: 0.10
+          midfield-to-defense: 0.90
+          transfer-from: ATTACK
+          transfer-to: DEFENSE
+          transfer-share: 0.20
+          openness: 0.78
+
+      work-rate:
+        traits:
+          REFUSES_DEFENSIVE_WORK:
+            engagement: 0.08
+            attack-multiplier: 1.15
+            ignores-defensive-instructions: true
+            forced-defensive-morale-delta: -3.0
+        instructions:
+          DEFAULT:      { engagement: 1.00, attack-multiplier: 1.00 }
+          STAY_FORWARD: { engagement: 0.30, attack-multiplier: 1.08 }
+          TRACK_BACK:   { engagement: 1.15, attack-multiplier: 0.95 }
+
+      exposure:
+        zone-weights:
+          CENTRAL: 1.00
+          HALF_SPACE: 0.80
+          WIDE: 0.60
+        coverage-reduction: 0.65
+        second-dm-weight: 0.55
+        cb-recovery-pace-cap: 0.50
+        penalty-strength: 0.55
+        penalty-exponent: 1.70
+
+      probability:
+        matchup-exponent: 1.5
+        home-advantage: 1.08
+        gamma-shape: 12.0
+        goal-cap: 7
+        extra-time-scale: 0.3333333333333333
+        interval-lower-quantile: 0.05
+        interval-upper-quantile: 0.95
+
     power:
       ratio-exponent: 2.0          # Math.pow(ratio, X). Higher = stronger dominates more.
       expected-goals-total: 3.0    # Total ~goals/match, split by adjusted ratio.
