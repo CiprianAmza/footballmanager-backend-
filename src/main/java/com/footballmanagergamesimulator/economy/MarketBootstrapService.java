@@ -19,13 +19,16 @@ public class MarketBootstrapService {
     private final MarketInstrumentRepository instrumentRepository;
     private final TeamRepository teamRepository;
     private final RegentEconomyProperties properties;
+    private final ClubValuationService clubValuationService;
 
     public MarketBootstrapService(MarketInstrumentRepository instrumentRepository,
                                   TeamRepository teamRepository,
-                                  RegentEconomyProperties properties) {
+                                  RegentEconomyProperties properties,
+                                  ClubValuationService clubValuationService) {
         this.instrumentRepository = instrumentRepository;
         this.teamRepository = teamRepository;
         this.properties = properties;
+        this.clubValuationService = clubValuationService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -49,7 +52,8 @@ public class MarketBootstrapService {
             instrument.setName(team.getName());
             instrument.setTotalSupply(CLUB_SUPPLY);
             instrument.setAvailableSupply(CLUB_SUPPLY);
-            instrument.setCurrentPrice(clubInitialPrice(team.getReputation()));
+            instrument.setCurrentPrice(clubValuationService.perSharePrice(
+                    clubValuationService.value(team), CLUB_SUPPLY));
             instrument.setPriceSeed(stableSeed(instrument.getCode()));
             instrument.setPriceAlgorithmVersion(DeterministicMarketPriceService.MARKET_V1);
             instrument.setDailyLimitBps(DEFAULT_DAILY_LIMIT_BPS);

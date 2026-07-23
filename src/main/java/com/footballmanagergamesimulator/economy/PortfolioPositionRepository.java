@@ -13,12 +13,18 @@ public interface PortfolioPositionRepository extends JpaRepository<PortfolioPosi
     List<PortfolioPosition> findAllByAccountIdAndQuantityGreaterThanOrderByInstrumentIdAsc(long accountId, long minimum);
     List<PortfolioPosition> findAllByQuantityGreaterThan(long minimum);
     Optional<PortfolioPosition> findByAccountIdAndInstrumentId(long accountId, long instrumentId);
+    List<PortfolioPosition> findAllByInstrumentIdAndQuantityGreaterThanOrderByAccountIdAsc(long instrumentId, long minimum);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select position from PortfolioPosition position where position.accountId = :accountId "
             + "and position.instrumentId = :instrumentId")
     Optional<PortfolioPosition> findForUpdate(@Param("accountId") long accountId,
                                                @Param("instrumentId") long instrumentId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select position from PortfolioPosition position where position.instrumentId = :instrumentId "
+            + "and position.quantity > 0 order by position.accountId asc")
+    List<PortfolioPosition> findPositiveByInstrumentIdForUpdate(@Param("instrumentId") long instrumentId);
 
     @Query("select coalesce(sum(position.quantity), 0) from PortfolioPosition position "
             + "where position.instrumentId = :instrumentId")
