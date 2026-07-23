@@ -23,6 +23,6 @@ public class ClubShareholding {
 
     /** Percentage of the club owned by this human (0-100).
      *  Column renamed off the reserved word PERCENT (H2 SQL keyword). */
-    @Column(name = "percent_stake", columnDefinition = "double default 0")
+    @Column(name = "percent_stake", columnDefinition = "double precision default 0")
     private double percent;
 }

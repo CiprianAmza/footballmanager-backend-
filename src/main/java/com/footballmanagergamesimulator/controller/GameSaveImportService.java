@@ -12,7 +12,6 @@ import java.sql.Connection;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.DatabaseMetaData;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -28,12 +27,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * Builds an immutable, account-neutral import plan and proves it against an
- * isolated copy of the current H2 schema before the live database is touched.
+ * Builds an immutable, account-neutral import plan and proves it with a
+ * rollback-only rehearsal against the current database before live state is touched.
  */
 @Service
 public class GameSaveImportService {
@@ -174,9 +172,10 @@ public class GameSaveImportService {
 
         Connection live = DataSourceUtils.getConnection(dataSource);
         try {
-            requireH2(live);
-            validateSchemaDisposition(live);
-            Map<String, Set<String>> schemaColumns = readSchemaColumns(live);
+            DatabaseDialect dialect = DatabaseDialect.detect(live);
+            SchemaCatalog schema = SchemaCatalog.inspect(live, dialect);
+            validateSchemaDisposition(schema);
+            Map<String, Set<String>> schemaColumns = readSchemaColumns(schema);
             List<TableRows> tables = new ArrayList<>();
             for (TableSpec spec : MANIFEST) {
                 Object rawSection = save.get(spec.jsonKey());
@@ -197,17 +196,17 @@ public class GameSaveImportService {
                 }
                 Set<String> columns = schemaColumns.get(spec.tableName());
                 if (columns == null || columns.isEmpty()) {
-                    throw invalid("current H2 schema is missing table " + spec.tableName());
+                    throw invalid("current " + dialect.label() + " schema is missing table " + spec.tableName());
                 }
                 tables.add(new TableRows(spec, parseRows(spec, rows, columns)));
             }
 
             ImportPlan parsed = new ImportPlan(version, List.copyOf(tables), List.of());
-            validateAccountCompatibility(live, parsed);
-            List<GeneratorReset> generators = validateOnIsolatedH2(live, parsed);
+            validateAccountCompatibility(live, parsed, schema);
+            List<GeneratorReset> generators = validateInRollbackSandbox(parsed);
             return new ImportPlan(version, parsed.tables(), generators);
         } catch (SQLException exception) {
-            throw invalid("H2 preflight failed: " + rootMessage(exception), exception);
+            throw invalid("database preflight failed: " + rootMessage(exception), exception);
         } finally {
             DataSourceUtils.releaseConnection(live, dataSource);
         }
@@ -222,17 +221,18 @@ public class GameSaveImportService {
     public Map<String, Object> exportVersion6State() {
         Connection live = DataSourceUtils.getConnection(dataSource);
         try {
-            requireH2(live);
-            validateSchemaDisposition(live);
+            DatabaseDialect dialect = DatabaseDialect.detect(live);
+            SchemaCatalog schema = SchemaCatalog.inspect(live, dialect);
+            validateSchemaDisposition(schema);
             Map<String, Object> result = new LinkedHashMap<>();
             for (TableSpec spec : MANIFEST) {
                 if (spec.introducedVersion() == CURRENT_SAVE_VERSION) {
-                    result.put(spec.jsonKey(), readRows(live, spec.tableName()));
+                    result.put(spec.jsonKey(), readRows(live, schema, spec.tableName()));
                 }
             }
             return Collections.unmodifiableMap(result);
         } catch (SQLException exception) {
-            throw new IllegalStateException("Cannot export complete H2 save: "
+            throw new IllegalStateException("Cannot export complete database save: "
                     + rootMessage(exception), exception);
         } finally {
             DataSourceUtils.releaseConnection(live, dataSource);
@@ -249,50 +249,53 @@ public class GameSaveImportService {
         Objects.requireNonNull(plan, "import plan");
         Connection live = DataSourceUtils.getConnection(dataSource);
         try {
-            requireH2(live);
-            validateAccountCompatibility(live, plan);
-            deleteImportedWorld(live, plan);
-            insertPlan(live, plan);
-            reconcileAiProfiles(live);
+            DatabaseDialect dialect = DatabaseDialect.detect(live);
+            SchemaCatalog schema = SchemaCatalog.inspect(live, dialect);
+            validateAccountCompatibility(live, plan, schema);
+            deleteImportedWorld(live, plan, schema);
+            insertPlan(live, plan, schema);
+            reconcileAiProfiles(live, schema);
             if (playerAvailabilityDisabled) {
-                executeUpdate(live, "UPDATE SUSPENSION SET ACTIVE = FALSE");
-                executeUpdate(live, "UPDATE INJURY SET DAYS_REMAINING = 0");
-                executeUpdate(live, "UPDATE HUMAN SET CURRENT_STATUS = 'Available' "
-                        + "WHERE LOWER(CURRENT_STATUS) LIKE 'injur%'");
+                executeUpdate(live, "UPDATE " + schema.table("SUSPENSION") + " SET "
+                        + schema.column("SUSPENSION", "ACTIVE") + " = FALSE");
+                executeUpdate(live, "UPDATE " + schema.table("INJURY") + " SET "
+                        + schema.column("INJURY", "DAYS_REMAINING") + " = 0");
+                executeUpdate(live, "UPDATE " + schema.table("HUMAN") + " SET "
+                        + schema.column("HUMAN", "CURRENT_STATUS") + " = 'Available' WHERE LOWER("
+                        + schema.column("HUMAN", "CURRENT_STATUS") + ") LIKE 'injur%'");
             }
             personProfileService.backfill();
-            validateWorld(live);
-            validateAccountCompatibility(live, plan);
+            validateWorld(live, schema);
+            validateAccountCompatibility(live, plan, schema);
         } catch (SQLException exception) {
-            throw new IllegalStateException("Atomic H2 import failed: " + rootMessage(exception), exception);
+            throw new IllegalStateException("Atomic database import failed: " + rootMessage(exception), exception);
         } finally {
             DataSourceUtils.releaseConnection(live, dataSource);
         }
     }
 
     /**
-     * H2's generator-alignment statements are DDL and therefore implicitly
-     * commit. They are deliberately executed before {@link #apply}: if any DDL
-     * fails, live DML never starts and the old world remains intact. If apply
-     * later rolls back, only counters may remain safely advanced beyond both
-     * the old and imported maxima. Every exact statement was already executed
-     * on the isolated H2 clone in {@link #prepare}.
+     * H2/MySQL generator-alignment statements can implicitly commit and
+     * PostgreSQL sequence changes are not transactional. They are deliberately
+     * executed before {@link #apply}: if alignment fails, live DML never starts
+     * and the old world remains intact. If apply later rolls back, only counters
+     * may remain changed, and their precomputed floor is beyond both the old and
+     * imported row maxima.
      */
     public void alignGeneratorsBeforeApply(ImportPlan plan) {
         Objects.requireNonNull(plan, "import plan");
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            throw new IllegalStateException("H2 generator DDL must run before the import transaction starts");
+            throw new IllegalStateException("generator alignment must run before the import transaction starts");
         }
         Connection live = DataSourceUtils.getConnection(dataSource);
         try {
-            requireH2(live);
+            DatabaseDialect dialect = DatabaseDialect.detect(live);
+            SchemaCatalog schema = SchemaCatalog.inspect(live, dialect);
             for (GeneratorReset reset : plan.generatorResets()) {
-                // The imported DML state is identical to the isolated plan, so
-                // execute the exact statement that prepare already proved.
-                executeUpdate(live, reset.sql(reset.minimumNextValue()));
+                alignGenerator(live, schema, dialect, reset);
             }
-        } catch (SQLException exception) {
-            throw new IllegalStateException("H2 generator alignment failed before import; world was not modified: "
+        } catch (SQLException | IllegalArgumentException exception) {
+            throw new IllegalStateException("generator alignment failed before import; world was not modified: "
                     + rootMessage(exception), exception);
         } finally {
             DataSourceUtils.releaseConnection(live, dataSource);
@@ -337,71 +340,103 @@ public class GameSaveImportService {
         return List.copyOf(parsed);
     }
 
-    private List<GeneratorReset> validateOnIsolatedH2(Connection live, ImportPlan plan) throws SQLException {
-        List<String> schema = readSchemaScript(live);
-        String database = "jdbc:h2:mem:regent-save-preflight-" + UUID.randomUUID();
-        try (Connection isolated = DriverManager.getConnection(database, "sa", "")) {
-            try (Statement statement = isolated.createStatement()) {
-                for (String ddl : schema) {
-                    String normalized = ddl.stripLeading().toUpperCase(Locale.ROOT);
-                    if (normalized.startsWith("SET DB_CLOSE_DELAY")) continue;
-                    statement.execute(ddl);
+    /**
+     * Rehearses the complete DML import on a dedicated connection and always
+     * rolls it back. DELETE/INSERT are transactional on H2, PostgreSQL and
+     * InnoDB, so the rehearsal exercises the real schema, constraints and
+     * JDBC conversions without vendor-specific schema cloning or DDL.
+     */
+    private List<GeneratorReset> validateInRollbackSandbox(ImportPlan plan) throws SQLException {
+        try (Connection sandbox = dataSource.getConnection()) {
+            boolean originalAutoCommit = sandbox.getAutoCommit();
+            sandbox.setAutoCommit(false);
+            try {
+                DatabaseDialect dialect = DatabaseDialect.detect(sandbox);
+                SchemaCatalog schema = SchemaCatalog.inspect(sandbox, dialect);
+                Map<String, GeneratorReset> liveResets = new HashMap<>();
+                for (GeneratorReset reset : discoverGeneratorResets(sandbox, schema, dialect)) {
+                    liveResets.put(reset.sortKey(), reset);
                 }
+                validateAccountCompatibility(sandbox, plan, schema);
+                deleteImportedWorld(sandbox, plan, schema);
+                insertPlan(sandbox, plan, schema);
+                reconcileAiProfiles(sandbox, schema);
+                validateWorld(sandbox, schema);
+                validateAccountCompatibility(sandbox, plan, schema);
+                return discoverGeneratorResets(sandbox, schema, dialect).stream()
+                        .map(reset -> reset.withMinimumNextValue(Math.max(
+                                reset.minimumNextValue(),
+                                liveResets.getOrDefault(reset.sortKey(), reset).minimumNextValue())))
+                        .toList();
+            } finally {
+                sandbox.rollback();
+                sandbox.setAutoCommit(originalAutoCommit);
             }
-            copyRows(live, isolated, "USERS", null);
-            copyRows(live, isolated, "PERSON_PROFILE", "USER_ID IS NOT NULL");
-            insertPlan(isolated, plan);
-            reconcileAiProfiles(isolated);
-            validateWorld(isolated);
-            validateAccountCompatibility(isolated, plan);
-            Map<String, GeneratorReset> liveResets = new HashMap<>();
-            for (GeneratorReset reset : discoverGeneratorResets(live)) {
-                liveResets.put(reset.sortKey(), reset);
-            }
-            List<GeneratorReset> resets = discoverGeneratorResets(isolated).stream()
-                    .map(reset -> reset.withMinimumNextValue(Math.max(
-                            reset.minimumNextValue(),
-                            liveResets.getOrDefault(reset.sortKey(), reset).minimumNextValue())))
-                    .toList();
-            for (GeneratorReset reset : resets) {
-                executeUpdate(isolated, reset.sql(reset.minimumNextValue()));
-            }
-            return List.copyOf(resets);
         }
     }
 
-    private List<GeneratorReset> discoverGeneratorResets(Connection connection) throws SQLException {
+    private List<GeneratorReset> discoverGeneratorResets(Connection connection,
+                                                          SchemaCatalog schema,
+                                                          DatabaseDialect dialect) throws SQLException {
         Set<String> worldTables = new HashSet<>();
         MANIFEST.forEach(spec -> worldTables.add(spec.tableName()));
         List<GeneratorReset> resets = new ArrayList<>();
         DatabaseMetaData metadata = connection.getMetaData();
         for (String table : worldTables) {
-            try (ResultSet columns = metadata.getColumns(null, "PUBLIC", table, "ID")) {
+            if (dialect == DatabaseDialect.POSTGRESQL) {
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT pg_get_serial_sequence(?, ?)")) {
+                    statement.setString(1, schema.postgresqlRelation(table));
+                    statement.setString(2, schema.rawColumn(table, "ID"));
+                    try (ResultSet result = statement.executeQuery()) {
+                        result.next();
+                        if (result.getString(1) != null) {
+                            long next = scalarLong(connection,
+                                    "SELECT COALESCE(MAX(" + schema.column(table, "ID") + "), 0) + 1 FROM "
+                                            + schema.table(table));
+                            resets.add(GeneratorReset.identity(table, "ID", next));
+                        }
+                    }
+                }
+                continue;
+            }
+            try (ResultSet columns = metadata.getColumns(schema.catalogName(), schema.schemaName(),
+                    schema.rawTable(table), schema.rawColumn(table, "ID"))) {
                 if (columns.next() && "YES".equalsIgnoreCase(columns.getString("IS_AUTOINCREMENT"))) {
                     long next = scalarLong(connection,
-                            "SELECT COALESCE(MAX(\"ID\"), 0) + 1 FROM \"" + table + "\"");
+                            "SELECT COALESCE(MAX(" + schema.column(table, "ID") + "), 0) + 1 FROM "
+                                    + schema.table(table));
                     resets.add(GeneratorReset.identity(table, "ID", next));
                 }
             }
         }
         for (NamedSequence sequence : NAMED_SEQUENCES) {
             long next = scalarLong(connection,
-                    "SELECT COALESCE(MAX(\"ID\"), 0) + 1 FROM \"" + sequence.tableName() + "\"");
-            resets.add(GeneratorReset.sequence(sequence.sequenceName(), sequence.tableName(), next));
+                    "SELECT COALESCE(MAX(" + schema.column(sequence.tableName(), "ID") + "), 0) + 1 FROM "
+                            + schema.table(sequence.tableName()));
+            if (dialect == DatabaseDialect.MYSQL) {
+                if (schema.hasTable(sequence.sequenceName())) {
+                    resets.add(GeneratorReset.sequenceTable(sequence.sequenceName(), sequence.tableName(), next));
+                }
+            } else {
+                resets.add(GeneratorReset.sequence(sequence.sequenceName(), sequence.tableName(), next));
+            }
         }
         resets.sort(java.util.Comparator.comparing(GeneratorReset::sortKey));
         return resets;
     }
 
-    private void deleteImportedWorld(Connection connection, ImportPlan plan) throws SQLException {
+    private void deleteImportedWorld(Connection connection, ImportPlan plan,
+                                     SchemaCatalog schema) throws SQLException {
         List<TableRows> reverse = new ArrayList<>(plan.tables());
         Collections.reverse(reverse);
         for (TableRows table : reverse) {
-            executeUpdate(connection, "DELETE FROM \"" + table.spec().tableName() + "\"");
+            executeUpdate(connection, "DELETE FROM " + schema.table(table.spec().tableName()));
         }
     }
 
-    private void insertPlan(Connection connection, ImportPlan plan) throws SQLException {
+    private void insertPlan(Connection connection, ImportPlan plan,
+                            SchemaCatalog schema) throws SQLException {
         for (TableRows table : plan.tables()) {
             Map<List<String>, List<RowValues>> rowsByShape = new LinkedHashMap<>();
             for (RowValues row : table.rows()) {
@@ -410,8 +445,9 @@ public class GameSaveImportService {
             for (Map.Entry<List<String>, List<RowValues>> group : rowsByShape.entrySet()) {
                 List<String> columns = group.getKey();
                 String placeholders = String.join(", ", Collections.nCopies(columns.size(), "?"));
-                String sql = "INSERT INTO \"" + table.spec().tableName() + "\" (\""
-                        + String.join("\", \"", columns) + "\") VALUES (" + placeholders + ")";
+                String sql = "INSERT INTO " + schema.table(table.spec().tableName()) + " ("
+                        + columns.stream().map(column -> schema.column(table.spec().tableName(), column))
+                        .collect(java.util.stream.Collectors.joining(", ")) + ") VALUES (" + placeholders + ")";
                 try (PreparedStatement statement = connection.prepareStatement(sql)) {
                     for (RowValues row : group.getValue()) {
                         for (int index = 0; index < row.values().size(); index++) {
@@ -425,32 +461,40 @@ public class GameSaveImportService {
         }
     }
 
-    private void reconcileAiProfiles(Connection connection) throws SQLException {
-        executeUpdate(connection, "DELETE FROM PERSON_PROFILE WHERE USER_ID IS NULL AND "
-                + "(HUMAN_ID IS NULL OR NOT EXISTS (SELECT 1 FROM HUMAN WHERE HUMAN.ID = PERSON_PROFILE.HUMAN_ID))");
-        executeUpdate(connection, """
-                INSERT INTO PERSON_PROFILE
-                    (HUMAN_ID, CAREER_TYPE, CONTROL_TYPE, DISPLAY_NAME, CREATED_SEASON, CREATED_DAY, ACTIVE, RETIRED)
-                SELECT h.ID, CASE WHEN h.TYPE_ID = 4 THEN 'MANAGER' ELSE 'PLAYER' END, 'AI',
-                       COALESCE(NULLIF(TRIM(h.NAME), ''), CONCAT('human-', h.ID)), 0, 0, NOT h.RETIRED, h.RETIRED
-                FROM HUMAN h
-                WHERE NOT EXISTS (SELECT 1 FROM PERSON_PROFILE p WHERE p.HUMAN_ID = h.ID)
-                """);
+    private void reconcileAiProfiles(Connection connection, SchemaCatalog schema) throws SQLException {
+        String profile = schema.table("PERSON_PROFILE");
+        String human = schema.table("HUMAN");
+        executeUpdate(connection, "DELETE FROM " + profile + " WHERE "
+                + schema.column("PERSON_PROFILE", "USER_ID") + " IS NULL AND ("
+                + schema.column("PERSON_PROFILE", "HUMAN_ID") + " IS NULL OR NOT EXISTS (SELECT 1 FROM "
+                + human + " h WHERE h." + schema.columnRaw("HUMAN", "ID") + " = "
+                + profile + "." + schema.columnRawQuoted("PERSON_PROFILE", "HUMAN_ID") + "))");
+        executeUpdate(connection, "INSERT INTO " + profile + " ("
+                + schema.columns("PERSON_PROFILE", "HUMAN_ID", "CAREER_TYPE", "CONTROL_TYPE", "DISPLAY_NAME",
+                "CREATED_SEASON", "CREATED_DAY", "ACTIVE", "RETIRED") + ") SELECT h."
+                + schema.columnRawQuoted("HUMAN", "ID")
+                + ", CASE WHEN h." + schema.columnRawQuoted("HUMAN", "TYPE_ID")
+                + " = 4 THEN 'MANAGER' ELSE 'PLAYER' END, 'AI', COALESCE(NULLIF(TRIM(h."
+                + schema.columnRawQuoted("HUMAN", "NAME") + "), ''), CONCAT('human-', h."
+                + schema.columnRawQuoted("HUMAN", "ID") + ")), 0, 0, NOT h."
+                + schema.columnRawQuoted("HUMAN", "RETIRED") + ", h."
+                + schema.columnRawQuoted("HUMAN", "RETIRED") + " FROM " + human + " h WHERE NOT EXISTS (SELECT 1 FROM "
+                + profile + " p WHERE p." + schema.columnRawQuoted("PERSON_PROFILE", "HUMAN_ID")
+                + " = h." + schema.columnRawQuoted("HUMAN", "ID") + ")");
     }
 
-    private void validateWorld(Connection connection) throws SQLException {
-        long rounds = scalarLong(connection, "SELECT COUNT(*) FROM ROUND");
-        long calendars = scalarLong(connection, "SELECT COUNT(*) FROM GAME_CALENDAR");
+    private void validateWorld(Connection connection, SchemaCatalog schema) throws SQLException {
+        long rounds = scalarLong(connection, "SELECT COUNT(*) FROM " + schema.table("ROUND"));
+        long calendars = scalarLong(connection, "SELECT COUNT(*) FROM " + schema.table("GAME_CALENDAR"));
         if (rounds == 0 || calendars == 0) {
             throw invalid("rounds and gameCalendars are required");
         }
-        try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT COUNT(*)
-                FROM ROUND r
-                WHERE r.ID = 1 AND EXISTS (
-                    SELECT 1 FROM GAME_CALENDAR c WHERE c.SEASON = r.SEASON
-                )
-                """)) {
+        String sql = "SELECT COUNT(*) FROM " + schema.table("ROUND") + " r WHERE r."
+                + schema.columnRawQuoted("ROUND", "ID") + " = 1 AND EXISTS (SELECT 1 FROM "
+                + schema.table("GAME_CALENDAR") + " c WHERE c."
+                + schema.columnRawQuoted("GAME_CALENDAR", "SEASON") + " = r."
+                + schema.columnRawQuoted("ROUND", "SEASON") + ")";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
             try (ResultSet result = statement.executeQuery()) {
                 result.next();
                 if (result.getLong(1) != 1) {
@@ -460,12 +504,14 @@ public class GameSaveImportService {
         }
     }
 
-    private void validateAccountCompatibility(Connection connection, ImportPlan plan) throws SQLException {
+    private void validateAccountCompatibility(Connection connection, ImportPlan plan,
+                                              SchemaCatalog schema) throws SQLException {
         Set<Long> teamIds = plan.idsFor("TEAM");
         Set<Long> humanIds = plan.idsFor("HUMAN");
         try (Statement statement = connection.createStatement();
-             ResultSet users = statement.executeQuery(
-                     "SELECT ID, TEAM_ID, LAST_TEAM_ID, MANAGER_ID FROM USERS")) {
+             ResultSet users = statement.executeQuery("SELECT "
+                     + schema.columns("USERS", "ID", "TEAM_ID", "LAST_TEAM_ID", "MANAGER_ID")
+                     + " FROM " + schema.table("USERS"))) {
             while (users.next()) {
                 long userId = users.getLong("ID");
                 requireReference("user " + userId + " team", users, "TEAM_ID", teamIds);
@@ -474,8 +520,10 @@ public class GameSaveImportService {
             }
         }
         try (Statement statement = connection.createStatement();
-             ResultSet profiles = statement.executeQuery(
-                     "SELECT ID, USER_ID, HUMAN_ID FROM PERSON_PROFILE WHERE USER_ID IS NOT NULL")) {
+             ResultSet profiles = statement.executeQuery("SELECT "
+                     + schema.columns("PERSON_PROFILE", "ID", "USER_ID", "HUMAN_ID")
+                     + " FROM " + schema.table("PERSON_PROFILE") + " WHERE "
+                     + schema.column("PERSON_PROFILE", "USER_ID") + " IS NOT NULL")) {
             while (profiles.next()) {
                 long profileId = profiles.getLong("ID");
                 requireReference("account profile " + profileId + " human", profiles, "HUMAN_ID", humanIds);
@@ -490,53 +538,34 @@ public class GameSaveImportService {
         }
     }
 
-    private Map<String, Set<String>> readSchemaColumns(Connection connection) throws SQLException {
+    private Map<String, Set<String>> readSchemaColumns(SchemaCatalog schema) {
         Map<String, Set<String>> columns = new LinkedHashMap<>();
-        DatabaseMetaData metadata = connection.getMetaData();
         for (TableSpec spec : MANIFEST) {
-            Set<String> names = new HashSet<>();
-            try (ResultSet result = metadata.getColumns(null, "PUBLIC", spec.tableName(), null)) {
-                while (result.next()) names.add(result.getString("COLUMN_NAME").toUpperCase(Locale.ROOT));
-            }
-            columns.put(spec.tableName(), Set.copyOf(names));
+            columns.put(spec.tableName(), schema.canonicalColumns(spec.tableName()));
         }
         return columns;
     }
 
-    private void validateSchemaDisposition(Connection connection) throws SQLException {
-        Set<String> actual = new HashSet<>();
-        try (ResultSet tables = connection.getMetaData().getTables(null, "PUBLIC", null,
-                new String[]{"TABLE"})) {
-            while (tables.next()) actual.add(tables.getString("TABLE_NAME").toUpperCase(Locale.ROOT));
-        }
+    private void validateSchemaDisposition(SchemaCatalog schema) {
+        Set<String> actual = new HashSet<>(schema.canonicalTableNames());
         Set<String> disposed = new HashSet<>(PRESERVED_TABLES);
         MANIFEST.forEach(spec -> disposed.add(spec.tableName()));
+        NAMED_SEQUENCES.forEach(sequence -> disposed.add(sequence.sequenceName().toUpperCase(Locale.ROOT)));
         Set<String> undisposed = new java.util.TreeSet<>(actual);
         undisposed.removeAll(disposed);
         if (!undisposed.isEmpty()) {
-            throw invalid("current H2 schema contains persisted tables without a V6 disposition: "
+            throw invalid("current database schema contains persisted tables without a V6 disposition: "
                     + undisposed);
         }
     }
 
-    private List<String> readSchemaScript(Connection connection) throws SQLException {
-        List<String> script = new ArrayList<>();
-        try (Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery("SCRIPT NODATA")) {
-            while (result.next()) script.add(result.getString(1));
-        }
-        return script;
-    }
-
-    private List<Map<String, Object>> readRows(Connection connection, String table) throws SQLException {
+    private List<Map<String, Object>> readRows(Connection connection, SchemaCatalog schema,
+                                               String table) throws SQLException {
         List<Map<String, Object>> rows = new ArrayList<>();
-        boolean hasId;
-        try (ResultSet id = connection.getMetaData().getColumns(null, "PUBLIC", table, "ID")) {
-            hasId = id.next();
-        }
-        String orderBy = hasId ? " ORDER BY \"ID\"" : "";
+        boolean hasId = schema.hasColumn(table, "ID");
+        String orderBy = hasId ? " ORDER BY " + schema.column(table, "ID") : "";
         try (Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery("SELECT * FROM \"" + table + "\"" + orderBy)) {
+             ResultSet result = statement.executeQuery("SELECT * FROM " + schema.table(table) + orderBy)) {
             ResultSetMetaData metadata = result.getMetaData();
             while (result.next()) {
                 Map<String, Object> row = new LinkedHashMap<>();
@@ -557,28 +586,6 @@ public class GameSaveImportService {
             return blob.getBytes(1, Math.toIntExact(blob.length()));
         }
         return value;
-    }
-
-    private void copyRows(Connection source, Connection target, String table, String where) throws SQLException {
-        String select = "SELECT * FROM \"" + table + "\"" + (where == null ? "" : " WHERE " + where);
-        try (Statement query = source.createStatement(); ResultSet rows = query.executeQuery(select)) {
-            ResultSetMetaData metadata = rows.getMetaData();
-            List<String> columns = new ArrayList<>();
-            for (int index = 1; index <= metadata.getColumnCount(); index++) {
-                columns.add(metadata.getColumnName(index));
-            }
-            String placeholders = String.join(", ", Collections.nCopies(columns.size(), "?"));
-            String insert = "INSERT INTO \"" + table + "\" (\""
-                    + String.join("\", \"", columns) + "\") VALUES (" + placeholders + ")";
-            while (rows.next()) {
-                try (PreparedStatement statement = target.prepareStatement(insert)) {
-                    for (int index = 1; index <= columns.size(); index++) {
-                        statement.setObject(index, rows.getObject(index));
-                    }
-                    statement.executeUpdate();
-                }
-            }
-        }
     }
 
     private void validateLegacyIdentitySections(Map<String, Object> save) {
@@ -604,10 +611,54 @@ public class GameSaveImportService {
         return version;
     }
 
-    private void requireH2(Connection connection) throws SQLException {
-        String product = connection.getMetaData().getDatabaseProductName();
-        if (!"H2".equalsIgnoreCase(product)) {
-            throw new IllegalStateException("REGENT Phase 0 save import is temporarily H2-only");
+    private void alignGenerator(Connection connection, SchemaCatalog schema,
+                                DatabaseDialect dialect, GeneratorReset reset) throws SQLException {
+        long next = reset.minimumNextValue();
+        if (reset.kind() == GeneratorKind.IDENTITY) {
+            if (dialect == DatabaseDialect.POSTGRESQL) {
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT setval(pg_get_serial_sequence(?, ?), ?, false)")) {
+                    statement.setString(1, schema.postgresqlRelation(reset.tableName()));
+                    statement.setString(2, schema.rawColumn(reset.tableName(), reset.columnName()));
+                    statement.setLong(3, next);
+                    try (ResultSet result = statement.executeQuery()) {
+                        result.next();
+                        if (result.getObject(1) == null) {
+                            throw new SQLException("PostgreSQL generator is missing for "
+                                    + reset.tableName() + "." + reset.columnName());
+                        }
+                    }
+                }
+                return;
+            }
+            String sql = switch (dialect) {
+                case MYSQL -> "ALTER TABLE " + schema.table(reset.tableName()) + " AUTO_INCREMENT = " + next;
+                case H2 -> "ALTER TABLE " + schema.table(reset.tableName()) + " ALTER COLUMN "
+                        + schema.column(reset.tableName(), reset.columnName()) + " RESTART WITH " + next;
+                case POSTGRESQL -> throw new IllegalStateException("PostgreSQL identity handled above");
+            };
+            executeUpdate(connection, sql);
+            return;
+        }
+        if (reset.kind() == GeneratorKind.SEQUENCE) {
+            executeUpdate(connection, "ALTER SEQUENCE " + schema.sequence(reset.generatorName())
+                    + " RESTART WITH " + next);
+            return;
+        }
+        String generatorTable = schema.table(reset.generatorName());
+        String nextValue = schema.column(reset.generatorName(), "NEXT_VAL");
+        int updated;
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE " + generatorTable + " SET " + nextValue + " = ?")) {
+            statement.setLong(1, next);
+            updated = statement.executeUpdate();
+        }
+        if (updated == 0) {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO " + generatorTable + " (" + nextValue + ") VALUES (?)")) {
+                statement.setLong(1, next);
+                statement.executeUpdate();
+            }
         }
     }
 
@@ -705,12 +756,9 @@ public class GameSaveImportService {
                     tableName, null, minimumNextValue);
         }
 
-        String sql(long nextValue) {
-            if (kind == GeneratorKind.IDENTITY) {
-                return "ALTER TABLE \"" + tableName + "\" ALTER COLUMN \"" + columnName
-                        + "\" RESTART WITH " + nextValue;
-            }
-            return "ALTER SEQUENCE \"PUBLIC\".\"" + generatorName + "\" RESTART WITH " + nextValue;
+        static GeneratorReset sequenceTable(String sequenceName, String tableName, long minimumNextValue) {
+            return new GeneratorReset(GeneratorKind.SEQUENCE_TABLE, sequenceName,
+                    tableName, null, minimumNextValue);
         }
 
         String sortKey() {
@@ -722,7 +770,7 @@ public class GameSaveImportService {
         }
     }
 
-    public enum GeneratorKind { IDENTITY, SEQUENCE }
+    public enum GeneratorKind { IDENTITY, SEQUENCE, SEQUENCE_TABLE }
 
     public record RowValues(List<String> columns, List<Object> values) {
         public RowValues {
@@ -739,6 +787,152 @@ public class GameSaveImportService {
             Map<String, Object> result = new LinkedHashMap<>();
             for (int index = 0; index < columns.size(); index++) result.put(columns.get(index), values.get(index));
             return result;
+        }
+    }
+
+    enum DatabaseDialect {
+        H2("H2"), POSTGRESQL("PostgreSQL"), MYSQL("MySQL/MariaDB");
+
+        private final String label;
+
+        DatabaseDialect(String label) {
+            this.label = label;
+        }
+
+        String label() {
+            return label;
+        }
+
+        static DatabaseDialect detect(Connection connection) throws SQLException {
+            String product = connection.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT);
+            if (product.contains("h2")) return H2;
+            if (product.contains("postgresql")) return POSTGRESQL;
+            if (product.contains("mysql") || product.contains("mariadb")) return MYSQL;
+            throw new IllegalStateException("REGENT Phase 0 save import does not support database "
+                    + connection.getMetaData().getDatabaseProductName());
+        }
+    }
+
+    static final class SchemaCatalog {
+        private final DatabaseDialect dialect;
+        private final String catalogName;
+        private final String schemaName;
+        private final String quote;
+        private final Map<String, String> tables;
+        private final Map<String, Map<String, String>> columns;
+        private final Map<String, String> sequences;
+
+        private SchemaCatalog(DatabaseDialect dialect, String catalogName, String schemaName, String quote,
+                              Map<String, String> tables, Map<String, Map<String, String>> columns,
+                              Map<String, String> sequences) {
+            this.dialect = dialect;
+            this.catalogName = catalogName;
+            this.schemaName = schemaName;
+            this.quote = quote;
+            this.tables = Map.copyOf(tables);
+            Map<String, Map<String, String>> immutableColumns = new HashMap<>();
+            columns.forEach((table, names) -> immutableColumns.put(table, Map.copyOf(names)));
+            this.columns = Map.copyOf(immutableColumns);
+            this.sequences = Map.copyOf(sequences);
+        }
+
+        static SchemaCatalog inspect(Connection connection, DatabaseDialect dialect) throws SQLException {
+            DatabaseMetaData metadata = connection.getMetaData();
+            String catalog = connection.getCatalog();
+            String schema = dialect == DatabaseDialect.MYSQL ? null : connection.getSchema();
+            String quote = metadata.getIdentifierQuoteString();
+            if (quote == null || quote.isBlank()) quote = "\"";
+
+            Map<String, String> tables = new LinkedHashMap<>();
+            try (ResultSet result = metadata.getTables(catalog, schema, "%", new String[]{"TABLE"})) {
+                while (result.next()) {
+                    String name = result.getString("TABLE_NAME");
+                    tables.put(name.toUpperCase(Locale.ROOT), name);
+                }
+            }
+            Map<String, Map<String, String>> columns = new LinkedHashMap<>();
+            for (Map.Entry<String, String> table : tables.entrySet()) {
+                Map<String, String> tableColumns = new LinkedHashMap<>();
+                try (ResultSet result = metadata.getColumns(catalog, schema, table.getValue(), "%")) {
+                    while (result.next()) {
+                        String name = result.getString("COLUMN_NAME");
+                        tableColumns.put(name.toUpperCase(Locale.ROOT), name);
+                    }
+                }
+                columns.put(table.getKey(), tableColumns);
+            }
+
+            Map<String, String> sequences = new LinkedHashMap<>();
+            if (dialect != DatabaseDialect.MYSQL) {
+                String sql = "SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = ?";
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setString(1, schema);
+                    try (ResultSet result = statement.executeQuery()) {
+                        while (result.next()) {
+                            String name = result.getString(1);
+                            sequences.put(name.toUpperCase(Locale.ROOT), name);
+                        }
+                    }
+                }
+            }
+            return new SchemaCatalog(dialect, catalog, schema, quote, tables, columns, sequences);
+        }
+
+        String catalogName() { return catalogName; }
+        String schemaName() { return schemaName; }
+
+        Set<String> canonicalTableNames() { return tables.keySet(); }
+
+        Set<String> canonicalColumns(String table) {
+            return columns.getOrDefault(table.toUpperCase(Locale.ROOT), Map.of()).keySet();
+        }
+
+        boolean hasTable(String table) { return tables.containsKey(table.toUpperCase(Locale.ROOT)); }
+
+        boolean hasColumn(String table, String column) {
+            return columns.getOrDefault(table.toUpperCase(Locale.ROOT), Map.of())
+                    .containsKey(column.toUpperCase(Locale.ROOT));
+        }
+
+        String rawTable(String table) {
+            String actual = tables.get(table.toUpperCase(Locale.ROOT));
+            if (actual == null) throw invalid("current " + dialect.label() + " schema is missing table " + table);
+            return actual;
+        }
+
+        String rawColumn(String table, String column) {
+            String actual = columns.getOrDefault(table.toUpperCase(Locale.ROOT), Map.of())
+                    .get(column.toUpperCase(Locale.ROOT));
+            if (actual == null) throw invalid("current " + dialect.label() + " schema is missing column "
+                    + table + "." + column);
+            return actual;
+        }
+
+        String postgresqlRelation(String table) {
+            if (dialect != DatabaseDialect.POSTGRESQL) {
+                throw new IllegalStateException("PostgreSQL relation requested for " + dialect.label());
+            }
+            return quoted(schemaName) + "." + quoted(rawTable(table));
+        }
+
+        String table(String table) { return quoted(rawTable(table)); }
+        String column(String table, String column) { return quoted(rawColumn(table, column)); }
+        String columnRaw(String table, String column) { return rawColumn(table, column); }
+        String columnRawQuoted(String table, String column) { return quoted(rawColumn(table, column)); }
+
+        String columns(String table, String... names) {
+            return java.util.Arrays.stream(names).map(name -> column(table, name))
+                    .collect(java.util.stream.Collectors.joining(", "));
+        }
+
+        String sequence(String sequence) {
+            String actual = sequences.get(sequence.toUpperCase(Locale.ROOT));
+            if (actual == null) throw invalid("current " + dialect.label() + " schema is missing sequence " + sequence);
+            return quoted(actual);
+        }
+
+        private String quoted(String identifier) {
+            return quote + identifier.replace(quote, quote + quote) + quote;
         }
     }
 }
