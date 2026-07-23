@@ -1,5 +1,7 @@
 package com.footballmanagergamesimulator.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -9,9 +11,12 @@ import java.util.Map;
 @ControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<?> handleRuntimeException(RuntimeException e) {
         String message = e.getMessage();
+        log.warn("Request failed: {}", message != null ? message : e.getClass().getSimpleName(), e);
         if (message != null && (message.contains("X-User-Id") || message.contains("User not found") || message.contains("User has no team"))) {
             return ResponseEntity.status(401).body(Map.of("error", message));
         }
