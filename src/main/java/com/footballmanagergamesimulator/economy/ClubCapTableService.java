@@ -141,6 +141,11 @@ public class ClubCapTableService {
     }
 
     private void migrateLegacy(MarketInstrument instrument, ClubCapTableState state) {
+        // A pre-Phase-3 save may contain both genuine Phase-2 market positions and
+        // older Boardroom stakes. Legacy rows are additional holdings: group them
+        // deterministically, merge them into the matching account position once,
+        // and reject the whole transaction before writing if combined supply does
+        // not fit. The migration version makes a successful merge replay-safe.
         List<PortfolioPosition> existing = positionRepository
                 .findAllByInstrumentIdForUpdate(instrument.getId());
         Map<Long, PortfolioPosition> positionsByAccount = new java.util.TreeMap<>();
