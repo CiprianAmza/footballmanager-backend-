@@ -67,6 +67,12 @@ awards:
 # so behaviour is unchanged unless explicitly overridden.
 
 match:
+  animation:
+    v3:
+      enabled: false
+      max-player-step: 0.9
+      max-player-acceleration: 0.45
+      max-ball-step: 4.0
   engine:
 
     power:

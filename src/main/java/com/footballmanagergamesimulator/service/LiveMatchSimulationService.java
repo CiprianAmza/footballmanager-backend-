@@ -60,6 +60,10 @@ public class LiveMatchSimulationService {
     com.footballmanagergamesimulator.repository.MatchAnimationRecipeRepository matchAnimationRecipeRepository;
     @Autowired(required = false)
     com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    // Presentation-only Animation Engine V3 bridge. Optional/guarded like the canonical beans:
+    // null in pure-helper unit tests, and inert unless its own feature flag is on.
+    @Autowired(required = false)
+    AnimationV3GoalAdapter animationV3GoalAdapter;
 
     // Per-minute stamina drain for a "default" player (stamina=10, naturalFitness=10)
     // at a position with multiplier 1.0 lands around 0.35 stamina/min after
