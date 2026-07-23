@@ -128,6 +128,14 @@ public class Human {
     @Column(columnDefinition = "boolean default false")
     private boolean willNeverLeave;
 
+    /**
+     * Canonical player profile trait for forwards who refuse defensive work.
+     * Match-engine scoring still owns the tactical formula; this field only
+     * persists and exposes the hand-authored player trait.
+     */
+    @Column(columnDefinition = "boolean default false")
+    private boolean stayForward;
+
     @Column(columnDefinition = "int default 0")
     private int seasonMatchesPlayed; // matches played this season
 

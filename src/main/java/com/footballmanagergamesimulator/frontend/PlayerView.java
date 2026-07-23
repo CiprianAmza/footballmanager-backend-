@@ -29,6 +29,7 @@ public class PlayerView {
   private long releaseClause;
   private long transferValue;
   private boolean willNeverLeave;
+  private boolean stayForward;
 
   private double fitness;
   private double morale;

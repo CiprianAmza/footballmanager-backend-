@@ -50,6 +50,30 @@ class GameSaveRealSchemaTest {
     }
 
     @Test
+    void humanStayForwardImportDefaultsLegacyMissingAndNullValuesToFalse() {
+        Map<String, Object> v10 = realSchemaSave(10);
+        Map<String, Object> missing = humanRow(10L, "Legacy missing");
+        Map<String, Object> explicitNull = humanRow(11L, "Legacy null");
+        explicitNull.put("stayForward", null);
+        Map<String, Object> explicitTrue = humanRow(12L, "Kvekrpur");
+        explicitTrue.put("stayForward", true);
+        v10.put("humans", List.of(missing, explicitNull, explicitTrue));
+
+        GameSaveImportService.ImportPlan plan = importService.prepare(v10);
+
+        List<Map<String, Object>> humans = plan.tables().stream()
+                .filter(table -> table.spec().tableName().equals("HUMAN"))
+                .findFirst()
+                .orElseThrow()
+                .rows().stream()
+                .map(GameSaveImportService.RowValues::asMap)
+                .toList();
+
+        assertThat(humans).extracting(row -> row.get("STAY_FORWARD"))
+                .containsExactly(false, false, true);
+    }
+
+    @Test
     void v7PersonalEconomyPreflightAcceptsReconciledStateAndRejectsLedgerDrift() {
         Map<String, Object> v7 = realSchemaSave(7);
         v7.put("personalAccounts", List.of(Map.of(
@@ -186,6 +210,16 @@ class GameSaveRealSchemaTest {
         save.put("teams", List.of(team));
         save.put("humans", List.of(human));
         return save;
+    }
+
+    private Map<String, Object> humanRow(long id, String name) {
+        Map<String, Object> human = new LinkedHashMap<>();
+        human.put("id", id);
+        human.put("name", name);
+        human.put("teamId", 1L);
+        human.put("typeId", 1L);
+        human.put("retired", false);
+        return human;
     }
 
     @TestConfiguration

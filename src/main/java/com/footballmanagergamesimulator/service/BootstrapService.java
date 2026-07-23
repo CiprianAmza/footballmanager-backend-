@@ -364,16 +364,16 @@ public class BootstrapService {
      */
     public void initializeSpecialPlayers() {
         List<SpecialPlayerSeed> seeds = List.of(
-                new SpecialPlayerSeed("Tik Tok", "Kvekrpur", "ST", 20, 300),
-                new SpecialPlayerSeed("Tik Tok", "Dostoievski", "ST", 15, 300),
-                new SpecialPlayerSeed("Tik Tok", "Kabutov", "DM", 15, 300),
-                new SpecialPlayerSeed("Tik Tok", "Mozart", "GK", 15, 300),
-                new SpecialPlayerSeed("FC San Marino", "Shakespeare", "ST", 15, 300),
-                new SpecialPlayerSeed("FC San Marino", "Beethoven", "GK", 15, 300),
-                new SpecialPlayerSeed("FC San Marino", "Rampardos", "MC", 15, 300),
-                new SpecialPlayerSeed("Inazuma Japan", "Saviola", "AMC", 15, 300),
-                new SpecialPlayerSeed("Inazuma Japan", "Umbreon", "AML", 15, 280),
-                new SpecialPlayerSeed("Inazuma Japan", "Itexoa", "MC", 15, 280));
+                new SpecialPlayerSeed("Tik Tok", "Kvekrpur", "ST", 20, 300, true),
+                new SpecialPlayerSeed("Tik Tok", "Dostoievski", "ST", 15, 300, true),
+                new SpecialPlayerSeed("Tik Tok", "Kabutov", "DM", 15, 300, false),
+                new SpecialPlayerSeed("Tik Tok", "Mozart", "GK", 15, 300, false),
+                new SpecialPlayerSeed("FC San Marino", "Shakespeare", "ST", 15, 300, true),
+                new SpecialPlayerSeed("FC San Marino", "Beethoven", "GK", 15, 300, false),
+                new SpecialPlayerSeed("FC San Marino", "Rampardos", "MC", 15, 300, false),
+                new SpecialPlayerSeed("Inazuma Japan", "Saviola", "AMC", 15, 300, false),
+                new SpecialPlayerSeed("Inazuma Japan", "Umbreon", "AML", 15, 280, false),
+                new SpecialPlayerSeed("Inazuma Japan", "Itexoa", "MC", 15, 280, false));
 
         Map<String, Team> teamsByName = teamRepository.findAll().stream()
                 .collect(Collectors.toMap(Team::getName, team -> team, (first, duplicate) -> first));
@@ -409,6 +409,7 @@ public class BootstrapService {
             player.setWage(WageService.baseWage(seed.rating()));
             player.setReleaseClause(player.getTransferValue() * 2);
             player.setWillNeverLeave(true);
+            player.setStayForward(seed.stayForward());
 
             player = humanRepository.save(player);
             faceGenerator.assignFace(player, nationService.nationIdForTeam(team.getId()));
@@ -447,7 +448,7 @@ public class BootstrapService {
     }
 
     private record SpecialPlayerSeed(String teamName, String playerName, String position,
-                                     int age, double rating) {}
+                                     int age, double rating, boolean stayForward) {}
 
     /**
      * Backfills the editor flag for warm saves and old pre-built snapshots. The
@@ -466,6 +467,22 @@ public class BootstrapService {
                     player.setWantsTransfer(false);
                     player.setPreContractTeamId(0);
                 })
+                .toList();
+        if (!changed.isEmpty()) humanRepository.saveAll(changed);
+        return changed.size();
+    }
+
+    /**
+     * Backfills the profile-visible Stay Forward trait for old saves and old
+     * pre-built snapshots. This is an explicit canonical-player migration, not
+     * a runtime inference used by tactic or scoring code.
+     */
+    public int ensureSpecialPlayersStayForward() {
+        Set<String> stayForwardNames = Set.of("Kvekrpur", "Dostoievski", "Shakespeare");
+        List<Human> changed = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE).stream()
+                .filter(player -> stayForwardNames.contains(player.getName()))
+                .filter(player -> !player.isStayForward())
+                .peek(player -> player.setStayForward(true))
                 .toList();
         if (!changed.isEmpty()) humanRepository.saveAll(changed);
         return changed.size();

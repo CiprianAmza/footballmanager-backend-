@@ -45,7 +45,8 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_6 = 6;
     static final int SAVE_VERSION_7 = 7;
     static final int SAVE_VERSION_8 = 8;
-    static final int CURRENT_SAVE_VERSION = 9;
+    static final int SAVE_VERSION_9 = 9;
+    static final int CURRENT_SAVE_VERSION = 10;
 
     private static final List<TableSpec> MANIFEST = List.of(
             new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
@@ -123,11 +124,11 @@ public class GameSaveImportService {
             new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", SAVE_VERSION_8),
             new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", SAVE_VERSION_8),
             new TableSpec("marketTrades", "MARKET_TRADE", SAVE_VERSION_8),
-            new TableSpec("clubFinancialObligations", "CLUB_FINANCIAL_OBLIGATION", CURRENT_SAVE_VERSION),
-            new TableSpec("clubCapTableStates", "CLUB_CAP_TABLE_STATE", CURRENT_SAVE_VERSION),
-            new TableSpec("takeoverQuotes", "TAKEOVER_QUOTE", CURRENT_SAVE_VERSION),
-            new TableSpec("takeoverExecutions", "TAKEOVER_EXECUTION", CURRENT_SAVE_VERSION),
-            new TableSpec("clubCashTransfers", "CLUB_CASH_TRANSFER", CURRENT_SAVE_VERSION)
+            new TableSpec("clubFinancialObligations", "CLUB_FINANCIAL_OBLIGATION", SAVE_VERSION_9),
+            new TableSpec("clubCapTableStates", "CLUB_CAP_TABLE_STATE", SAVE_VERSION_9),
+            new TableSpec("takeoverQuotes", "TAKEOVER_QUOTE", SAVE_VERSION_9),
+            new TableSpec("takeoverExecutions", "TAKEOVER_EXECUTION", SAVE_VERSION_9),
+            new TableSpec("clubCashTransfers", "CLUB_CASH_TRANSFER", SAVE_VERSION_9)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
@@ -199,7 +200,7 @@ public class GameSaveImportService {
     }
 
     /**
-     * Parses and migrates v5/v6/v7/v8/v9 into a complete immutable game-only plan. The
+     * Parses and migrates v5 through the current save version into a complete immutable game-only plan. The
      * legacy users/personProfiles sections are deliberately never part of it.
      */
     public ImportPlan prepare(Map<String, Object> save) {
@@ -257,10 +258,9 @@ public class GameSaveImportService {
     }
 
     /**
-     * REGENT raises the save version to {@link #CURRENT_SAVE_VERSION} only where
-     * the economy schema actually exists (the H2-only REGENT runtime). On a
-     * vendor without the economy migrations the export stays at {@link #SAVE_VERSION_6}
-     * and carries no economy sections, so cross-database save/load is unaffected.
+     * H2 exports the current game-save schema. On a vendor without the H2-only
+     * economy migrations the export stays at {@link #SAVE_VERSION_6} and
+     * carries no economy sections, so cross-database save/load is unaffected.
      */
     public int effectiveSaveVersion() {
         Connection live = DataSourceUtils.getConnection(dataSource);
@@ -399,6 +399,7 @@ public class GameSaveImportService {
                 }
                 mapped.putIfAbsent(column, field.getValue());
             }
+            applyLegacyDefaults(spec.tableName(), mapped, validColumns);
             if (mapped.isEmpty()) {
                 throw invalid(spec.jsonKey() + " row " + rowIndex + " has no persisted fields");
             }
@@ -649,7 +650,15 @@ public class GameSaveImportService {
             // Phase-1 economy reconciliation is H2-only; the economy tables and
             // their ledger invariants are not part of the cross-database v6 contract.
             validateEconomy(connection, plan.sourceVersion() >= SAVE_VERSION_8,
-                    plan.sourceVersion() >= CURRENT_SAVE_VERSION);
+                    plan.sourceVersion() >= SAVE_VERSION_9);
+        }
+    }
+
+    private void applyLegacyDefaults(String tableName, LinkedHashMap<String, Object> mapped,
+                                     Set<String> validColumns) {
+        if ("HUMAN".equals(tableName) && validColumns.contains("STAY_FORWARD")
+                && mapped.get("STAY_FORWARD") == null) {
+            mapped.put("STAY_FORWARD", false);
         }
     }
 
@@ -881,13 +890,14 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7, 8 or 9");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9 or 10");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
                 && version != SAVE_VERSION_7 && version != SAVE_VERSION_8
+                && version != SAVE_VERSION_9
                 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7, 8 or 9");
+            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9 or 10");
         }
         return version;
     }
