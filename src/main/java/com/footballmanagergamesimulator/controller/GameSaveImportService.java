@@ -43,7 +43,9 @@ public class GameSaveImportService {
     static final int LEGACY_SAVE_VERSION = 5;
     static final int SAVE_VERSION_6 = 6;
     static final int SAVE_VERSION_7 = 7;
-    static final int CURRENT_SAVE_VERSION = 8;
+    static final int SAVE_VERSION_8 = 8;
+    static final int SAVE_VERSION_9 = 9;
+    static final int CURRENT_SAVE_VERSION = 9;
 
     private static final List<TableSpec> MANIFEST = List.of(
             new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
@@ -117,10 +119,16 @@ public class GameSaveImportService {
             new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", SAVE_VERSION_7),
             new TableSpec("ownedAssets", "OWNED_ASSET", SAVE_VERSION_7),
             new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", SAVE_VERSION_7),
-            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", CURRENT_SAVE_VERSION),
-            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", CURRENT_SAVE_VERSION),
-            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", CURRENT_SAVE_VERSION),
-            new TableSpec("marketTrades", "MARKET_TRADE", CURRENT_SAVE_VERSION)
+            new TableSpec("marketInstruments", "MARKET_INSTRUMENT", SAVE_VERSION_8),
+            new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", SAVE_VERSION_8),
+            new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", SAVE_VERSION_8),
+            new TableSpec("marketTrades", "MARKET_TRADE", SAVE_VERSION_8),
+            // FORGE Squad Planner + Training extensions (H2-only, like other V7+ tables)
+            new TableSpec("squadPlanSlots", "SQUAD_PLAN_SLOT", SAVE_VERSION_9),
+            new TableSpec("playerUnitAssignments", "PLAYER_UNIT_ASSIGNMENT", SAVE_VERSION_9),
+            new TableSpec("unitCoachAssignments", "UNIT_COACH_ASSIGNMENT", SAVE_VERSION_9),
+            new TableSpec("mentoringGroups", "MENTORING_GROUP", SAVE_VERSION_9),
+            new TableSpec("mentoringGroupMembers", "MENTORING_GROUP_MEMBER", SAVE_VERSION_9)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
