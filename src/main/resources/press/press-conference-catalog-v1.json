@@ -1,0 +1,285 @@
+{
+  "version": "pc-v1",
+  "questions": [
+    {
+      "id": "PRE_GENERIC_CHANCES",
+      "type": "PRE_MATCH",
+      "contextKey": "GENERIC",
+      "eligibility": {},
+      "weight": 10,
+      "prompt": "How do you rate your chances in the upcoming match?",
+      "answers": [
+        {"id": "A_CONFIDENT", "code": "confident", "tone": "BULLISH", "stance": "SUPPORTIVE", "weight": 10,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 1}]},
+        {"id": "A_CAUTIOUS", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 10,
+          "effects": []},
+        {"id": "A_AGGRESSIVE", "code": "aggressive", "tone": "BOLD", "stance": "DEFIANT", "weight": 6,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 3}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 2}]},
+        {"id": "A_DEFLECT", "code": "deflect", "tone": "GUARDED", "stance": "DEFLECT", "weight": 4,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -1}]}
+      ]
+    },
+    {
+      "id": "PRE_FAVOURITE_PRESSURE",
+      "type": "PRE_MATCH",
+      "contextKey": "SQUAD_VALUE_FAVOURITE",
+      "eligibility": {"allOf": ["SQUAD_VALUE_FAVOURITE"]},
+      "weight": 8,
+      "prompt": "On paper your squad is far stronger. Does that add pressure to deliver?",
+      "answers": [
+        {"id": "A_EMBRACE", "code": "confident", "tone": "BULLISH", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}, {"target": "BOARD", "metric": "BOARD_CONFIDENCE", "value": 1}]},
+        {"id": "A_PLAYDOWN", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8, "effects": []},
+        {"id": "A_DISMISS", "code": "deflect", "tone": "GUARDED", "stance": "DEFLECT", "weight": 5,
+          "effects": [{"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": -1}]}
+      ]
+    },
+    {
+      "id": "PRE_UNDERDOG_BELIEF",
+      "type": "PRE_MATCH",
+      "contextKey": "SQUAD_VALUE_UNDERDOG",
+      "eligibility": {"allOf": ["SQUAD_VALUE_UNDERDOG"]},
+      "weight": 8,
+      "prompt": "Few give you a chance against a much stronger side. Do you believe you can win?",
+      "answers": [
+        {"id": "A_BELIEVE", "code": "aggressive", "tone": "BOLD", "stance": "DEFIANT", "weight": 8,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 3}]},
+        {"id": "A_REALISTIC", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 9, "effects": []},
+        {"id": "A_UNDERPLAY", "code": "deflect", "tone": "GUARDED", "stance": "DEFLECT", "weight": 5,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -1}]}
+      ]
+    },
+    {
+      "id": "PRE_HOME_EXPECTATION",
+      "type": "PRE_MATCH",
+      "contextKey": "HOME",
+      "eligibility": {"allOf": ["HOME"]},
+      "weight": 6,
+      "prompt": "Your fans expect a home win. How do you approach the game?",
+      "answers": [
+        {"id": "A_ATTACK", "code": "aggressive", "tone": "BOLD", "stance": "DEFIANT", "weight": 8,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}, {"target": "BOARD", "metric": "BOARD_CONFIDENCE", "value": 1}]},
+        {"id": "A_BALANCED", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 9, "effects": []},
+        {"id": "A_CONFIDENT_HOME", "code": "confident", "tone": "BULLISH", "stance": "SUPPORTIVE", "weight": 7,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}]}
+      ]
+    },
+    {
+      "id": "PRE_AWAY_APPROACH",
+      "type": "PRE_MATCH",
+      "contextKey": "AWAY",
+      "eligibility": {"allOf": ["AWAY"]},
+      "weight": 6,
+      "prompt": "A tough away trip awaits. Will you set up to contain or to attack?",
+      "answers": [
+        {"id": "A_CONTAIN", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 9, "effects": []},
+        {"id": "A_GO_FOR_IT", "code": "aggressive", "tone": "BOLD", "stance": "DEFIANT", "weight": 6,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}]},
+        {"id": "A_RESPECT", "code": "confident", "tone": "MEASURED", "stance": "SUPPORTIVE", "weight": 7, "effects": []}
+      ]
+    },
+    {
+      "id": "PRE_DERBY_TENSION",
+      "type": "PRE_MATCH",
+      "contextKey": "DERBY",
+      "eligibility": {"allOf": ["DERBY"]},
+      "weight": 12,
+      "prompt": "This is a derby that means everything to the supporters. What's your message?",
+      "answers": [
+        {"id": "A_FIRE", "code": "aggressive", "tone": "PASSIONATE", "stance": "DEFIANT", "weight": 10,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 4}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 2}]},
+        {"id": "A_FOCUS", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8, "effects": []},
+        {"id": "A_RESPECT_RIVAL", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 6,
+          "effects": [{"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 1}]}
+      ]
+    },
+    {
+      "id": "PRE_FINAL_STAKES",
+      "type": "PRE_MATCH",
+      "contextKey": "FINAL",
+      "eligibility": {"allOf": ["FINAL"]},
+      "weight": 12,
+      "prompt": "A final is on the line. How do you keep the players calm?",
+      "answers": [
+        {"id": "A_ENJOY", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 3}]},
+        {"id": "A_BUSINESS", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8, "effects": []},
+        {"id": "A_DESTINY", "code": "aggressive", "tone": "BOLD", "stance": "DEFIANT", "weight": 6,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 2}]}
+      ]
+    },
+    {
+      "id": "PRE_NEW_MANAGER_INTRO",
+      "type": "PRE_MATCH",
+      "contextKey": "NEW_MANAGER",
+      "eligibility": {"allOf": ["NEW_MANAGER"]},
+      "weight": 9,
+      "prompt": "This is one of your first games in charge. What do you want to establish?",
+      "answers": [
+        {"id": "A_IDENTITY", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "BOARD", "metric": "BOARD_CONFIDENCE", "value": 2}, {"target": "SQUAD", "metric": "MORALE", "value": 1}]},
+        {"id": "A_TIME", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8, "effects": []},
+        {"id": "A_STATEMENT", "code": "aggressive", "tone": "BOLD", "stance": "DEFIANT", "weight": 5,
+          "effects": [{"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 2}, {"target": "BOARD", "metric": "BOARD_CONFIDENCE", "value": -1}]}
+      ]
+    },
+    {
+      "id": "PRE_INJURY_CONCERN",
+      "type": "PRE_MATCH",
+      "contextKey": "INJURY_CONCERN",
+      "eligibility": {"allOf": ["INJURY_CONCERN"]},
+      "weight": 7,
+      "prompt": "You have some injury concerns. How does that affect your plans?",
+      "answers": [
+        {"id": "A_DEPTH", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}]},
+        {"id": "A_HONEST", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8, "effects": []},
+        {"id": "A_EXCUSE", "code": "deflect", "tone": "GUARDED", "stance": "DEFLECT", "weight": 4,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -2}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": -1}]}
+      ]
+    },
+    {
+      "id": "PRE_FORM_POOR",
+      "type": "PRE_MATCH",
+      "contextKey": "FORM_POOR",
+      "eligibility": {"allOf": ["FORM_POOR"]},
+      "weight": 8,
+      "prompt": "Recent form has been poor. Are you worried?",
+      "answers": [
+        {"id": "A_BACK_PLAYERS", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}]},
+        {"id": "A_ACCOUNTABLE", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8,
+          "effects": [{"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 1}]},
+        {"id": "A_BLAME", "code": "aggressive", "tone": "DEFENSIVE", "stance": "DEFIANT", "weight": 4,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -3}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": -2}]}
+      ]
+    },
+    {
+      "id": "PRE_TABLE_TOP",
+      "type": "PRE_MATCH",
+      "contextKey": "TABLE_TOP",
+      "eligibility": {"allOf": ["TABLE_TOP"]},
+      "weight": 6,
+      "prompt": "You're near the top of the table. Can you sustain the challenge?",
+      "answers": [
+        {"id": "A_ONE_GAME", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 9, "effects": []},
+        {"id": "A_TITLE_TALK", "code": "confident", "tone": "BULLISH", "stance": "SUPPORTIVE", "weight": 7,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}, {"target": "BOARD", "metric": "BOARD_CONFIDENCE", "value": 1}]},
+        {"id": "A_HUNGRY", "code": "aggressive", "tone": "BOLD", "stance": "DEFIANT", "weight": 6,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}]}
+      ]
+    },
+    {
+      "id": "PRE_OWNER_INTERFERENCE",
+      "type": "PRE_MATCH",
+      "contextKey": "OWNER_INTERFERENCE",
+      "eligibility": {"allOf": ["OWNER_INTERFERENCE"]},
+      "weight": 9,
+      "prompt": "There's talk the owner is restricting your decisions. Does that bother you?",
+      "answers": [
+        {"id": "A_UNITED", "code": "cautious", "tone": "DIPLOMATIC", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "OWNER", "metric": "OWNER_ARROGANCE", "value": -2}]},
+        {"id": "A_RESENT", "code": "resent", "tone": "DEFENSIVE", "stance": "DEFIANT", "weight": 6,
+          "effects": [{"target": "MANAGER", "metric": "COACH_HUMILIATION", "value": 3}, {"target": "OWNER", "metric": "OWNER_ARROGANCE", "value": 2}]},
+        {"id": "A_ACCEPT", "code": "accept", "tone": "GUARDED", "stance": "NEUTRAL", "weight": 7,
+          "effects": [{"target": "MANAGER", "metric": "COACH_HUMILIATION", "value": -1}]}
+      ]
+    },
+
+    {
+      "id": "POST_WIN_FEELING",
+      "type": "POST_MATCH",
+      "contextKey": "RESULT_WIN",
+      "eligibility": {"allOf": ["RESULT_WIN"]},
+      "weight": 10,
+      "prompt": "How does this win feel?",
+      "answers": [
+        {"id": "A_PROUD", "code": "confident", "tone": "BULLISH", "stance": "SUPPORTIVE", "weight": 10,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 3}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 2}]},
+        {"id": "A_MODEST", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}]},
+        {"id": "A_CREDIT_PLAYERS", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 7,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}]}
+      ]
+    },
+    {
+      "id": "POST_DRAW_ASSESSMENT",
+      "type": "POST_MATCH",
+      "contextKey": "RESULT_DRAW",
+      "eligibility": {"allOf": ["RESULT_DRAW"]},
+      "weight": 10,
+      "prompt": "Two points dropped or one earned?",
+      "answers": [
+        {"id": "A_POSITIVE", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 8,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}]},
+        {"id": "A_FRUSTRATED", "code": "cautious", "tone": "DEFENSIVE", "stance": "NEUTRAL", "weight": 8, "effects": []},
+        {"id": "A_ANGRY", "code": "aggressive", "tone": "DEFENSIVE", "stance": "DEFIANT", "weight": 4,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -2}]}
+      ]
+    },
+    {
+      "id": "POST_LOSS_RESPONSE",
+      "type": "POST_MATCH",
+      "contextKey": "RESULT_LOSS",
+      "eligibility": {"allOf": ["RESULT_LOSS"]},
+      "weight": 10,
+      "prompt": "What went wrong out there?",
+      "answers": [
+        {"id": "A_OWNIT", "code": "cautious", "tone": "MEASURED", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 1}, {"target": "SQUAD", "metric": "MORALE", "value": 1}]},
+        {"id": "A_PROTECT", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 7,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 2}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": -1}]},
+        {"id": "A_BLAME_PLAYERS", "code": "aggressive", "tone": "DEFENSIVE", "stance": "DEFIANT", "weight": 4,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -4}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": -2}]},
+        {"id": "A_DEFLECT_REF", "code": "deflect", "tone": "GUARDED", "stance": "DEFLECT", "weight": 5,
+          "effects": [{"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": -1}]}
+      ]
+    },
+    {
+      "id": "POST_XG_UNDERPERFORM",
+      "type": "POST_MATCH",
+      "contextKey": "XG_UNDERPERFORM",
+      "eligibility": {"allOf": ["XG_UNDERPERFORM"]},
+      "weight": 7,
+      "prompt": "The numbers say you created more than the scoreline suggests. Concerned about finishing?",
+      "answers": [
+        {"id": "A_CHANCES_GOOD", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}]},
+        {"id": "A_WORK", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8, "effects": []},
+        {"id": "A_CRITICISE", "code": "aggressive", "tone": "DEFENSIVE", "stance": "DEFIANT", "weight": 4,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -2}]}
+      ]
+    },
+    {
+      "id": "POST_HEAVY_LOSS_JOB",
+      "type": "POST_MATCH",
+      "contextKey": "HEAVY_LOSS",
+      "eligibility": {"allOf": ["HEAVY_LOSS"]},
+      "weight": 9,
+      "prompt": "That was a heavy defeat. Are you worried about your job?",
+      "answers": [
+        {"id": "A_FIGHT", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 9,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}, {"target": "BOARD", "metric": "BOARD_CONFIDENCE", "value": -1}]},
+        {"id": "A_HUMBLE", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 8,
+          "effects": [{"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": 1}]},
+        {"id": "A_DEFIANT_JOB", "code": "aggressive", "tone": "DEFENSIVE", "stance": "DEFIANT", "weight": 4,
+          "effects": [{"target": "BOARD", "metric": "BOARD_CONFIDENCE", "value": -2}, {"target": "MANAGER", "metric": "MEDIA_REPUTATION", "value": -1}]}
+      ]
+    },
+    {
+      "id": "POST_POSSESSION_DOMINANT_NO_WIN",
+      "type": "POST_MATCH",
+      "contextKey": "POSSESSION_DOMINANT",
+      "eligibility": {"allOf": ["POSSESSION_DOMINANT"], "noneOf": ["RESULT_WIN"]},
+      "weight": 6,
+      "prompt": "You dominated possession but didn't get the win. What was missing?",
+      "answers": [
+        {"id": "A_CUTTING_EDGE", "code": "cautious", "tone": "MEASURED", "stance": "NEUTRAL", "weight": 9, "effects": []},
+        {"id": "A_ENCOURAGED", "code": "confident", "tone": "CALM", "stance": "SUPPORTIVE", "weight": 7,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": 1}]},
+        {"id": "A_STERILE", "code": "aggressive", "tone": "DEFENSIVE", "stance": "DEFIANT", "weight": 4,
+          "effects": [{"target": "SQUAD", "metric": "MORALE", "value": -1}]}
+      ]
+    }
+  ]
+}
