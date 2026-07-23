@@ -687,7 +687,7 @@ public class GameController {
     @GetMapping("/export")
     public Map<String, Object> exportGame() {
         Map<String, Object> save = new LinkedHashMap<>();
-        save.put("saveVersion", CURRENT_SAVE_VERSION);
+        save.put("saveVersion", gameSaveImportService.effectiveSaveVersion());
         save.put("savedAt", System.currentTimeMillis());
 
         Round activeRound = gameStateService.getRound();

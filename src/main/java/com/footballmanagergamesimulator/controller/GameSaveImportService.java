@@ -196,6 +196,13 @@ public class GameSaveImportService {
             Map<String, Set<String>> schemaColumns = readSchemaColumns(schema);
             List<TableRows> tables = new ArrayList<>();
             for (TableSpec spec : MANIFEST) {
+                if (spec.introducedVersion() == CURRENT_SAVE_VERSION
+                        && (dialect != DatabaseDialect.H2 || !schema.hasTable(spec.tableName()))) {
+                    // Phase-1 economy tables are H2-only. On any other dialect (even
+                    // when JPA create-drop materializes them) they are excluded from
+                    // the import plan, so cross-database save/load is unchanged.
+                    continue;
+                }
                 Object rawSection = save.get(spec.jsonKey());
                 List<?> rows;
                 if (version < spec.introducedVersion()) {
@@ -231,6 +238,28 @@ public class GameSaveImportService {
     }
 
     /**
+     * Phase 1 raises the save version to {@link #CURRENT_SAVE_VERSION} only where
+     * the economy schema actually exists (the H2-only Phase-1 runtime). On a
+     * vendor without the Phase-1 migration the export stays at {@link #SAVE_VERSION_6}
+     * and carries no economy sections, so cross-database save/load is unaffected.
+     */
+    public int effectiveSaveVersion() {
+        Connection live = DataSourceUtils.getConnection(dataSource);
+        try {
+            // Phase 1 is H2-only. The elevated v7 save (personal-economy state) is
+            // produced only on H2; other dialects keep the cumulative cross-database
+            // v6 contract even when JPA create-drop materializes the economy tables.
+            return DatabaseDialect.detect(live) == DatabaseDialect.H2
+                    ? CURRENT_SAVE_VERSION : SAVE_VERSION_6;
+        } catch (SQLException exception) {
+            throw new IllegalStateException("Cannot determine save version: "
+                    + rootMessage(exception), exception);
+        } finally {
+            DataSourceUtils.releaseConnection(live, dataSource);
+        }
+    }
+
+    /**
      * Exports every versioned world-state table introduced in V6 or later that is not already emitted by the
      * legacy controller contract. Rows use physical column names so no entity
      * or animation implementation has to be modified merely to make save state
@@ -244,7 +273,8 @@ public class GameSaveImportService {
             validateSchemaDisposition(schema);
             Map<String, Object> result = new LinkedHashMap<>();
             for (TableSpec spec : MANIFEST) {
-                if (spec.introducedVersion() >= SAVE_VERSION_6) {
+                if (spec.introducedVersion() >= SAVE_VERSION_6 && schema.hasTable(spec.tableName())
+                        && (spec.introducedVersion() < CURRENT_SAVE_VERSION || dialect == DatabaseDialect.H2)) {
                     result.put(spec.jsonKey(), readRows(live, schema, spec.tableName()));
                 }
             }
@@ -489,10 +519,11 @@ public class GameSaveImportService {
      */
     private List<RowValues> rowsForInsert(Connection connection, SchemaCatalog schema, TableRows table) throws SQLException {
         String tableName = table.spec().tableName();
-        if ("PERSONAL_ACCOUNT".equals(tableName)) reconcileAiProfiles(connection, schema);
-        if (!Set.of("PERSONAL_ACCOUNT", "OWNED_ASSET", "PERSONAL_LEDGER_ENTRY").contains(tableName)) {
+        if (!Set.of("PERSONAL_ACCOUNT", "OWNED_ASSET", "PERSONAL_LEDGER_ENTRY").contains(tableName)
+                || table.rows().isEmpty()) {
             return table.rows();
         }
+        if ("PERSONAL_ACCOUNT".equals(tableName)) reconcileAiProfiles(connection, schema);
         List<RowValues> remapped = new ArrayList<>();
         for (RowValues row : table.rows()) {
             LinkedHashMap<String, Object> values = new LinkedHashMap<>(row.asMap());
@@ -585,7 +616,11 @@ public class GameSaveImportService {
                 }
             }
         }
-        validateEconomy(connection);
+        if (schema.dialect() == DatabaseDialect.H2) {
+            // Phase-1 economy reconciliation is H2-only; the economy tables and
+            // their ledger invariants are not part of the cross-database v6 contract.
+            validateEconomy(connection);
+        }
     }
 
     private void validateEconomy(Connection connection) throws SQLException {
@@ -987,6 +1022,7 @@ public class GameSaveImportService {
 
         String catalogName() { return catalogName; }
         String schemaName() { return schemaName; }
+        DatabaseDialect dialect() { return dialect; }
 
         Set<String> canonicalTableNames() { return tables.keySet(); }
 
