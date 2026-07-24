@@ -5,8 +5,18 @@ import org.junit.jupiter.api.Test;
 import java.util.LinkedHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CalibrationReadinessEvaluatorTest {
+    @Test
+    void minimumSamplesMustBePositiveAndRecommendedIsStable() {
+        assertThatThrownBy(() -> new CalibrationThresholds(0, .2, .2, .04, .04, .24))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new CalibrationThresholds(-1, .2, .2, .04, .04, .24))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(CalibrationThresholds.recommended().minimumSamples()).isEqualTo(10_000);
+    }
+
     @Test
     void insufficientDataIsReportedBeforeMetricChecks() {
         CompartmentCalibrationSnapshot snapshot = snapshot(3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false);

@@ -27,10 +27,25 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.lang.reflect.Constructor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CompartmentShadowEvaluationServiceTest {
+
+    @Test
+    void productionConstructorIsUniqueAndUsesSpringAccumulator() {
+        Constructor<?>[] publicConstructors = java.util.Arrays.stream(CompartmentShadowEvaluationService.class
+                .getDeclaredConstructors()).filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
+                .toArray(Constructor[]::new);
+        assertThat(publicConstructors).hasSize(1);
+        assertThat(publicConstructors[0].getParameterTypes())
+                .containsExactly(CompartmentEngineConfig.class, MatchEngineConfig.class,
+                        CanonicalRuntimeInputFactory.class, CompartmentShadowTelemetry.class,
+                        CompartmentCalibrationAccumulator.class);
+        assertThat(java.util.Arrays.stream(CompartmentShadowEvaluationService.class.getDeclaredConstructors())
+                .noneMatch(constructor -> constructor.getParameterCount() == 4)).isTrue();
+    }
 
     @Test
     void flagOffSkipsBeforeAnyCanonicalWork() {
@@ -111,6 +126,25 @@ class CompartmentShadowEvaluationServiceTest {
 
         assertThat(service.evaluateSafely(request(2, 1, true, false, true, MatchVenue.HOME))).isPresent();
         assertThat(accumulator.snapshot().sampleCount()).isEqualTo(1);
+    }
+
+    @Test
+    void skippedAndFailedEvaluationsNeverReachCalibrationAccumulator() {
+        CompartmentCalibrationAccumulator offAccumulator = new CompartmentCalibrationAccumulator();
+        CompartmentEngineConfig off = new CompartmentEngineConfig();
+        CompartmentShadowEvaluationService offService = new CompartmentShadowEvaluationService(off,
+                factory(new CountingCapabilityService()), adapter(off), new CompartmentShadowTelemetry(), offAccumulator);
+        assertThat(offService.evaluateSafely(request(1, 0, true, false, true, MatchVenue.HOME))).isEmpty();
+        assertThat(offAccumulator.snapshot().sampleCount()).isZero();
+
+        CompartmentCalibrationAccumulator failedAccumulator = new CompartmentCalibrationAccumulator();
+        CompartmentEngineConfig enabled = enabledConfig();
+        CountingCapabilityService capabilities = new CountingCapabilityService();
+        capabilities.fail = true;
+        CompartmentShadowEvaluationService failedService = new CompartmentShadowEvaluationService(enabled,
+                factory(capabilities), adapter(enabled), new CompartmentShadowTelemetry(), failedAccumulator);
+        assertThat(failedService.evaluateSafely(request(1, 0, true, false, true, MatchVenue.HOME))).isEmpty();
+        assertThat(failedAccumulator.snapshot().sampleCount()).isZero();
     }
 
     @Test
@@ -214,7 +248,8 @@ class CompartmentShadowEvaluationServiceTest {
     private static CompartmentShadowEvaluationService service(CompartmentEngineConfig config,
                                                               CanonicalRuntimeInputFactory factory,
                                                               CanonicalMatchEvaluationAdapter adapter) {
-        return new CompartmentShadowEvaluationService(config, factory, adapter, new CompartmentShadowTelemetry());
+        return new CompartmentShadowEvaluationService(config, factory, adapter,
+                new CompartmentShadowTelemetry(), new CompartmentCalibrationAccumulator());
     }
 
     private static CanonicalRuntimeInputFactory factory(CountingCapabilityService capabilities) {

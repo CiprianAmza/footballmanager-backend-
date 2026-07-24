@@ -2,7 +2,6 @@ package com.footballmanagergamesimulator.compartment.calibration;
 
 import com.footballmanagergamesimulator.compartment.ForwardInstruction;
 import com.footballmanagergamesimulator.compartment.Mentality;
-import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalTeamEvaluation;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.compartment.shadow.CompartmentShadowObservation;
@@ -40,71 +39,42 @@ public final class CompartmentCalibrationAccumulator {
     private SegmentTotals stayForwardAbsent = new SegmentTotals();
 
     public synchronized void record(CompartmentShadowObservation observation) {
-        if (observation == null) throw new NullPointerException("observation");
-        CanonicalMatchEvaluation evaluation = observation.canonicalEvaluation();
-        double[] homePmf = evaluation.probability().homeGoals().probabilities();
-        double[] awayPmf = evaluation.probability().awayGoals().probabilities();
-        int goalCap = evaluation.probability().homeGoals().cap();
-        if (evaluation.probability().awayGoals().cap() != goalCap) {
-            throw new IllegalArgumentException("home and away goal caps must match");
-        }
-        ensureHistogram(goalCap * 2 + 1);
+        PreparedRecord prepared = prepare(observation);
 
-        sampleCount++;
-        legacyHomeGoals += observation.legacyHomeScore();
-        legacyAwayGoals += observation.legacyAwayScore();
-        canonicalHomeXg += evaluation.probability().homeXg();
-        canonicalAwayXg += evaluation.probability().awayXg();
-        switch (observation.legacyResult()) {
-            case HOME_WIN -> legacyHomeWins++;
-            case DRAW -> legacyDraws++;
-            case AWAY_WIN -> legacyAwayWins++;
+        if (legacyHistogram == null) {
+            legacyHistogram = new long[prepared.histogramSize];
+            canonicalHistogram = new double[prepared.histogramSize];
         }
-        canonicalHomeWins += evaluation.outcome().homeWin();
-        canonicalDraws += evaluation.outcome().draw();
-        canonicalAwayWins += evaluation.outcome().awayWin();
-        double yHome = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.HOME_WIN ? 1.0 : 0.0;
-        double yDraw = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.DRAW ? 1.0 : 0.0;
-        double yAway = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.AWAY_WIN ? 1.0 : 0.0;
-        brier += (square(evaluation.outcome().homeWin() - yHome)
-                + square(evaluation.outcome().draw() - yDraw)
-                + square(evaluation.outcome().awayWin() - yAway)) / 3.0;
-        double assigned = switch (observation.legacyResult()) {
-            case HOME_WIN -> evaluation.outcome().homeWin();
-            case DRAW -> evaluation.outcome().draw();
-            case AWAY_WIN -> evaluation.outcome().awayWin();
-        };
-        logLoss += -Math.log(Math.max(assigned, 1e-12));
-        double homeProbability = evaluation.outcome().homeWin();
-        double awayProbability = evaluation.outcome().awayWin();
-        if (homeProbability - awayProbability >= 0.10 && observation.legacyResult() != CompartmentShadowObservation.LegacyResult.DRAW) {
-            favoriteDecided++;
-            if (observation.legacyResult() == CompartmentShadowObservation.LegacyResult.AWAY_WIN) observedUpsets++;
-            expectedUpsets += awayProbability / (homeProbability + awayProbability);
-        } else if (awayProbability - homeProbability >= 0.10
-                && observation.legacyResult() != CompartmentShadowObservation.LegacyResult.DRAW) {
-            favoriteDecided++;
-            if (observation.legacyResult() == CompartmentShadowObservation.LegacyResult.HOME_WIN) observedUpsets++;
-            expectedUpsets += homeProbability / (homeProbability + awayProbability);
+        legacyHomeGoals += prepared.legacyHomeGoals;
+        legacyAwayGoals += prepared.legacyAwayGoals;
+        canonicalHomeXg += prepared.canonicalHomeXg;
+        canonicalAwayXg += prepared.canonicalAwayXg;
+        legacyHomeWins += prepared.legacyHomeWins;
+        legacyDraws += prepared.legacyDraws;
+        legacyAwayWins += prepared.legacyAwayWins;
+        canonicalHomeWins += prepared.canonicalHomeWins;
+        canonicalDraws += prepared.canonicalDraws;
+        canonicalAwayWins += prepared.canonicalAwayWins;
+        brier += prepared.brier;
+        logLoss += prepared.logLoss;
+        favoriteDecided += prepared.favoriteDecided;
+        observedUpsets += prepared.observedUpsets;
+        expectedUpsets += prepared.expectedUpsets;
+        totalDuration += prepared.durationNanos;
+        maxDuration = Math.max(maxDuration, prepared.durationNanos);
+        legacyHistogram[prepared.legacyBucket] = prepared.nextLegacyBucket;
+        for (int i = 0; i < canonicalHistogram.length; i++) {
+            canonicalHistogram[i] += prepared.canonicalBuckets[i];
         }
-
-        int legacyTotal = observation.legacyHomeScore() + observation.legacyAwayScore();
-        legacyHistogram[Math.min(legacyTotal, legacyHistogram.length - 1)]++;
-        for (int homeGoals = 0; homeGoals < homePmf.length; homeGoals++) {
-            for (int awayGoals = 0; awayGoals < awayPmf.length; awayGoals++) {
-                canonicalHistogram[Math.min(homeGoals + awayGoals, canonicalHistogram.length - 1)]
-                        += homePmf[homeGoals] * awayPmf[awayGoals];
-            }
-        }
-        totalDuration += observation.totalDurationNanos();
-        maxDuration = Math.max(maxDuration, observation.totalDurationNanos());
-
-        recordTeam(evaluation.home(), observation.legacyHomeScore(), observation.legacyAwayScore(),
-                evaluation.probability().homeXg(), evaluation.probability().awayXg(),
-                isDefensive(evaluation.home().team().mentality()), hasStayForward(evaluation.home()));
-        recordTeam(evaluation.away(), observation.legacyAwayScore(), observation.legacyHomeScore(),
-                evaluation.probability().awayXg(), evaluation.probability().homeXg(),
-                isDefensive(evaluation.away().team().mentality()), hasStayForward(evaluation.away()));
+        commitSegment(defensive, prepared.homeDefensive);
+        commitSegment(defensive, prepared.awayDefensive);
+        commitSegment(nonDefensive, prepared.homeDefensive == null ? prepared.homeSegment : null);
+        commitSegment(nonDefensive, prepared.awayDefensive == null ? prepared.awaySegment : null);
+        commitSegment(stayForwardPresent, prepared.homeStayForward);
+        commitSegment(stayForwardPresent, prepared.awayStayForward);
+        commitSegment(stayForwardAbsent, prepared.homeStayForward == null ? prepared.homeSegment : null);
+        commitSegment(stayForwardAbsent, prepared.awayStayForward == null ? prepared.awaySegment : null);
+        sampleCount = prepared.nextSampleCount;
     }
 
     public synchronized CompartmentCalibrationSnapshot snapshot() {
@@ -118,8 +88,7 @@ public final class CompartmentCalibrationAccumulator {
                 favoriteDecided == 0 ? 0.0 : (double) observedUpsets / favoriteDecided,
                 favoriteDecided == 0 ? 0.0 : expectedUpsets / favoriteDecided,
                 histogram(legacyHistogram), histogram(canonicalHistogram),
-                segment(defensive), segment(nonDefensive),
-                segment(stayForwardPresent), segment(stayForwardAbsent),
+                segment(defensive), segment(nonDefensive), segment(stayForwardPresent), segment(stayForwardAbsent),
                 sampleCount == 0 ? 0.0 : totalDuration / sampleCount, maxDuration);
     }
 
@@ -139,29 +108,125 @@ public final class CompartmentCalibrationAccumulator {
         stayForwardAbsent = new SegmentTotals();
     }
 
-    private void recordTeam(CanonicalTeamEvaluation team, int goalsFor, int goalsAgainst,
-                            double xgFor, double xgAgainst, boolean defensiveMentality, boolean stayForward) {
-        SegmentTotals mentalitySegment = defensiveMentality ? defensive : nonDefensive;
-        mentalitySegment.add(team, goalsFor, goalsAgainst, xgFor, xgAgainst);
-        (stayForward ? stayForwardPresent : stayForwardAbsent).add(team, goalsFor, goalsAgainst, xgFor, xgAgainst);
-    }
-
-    private static boolean isDefensive(Mentality mentality) {
-        return mentality == Mentality.DEFENSIVE || mentality == Mentality.VERY_DEFENSIVE;
-    }
-
-    private static boolean hasStayForward(CanonicalTeamEvaluation team) {
-        return team.team().players().stream().anyMatch(player -> player.instruction() == ForwardInstruction.STAY_FORWARD);
-    }
-
-    private void ensureHistogram(int size) {
-        if (legacyHistogram == null) {
-            legacyHistogram = new long[size];
-            canonicalHistogram = new double[size];
-        } else if (legacyHistogram.length != size) {
+    private PreparedRecord prepare(CompartmentShadowObservation observation) {
+        if (observation == null) throw new NullPointerException("observation");
+        CanonicalMatchEvaluation evaluation = observation.canonicalEvaluation();
+        if (evaluation == null || observation.legacyResult() == null) {
+            throw new IllegalArgumentException("observation evaluation and result are required");
+        }
+        var probability = evaluation.probability();
+        var homeGoals = probability.homeGoals();
+        var awayGoals = probability.awayGoals();
+        int cap = homeGoals.cap();
+        if (cap < 0 || awayGoals.cap() != cap) throw new IllegalArgumentException("home and away goal caps must match");
+        double[] homePmf = checkedPmf(homeGoals.probabilities(), cap, "home");
+        double[] awayPmf = checkedPmf(awayGoals.probabilities(), cap, "away");
+        if (!Double.isFinite(probability.homeXg()) || probability.homeXg() < 0
+                || !Double.isFinite(probability.awayXg()) || probability.awayXg() < 0) {
+            throw new IllegalArgumentException("expected goals must be finite and non-negative");
+        }
+        var outcome = evaluation.outcome();
+        validateOutcome(outcome.homeWin(), outcome.draw(), outcome.awayWin());
+        int legacyTotal = Math.addExact(observation.legacyHomeScore(), observation.legacyAwayScore());
+        if (observation.totalDurationNanos() < 0) throw new IllegalArgumentException("duration must be non-negative");
+        if (legacyHistogram != null && legacyHistogram.length != cap * 2 + 1) {
             throw new IllegalArgumentException("all observations must use the same goal cap");
         }
+
+        long nextSampleCount = Math.addExact(sampleCount, 1);
+        long homeWins = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.HOME_WIN ? 1 : 0;
+        long draws = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.DRAW ? 1 : 0;
+        long awayWins = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.AWAY_WIN ? 1 : 0;
+        long nextHomeWins = Math.addExact(legacyHomeWins, homeWins);
+        long nextDraws = Math.addExact(legacyDraws, draws);
+        long nextAwayWins = Math.addExact(legacyAwayWins, awayWins);
+        int legacyBucket = Math.min(legacyTotal, cap * 2);
+        long currentBucket = legacyHistogram == null ? 0 : legacyHistogram[legacyBucket];
+        long nextLegacyBucket = Math.addExact(currentBucket, 1);
+        double[] canonicalBuckets = convolution(homePmf, awayPmf, cap);
+
+        double yHome = homeWins;
+        double yDraw = draws;
+        double yAway = awayWins;
+        double oneBrier = (square(outcome.homeWin() - yHome) + square(outcome.draw() - yDraw)
+                + square(outcome.awayWin() - yAway)) / 3.0;
+        double assigned = switch (observation.legacyResult()) {
+            case HOME_WIN -> outcome.homeWin(); case DRAW -> outcome.draw(); case AWAY_WIN -> outcome.awayWin();
+        };
+        double oneLogLoss = -Math.log(Math.max(assigned, 1e-12));
+        double homeProbability = outcome.homeWin();
+        double awayProbability = outcome.awayWin();
+        long oneFavorite = 0;
+        long oneUpset = 0;
+        double oneExpectedUpset = 0.0;
+        if (observation.legacyResult() != CompartmentShadowObservation.LegacyResult.DRAW) {
+            if (homeProbability - awayProbability >= 0.10) {
+                oneFavorite = 1;
+                oneUpset = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.AWAY_WIN ? 1 : 0;
+                oneExpectedUpset = awayProbability / (homeProbability + awayProbability);
+            } else if (awayProbability - homeProbability >= 0.10) {
+                oneFavorite = 1;
+                oneUpset = observation.legacyResult() == CompartmentShadowObservation.LegacyResult.HOME_WIN ? 1 : 0;
+                oneExpectedUpset = homeProbability / (homeProbability + awayProbability);
+            }
+        }
+        long nextFavorite = Math.addExact(favoriteDecided, oneFavorite);
+        long nextObserved = Math.addExact(observedUpsets, oneUpset);
+        SegmentValues homeSegment = segmentValues(evaluation.home(), observation.legacyHomeScore(),
+                observation.legacyAwayScore(), probability.homeXg(), probability.awayXg());
+        SegmentValues awaySegment = segmentValues(evaluation.away(), observation.legacyAwayScore(),
+                observation.legacyHomeScore(), probability.awayXg(), probability.homeXg());
+        Math.addExact(defensive.samples, count(homeSegment.defensive) + count(awaySegment.defensive));
+        Math.addExact(nonDefensive.samples, count(!homeSegment.defensive) + count(!awaySegment.defensive));
+        Math.addExact(stayForwardPresent.samples, count(homeSegment.stayForward) + count(awaySegment.stayForward));
+        Math.addExact(stayForwardAbsent.samples, count(!homeSegment.stayForward) + count(!awaySegment.stayForward));
+        return new PreparedRecord(nextSampleCount, observation.legacyHomeScore(), observation.legacyAwayScore(),
+                probability.homeXg(), probability.awayXg(), homeWins, draws,
+                awayWins, outcome.homeWin(), outcome.draw(), outcome.awayWin(), oneBrier, oneLogLoss,
+                oneFavorite, oneUpset, oneExpectedUpset, observation.totalDurationNanos(), cap * 2 + 1,
+                legacyBucket, nextLegacyBucket, canonicalBuckets, homeSegment, awaySegment,
+                homeSegment.defensive ? homeSegment : null, awaySegment.defensive ? awaySegment : null,
+                homeSegment.stayForward ? homeSegment : null, awaySegment.stayForward ? awaySegment : null,
+                nextHomeWins, nextDraws, nextAwayWins, nextFavorite, nextObserved);
     }
+
+    private static double[] checkedPmf(double[] values, int cap, String side) {
+        if (values == null || values.length != cap + 1) throw new IllegalArgumentException(side + " PMF length mismatch");
+        double sum = 0.0;
+        for (double value : values) {
+            if (!Double.isFinite(value) || value < 0.0) throw new IllegalArgumentException(side + " PMF contains invalid value");
+            sum += value;
+        }
+        if (Math.abs(sum - 1.0) > 1e-9) throw new IllegalArgumentException(side + " PMF must sum to 1.0");
+        return values;
+    }
+
+    private static void validateOutcome(double home, double draw, double away) {
+        if (!Double.isFinite(home) || !Double.isFinite(draw) || !Double.isFinite(away)
+                || home < 0 || draw < 0 || away < 0 || Math.abs(home + draw + away - 1.0) > 1e-9) {
+            throw new IllegalArgumentException("invalid outcome probabilities");
+        }
+    }
+
+    private static double[] convolution(double[] home, double[] away, int cap) {
+        double[] result = new double[cap * 2 + 1];
+        for (int h = 0; h <= cap; h++) for (int a = 0; a <= cap; a++) result[h + a] += home[h] * away[a];
+        return result;
+    }
+
+    private static SegmentValues segmentValues(CanonicalTeamEvaluation evaluation, int goalsFor, int goalsAgainst,
+                                               double xgFor, double xgAgainst) {
+        if (evaluation == null || evaluation.team() == null) throw new IllegalArgumentException("team is required");
+        var team = evaluation.team();
+        double attack = team.attack();
+        double protection = team.attackProtection();
+        if (!Double.isFinite(attack) || !Double.isFinite(protection)) throw new IllegalArgumentException("team metrics invalid");
+        boolean defensive = team.mentality() == Mentality.DEFENSIVE || team.mentality() == Mentality.VERY_DEFENSIVE;
+        boolean stayForward = team.players().stream().anyMatch(player -> player.instruction() == ForwardInstruction.STAY_FORWARD);
+        return new SegmentValues(goalsFor, goalsAgainst, xgFor, xgAgainst, attack, protection, defensive, stayForward);
+    }
+
+    private void commitSegment(SegmentTotals target, SegmentValues values) { if (values != null) target.add(values); }
 
     private Map<Integer, Long> histogram(long[] values) {
         if (values == null) return Map.of();
@@ -169,48 +234,43 @@ public final class CompartmentCalibrationAccumulator {
         for (int i = 0; i < values.length; i++) result.put(i, values[i]);
         return Collections.unmodifiableMap(result);
     }
-
     private Map<Integer, Double> histogram(double[] values) {
         if (values == null) return Map.of();
         LinkedHashMap<Integer, Double> result = new LinkedHashMap<>();
         for (int i = 0; i < values.length; i++) result.put(i, values[i]);
         return Collections.unmodifiableMap(result);
     }
-
     private CalibrationSegmentSnapshot segment(SegmentTotals totals) {
-        return new CalibrationSegmentSnapshot(totals.samples, mean(totals.goalsFor, totals.samples),
-                mean(totals.goalsAgainst, totals.samples), mean(totals.xgFor, totals.samples),
-                mean(totals.xgAgainst, totals.samples), mean(totals.attack, totals.samples),
+        return new CalibrationSegmentSnapshot(totals.samples, mean(totals.goalsFor, totals.samples), mean(totals.goalsAgainst, totals.samples),
+                mean(totals.xgFor, totals.samples), mean(totals.xgAgainst, totals.samples), mean(totals.attack, totals.samples),
                 mean(totals.attackProtection, totals.samples));
     }
-
-    private double rate(long value) {
-        return sampleCount == 0 ? 0.0 : (double) value / sampleCount;
-    }
-
-    private double mean(double value) {
-        return sampleCount == 0 ? 0.0 : value / sampleCount;
-    }
-
-    private static double mean(double value, long count) {
-        return count == 0 ? 0.0 : value / count;
-    }
-
+    private double rate(long value) { return sampleCount == 0 ? 0.0 : (double) value / sampleCount; }
+    private double mean(double value) { return sampleCount == 0 ? 0.0 : value / sampleCount; }
+    private static double mean(double value, long count) { return count == 0 ? 0.0 : value / count; }
     private static double square(double value) { return value * value; }
+    private static long count(boolean value) { return value ? 1L : 0L; }
 
     private static final class SegmentTotals {
         private long samples;
         private double goalsFor, goalsAgainst, xgFor, xgAgainst, attack, attackProtection;
-
-        private void add(CanonicalTeamEvaluation team, double goalsFor, double goalsAgainst,
-                         double xgFor, double xgAgainst) {
+        private void add(SegmentValues value) {
             samples++;
-            this.goalsFor += goalsFor;
-            this.goalsAgainst += goalsAgainst;
-            this.xgFor += xgFor;
-            this.xgAgainst += xgAgainst;
-            this.attack += team.team().attack();
-            this.attackProtection += team.team().attackProtection();
+            goalsFor += value.goalsFor; goalsAgainst += value.goalsAgainst; xgFor += value.xgFor;
+            xgAgainst += value.xgAgainst; attack += value.attack; attackProtection += value.protection;
         }
     }
+    private record SegmentValues(double goalsFor, double goalsAgainst, double xgFor, double xgAgainst,
+                                 double attack, double protection, boolean defensive, boolean stayForward) {}
+    private record PreparedRecord(long nextSampleCount, double legacyHomeGoals, double legacyAwayGoals,
+                                  double canonicalHomeXg, double canonicalAwayXg,
+                                  long legacyHomeWins, long legacyDraws, long legacyAwayWins,
+                                  double canonicalHomeWins, double canonicalDraws, double canonicalAwayWins,
+                                  double brier, double logLoss, long favoriteDecided, long observedUpsets,
+                                  double expectedUpsets, long durationNanos, int histogramSize, int legacyBucket,
+                                  long nextLegacyBucket, double[] canonicalBuckets, SegmentValues homeSegment,
+                                  SegmentValues awaySegment, SegmentValues homeDefensive, SegmentValues awayDefensive,
+                                  SegmentValues homeStayForward, SegmentValues awayStayForward,
+                                  long nextHomeWins, long nextDraws, long nextAwayWins, long nextFavorite,
+                                  long nextObserved) {}
 }

@@ -1,7 +1,10 @@
 package com.footballmanagergamesimulator.compartment.calibration;
 
 import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.compartment.GoalProbabilityFormula;
 import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
+import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
+import com.footballmanagergamesimulator.compartment.match.OutcomeProbability;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluationAdapter;
 import com.footballmanagergamesimulator.compartment.match.MatchVenue;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeInputFactory;
@@ -22,8 +25,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Collection;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CompartmentCalibrationAccumulatorTest {
     @Test
@@ -55,16 +60,98 @@ class CompartmentCalibrationAccumulatorTest {
     @Test
     void segmentMeansUseTheirOwnTeamSampleCounts() {
         CompartmentCalibrationAccumulator accumulator = new CompartmentCalibrationAccumulator();
-        accumulator.record(observation());
+        accumulator.record(observation("Defensive", false));
+        accumulator.record(observation("Very Defensive", true));
+        accumulator.record(observation("Balanced", false));
         CompartmentCalibrationSnapshot snapshot = accumulator.snapshot();
 
-        assertThat(snapshot.defensiveMentality().teamSamples()).isEqualTo(2);
-        assertThat(snapshot.nonDefensiveMentality().teamSamples()).isZero();
-        assertThat(snapshot.stayForwardAbsent().teamSamples()).isEqualTo(2);
-        assertThat(snapshot.stayForwardPresent().teamSamples()).isZero();
+        assertThat(snapshot.defensiveMentality().teamSamples()).isEqualTo(4);
+        assertThat(snapshot.nonDefensiveMentality().teamSamples()).isEqualTo(2);
+        assertThat(snapshot.stayForwardAbsent().teamSamples()).isEqualTo(4);
+        assertThat(snapshot.stayForwardPresent().teamSamples()).isEqualTo(2);
+        assertThat(snapshot.defensiveMentality().meanObservedGoalsFor()).isEqualTo(1.5);
+        assertThat(snapshot.defensiveMentality().meanObservedGoalsAgainst()).isEqualTo(1.5);
     }
 
-    private static CompartmentShadowObservation observation() {
+    @Test
+    void controlledTwoMatchCorpusHasExactMetrics() {
+        CompartmentShadowObservation base = observation();
+        CompartmentCalibrationAccumulator accumulator = new CompartmentCalibrationAccumulator();
+        accumulator.record(controlled(base, 2, 1, new double[]{.5, .5, 0}, new double[]{1, 0, 0},
+                1.0, .5, new OutcomeProbability(.6, .2, .2)));
+        accumulator.record(controlled(base, 0, 3, new double[]{0, 0, 1}, new double[]{.25, .5, .25},
+                2.0, 1.0, new OutcomeProbability(.2, .3, .5)));
+        CompartmentCalibrationSnapshot snapshot = accumulator.snapshot();
+
+        assertThat(snapshot.legacyMeanHomeGoals()).isCloseTo(1.0, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(snapshot.legacyMeanAwayGoals()).isCloseTo(2.0, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(snapshot.canonicalMeanHomeXg()).isCloseTo(1.5, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(snapshot.canonicalMeanAwayXg()).isCloseTo(.75, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(snapshot.legacyHomeWinRate()).isCloseTo(.5, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(snapshot.canonicalHomeWinProbability()).isCloseTo(.4, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(snapshot.multiclassBrierScore()).isCloseTo(.10333333333333333, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(snapshot.logarithmicLoss()).isCloseTo((-Math.log(.6) - Math.log(.5)) / 2.0,
+                org.assertj.core.data.Offset.offset(1e-12));
+    }
+
+    @Test
+    void convolutionUpsetsAndOverflowAreExactAndInvalidRecordsAreAtomic() {
+        CompartmentShadowObservation base = observation();
+        CompartmentCalibrationAccumulator histogram = new CompartmentCalibrationAccumulator();
+        histogram.record(controlled(base, 3, 3, new double[]{.5, .5, 0}, new double[]{1, 0, 0},
+                1, 1, new OutcomeProbability(.5, .2, .3)));
+        histogram.record(controlled(base, 0, 0, new double[]{0, 0, 1}, new double[]{.25, .5, .25},
+                1, 1, new OutcomeProbability(.5, .2, .3)));
+        CompartmentCalibrationSnapshot histogramSnapshot = histogram.snapshot();
+        assertThat(histogramSnapshot.legacyTotalGoalsHistogram().get(0)).isEqualTo(1L);
+        assertThat(histogramSnapshot.legacyTotalGoalsHistogram().get(4)).isEqualTo(1L);
+        assertThat(histogramSnapshot.canonicalExpectedTotalGoalsHistogram().get(0)).isCloseTo(.5,
+                org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(histogramSnapshot.canonicalExpectedTotalGoalsHistogram().values().stream().mapToDouble(Double::doubleValue).sum())
+                .isCloseTo(2.0, org.assertj.core.data.Offset.offset(1e-9));
+
+        CompartmentCalibrationAccumulator outcomes = new CompartmentCalibrationAccumulator();
+        outcomes.record(controlled(base, 1, 0, null, null, 1, 1, new OutcomeProbability(.7, .1, .2)));
+        outcomes.record(controlled(base, 0, 1, null, null, 1, 1, new OutcomeProbability(.7, .1, .2)));
+        outcomes.record(controlled(base, 0, 1, null, null, 1, 1, new OutcomeProbability(.2, .1, .7)));
+        outcomes.record(controlled(base, 1, 0, null, null, 1, 1, new OutcomeProbability(.2, .1, .7)));
+        outcomes.record(controlled(base, 1, 0, null, null, 1, 1, new OutcomeProbability(.4, .2, .4)));
+        outcomes.record(controlled(base, 0, 0, null, null, 1, 1, new OutcomeProbability(.7, .1, .2)));
+        CompartmentCalibrationSnapshot outcomeSnapshot = outcomes.snapshot();
+        assertThat(outcomeSnapshot.favoriteDecidedMatches()).isEqualTo(4);
+        assertThat(outcomeSnapshot.observedUpsets()).isEqualTo(2);
+        assertThat(outcomeSnapshot.observedUpsetRate()).isCloseTo(.5, org.assertj.core.data.Offset.offset(1e-12));
+        assertThat(outcomeSnapshot.expectedConditionalUpsetRate()).isCloseTo(2.0 / 9.0,
+                org.assertj.core.data.Offset.offset(1e-12));
+
+        CompartmentCalibrationSnapshot before = outcomes.snapshot();
+        assertThatThrownBy(() -> outcomes.record(controlled(base, Integer.MAX_VALUE, 1,
+                new double[]{.5, .5}, new double[]{1, 0, 0}, 1, 1, new OutcomeProbability(.5, .2, .3))))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(outcomes.snapshot()).isEqualTo(before);
+    }
+
+    @Test
+    void accumulatorIsDeterministicAndHasNoObservationHistory() {
+        CompartmentShadowObservation base = observation();
+        CompartmentCalibrationAccumulator first = new CompartmentCalibrationAccumulator();
+        CompartmentCalibrationAccumulator second = new CompartmentCalibrationAccumulator();
+        for (int i = 0; i < 20_000; i++) {
+            CompartmentShadowObservation item = controlled(base, i % 3, (i + 1) % 3,
+                    new double[]{.5, .5, 0}, new double[]{1, 0, 0}, 1, .5,
+                    new OutcomeProbability(.5, .2, .3));
+            first.record(item); second.record(item);
+        }
+        assertThat(first.snapshot()).isEqualTo(second.snapshot());
+        assertThat(first.snapshot().sampleCount()).isEqualTo(20_000);
+        assertThat(first.snapshot().legacyTotalGoalsHistogram()).hasSize(5);
+        assertThat(java.util.Arrays.stream(CompartmentCalibrationAccumulator.class.getDeclaredFields())
+                .noneMatch(field -> Collection.class.isAssignableFrom(field.getType()))).isTrue();
+    }
+
+    private static CompartmentShadowObservation observation() { return observation("Defensive", false); }
+
+    private static CompartmentShadowObservation observation(String mentality, boolean stayForward) {
         CompartmentEngineConfig config = loadConfig();
         config.setShadowEnabled(true);
         CompartmentShadowEvaluationService service = new CompartmentShadowEvaluationService(config,
@@ -72,7 +159,7 @@ class CompartmentCalibrationAccumulatorTest {
                 new CompartmentCalibrationAccumulator());
         CompartmentShadowObservation generated = service.evaluateSafely(new CompartmentShadowEvaluationService.ShadowEvaluationRequest(
                 "calibration-fixture", 10, 20, 2, 1, true, false, true, MatchVenue.HOME,
-                tactic(), tactic(), slots(1), slots(100))).orElseThrow();
+                tactic(mentality), tactic(mentality), slots(1, stayForward), slots(100, stayForward))).orElseThrow();
         return new CompartmentShadowObservation(generated.fixtureKey(), generated.homeTeamId(), generated.awayTeamId(),
                 generated.legacyHomeScore(), generated.legacyAwayScore(), generated.legacyResult(),
                 generated.canonicalEvaluation(), 17);
@@ -82,23 +169,44 @@ class CompartmentCalibrationAccumulatorTest {
         return new CanonicalRuntimeInputFactory(new CapabilityService(), new PlayerRoleService());
     }
 
-    private static PersonalizedTactic tactic() {
+    private static PersonalizedTactic tactic(String mentality) {
         PersonalizedTactic tactic = new PersonalizedTactic();
-        tactic.setMentality("Defensive"); tactic.setTempo("Standard"); tactic.setPassingType("Normal");
+        tactic.setMentality(mentality); tactic.setTempo("Standard"); tactic.setPassingType("Normal");
         tactic.setDefensiveLine("Standard"); tactic.setPressing("Standard"); tactic.setWidth("Balanced");
         return tactic;
     }
 
-    private static List<ShadowLineupSlotSource> slots(long offset) {
+    private static List<ShadowLineupSlotSource> slots(long offset, boolean stayForward) {
         List<String> positions = List.of("GK", "DC", "DL", "DR", "DM", "MC", "ML", "MR", "AMC", "AML", "ST");
         List<ShadowLineupSlotSource> result = new ArrayList<>();
         for (int i = 0; i < positions.size(); i++) {
             long id = offset + i; Human human = new Human(); human.setId(id);
             PlayerSkills skills = new PlayerSkills(); skills.setPlayerId(id);
             FormationData formation = new FormationData(); formation.setPlayerId(id);
+            if (stayForward && i == 10) formation.setInstructions(List.of("Stay Forward"));
             result.add(new ShadowLineupSlotSource(human, skills, formation, positions.get(i), 1));
         }
         return result;
+    }
+
+    private static CompartmentShadowObservation controlled(CompartmentShadowObservation base, int homeScore,
+                                                           int awayScore, double[] homePmf, double[] awayPmf,
+                                                           double homeXg, double awayXg, OutcomeProbability outcome) {
+        var old = base.canonicalEvaluation().probability();
+        double[] home = homePmf == null ? old.homeGoals().probabilities() : homePmf;
+        double[] away = awayPmf == null ? old.awayGoals().probabilities() : awayPmf;
+        int cap = homePmf == null ? old.homeGoals().cap() : homePmf.length - 1;
+        var probability = new GoalProbabilityFormula.MatchProbability(0.5, 0.5, homeXg, awayXg,
+                new GoalProbabilityFormula.GoalDistribution(homeXg, 1, cap, home, 0, cap),
+                new GoalProbabilityFormula.GoalDistribution(awayXg, 1, cap, away, 0, cap));
+        CanonicalMatchEvaluation evaluation = new CanonicalMatchEvaluation(base.canonicalEvaluation().home(),
+                base.canonicalEvaluation().away(), MatchVenue.HOME, base.canonicalEvaluation().combinedOpenness(),
+                probability, outcome);
+        CompartmentShadowObservation.LegacyResult result = homeScore == awayScore
+                ? CompartmentShadowObservation.LegacyResult.DRAW
+                : homeScore > awayScore ? CompartmentShadowObservation.LegacyResult.HOME_WIN
+                : CompartmentShadowObservation.LegacyResult.AWAY_WIN;
+        return new CompartmentShadowObservation("controlled", 1, 2, homeScore, awayScore, result, evaluation, 17);
     }
 
     private static CompartmentEngineConfig loadConfig() {

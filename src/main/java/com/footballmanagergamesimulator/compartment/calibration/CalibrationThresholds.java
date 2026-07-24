@@ -8,7 +8,7 @@ public record CalibrationThresholds(
         double maximumUpsetRateDelta,
         double maximumMulticlassBrierScore) {
     public CalibrationThresholds {
-        if (minimumSamples < 0) throw new IllegalArgumentException("minimumSamples must be non-negative");
+        if (minimumSamples <= 0) throw new IllegalArgumentException("minimumSamples must be positive");
         requireNonNegativeFinite(maximumMeanHomeGoalsDelta, "maximumMeanHomeGoalsDelta");
         requireNonNegativeFinite(maximumMeanAwayGoalsDelta, "maximumMeanAwayGoalsDelta");
         requireUnit(maximumOutcomeRateDelta, "maximumOutcomeRateDelta");

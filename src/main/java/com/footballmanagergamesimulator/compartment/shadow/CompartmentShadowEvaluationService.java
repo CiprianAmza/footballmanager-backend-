@@ -43,14 +43,6 @@ public final class CompartmentShadowEvaluationService {
                 calibrationAccumulator);
     }
 
-    public CompartmentShadowEvaluationService(CompartmentEngineConfig compartmentConfig,
-                                              CanonicalRuntimeInputFactory runtimeFactory,
-                                              CanonicalMatchEvaluationAdapter matchAdapter,
-                                              CompartmentShadowTelemetry telemetry) {
-        this(compartmentConfig, runtimeFactory, matchAdapter, telemetry,
-                new CompartmentCalibrationAccumulator());
-    }
-
     CompartmentShadowEvaluationService(CompartmentEngineConfig compartmentConfig,
                                        CanonicalRuntimeInputFactory runtimeFactory,
                                        CanonicalMatchEvaluationAdapter matchAdapter,
