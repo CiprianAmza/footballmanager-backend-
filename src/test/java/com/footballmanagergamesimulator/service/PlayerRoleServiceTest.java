@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 /**
@@ -81,5 +82,35 @@ class PlayerRoleServiceTest {
     void effectiveRating_emptyRole_returnsBaseUnchanged() {
         PlayerSkills s = uniformSkills("ST", 12);
         assertThat(service.computeEffectiveRating(s, "", 175.0)).isEqualTo(175.0);
+    }
+
+    @Test
+    void strictSuitabilityUsesUsedPositionFamily() {
+        assertThat(service.computeRoleSuitability(uniformSkills("ST", 12), "MC", "Advanced Playmaker"))
+                .isGreaterThan(0.0);
+        assertThat(service.computeRoleSuitability(uniformSkills("MC", 12), "ST", "Poacher"))
+                .isGreaterThan(0.0);
+        assertThat(service.computeRoleSuitability(uniformSkills("ST", 12), "DM", "Central Midfielder"))
+                .isGreaterThan(0.0);
+        assertThat(service.computeRoleSuitability(uniformSkills("ST", 12), "AMC", "Central Midfielder"))
+                .isGreaterThan(0.0);
+        assertThat(service.computeRoleSuitability(uniformSkills("ST", 12), "WBL", "Full-Back"))
+                .isGreaterThan(0.0);
+    }
+
+    @Test
+    void strictSuitabilityRejectsIncompatibleRoleWithoutOverallFallback() {
+        assertThatThrownBy(() -> service.computeRoleSuitability(uniformSkills("ST", 12), "MC", "Poacher"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void dutyValidationUsesUsedPositionFamilyAndIsCaseInsensitive() {
+        assertThat(service.isDutyAllowed("ST", "Poacher", "attack")).isTrue();
+        assertThat(service.isDutyAllowed("GK", "Goalkeeper", "Defend")).isTrue();
+        assertThat(service.isDutyAllowed("MC", "Central Midfielder", "Support")).isTrue();
+        assertThat(service.isDutyAllowed("ST", "Poacher", "Defend")).isFalse();
+        assertThat(service.isDutyAllowed("GK", "Goalkeeper", "Attack")).isFalse();
+        assertThat(service.isDutyAllowed("DC", "No-Nonsense Defender", "Attack")).isFalse();
     }
 }
