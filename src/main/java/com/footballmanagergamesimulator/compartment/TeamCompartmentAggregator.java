@@ -25,7 +25,7 @@ import java.util.Set;
  */
 public final class TeamCompartmentAggregator {
 
-    private static final double WIDE_REDISTRIBUTION_SHARE = 0.20;
+    static final double WIDE_REDISTRIBUTION_SHARE = 0.20;
     private static final double SHARE_TOLERANCE = 1e-9;
     private static final Comparator<PlayerCompartmentInput> INPUT_ORDER =
             Comparator.comparing((PlayerCompartmentInput input) -> input.slot().position())
@@ -123,7 +123,7 @@ public final class TeamCompartmentAggregator {
 
         Set<Long> seenPlayers = new HashSet<>();
         Set<LineupSlot> seenSlots = new HashSet<>();
-        Map<LineupPosition, List<Integer>> occurrences = new EnumMap<>(LineupPosition.class);
+        Map<PlayerPosition, List<Integer>> occurrences = new EnumMap<>(PlayerPosition.class);
         int goalkeepers = 0;
 
         for (PlayerCompartmentInput input : ordered) {
@@ -136,7 +136,7 @@ public final class TeamCompartmentAggregator {
             if (!input.slot().position().code().equals(input.rating().position())) {
                 throw new IllegalArgumentException("rating position does not match slot for player " + input.playerId());
             }
-            if (input.slot().position() == LineupPosition.GK) {
+            if (input.slot().position() == PlayerPosition.GK) {
                 goalkeepers++;
             }
             occurrences.computeIfAbsent(input.slot().position(), ignored -> new ArrayList<>())
@@ -147,7 +147,7 @@ public final class TeamCompartmentAggregator {
             throw new IllegalArgumentException("lineup must contain exactly one goalkeeper");
         }
 
-        for (Map.Entry<LineupPosition, List<Integer>> entry : occurrences.entrySet()) {
+        for (Map.Entry<PlayerPosition, List<Integer>> entry : occurrences.entrySet()) {
             List<Integer> values = entry.getValue().stream().sorted().toList();
             for (int i = 0; i < values.size(); i++) {
                 int expected = i + 1;
@@ -170,10 +170,10 @@ public final class TeamCompartmentAggregator {
         double normalizedDefense = clamp01(defense.finalScore() / config.getRating().getScoreScale());
         double cbRecoveryPace = input.slot().position().isCenterBack() ? paceNormalization(input.rating()) : 0.0;
         ZoneEngagementBreakdown zoneEngagement = new ZoneEngagementBreakdown(
-                input.slot().position().exposureZone(),
+                exposureZone(input.slot().position()),
                 behavior.engagement(),
-                zoneWeight(input.slot().position().exposureZone()),
-                zoneWeight(input.slot().position().exposureZone()) * (1.0 - behavior.engagement()));
+                zoneWeight(exposureZone(input.slot().position())),
+                zoneWeight(exposureZone(input.slot().position())) * (1.0 - behavior.engagement()));
 
         return new PlayerAggregation(
                 input,
@@ -202,7 +202,7 @@ public final class TeamCompartmentAggregator {
         double finalAttack = attackBeforeTransfer + direction.attackDelta(transferMass);
         double finalProtection = protectionBeforeTransfer + direction.defenseDelta(transferMass);
 
-        double channelShare = player.input().slot().position().wideRedistributionShare();
+        double channelShare = wideRedistributionShare(player.input().slot().position());
         double channelAttack = finalAttack * channelShare;
         double channelProtection = finalProtection * channelShare;
 
@@ -227,7 +227,7 @@ public final class TeamCompartmentAggregator {
                 finalAttack,
                 finalProtection,
                 channelShare,
-                player.input().slot().position().channel(),
+                wideChannel(player.input().slot().position()),
                 channelAttack,
                 channelProtection,
                 player.zoneEngagement());
@@ -305,6 +305,28 @@ public final class TeamCompartmentAggregator {
             throw new IllegalStateException("Missing exposure zone weight for " + zone.configKey());
         }
         return weight;
+    }
+
+    private static ExposureZone exposureZone(PlayerPosition position) {
+        return switch (position) {
+            case AML, AMR -> ExposureZone.HALF_SPACE;
+            case DL, DR, WBL, WBR, ML, MR -> ExposureZone.WIDE;
+            default -> ExposureZone.CENTRAL;
+        };
+    }
+
+    private static WideChannel wideChannel(PlayerPosition position) {
+        return switch (position) {
+            case AML -> WideChannel.LEFT_HALF_SPACE;
+            case AMR -> WideChannel.RIGHT_HALF_SPACE;
+            case DL, WBL, ML -> WideChannel.LEFT_WIDE;
+            case DR, WBR, MR -> WideChannel.RIGHT_WIDE;
+            default -> WideChannel.CENTRAL;
+        };
+    }
+
+    private static double wideRedistributionShare(PlayerPosition position) {
+        return position.isWideEligible() ? WIDE_REDISTRIBUTION_SHARE : 0.0;
     }
 
     private void validateMentalityRule(MentalityRule rule) {
@@ -388,65 +410,7 @@ public final class TeamCompartmentAggregator {
         RIGHT_WIDE
     }
 
-    public enum LineupPosition {
-        GK("GK", ExposureZone.CENTRAL, WideChannel.CENTRAL, 0.0, false, false),
-        DC("DC", ExposureZone.CENTRAL, WideChannel.CENTRAL, 0.0, false, true),
-        DL("DL", ExposureZone.WIDE, WideChannel.LEFT_WIDE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        DR("DR", ExposureZone.WIDE, WideChannel.RIGHT_WIDE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        WBL("WBL", ExposureZone.WIDE, WideChannel.LEFT_WIDE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        WBR("WBR", ExposureZone.WIDE, WideChannel.RIGHT_WIDE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        DM("DM", ExposureZone.CENTRAL, WideChannel.CENTRAL, 0.0, true, false),
-        MC("MC", ExposureZone.CENTRAL, WideChannel.CENTRAL, 0.0, false, false),
-        ML("ML", ExposureZone.WIDE, WideChannel.LEFT_WIDE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        MR("MR", ExposureZone.WIDE, WideChannel.RIGHT_WIDE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        AMC("AMC", ExposureZone.CENTRAL, WideChannel.CENTRAL, 0.0, false, false),
-        AML("AML", ExposureZone.HALF_SPACE, WideChannel.LEFT_HALF_SPACE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        AMR("AMR", ExposureZone.HALF_SPACE, WideChannel.RIGHT_HALF_SPACE, WIDE_REDISTRIBUTION_SHARE, false, false),
-        ST("ST", ExposureZone.CENTRAL, WideChannel.CENTRAL, 0.0, false, false);
-
-        private final String code;
-        private final ExposureZone exposureZone;
-        private final WideChannel channel;
-        private final double wideRedistributionShare;
-        private final boolean defensiveMidfielder;
-        private final boolean centerBack;
-
-        LineupPosition(String code, ExposureZone exposureZone, WideChannel channel,
-                       double wideRedistributionShare, boolean defensiveMidfielder, boolean centerBack) {
-            this.code = code;
-            this.exposureZone = exposureZone;
-            this.channel = channel;
-            this.wideRedistributionShare = wideRedistributionShare;
-            this.defensiveMidfielder = defensiveMidfielder;
-            this.centerBack = centerBack;
-        }
-
-        public String code() {
-            return code;
-        }
-
-        public ExposureZone exposureZone() {
-            return exposureZone;
-        }
-
-        public WideChannel channel() {
-            return channel;
-        }
-
-        public double wideRedistributionShare() {
-            return wideRedistributionShare;
-        }
-
-        public boolean isDefensiveMidfielder() {
-            return defensiveMidfielder;
-        }
-
-        public boolean isCenterBack() {
-            return centerBack;
-        }
-    }
-
-    public record LineupSlot(LineupPosition position, int occurrence) {
+    public record LineupSlot(PlayerPosition position, int occurrence) {
         public LineupSlot {
             Objects.requireNonNull(position, "position");
             if (occurrence <= 0) {

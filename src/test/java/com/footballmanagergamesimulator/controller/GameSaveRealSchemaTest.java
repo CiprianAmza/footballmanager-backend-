@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Disabled;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -18,9 +19,11 @@ import org.springframework.boot.test.context.TestConfiguration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import jakarta.persistence.EntityManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.groups.Tuple.tuple;
 
 @DataJpaTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:regent-save-real-schema;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
@@ -35,6 +38,7 @@ class GameSaveRealSchemaTest {
     private static final List<String> MANIFEST_KEYS = GameSaveImportService.manifestKeys();
 
     @Autowired private GameSaveImportService importService;
+    @Autowired private EntityManager entityManager;
     @MockBean private PersonProfileService personProfileService;
 
     @Test
@@ -109,6 +113,105 @@ class GameSaveRealSchemaTest {
         GameSaveImportService.ImportPlan plan = importService.prepare(v10);
 
         assertThat(humanStayForwardById(plan)).containsEntry(107L, false);
+    }
+
+    @Test
+    void legacySaveGeneratesPlayerContextInsideImportPlan() {
+        Map<String, Object> v11 = realSchemaSave(11);
+        Map<String, Object> right = humanRow(20L, "Righty");
+        right.put("preferredFoot", "Right");
+        Map<String, Object> left = humanRow(21L, "Lefty");
+        left.put("preferredFoot", "Left");
+        Map<String, Object> unknownPosition = humanRow(22L, "Mystery");
+        unknownPosition.put("position", "DMC");
+        unknownPosition.put("preferredFoot", "Both");
+        v11.put("humans", List.of(right, left, unknownPosition));
+
+        GameSaveImportService.ImportPlan plan = importService.prepare(v11);
+
+        assertThat(rowsByTable(plan, "PLAYER_POSITION_FAMILIARITY"))
+                .extracting(row -> row.get("PLAYER_ID"), row -> row.get("POSITION_CODE"), row -> row.get("FAMILIARITY"))
+                .containsExactly(tuple(20L, "ST", 20), tuple(21L, "ST", 20));
+        assertThat(rowsByTable(plan, "PLAYER_ROLE_FAMILIARITY")).isEmpty();
+        assertThat(rowsByTable(plan, "PLAYER_FOOT_PROFILE"))
+                .extracting(row -> row.get("PLAYER_ID"), row -> row.get("LEFT_FOOT_RATING"), row -> row.get("RIGHT_FOOT_RATING"))
+                .containsExactly(tuple(20L, 8, 20), tuple(21L, 20, 8), tuple(22L, 16, 16));
+    }
+
+    @Test
+    void v12PlayerContextRoundTripsAndRejectsInvalidWorlds() {
+        Map<String, Object> v12 = realSchemaSave(12);
+        Map<String, Object> player = humanRow(30L, "Context player");
+        v12.put("humans", List.of(player));
+        v12.put("playerPositionFamiliarities", List.of(Map.of(
+                "ID", 300L, "PLAYER_ID", 30L, "POSITION_CODE", "ST",
+                "FAMILIARITY", 19, "PRIMARY_POSITION", true, "VERSION", 0L)));
+        v12.put("playerRoleFamiliarities", List.of(Map.of(
+                "ID", 301L, "PLAYER_ID", 30L, "POSITION_CODE", "ST",
+                "ROLE_CODE", "POACHER", "FAMILIARITY", 11, "VERSION", 0L)));
+        v12.put("playerFootProfiles", List.of(Map.of(
+                "ID", 302L, "PLAYER_ID", 30L, "LEFT_FOOT_RATING", 12,
+                "RIGHT_FOOT_RATING", 18, "VERSION", 0L)));
+
+        GameSaveImportService.ImportPlan plan = importService.prepare(v12);
+
+        assertThat(rowsByTable(plan, "PLAYER_POSITION_FAMILIARITY").get(0))
+                .containsEntry("ID", 300L)
+                .containsEntry("FAMILIARITY", 19);
+        assertThat(rowsByTable(plan, "PLAYER_ROLE_FAMILIARITY").get(0))
+                .containsEntry("ROLE_CODE", "POACHER")
+                .containsEntry("FAMILIARITY", 11);
+        assertThat(rowsByTable(plan, "PLAYER_FOOT_PROFILE").get(0))
+                .containsEntry("LEFT_FOOT_RATING", 12)
+                .containsEntry("RIGHT_FOOT_RATING", 18);
+
+        Map<String, Object> duplicatePrimary = new LinkedHashMap<>(v12);
+        duplicatePrimary.put("playerPositionFamiliarities", List.of(
+                Map.of("ID", 300L, "PLAYER_ID", 30L, "POSITION_CODE", "ST",
+                        "FAMILIARITY", 19, "PRIMARY_POSITION", true, "VERSION", 0L),
+                Map.of("ID", 303L, "PLAYER_ID", 30L, "POSITION_CODE", "MC",
+                        "FAMILIARITY", 10, "PRIMARY_POSITION", true, "VERSION", 0L)));
+        assertThatThrownBy(() -> importService.prepare(duplicatePrimary))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("multiple primary");
+
+        Map<String, Object> roleMismatch = new LinkedHashMap<>(v12);
+        roleMismatch.put("playerRoleFamiliarities", List.of(Map.of(
+                "ID", 301L, "PLAYER_ID", 30L, "POSITION_CODE", "GK",
+                "ROLE_CODE", "POACHER", "FAMILIARITY", 11, "VERSION", 0L)));
+        assertThatThrownBy(() -> importService.prepare(roleMismatch))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("invalid player role familiarity");
+    }
+
+    @Test
+    @Disabled("Written for H2 migration verification; NOT_RUN_BY_POLICY")
+    void v7BackfillLeavesIdentityAvailableForGeneratedProfileIds() {
+        Human player = new Human();
+        player.setId(100L);
+        player.setTypeId(1L);
+        player.setPosition("ST");
+        player.setPreferredFoot("Right");
+        entityManager.persist(player);
+        entityManager.flush();
+
+        entityManager.createNativeQuery("""
+                INSERT INTO PLAYER_POSITION_FAMILIARITY
+                    (PLAYER_ID, POSITION_CODE, FAMILIARITY, PRIMARY_POSITION, VERSION)
+                SELECT h.id, UPPER(TRIM(h.position)), 20, TRUE, 0
+                FROM HUMAN h WHERE h.type_id = 1 AND h.id = 100
+                """).executeUpdate();
+        Number backfilledId = (Number) entityManager.createNativeQuery(
+                "SELECT ID FROM PLAYER_POSITION_FAMILIARITY WHERE PLAYER_ID = 100").getSingleResult();
+        entityManager.createNativeQuery("""
+                INSERT INTO PLAYER_POSITION_FAMILIARITY
+                    (PLAYER_ID, POSITION_CODE, FAMILIARITY, PRIMARY_POSITION, VERSION)
+                VALUES (100, 'MC', 10, FALSE, 0)
+                """).executeUpdate();
+        Number generatedId = (Number) entityManager.createNativeQuery(
+                "SELECT ID FROM PLAYER_POSITION_FAMILIARITY WHERE PLAYER_ID = 100 AND POSITION_CODE = 'MC'")
+                .getSingleResult();
+        assertThat(generatedId.longValue()).isNotEqualTo(backfilledId.longValue());
     }
 
     @Test
@@ -316,6 +419,16 @@ class GameSaveRealSchemaTest {
                 .forEach(row -> result.put(((Number) row.get("ID")).longValue(),
                         Boolean.TRUE.equals(row.get("STAY_FORWARD"))));
         return result;
+    }
+
+    private List<Map<String, Object>> rowsByTable(GameSaveImportService.ImportPlan plan, String tableName) {
+        return plan.tables().stream()
+                .filter(table -> table.spec().tableName().equals(tableName))
+                .findFirst()
+                .orElseThrow()
+                .rows().stream()
+                .map(GameSaveImportService.RowValues::asMap)
+                .toList();
     }
 
     @TestConfiguration
