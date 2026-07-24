@@ -156,6 +156,23 @@ class CompartmentAdapterRuntimeIsolationTest {
     }
 
     @Test
+    void durableAiStatsUseCanonicalProjectionAndLegacyStatsStayBehindFallback() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        int durable = simulator.indexOf("if (durablePlan)");
+        int canonicalStats = simulator.indexOf("generateAndSaveCanonicalMatchStats");
+        int legacyStats = simulator.indexOf("generateAndSaveMatchStats", canonicalStats);
+        assertThat(durable).isGreaterThanOrEqualTo(0);
+        assertThat(canonicalStats).isGreaterThan(durable);
+        assertThat(legacyStats).isGreaterThan(canonicalStats);
+        assertThat(simulator).contains("new CanonicalMatchEffectsInput")
+                .contains("canonicalEvents.stream()")
+                .contains("if (durablePlan)")
+                .contains("else {");
+        assertThat(count(simulator, "generateAndSaveCanonicalMatchStats")).isEqualTo(1);
+    }
+
+    @Test
     void knockoutReplayDelegatesToPureResolverAndUsesQualifiedSeasonLookup() {
         String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
                 "service", "MatchRoundSimulator.java"));

@@ -1,6 +1,9 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectsInput;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchStatsSeed;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchStatsValidator;
 import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.model.MatchStats;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
@@ -60,10 +63,20 @@ public class MatchStatsService {
             int homeGoals, int awayGoals,
             double homePower, double awayPower,
             PersonalizedTactic homeTactic, PersonalizedTactic awayTactic) {
+        return generateMatchStats(competitionId, season, round, team1Id, team2Id,
+                homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic, this.random);
+    }
+
+    private MatchStats generateMatchStats(
+            long competitionId, int season, int round,
+            long team1Id, long team2Id,
+            int homeGoals, int awayGoals,
+            double homePower, double awayPower,
+            PersonalizedTactic homeTactic, PersonalizedTactic awayTactic,
+            Random rng) {
 
         // Team power drives the central tendency, while match-control, tempo and
         // team-specific noise create the long tails seen in real matches.
-        Random rng = this.random;
         MatchStats stats = new MatchStats();
         stats.setCompetitionId(competitionId);
         stats.setSeasonNumber(season);
@@ -248,6 +261,53 @@ public class MatchStatsService {
         MatchStats stats = generateMatchStats(competitionId, season, round,
                 team1Id, team2Id, homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic);
         return matchStatsRepository.save(stats);
+    }
+
+    /** Generate and persist a deterministic projection of a persisted canonical decision. */
+    public MatchStats generateAndSaveCanonicalMatchStats(
+            CanonicalMatchEffectsInput input,
+            long competitionId, int season, int round,
+            double homePower, double awayPower,
+            PersonalizedTactic homeTactic, PersonalizedTactic awayTactic) {
+        CanonicalMatchStatsValidator.validate(input);
+        int homeGoals = CanonicalMatchStatsValidator.footballGoals(
+                input.split().score90Home(), input.split().etHome());
+        int awayGoals = CanonicalMatchStatsValidator.footballGoals(
+                input.split().score90Away(), input.split().etAway());
+        MatchStats stats = generateMatchStats(competitionId, season, round,
+                input.homeTeamId(), input.awayTeamId(), homeGoals, awayGoals,
+                homePower, awayPower, homeTactic, awayTactic,
+                new Random(CanonicalMatchStatsSeed.derive(input)));
+        if (input.decision().scoreEngine() == com.footballmanagergamesimulator.matchplan.ScoreEngineKind.COMPARTMENT_V1
+                && input.decision().homeXg() != null) {
+            stats.setHomeXg(toHundredths(input.decision().homeXg()));
+            stats.setAwayXg(toHundredths(input.decision().awayXg()));
+        }
+        validateGeneratedCanonicalStats(stats);
+        return matchStatsRepository.save(stats);
+    }
+
+    private int toHundredths(double xg) {
+        double scaled = Math.round(xg * 100.0);
+        if (scaled <= 0) return 0;
+        if (scaled >= Integer.MAX_VALUE) return Integer.MAX_VALUE;
+        return (int) scaled;
+    }
+
+    private void validateGeneratedCanonicalStats(MatchStats stats) {
+        if (stats.getHomePossession() + stats.getAwayPossession() != 100
+                || stats.getHomeShots() < stats.getHomeShotsOnTarget()
+                || stats.getAwayShots() < stats.getAwayShotsOnTarget()
+                || stats.getHomeShotsOnTarget() < stats.getHomeGoals()
+                || stats.getAwayShotsOnTarget() < stats.getAwayGoals()
+                || stats.getHomeShotsBlocked() > stats.getHomeShots() - stats.getHomeShotsOnTarget()
+                || stats.getAwayShotsBlocked() > stats.getAwayShots() - stats.getAwayShotsOnTarget()
+                || stats.getHomeBigChancesMissed() > stats.getHomeBigChances()
+                || stats.getAwayBigChancesMissed() > stats.getAwayBigChances()
+                || stats.getHomeSaves() != Math.max(0, stats.getAwayShotsOnTarget() - stats.getAwayGoals())
+                || stats.getAwaySaves() != Math.max(0, stats.getHomeShotsOnTarget() - stats.getHomeGoals())) {
+            throw new IllegalStateException("canonical match stats violate football invariants");
+        }
     }
 
     /**

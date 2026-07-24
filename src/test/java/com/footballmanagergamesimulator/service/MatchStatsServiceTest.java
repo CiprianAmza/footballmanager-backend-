@@ -1,15 +1,26 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectEvent;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectsInput;
+import com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit;
+import com.footballmanagergamesimulator.matchplan.MatchScoringDecision;
+import com.footballmanagergamesimulator.matchplan.ScoreEngineKind;
 import com.footballmanagergamesimulator.model.MatchStats;
+import com.footballmanagergamesimulator.repository.MatchStatsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class MatchStatsServiceTest {
 
@@ -19,6 +30,9 @@ class MatchStatsServiceTest {
     void setUp() {
         service = new MatchStatsService();
         ReflectionTestUtils.setField(service, "engineConfig", new MatchEngineConfig());
+        MatchStatsRepository repository = mock(MatchStatsRepository.class);
+        when(repository.save(any(MatchStats.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        ReflectionTestUtils.setField(service, "matchStatsRepository", repository);
     }
 
     @Test
@@ -117,11 +131,81 @@ class MatchStatsServiceTest {
                 "average xG per team should remain realistic, got " + averageXg);
     }
 
+    @Test
+    void canonicalProjectionUsesPersistentXgAndIsRepeatable() {
+        MatchScoringDecision decision = decision(2, 1, ScoreEngineKind.COMPARTMENT_V1, 1.234, 0.876);
+        CanonicalMatchEffectsInput input = new CanonicalMatchEffectsInput(decision,
+                KnockoutPlanSplit.regularOnly(2, 1), 10, 20,
+                List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201), goal(2, 30, 10, 102)));
+
+        MatchStats first = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
+                5_000, 4_000, null, null);
+        MatchStats second = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
+                5_000, 4_000, null, null);
+
+        assertEquals(first, second);
+        assertEquals(2, first.getHomeGoals());
+        assertEquals(1, first.getAwayGoals());
+        assertEquals(123, first.getHomeXg());
+        assertEquals(88, first.getAwayXg());
+        assertTrue(first.getHomeShots() >= first.getHomeShotsOnTarget());
+        assertTrue(first.getHomeShotsOnTarget() >= first.getHomeGoals());
+        assertTrue(first.getAwayShots() >= first.getAwayShotsOnTarget());
+        assertTrue(first.getAwayShotsOnTarget() >= first.getAwayGoals());
+    }
+
+    @Test
+    void canonicalProjectionIncludesExtraTimeButNotShootout() {
+        MatchScoringDecision extraTimeDecision = decision(1, 1, ScoreEngineKind.SCALAR_FALLBACK, null, null);
+        CanonicalMatchEffectsInput extraTime = new CanonicalMatchEffectsInput(extraTimeDecision,
+                KnockoutPlanSplit.knockout(1, 1, 1, 0, null, null), 10, 20,
+                List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201), goal(2, 100, 10, 102)));
+        MatchStats extraTimeStats = service.generateAndSaveCanonicalMatchStats(extraTime, 1, 1, 1,
+                5_000, 4_000, null, null);
+        assertEquals(2, extraTimeStats.getHomeGoals());
+        assertEquals(1, extraTimeStats.getAwayGoals());
+
+        MatchScoringDecision shootoutDecision = decision(1, 1, ScoreEngineKind.SCALAR_FALLBACK, null, null);
+        CanonicalMatchEffectsInput shootout = new CanonicalMatchEffectsInput(shootoutDecision,
+                KnockoutPlanSplit.knockout(1, 1, 0, 0, 5, 4), 10, 20,
+                List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201)));
+        MatchStats shootoutStats = service.generateAndSaveCanonicalMatchStats(shootout, 1, 1, 1,
+                5_000, 4_000, null, null);
+        assertEquals(1, shootoutStats.getHomeGoals());
+        assertEquals(1, shootoutStats.getAwayGoals());
+        assertTrue(shootoutStats.getHomeShots() >= shootoutStats.getHomeShotsOnTarget());
+        assertTrue(shootoutStats.getAwayShots() >= shootoutStats.getAwayShotsOnTarget());
+    }
+
+    @Test
+    void canonicalFallbackWithoutXgRemainsDeterministicAndValid() {
+        MatchScoringDecision decision = decision(0, 0, ScoreEngineKind.SCALAR_FALLBACK, null, null);
+        CanonicalMatchEffectsInput input = new CanonicalMatchEffectsInput(decision,
+                KnockoutPlanSplit.regularOnly(0, 0), 10, 20, List.of());
+
+        MatchStats first = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
+                5_000, 4_000, null, null);
+        MatchStats second = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
+                5_000, 4_000, null, null);
+        assertEquals(first, second);
+        assertTrue(first.getHomeXg() >= 0 && first.getAwayXg() >= 0);
+    }
+
     private MatchStats simulate(long seed, int homeGoals, int awayGoals,
                                 double homePower, double awayPower) {
         service.setRandomForTesting(new Random(seed));
         return service.generateMatchStats(
                 1, 1, 1, 1, 2, homeGoals, awayGoals, homePower, awayPower, null, null);
+    }
+
+    private MatchScoringDecision decision(int home, int away, ScoreEngineKind engine,
+                                          Double homeXg, Double awayXg) {
+        return new MatchScoringDecision("CTIM:canonical", 7L, engine, engine.algorithmVersion(),
+                "a".repeat(64), "b".repeat(64), home, away, 5_000, 4_000, homeXg, awayXg);
+    }
+
+    private CanonicalMatchEffectEvent goal(int slot, int minute, long team, long player) {
+        return new CanonicalMatchEffectEvent(slot, minute, team, player, "GOAL");
     }
 
     private void assertCoherent(int goals, int shots, int shotsOnTarget,

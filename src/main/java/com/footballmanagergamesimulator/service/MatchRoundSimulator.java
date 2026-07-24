@@ -5,6 +5,8 @@ import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.compartment.shadow.CompartmentShadowEvaluationService;
 import com.footballmanagergamesimulator.compartment.shadow.ShadowLineupSlotSource;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectEvent;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectsInput;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScoringService;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScore;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoringFingerprintService;
@@ -657,6 +659,7 @@ public class MatchRoundSimulator {
                 Optional<MatchScoringDecision> persistedScoreDecision = persistedPlan.map(
                         com.footballmanagergamesimulator.matchplan.PersistedScoringPlan::decision);
                 boolean durablePlan = persistedScoreDecision.isPresent() || matchPlanService.isEnabled();
+                MatchScoringDecision adoptedDecision = persistedScoreDecision.orElse(null);
                 ScoreEngineKind selectedScoreEngine;
                 CanonicalRuntimeScore canonicalScore = null;
                 int[] adminScoreAi = null;
@@ -672,6 +675,7 @@ public class MatchRoundSimulator {
                     selectedScoreEngine = adoptedScoring.engine();
                     planSplit = adoptedScoring.split();
                     knockoutResolution = adoptedScoring.knockoutResolution();
+                    adoptedDecision = adoptedScoring.decision();
                     // An existing plan is read before the candidate path. Acquire the outer
                     // lock only after that read, then verify terminal ownership before effects.
                     matchPlanService.lockFixture(aiFixtureKey);
@@ -816,6 +820,7 @@ public class MatchRoundSimulator {
                     selectedScoreEngine = adoptedScoring.engine();
                     planSplit = adoptedScoring.split();
                     knockoutResolution = adoptedScoring.knockoutResolution();
+                    adoptedDecision = adoptedScoring.decision();
                     persistedScoreDecision = Optional.of(adoptedScoring.decision());
 
                     // The REQUIRES_NEW winner is now durable. Only the caller that owns the
@@ -858,6 +863,12 @@ public class MatchRoundSimulator {
                 // RNG for scorer/assist/participation). Flag OFF: the legacy simplified path.
                 List<Scorer> team1Scorers;
                 List<Scorer> team2Scorers;
+                CanonicalMatchEffectsInput canonicalEffectsInput = null;
+                RoundContext activeContext = roundContext.get();
+                PersonalizedTactic team1Tactic = activeContext != null
+                        ? activeContext.tacticsByTeam().get(teamId1) : null;
+                PersonalizedTactic team2Tactic = activeContext != null
+                        ? activeContext.tacticsByTeam().get(teamId2) : null;
                 if (durablePlan) {
                     // A COMMITTED fixture never reaches here — it is short-circuited at the top of
                     // the loop. So this always builds the plan fresh for a not-yet-committed fixture.
@@ -874,6 +885,18 @@ public class MatchRoundSimulator {
                             planSplit.score90Home(), planSplit.score90Away(),
                             planSplit.etHome(), planSplit.etAway(),
                             planSplit.shootoutHome(), planSplit.shootoutAway());
+                    if (adoptedDecision == null) {
+                        throw new IllegalStateException("durable AI fixture has no adopted scoring decision");
+                    }
+                    canonicalEffectsInput = new CanonicalMatchEffectsInput(
+                            adoptedDecision, planSplit, teamId1, teamId2,
+                            canonicalEvents.stream()
+                                    .filter(event -> "goal".equalsIgnoreCase(event.getEventType())
+                                            || "assist".equalsIgnoreCase(event.getEventType()))
+                                    .map(event -> new CanonicalMatchEffectEvent(
+                                            event.getSlotIndex(), event.getMinute(), event.getTeamId(),
+                                            event.getPlayerId(), event.getEventType()))
+                                    .toList());
                     team1Scorers = getScorersForTeamCanonical(
                             teamId1, teamId2, teamScore1, teamScore2, _competitionId, (int) _roundId,
                             homeLineup, tallyForTeam(canonicalEvents, teamId1));
@@ -895,11 +918,6 @@ public class MatchRoundSimulator {
                 batchedLineups.add(new LineupRatingService.AiLineupInput(
                         teamId2, aiTactic2, starterSlotsCache.get(teamId2),
                         substitutionsCache.get(teamId2), team2Scorers));
-                RoundContext activeContext = roundContext.get();
-                PersonalizedTactic team1Tactic = activeContext != null
-                        ? activeContext.tacticsByTeam().get(teamId1) : null;
-                PersonalizedTactic team2Tactic = activeContext != null
-                        ? activeContext.tacticsByTeam().get(teamId2) : null;
                 batchedPlayerStats.add(new PlayerMatchStatService.TeamMatchInput(
                         teamId1, bestElevenCache.getOrDefault(teamId1, List.of()), team1Tactic));
                 batchedPlayerStats.add(new PlayerMatchStatService.TeamMatchInput(
@@ -928,10 +946,17 @@ public class MatchRoundSimulator {
                 tMgrRep += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
-                matchStatsService.generateAndSaveMatchStats(
-                        _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                        teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
-                        null, null);
+                if (durablePlan) {
+                    matchStatsService.generateAndSaveCanonicalMatchStats(
+                            canonicalEffectsInput,
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            teamPower1, teamPower2, team1Tactic, team2Tactic);
+                } else {
+                    matchStatsService.generateAndSaveMatchStats(
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
+                            null, null);
+                }
                 tMatchStats += System.nanoTime() - _ts;
             }
 
