@@ -79,6 +79,17 @@ class GameAdvanceServiceTest {
     }
 
     @Test
+    void chairmanCannotSkipAnIncompleteManagerInTheSameWorld() {
+        User chairman = activeUser(1, null, null);
+        chairman.setCareerRole(CareerRole.CHAIRMAN);
+        User manager = activeUser(2, 10L, null);
+        manager.setCareerRole(CareerRole.MANAGER);
+        when(userRepository.findAll()).thenReturn(List.of(chairman, manager));
+
+        assertFalse(service.isAlwaysContinueActive());
+    }
+
+    @Test
     void alwaysContinueActivatesWhenEveryEmployedHumanManagerOptedIn() {
         User user = activeUser(1, 10L, 100L);
         Human manager = manager(100L, true);
