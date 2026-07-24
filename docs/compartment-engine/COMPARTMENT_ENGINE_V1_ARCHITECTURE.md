@@ -345,7 +345,7 @@ No controller or frontend recalculates a rating from mutable current state after
 | 2 | ContextualPlayerRating A/M/D with explainable breakdown | pure foundation delivered; runtime adapter/wiring absent |
 | 3 | Relevant-attribute tactic/instruction context, total 70–130% | config/clamp contract only; mapping not implemented |
 | 4 | Persistent traits, Stay Forward/Track Back, nonlinear coverage, admin/editor | pure behavior formula only; persistence/API/UI absent |
-| 5 | TeamCompartmentAggregator, mentality and wide redistribution, final AT/AP | not implemented |
+| 5 | TeamCompartmentAggregator, mentality and wide redistribution, final AT/AP | pure aggregator delivered; runtime wiring still absent |
 | 6 | Runtime GoalProbabilityModel, seeded Gamma–Poisson, ET/shootout | analytic preview only; no RNG/runtime |
 | 7 | Canonical single-decision integration through MatchPlan | not implemented |
 | 8 | 200x20 calibration harness and candidate/report artifacts | not implemented |
