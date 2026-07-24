@@ -20,6 +20,15 @@ class KnockoutReplayResolverTest {
     }
 
     @Test
+    void singleLegUsesCanonicalZeroZeroContext() {
+        KnockoutReplayResolver.Result result = KnockoutReplayResolver.resolve(
+                0, 0, 10, 20, KnockoutPlanSplit.regularOnly(2, 1), null);
+
+        assertThat(result.decidedBy()).isEqualTo("NORMAL");
+        assertThat(result.winnerTeamId()).isEqualTo(10L);
+    }
+
+    @Test
     void secondLegUsesResolverOrientationAndAggregate() {
         KnockoutReplayResolver.Result result = KnockoutReplayResolver.resolve(
                 2, 77, 10, 20, KnockoutPlanSplit.regularOnly(1, 1), new int[]{0, 1});
@@ -136,5 +145,27 @@ class KnockoutReplayResolverTest {
                 new int[]{1, 0});
         assertThat(result.decidedBy()).isEqualTo("EXTRA_TIME");
         assertThat(result.winnerTeamId()).isEqualTo(10L);
+    }
+
+    @Test
+    void rejectsNonCanonicalReplayContexts() {
+        assertThatThrownBy(() -> KnockoutReplayResolver.resolve(
+                1, 0, 10, 20, KnockoutPlanSplit.regularOnly(1, 0), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> KnockoutReplayResolver.resolve(
+                2, 0, 10, 20, KnockoutPlanSplit.regularOnly(1, 0), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> KnockoutReplayResolver.resolve(
+                0, 77, 10, 20, KnockoutPlanSplit.regularOnly(1, 0), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> KnockoutReplayResolver.resolve(
+                3, 77, 10, 20, KnockoutPlanSplit.regularOnly(1, 0), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> KnockoutReplayResolver.resolve(
+                -1, 0, 10, 20, KnockoutPlanSplit.regularOnly(1, 0), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> KnockoutReplayResolver.resolve(
+                0, -1, 10, 20, KnockoutPlanSplit.regularOnly(1, 0), null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

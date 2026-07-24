@@ -83,6 +83,15 @@ class KnockoutPlanSplitTest {
     }
 
     @Test
+    void validatesShootoutInvariantsDirectly() {
+        assertThrows(IllegalArgumentException.class,
+                () -> KnockoutPlanSplit.knockout(1, 1, null, null, 4, 3));
+        assertThrows(IllegalArgumentException.class,
+                () -> KnockoutPlanSplit.knockout(1, 1, 0, 0, 4, 4));
+        assertDoesNotThrow(() -> KnockoutPlanSplit.knockout(1, 1, 1, 1, 4, 3));
+    }
+
+    @Test
     void rejectsDecisionSplitScoreMismatch() {
         assertThrows(IllegalArgumentException.class,
                 () -> KnockoutPlanSplit.regularOnly(2, 1).validateAgainst(decision(1, 1)));

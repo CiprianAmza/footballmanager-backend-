@@ -9,18 +9,26 @@ final class KnockoutReplayResolver {
     static Result resolve(int legNumber, long tieId, long homeTeamId, long awayTeamId,
                           KnockoutPlanSplit split, int[] firstLegScores) {
         if (split == null) throw new IllegalArgumentException("split must not be null");
-        if (legNumber == 1 && tieId != 0) {
+
+        if (tieId == 0) {
+            if (legNumber != 0) {
+                throw new IllegalArgumentException("single-leg replay requires legNumber 0");
+            }
+            return resolveSingleLeg(homeTeamId, awayTeamId, split);
+        }
+        if (tieId < 0) {
+            throw new IllegalArgumentException("tieId must be non-negative");
+        }
+        if (legNumber == 1) {
             requireAbsentExtraTime(split, "first leg");
             return new Result(split.score90Home(), split.score90Away(), " (1st leg)", null, "FIRST_LEG",
                     null, null, null, null, null, null);
         }
-
-        if (legNumber == 2 && tieId != 0) {
+        if (legNumber == 2) {
             int[] firstLeg = requireFirstLeg(firstLegScores);
             return resolveTwoLegReturn(homeTeamId, awayTeamId, split, firstLeg);
         }
-
-        return resolveSingleLeg(homeTeamId, awayTeamId, split);
+        throw new IllegalArgumentException("knockout replay requires legNumber 1 or 2");
     }
 
     private static Result resolveTwoLegReturn(long homeTeamId, long awayTeamId,
