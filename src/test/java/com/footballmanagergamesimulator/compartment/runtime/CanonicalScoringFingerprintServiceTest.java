@@ -133,6 +133,69 @@ class CanonicalScoringFingerprintServiceTest {
                 .isNotEqualTo(service.adminOverrideInputFingerprint("CTIM:1", 2, 0));
     }
 
+    @Test
+    void roleAndInstructionWeightsAreScopedToTheirEngines() {
+        CompartmentEngineConfig compartment = new CompartmentEngineConfig();
+        MatchEngineConfig first = new MatchEngineConfig();
+        MatchEngineConfig second = new MatchEngineConfig();
+
+        second.getRoleWeights().setSuitabilityScale(6.0);
+        assertThat(service.configFingerprint(compartment, first))
+                .isNotEqualTo(service.configFingerprint(compartment, second));
+
+        second = new MatchEngineConfig();
+        second.getRoleWeights().setAttributes(Map.of("Poacher", Map.of("Finishing", 2.0)));
+        assertThat(service.configFingerprint(compartment, first))
+                .isNotEqualTo(service.configFingerprint(compartment, second));
+
+        second = new MatchEngineConfig();
+        second.getInstructionWeights().setBonusScale(1.2);
+        assertThat(service.fallbackConfigFingerprint(first,
+                com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
+                .isNotEqualTo(service.fallbackConfigFingerprint(second,
+                        com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
+        second = new MatchEngineConfig();
+        second.getInstructionWeights().setConflictPenalty(0.03);
+        assertThat(service.fallbackConfigFingerprint(first,
+                com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
+                .isNotEqualTo(service.fallbackConfigFingerprint(second,
+                        com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
+        second = new MatchEngineConfig();
+        second.getInstructionWeights().setClampMin(0.9);
+        assertThat(service.fallbackConfigFingerprint(first,
+                com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
+                .isNotEqualTo(service.fallbackConfigFingerprint(second,
+                        com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
+        second = new MatchEngineConfig();
+        MatchEngineConfig.InstructionWeights.InstructionBonus bonus =
+                new MatchEngineConfig.InstructionWeights.InstructionBonus();
+        bonus.setBase(0.05);
+        second.getInstructionWeights().getBonuses().put("Shoot More Often", bonus);
+        assertThat(service.fallbackConfigFingerprint(first,
+                com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
+                .isNotEqualTo(service.fallbackConfigFingerprint(second,
+                        com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
+        assertThat(service.fallbackConfigFingerprint(first,
+                com.footballmanagergamesimulator.matchplan.ScoreEngineKind.SCALAR_FALLBACK))
+                .isEqualTo(service.fallbackConfigFingerprint(second,
+                        com.footballmanagergamesimulator.matchplan.ScoreEngineKind.SCALAR_FALLBACK));
+        assertThat(service.configFingerprint(compartment, first))
+                .isEqualTo(service.configFingerprint(compartment, second));
+
+        MatchEngineConfig orderedA = new MatchEngineConfig();
+        MatchEngineConfig orderedB = new MatchEngineConfig();
+        orderedA.getInstructionWeights().setConflicts(List.of(
+                new MatchEngineConfig.InstructionWeights.ConflictPair("A", "B"),
+                new MatchEngineConfig.InstructionWeights.ConflictPair("C", "D")));
+        orderedB.getInstructionWeights().setConflicts(List.of(
+                new MatchEngineConfig.InstructionWeights.ConflictPair("D", "C"),
+                new MatchEngineConfig.InstructionWeights.ConflictPair("B", "A")));
+        assertThat(service.fallbackConfigFingerprint(orderedA,
+                com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
+                .isEqualTo(service.fallbackConfigFingerprint(orderedB,
+                        com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
+    }
+
     private static CompartmentEngineConfig.CompartmentWeights weights(PlayerAttribute attribute, double value) {
         CompartmentEngineConfig.CompartmentWeights weights = new CompartmentEngineConfig.CompartmentWeights();
         weights.getAttributes().put(attribute, value);

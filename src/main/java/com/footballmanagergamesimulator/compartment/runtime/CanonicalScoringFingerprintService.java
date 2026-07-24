@@ -30,6 +30,7 @@ public final class CanonicalScoringFingerprintService {
                 + ',' + compartment.getRating().getFitnessFloor() + ',' + compartment.getRating().getMoraleNeutral()
                 + ',' + compartment.getRating().getMoraleSlope() + ',' + compartment.getRating().getDefaultPositionMultiplier()
                 + ',' + compartment.getRating().getDefaultRoleMultiplier()
+                + "|roleWeights=" + roleWeights(match.getRoleWeights())
                 + "|compartments=" + ordered(compartment.getCompartments())
                 + "|positionOverrides=" + ordered(compartment.getPositionCompartmentOverrides())
                 + "|positions=" + ordered(compartment.getPositions())
@@ -101,6 +102,8 @@ public final class CanonicalScoringFingerprintService {
         String material = "fallback-config|engine=" + engine.name();
         if (engine == ScoreEngineKind.TWO_AXIS_FALLBACK) {
             material += "|playerValue=" + playerValue(match.getPlayerValue())
+                    + "|roleWeights=" + roleWeights(match.getRoleWeights())
+                    + "|instructionWeights=" + instructionWeights(match.getInstructionWeights())
                     + "|teamTalk=" + teamTalk(match.getTeamTalk())
                     + "|tactical=" + tactical(match.getTacticalModel());
         } else {
@@ -164,6 +167,30 @@ public final class CanonicalScoringFingerprintService {
                 + "|familiarity=" + ordered(p.getFamiliarityPenalty());
     }
 
+    private static String roleWeights(MatchEngineConfig.RoleWeights weights) {
+        return weights.getOverallBlend() + "," + weights.getRoleBlend() + ","
+                + weights.getSuitabilityScale() + "|attributes=" + ordered(weights.getAttributes());
+    }
+
+    private static String instructionWeights(MatchEngineConfig.InstructionWeights weights) {
+        String bonuses = weights.getBonuses().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + "=" + e.getValue().getBase() + ":"
+                        + ordered(e.getValue().getByPosition()))
+                .collect(Collectors.joining("{", "{", "}"));
+        String conflicts = weights.getConflicts().stream()
+                .map(pair -> {
+                    String a = pair.getA() == null ? "" : pair.getA();
+                    String b = pair.getB() == null ? "" : pair.getB();
+                    return a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a;
+                })
+                .sorted()
+                .collect(Collectors.joining(",", "[", "]"));
+        return weights.getBonusScale() + "," + weights.getConflictPenalty() + ","
+                + weights.getClampMin() + "," + weights.getClampMax()
+                + "|bonuses=" + bonuses + "|conflicts=" + conflicts;
+    }
+
     private static String power(MatchEngineConfig.Power p) {
         return p.getRatioExponent() + "," + p.getExpectedGoalsTotal() + "," + p.getMaxGoalsPerTeam()
                 + "," + p.getMoraleFloor() + "," + p.getMoraleSpread() + "," + p.getHomeAdvantage();
@@ -217,7 +244,14 @@ public final class CanonicalScoringFingerprintService {
                     + w.isIgnoresDefensiveInstructions() + ',' + w.getForcedDefensiveMoraleDelta();
         }
         if (value instanceof Enum<?> e) return e.name();
-        if (value instanceof Number || value instanceof Boolean || value instanceof String) return value.toString();
+        if (value instanceof String s) return s;
+        if (value instanceof Double d) return Double.toString(d);
+        if (value instanceof Float f) return Float.toString(f);
+        if (value instanceof Long l) return Long.toString(l);
+        if (value instanceof Integer i) return Integer.toString(i);
+        if (value instanceof Short s) return Short.toString(s);
+        if (value instanceof Byte b) return Byte.toString(b);
+        if (value instanceof Boolean b) return Boolean.toString(b);
         throw new IllegalArgumentException("unsupported fingerprint value type: " + value.getClass().getName());
     }
 

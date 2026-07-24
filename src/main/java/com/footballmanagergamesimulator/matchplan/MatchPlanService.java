@@ -329,6 +329,7 @@ public class MatchPlanService {
         if (decision == null || knockoutPlanSplit == null) {
             throw new IllegalArgumentException("decision and knockoutPlanSplit are required");
         }
+        knockoutPlanSplit.validateAgainst(decision);
         lockCompetitionFixture(decision.fixtureKey());
         MatchPlan existing = matchPlanRepository.findByFixtureKey(decision.fixtureKey()).orElse(null);
         if (existing != null) {

@@ -155,6 +155,18 @@ class CompartmentAdapterRuntimeIsolationTest {
         assertThat(simulator).contains("if (isHumanMatch)").contains("if (knockout)");
     }
 
+    @Test
+    void knockoutReplayDelegatesToPureResolverAndUsesQualifiedSeasonLookup() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        assertThat(simulator).contains("KnockoutReplayResolver.resolve")
+                .contains("findByCompetitionIdAndSeasonNumberAndTieIdAndLegNumber");
+
+        String resolver = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "KnockoutReplayResolver.java"));
+        assertThat(resolver).doesNotContain("Random", "threadRandom", "decideTie", "sampling");
+    }
+
     private static boolean containsIdentifier(String content, String identifier) {
         int from = 0;
         while (true) {

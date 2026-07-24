@@ -17,6 +17,23 @@ public record KnockoutPlanSplit(int score90Home, int score90Away,
 
     private static final int NOT_PLAYED = -1;
 
+    public KnockoutPlanSplit {
+        if (score90Home < 0 || score90Away < 0) {
+            throw new IllegalArgumentException("90-minute scores must be non-negative");
+        }
+        validatePhase(etHome, etAway, "extra-time");
+        validatePhase(shootoutHome, shootoutAway, "shootout");
+    }
+
+    private static void validatePhase(int home, int away, String phase) {
+        if (home < NOT_PLAYED || away < NOT_PLAYED) {
+            throw new IllegalArgumentException(phase + " values must be -1 or non-negative");
+        }
+        if ((home == NOT_PLAYED) != (away == NOT_PLAYED)) {
+            throw new IllegalArgumentException(phase + " values must be paired");
+        }
+    }
+
     /** League / non-knockout match: regular time only. */
     public static KnockoutPlanSplit regularOnly(int score90Home, int score90Away) {
         return new KnockoutPlanSplit(score90Home, score90Away,
@@ -37,5 +54,13 @@ public record KnockoutPlanSplit(int score90Home, int score90Away,
 
     private static int sentinel(Integer value) {
         return value != null ? value : NOT_PLAYED;
+    }
+
+    /** Verifies that the persisted phase split belongs to this immutable decision. */
+    public void validateAgainst(MatchScoringDecision decision) {
+        if (decision == null) throw new IllegalArgumentException("decision must not be null");
+        if (score90Home != decision.homeScore90() || score90Away != decision.awayScore90()) {
+            throw new IllegalArgumentException("split 90-minute score does not match scoring decision");
+        }
     }
 }

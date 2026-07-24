@@ -11,6 +11,12 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class KnockoutPlanSplitTest {
 
+    private static MatchScoringDecision decision(int home, int away) {
+        return new MatchScoringDecision("CTIM:1", 1L, ScoreEngineKind.COMPARTMENT_V1,
+                ScoreEngineKind.COMPARTMENT_V1.algorithmVersion(), "a".repeat(64), "b".repeat(64),
+                home, away, 10, 9, null, null);
+    }
+
     @Test
     void regularOnly_hasNoExtraTimeOrShootout() {
         KnockoutPlanSplit s = KnockoutPlanSplit.regularOnly(3, 2);
@@ -59,5 +65,26 @@ class KnockoutPlanSplitTest {
         KnockoutPlanSplit s = KnockoutPlanSplit.knockout(0, 0, 0, 1, null, null);
         assertEquals(0, s.etHome());
         assertEquals(1, s.etAway());
+    }
+
+    @Test
+    void validateAgainstAcceptsMatchingRegularExtraTimeAndShootoutSplits() {
+        KnockoutPlanSplit.regularOnly(2, 1).validateAgainst(decision(2, 1));
+        KnockoutPlanSplit.knockout(1, 1, 1, 0, null, null).validateAgainst(decision(1, 1));
+        KnockoutPlanSplit.knockout(1, 1, 1, 1, 5, 4).validateAgainst(decision(1, 1));
+    }
+
+    @Test
+    void rejectsNegativeScoresAndPartialPhases() {
+        assertThrows(IllegalArgumentException.class, () -> KnockoutPlanSplit.regularOnly(-1, 0));
+        assertThrows(IllegalArgumentException.class, () -> new KnockoutPlanSplit(0, 0, -2, -2, -1, -1));
+        assertThrows(IllegalArgumentException.class, () -> new KnockoutPlanSplit(0, 0, -1, 1, -1, -1));
+        assertThrows(IllegalArgumentException.class, () -> new KnockoutPlanSplit(0, 0, -1, -1, 2, -1));
+    }
+
+    @Test
+    void rejectsDecisionSplitScoreMismatch() {
+        assertThrows(IllegalArgumentException.class,
+                () -> KnockoutPlanSplit.regularOnly(2, 1).validateAgainst(decision(1, 1)));
     }
 }
