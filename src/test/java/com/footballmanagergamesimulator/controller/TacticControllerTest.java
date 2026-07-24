@@ -106,12 +106,12 @@ class TacticControllerTest {
         TeamRepository teams = mock(TeamRepository.class);
         HumanRepository humans = mock(HumanRepository.class);
         PersonalizedTacticRepository personalized = mock(PersonalizedTacticRepository.class);
-        ChairmanTacticalMandateRepository mandates = mock(ChairmanTacticalMandateRepository.class);
         CoachPermissionService permissions = mock(CoachPermissionService.class);
         MatchSimulationOrchestrator availability = mock(MatchSimulationOrchestrator.class);
         NationService nations = mock(NationService.class);
         PlayerValueService values = mock(PlayerValueService.class);
         TacticService tactics = new TacticService();
+        ChairmanTacticalMandateEnforcementService enforcement = mock(ChairmanTacticalMandateEnforcementService.class);
 
         Team team = new Team();
         team.setId(10L);
@@ -125,24 +125,31 @@ class TacticControllerTest {
         List<Human> squad = new ArrayList<>();
         for (long id = 1; id <= 11; id++) squad.add(player(id));
         squad.add(player(99L));
+        for (long id = 100L; id <= 106L; id++) squad.add(player(id));
         when(humans.findAllByTeamIdAndTypeId(10L, TypeNames.PLAYER_TYPE)).thenReturn(squad);
         when(humans.findAllByTeamIdAndTypeId(10L, TypeNames.MANAGER_TYPE)).thenReturn(List.of());
         when(humans.findById(anyLong())).thenAnswer(invocation -> squad.stream()
                 .filter(value -> value.getId() == (Long) invocation.getArgument(0)).findFirst());
 
-        ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
-        mandate.setTeamId(10L);
-        mandate.setRequiredFormation("442");
-        when(mandates.findByTeamId(10L)).thenReturn(Optional.of(mandate));
-
         int[] grid = {1, 3, 10, 11, 13, 14, 20, 21, 23, 24, 27};
         List<FormationData> savedEntries = new ArrayList<>();
         for (int i = 0; i < grid.length; i++) savedEntries.add(data(grid[i], i + 1L));
+        List<FormationData> afterRuntimeFiltering = savedEntries.subList(0, 10);
+        List<FormationData> exactlyElevenStarters = new ArrayList<>();
+        for (int i = 0; i < grid.length; i++) {
+            exactlyElevenStarters.add(data(grid[i], i == 10 ? 99L : i + 1L));
+        }
         PersonalizedTactic saved = new PersonalizedTactic();
         saved.setTeamId(10L);
         saved.setTactic("442");
         saved.setFirst11(new ObjectMapper().writeValueAsString(savedEntries));
         when(personalized.findPersonalizedTacticByTeamId(10L)).thenReturn(Optional.of(saved));
+        when(enforcement.effectiveFormation(10L, "442")).thenReturn("442");
+        when(enforcement.effectiveFormation(anyLong(), anyString())).thenReturn("442");
+        when(enforcement.resolvedLockedSlots(anyLong(), anyString(), any(), any())).thenReturn(List.of());
+        when(enforcement.enforceFormation(anyLong(), anyString(), any(), any(), any(), anyBoolean()))
+                .thenReturn(afterRuntimeFiltering);
+        when(enforcement.completeFormation(any(), any())).thenReturn(List.copyOf(exactlyElevenStarters));
 
         TacticController controller = new TacticController();
         ReflectionTestUtils.setField(controller, "teamRepository", teams);
@@ -153,8 +160,7 @@ class TacticControllerTest {
         ReflectionTestUtils.setField(controller, "coachPermissionService", permissions);
         ReflectionTestUtils.setField(controller, "nationService", nations);
         ReflectionTestUtils.setField(controller, "playerValueService", values);
-        ReflectionTestUtils.setField(controller, "mandateEnforcement",
-                new ChairmanTacticalMandateEnforcementService(mandates, humans, tactics));
+        ReflectionTestUtils.setField(controller, "mandateEnforcement", enforcement);
 
         ResponseEntity<?> response = controller.getTeamTacticView(10L);
         Map<?, ?> body = (Map<?, ?>) response.getBody();
@@ -166,9 +172,12 @@ class TacticControllerTest {
         assertThat(starters).hasSize(11);
         assertThat(starters).extracting(FormationData::getPlayerId).doesNotContain(11L)
                 .contains(99L).doesNotHaveDuplicates();
+        assertThat(effective.stream().filter(value -> value.getPositionIndex() >= 30).count()).isEqualTo(7);
+        assertThat(effective).extracting(FormationData::getPlayerId)
+                .contains(100L).doesNotHaveDuplicates();
         assertThat(effective).extracting(FormationData::getPositionIndex).doesNotHaveDuplicates();
-        assertThat(effective.stream().filter(value -> value.getPositionIndex() >= 30).count()).isLessThanOrEqualTo(7);
         assertThat(starters).allMatch(value -> Arrays.stream(grid).anyMatch(index -> index == value.getPositionIndex()));
+        verify(enforcement).completeFormation(any(), any());
     }
 
     private static Human player(long id) {
