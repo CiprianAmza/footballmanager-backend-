@@ -726,10 +726,6 @@ public class GameSaveImportService {
                    OR instrument.WEEKLY_LIMIT_BPS < instrument.DAILY_LIMIT_BPS
                    OR instrument.WEEKLY_LIMIT_BPS > 10000
                    OR instrument.PRICE_ALGORITHM_VERSION <> 'market-v1'
-                   OR instrument.RISK_CONFIG_VERSION <> 'risk-v1'
-                   OR instrument.RISK_CLASS NOT IN ('SAFE_COMPANY', 'SPECULATIVE', 'CLUB_EQUITY')
-                   OR (instrument.INSTRUMENT_TYPE = 'CLUB' AND instrument.RISK_CLASS <> 'CLUB_EQUITY')
-                   OR (instrument.INSTRUMENT_TYPE = 'COMPANY' AND instrument.RISK_CLASS = 'CLUB_EQUITY')
                    OR instrument.AVAILABLE_SUPPLY + COALESCE((
                        SELECT SUM(position.QUANTITY) FROM PORTFOLIO_POSITION position
                        WHERE position.INSTRUMENT_ID = instrument.ID), 0) <> instrument.TOTAL_SUPPLY
@@ -819,6 +815,14 @@ public class GameSaveImportService {
                 """);
         if (invalidTransfers != 0) throw invalid("club cash transfer does not reconcile with mirrored ledgers");
         if (!validatePhase4) return;
+        long invalidRiskConfiguration = scalarLong(connection, """
+                SELECT COUNT(*) FROM MARKET_INSTRUMENT instrument
+                WHERE instrument.RISK_CONFIG_VERSION <> 'risk-v1'
+                   OR instrument.RISK_CLASS NOT IN ('SAFE_COMPANY', 'SPECULATIVE', 'CLUB_EQUITY')
+                   OR (instrument.INSTRUMENT_TYPE = 'CLUB' AND instrument.RISK_CLASS <> 'CLUB_EQUITY')
+                   OR (instrument.INSTRUMENT_TYPE = 'COMPANY' AND instrument.RISK_CLASS = 'CLUB_EQUITY')
+                """);
+        if (invalidRiskConfiguration != 0) throw invalid("market risk configuration is inconsistent");
         long invalidAdvisers = scalarLong(connection, """
                 SELECT COUNT(*) FROM TRADER_ADVISER_CONTRACT contract
                 LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = contract.ACCOUNT_ID
