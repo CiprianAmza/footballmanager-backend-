@@ -74,6 +74,40 @@ class GameSaveRealSchemaTest {
     }
 
     @Test
+    void oldSaveImportPromotesOnlyCanonicalSeededStayForwardIdentities() {
+        Map<String, Object> v9 = realSchemaSave(9);
+        Map<String, Object> kvekrpur = canonicalSeedRow(10L, "Kvekrpur", 14L, 20);
+        Map<String, Object> dostoievski = canonicalSeedRow(11L, "Dostoievski", 14L, 15);
+        Map<String, Object> shakespeare = canonicalSeedRow(12L, "Shakespeare", 13L, 15);
+        Map<String, Object> sameNameWrongTeam = canonicalSeedRow(13L, "Kvekrpur", 1L, 20);
+        Map<String, Object> sameNameWrongRating = canonicalSeedRow(14L, "Shakespeare", 13L, 15);
+        sameNameWrongRating.put("rating", 299.0);
+        v9.put("humans", List.of(kvekrpur, dostoievski, shakespeare,
+                sameNameWrongTeam, sameNameWrongRating));
+
+        GameSaveImportService.ImportPlan plan = importService.prepare(v9);
+
+        assertThat(humanStayForwardById(plan))
+                .containsEntry(10L, true)
+                .containsEntry(11L, true)
+                .containsEntry(12L, true)
+                .containsEntry(13L, false)
+                .containsEntry(14L, false);
+    }
+
+    @Test
+    void v10ExplicitFalseRoundTripsWithoutLegacyPromotion() {
+        Map<String, Object> v10 = realSchemaSave(10);
+        Map<String, Object> kvekrpurFalse = canonicalSeedRow(10L, "Kvekrpur", 14L, 20);
+        kvekrpurFalse.put("stayForward", false);
+        v10.put("humans", List.of(kvekrpurFalse));
+
+        GameSaveImportService.ImportPlan plan = importService.prepare(v10);
+
+        assertThat(humanStayForwardById(plan)).containsEntry(10L, false);
+    }
+
+    @Test
     void v7PersonalEconomyPreflightAcceptsReconciledStateAndRejectsLedgerDrift() {
         Map<String, Object> v7 = realSchemaSave(7);
         v7.put("personalAccounts", List.of(Map.of(
@@ -220,6 +254,29 @@ class GameSaveRealSchemaTest {
         human.put("typeId", 1L);
         human.put("retired", false);
         return human;
+    }
+
+    private Map<String, Object> canonicalSeedRow(long id, String name, long teamId, int age) {
+        Map<String, Object> human = humanRow(id, name);
+        human.put("teamId", teamId);
+        human.put("position", "ST");
+        human.put("age", age);
+        human.put("seasonCreated", 1L);
+        human.put("rating", 300.0);
+        return human;
+    }
+
+    private Map<Long, Boolean> humanStayForwardById(GameSaveImportService.ImportPlan plan) {
+        Map<Long, Boolean> result = new LinkedHashMap<>();
+        plan.tables().stream()
+                .filter(table -> table.spec().tableName().equals("HUMAN"))
+                .findFirst()
+                .orElseThrow()
+                .rows().stream()
+                .map(GameSaveImportService.RowValues::asMap)
+                .forEach(row -> result.put(((Number) row.get("ID")).longValue(),
+                        Boolean.TRUE.equals(row.get("STAY_FORWARD"))));
+        return result;
     }
 
     @TestConfiguration

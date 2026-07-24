@@ -472,22 +472,6 @@ public class BootstrapService {
         return changed.size();
     }
 
-    /**
-     * Backfills the profile-visible Stay Forward trait for old saves and old
-     * pre-built snapshots. This is an explicit canonical-player migration, not
-     * a runtime inference used by tactic or scoring code.
-     */
-    public int ensureSpecialPlayersStayForward() {
-        Set<String> stayForwardNames = Set.of("Kvekrpur", "Dostoievski", "Shakespeare");
-        List<Human> changed = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE).stream()
-                .filter(player -> stayForwardNames.contains(player.getName()))
-                .filter(player -> !player.isStayForward())
-                .peek(player -> player.setStayForward(true))
-                .toList();
-        if (!changed.isEmpty()) humanRepository.saveAll(changed);
-        return changed.size();
-    }
-
     private void createTeamsAndCompetitions(List<List<String>> teamNames, List<List<Integer>> teamValues,
                                             List<List<Integer>> facilities, int addedModulo, long leagueId, long cupId) {
         for (int i = 0; i < teamNames.size(); i++) {

@@ -48,6 +48,12 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_9 = 9;
     static final int CURRENT_SAVE_VERSION = 10;
 
+    private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
+            new StayForwardSeedIdentity("Kvekrpur", 14L, "ST", 20, 300.0),
+            new StayForwardSeedIdentity("Dostoievski", 14L, "ST", 15, 300.0),
+            new StayForwardSeedIdentity("Shakespeare", 13L, "ST", 15, 300.0)
+    );
+
     private static final List<TableSpec> MANIFEST = List.of(
             new TableSpec("competitionTypes", "COMPETITION_TYPE", SAVE_VERSION_6),
             new TableSpec("humanTypes", "HUMAN_TYPE", SAVE_VERSION_6),
@@ -243,7 +249,7 @@ public class GameSaveImportService {
                 if (columns == null || columns.isEmpty()) {
                     throw invalid("current " + dialect.label() + " schema is missing table " + spec.tableName());
                 }
-                tables.add(new TableRows(spec, parseRows(spec, rows, columns)));
+                tables.add(new TableRows(spec, parseRows(version, spec, rows, columns)));
             }
 
             ImportPlan parsed = new ImportPlan(version, List.copyOf(tables), List.of());
@@ -372,7 +378,7 @@ public class GameSaveImportService {
         }
     }
 
-    private List<RowValues> parseRows(TableSpec spec, List<?> rows, Set<String> validColumns) {
+    private List<RowValues> parseRows(int sourceVersion, TableSpec spec, List<?> rows, Set<String> validColumns) {
         List<RowValues> parsed = new ArrayList<>(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             Object rowObject = rows.get(rowIndex);
@@ -399,7 +405,7 @@ public class GameSaveImportService {
                 }
                 mapped.putIfAbsent(column, field.getValue());
             }
-            applyLegacyDefaults(spec.tableName(), mapped, validColumns);
+            applyLegacyDefaults(sourceVersion, spec.tableName(), mapped, validColumns);
             if (mapped.isEmpty()) {
                 throw invalid(spec.jsonKey() + " row " + rowIndex + " has no persisted fields");
             }
@@ -654,12 +660,17 @@ public class GameSaveImportService {
         }
     }
 
-    private void applyLegacyDefaults(String tableName, LinkedHashMap<String, Object> mapped,
+    private void applyLegacyDefaults(int sourceVersion, String tableName, LinkedHashMap<String, Object> mapped,
                                      Set<String> validColumns) {
         if ("HUMAN".equals(tableName) && validColumns.contains("STAY_FORWARD")
-                && mapped.get("STAY_FORWARD") == null) {
-            mapped.put("STAY_FORWARD", false);
+                && (sourceVersion < CURRENT_SAVE_VERSION || mapped.get("STAY_FORWARD") == null)) {
+            mapped.put("STAY_FORWARD", sourceVersion < CURRENT_SAVE_VERSION
+                    && isCanonicalStayForwardSeed(mapped));
         }
+    }
+
+    private boolean isCanonicalStayForwardSeed(Map<String, Object> human) {
+        return STAY_FORWARD_SEEDS.stream().anyMatch(seed -> seed.matches(human));
     }
 
     private void validateEconomy(Connection connection, boolean validatePhase2,
@@ -1033,6 +1044,19 @@ public class GameSaveImportService {
         }
     }
 
+    private record StayForwardSeedIdentity(String name, long teamId, String position,
+                                           int age, double rating) {
+        boolean matches(Map<String, Object> human) {
+            return textEquals(human.get("NAME"), name)
+                    && longEquals(human.get("TEAM_ID"), teamId)
+                    && longEquals(human.get("TYPE_ID"), 1L)
+                    && textEquals(human.get("POSITION"), position)
+                    && longEquals(human.get("AGE"), age)
+                    && longEquals(human.get("SEASON_CREATED"), 1L)
+                    && doubleEquals(human.get("RATING"), rating);
+        }
+    }
+
     private record NamedSequence(String sequenceName, String tableName) { }
 
     public record GeneratorReset(GeneratorKind kind, String generatorName, String tableName,
@@ -1078,6 +1102,28 @@ public class GameSaveImportService {
             Map<String, Object> result = new LinkedHashMap<>();
             for (int index = 0; index < columns.size(); index++) result.put(columns.get(index), values.get(index));
             return result;
+        }
+    }
+
+    private static boolean textEquals(Object value, String expected) {
+        return value != null && expected.equals(value.toString());
+    }
+
+    private static boolean longEquals(Object value, long expected) {
+        if (value instanceof Number number) return number.longValue() == expected;
+        try {
+            return value != null && Long.parseLong(value.toString()) == expected;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+    }
+
+    private static boolean doubleEquals(Object value, double expected) {
+        if (value instanceof Number number) return Math.abs(number.doubleValue() - expected) < 1e-9;
+        try {
+            return value != null && Math.abs(Double.parseDouble(value.toString()) - expected) < 1e-9;
+        } catch (NumberFormatException exception) {
+            return false;
         }
     }
 

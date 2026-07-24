@@ -59,6 +59,45 @@ class FlywayPhase0MigrationTest {
         }
     }
 
+    @Test
+    void v5StayForwardMigrationBackfillsOnlyStableCanonicalSeedIdentitiesOnce() throws Exception {
+        String url = url();
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE human (
+                        id BIGINT PRIMARY KEY,
+                        name VARCHAR(255),
+                        team_id BIGINT,
+                        type_id BIGINT,
+                        position VARCHAR(10),
+                        age INTEGER,
+                        season_created BIGINT,
+                        rating DOUBLE PRECISION,
+                        retired BOOLEAN
+                    )
+                    """);
+            statement.execute("""
+                    INSERT INTO human(id, name, team_id, type_id, position, age, season_created, rating, retired) VALUES
+                    (10, 'Kvekrpur', 14, 1, 'ST', 20, 1, 300, FALSE),
+                    (11, 'Dostoievski', 14, 1, 'ST', 15, 1, 300, FALSE),
+                    (12, 'Shakespeare', 13, 1, 'ST', 15, 1, 300, FALSE),
+                    (13, 'Kvekrpur', 1, 1, 'ST', 20, 1, 300, FALSE),
+                    (14, 'Shakespeare', 13, 1, 'ST', 15, 1, 299, FALSE)
+                    """);
+        }
+
+        migrate(url);
+        migrate(url);
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE stay_forward = TRUE")).isEqualTo(3);
+            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE id IN (10, 11, 12) AND stay_forward = TRUE")).isEqualTo(3);
+            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE id IN (13, 14) AND stay_forward = FALSE")).isEqualTo(2);
+        }
+    }
+
     private void migrate(String url) {
         Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration/h2")
                 .baselineOnMigrate(true).baselineVersion("0").load().migrate();
