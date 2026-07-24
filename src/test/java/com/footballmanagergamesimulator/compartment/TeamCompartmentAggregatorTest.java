@@ -1,6 +1,5 @@
 package com.footballmanagergamesimulator.compartment;
 
-import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.LineupPosition;
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.LineupSlot;
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.PlayerBreakdown;
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.PlayerCompartmentInput;
@@ -27,12 +26,12 @@ class TeamCompartmentAggregatorTest {
     @Test
     void allMentalitiesApplyExactContractAndConserveMass() {
         List<PlayerCompartmentInput> lineup = List.of(
-                player(1, LineupPosition.GK, 1, 10, 5, 70, 0.0),
-                player(2, LineupPosition.DC, 1, 15, 10, 60, 0.6),
-                player(3, LineupPosition.DM, 1, 20, 30, 90, 0.7),
-                player(4, LineupPosition.MC, 1, 25, 40, 35, 0.5),
-                player(5, LineupPosition.AMC, 1, 40, 45, 20, 0.4),
-                player(6, LineupPosition.ST, 1, 55, 15, 10, 0.8));
+                player(1, PlayerPosition.GK, 1, 10, 5, 70, 0.0),
+                player(2, PlayerPosition.DC, 1, 15, 10, 60, 0.6),
+                player(3, PlayerPosition.DM, 1, 20, 30, 90, 0.7),
+                player(4, PlayerPosition.MC, 1, 25, 40, 35, 0.5),
+                player(5, PlayerPosition.AMC, 1, 40, 45, 20, 0.4),
+                player(6, PlayerPosition.ST, 1, 55, 15, 10, 0.8));
 
         double rawAttack = 165.0;
         double rawMidfield = 145.0;
@@ -53,10 +52,10 @@ class TeamCompartmentAggregatorTest {
     @Test
     void wideRedistributionUsesTypedZonesAndPreservesTotals() {
         TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(2, LineupPosition.AML, 1, 40, 20, 10, 0.6),
-                player(3, LineupPosition.DR, 1, 20, 30, 25, 0.7),
-                player(4, LineupPosition.ST, 1, 10, 10, 5, 0.8)));
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, PlayerPosition.AML, 1, 40, 20, 10, 0.6),
+                player(3, PlayerPosition.DR, 1, 20, 30, 25, 0.7),
+                player(4, PlayerPosition.ST, 1, 10, 10, 5, 0.8)));
 
         PlayerBreakdown aml = breakdown(result, 2);
         PlayerBreakdown dr = breakdown(result, 3);
@@ -86,12 +85,12 @@ class TeamCompartmentAggregatorTest {
     @Test
     void aggregationIsOrderIndependentAndResultSnapshotIsDeterministic() {
         List<PlayerCompartmentInput> lineup = List.of(
-                player(6, LineupPosition.ST, 1, 30, 10, 5, 0.9),
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(4, LineupPosition.MC, 1, 20, 35, 20, 0.6),
-                player(3, LineupPosition.DC, 1, 10, 10, 45, 0.7),
-                player(5, LineupPosition.AMR, 1, 25, 20, 10, 0.8),
-                player(2, LineupPosition.DM, 1, 15, 25, 50, 0.5));
+                player(6, PlayerPosition.ST, 1, 30, 10, 5, 0.9),
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(4, PlayerPosition.MC, 1, 20, 35, 20, 0.6),
+                player(3, PlayerPosition.DC, 1, 10, 10, 45, 0.7),
+                player(5, PlayerPosition.AMR, 1, 25, 20, 10, 0.8),
+                player(2, PlayerPosition.DM, 1, 15, 25, 50, 0.5));
 
         TeamAggregationResult first = aggregator.aggregate(Mentality.ATTACKING, lineup);
         TeamAggregationResult second = aggregator.aggregate(Mentality.ATTACKING, List.of(
@@ -111,11 +110,11 @@ class TeamCompartmentAggregatorTest {
     @Test
     void coverageAndProtectionBoundsClampNormalizedInputs() {
         TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(2, LineupPosition.DC, 1, 10, 10, 90, 1.0),
-                player(3, LineupPosition.DM, 1, 15, 20, 180, 0.6),
-                player(4, LineupPosition.DM, 2, 15, 20, 140, 0.6),
-                player(5, LineupPosition.ST, 1, 25, 10, 5, 0.7)));
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, PlayerPosition.DC, 1, 10, 10, 90, 1.0),
+                player(3, PlayerPosition.DM, 1, 15, 20, 180, 0.6),
+                player(4, PlayerPosition.DM, 2, 15, 20, 140, 0.6),
+                player(5, PlayerPosition.ST, 1, 25, 10, 5, 0.7)));
 
         assertThat(result.coverage().bestDm().raw()).isEqualTo(1.0);
         assertThat(result.coverage().secondDm().raw()).isEqualTo(1.0);
@@ -127,15 +126,15 @@ class TeamCompartmentAggregatorTest {
     @Test
     void coverageExposureAndNonlinearProtectionFollowPureContract() {
         TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(2, LineupPosition.DC, 1, 10, 10, 40, 0.9),
-                player(3, LineupPosition.DM, 1, 15, 20, 80, 0.6),
-                player(4, LineupPosition.DM, 2, 15, 20, 60, 0.4),
-                player(5, LineupPosition.ST, 1, 30, 10, 5, 0.8,
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, PlayerPosition.DC, 1, 10, 10, 40, 0.9),
+                player(3, PlayerPosition.DM, 1, 15, 20, 80, 0.6),
+                player(4, PlayerPosition.DM, 2, 15, 20, 60, 0.4),
+                player(5, PlayerPosition.ST, 1, 30, 10, 5, 0.8,
                         List.of(PlayerTrait.REFUSES_DEFENSIVE_WORK), ForwardInstruction.TRACK_BACK),
-                player(6, LineupPosition.AML, 1, 25, 15, 10, 0.7,
+                player(6, PlayerPosition.AML, 1, 25, 15, 10, 0.7,
                         List.of(), ForwardInstruction.STAY_FORWARD),
-                player(7, LineupPosition.MR, 1, 20, 15, 15, 0.5,
+                player(7, PlayerPosition.MR, 1, 20, 15, 15, 0.5,
                         List.of(), ForwardInstruction.TRACK_BACK)));
 
         assertThat(result.coverage().bestDm().raw()).isEqualTo(0.80);
@@ -154,10 +153,10 @@ class TeamCompartmentAggregatorTest {
     @Test
     void refusesDefensiveWorkTakesPrecedenceOverStayForwardAndTrackBack() {
         TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(2, LineupPosition.ST, 1, 30, 10, 5, 0.8,
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, PlayerPosition.ST, 1, 30, 10, 5, 0.8,
                         List.of(PlayerTrait.REFUSES_DEFENSIVE_WORK), ForwardInstruction.STAY_FORWARD),
-                player(3, LineupPosition.DC, 1, 10, 10, 45, 0.5)));
+                player(3, PlayerPosition.DC, 1, 10, 10, 45, 0.5)));
 
         PlayerBreakdown striker = breakdown(result, 2);
         assertThat(striker.engagement()).isEqualTo(0.08);
@@ -194,29 +193,29 @@ class TeamCompartmentAggregatorTest {
                 .hasMessageContaining("lineup must not be empty");
 
         assertThatThrownBy(() -> aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.DC, 1, 10, 10, 40, 0.5),
-                player(2, LineupPosition.ST, 1, 20, 10, 5, 0.5))))
+                player(1, PlayerPosition.DC, 1, 10, 10, 40, 0.5),
+                player(2, PlayerPosition.ST, 1, 20, 10, 5, 0.5))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exactly one goalkeeper");
 
         assertThatThrownBy(() -> aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(1, LineupPosition.ST, 1, 20, 10, 5, 0.5))))
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(1, PlayerPosition.ST, 1, 20, 10, 5, 0.5))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("duplicate player id");
 
         assertThatThrownBy(() -> aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(2, LineupPosition.DC, 2, 10, 10, 40, 0.5),
-                player(3, LineupPosition.ST, 1, 20, 10, 5, 0.5))))
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, PlayerPosition.DC, 2, 10, 10, 40, 0.5),
+                player(3, PlayerPosition.ST, 1, 20, 10, 5, 0.5))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("missing lineup slot");
 
         assertThatThrownBy(() -> aggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(2, LineupPosition.DC, 1, 10, 10, 40, 0.5),
-                player(3, LineupPosition.DC, 1, 12, 8, 35, 0.5),
-                player(4, LineupPosition.ST, 1, 20, 10, 5, 0.5))))
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, PlayerPosition.DC, 1, 10, 10, 40, 0.5),
+                player(3, PlayerPosition.DC, 1, 12, 8, 35, 0.5),
+                player(4, PlayerPosition.ST, 1, 20, 10, 5, 0.5))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("duplicate lineup slot");
     }
@@ -285,18 +284,18 @@ class TeamCompartmentAggregatorTest {
         TeamCompartmentAggregator invalidAggregator = new TeamCompartmentAggregator(invalidConfig);
 
         assertThatThrownBy(() -> invalidAggregator.aggregate(Mentality.BALANCED, List.of(
-                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
-                player(2, LineupPosition.ST, 1, 20, 10, 5, 0.5))))
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, PlayerPosition.ST, 1, 20, 10, 5, 0.5))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(expectedMessage);
     }
 
-    private PlayerCompartmentInput player(long id, LineupPosition position, int occurrence,
+    private PlayerCompartmentInput player(long id, PlayerPosition position, int occurrence,
                                           double attack, double midfield, double defense, double pace) {
         return player(id, position, occurrence, attack, midfield, defense, pace, List.of(), ForwardInstruction.DEFAULT);
     }
 
-    private PlayerCompartmentInput player(long id, LineupPosition position, int occurrence,
+    private PlayerCompartmentInput player(long id, PlayerPosition position, int occurrence,
                                           double attack, double midfield, double defense, double pace,
                                           List<PlayerTrait> traits, ForwardInstruction instruction) {
         return new PlayerCompartmentInput(
