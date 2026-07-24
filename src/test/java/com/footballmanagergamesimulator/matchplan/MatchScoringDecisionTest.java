@@ -9,6 +9,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class MatchScoringDecisionTest {
     @Test
+    void everyEngineHasOneCanonicalAlgorithmVersion() {
+        assertThat(ScoreEngineKind.values()).hasSize(4);
+        assertThat(ScoreEngineKind.ADMIN_OVERRIDE.algorithmVersion()).isEqualTo("admin-override-1");
+        assertThat(ScoreEngineKind.COMPARTMENT_V1.algorithmVersion()).isEqualTo("compartment-score-1");
+        assertThat(ScoreEngineKind.TWO_AXIS_FALLBACK.algorithmVersion()).isEqualTo("two-axis-score-1");
+        assertThat(ScoreEngineKind.SCALAR_FALLBACK.algorithmVersion()).isEqualTo("scalar-score-1");
+    }
+
+    @Test
+    void engineAndAlgorithmVersionCannotContradictEachOther() {
+        assertThatThrownBy(() -> new MatchScoringDecision("CTIM:1", 1L,
+                ScoreEngineKind.ADMIN_OVERRIDE, ScoreEngineKind.SCALAR_FALLBACK.algorithmVersion(),
+                "a".repeat(64), "b".repeat(64), 1, 0, 1, 1, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+    @Test
     void decisionIsImmutableAcrossEveryPlanStatus() {
         MatchScoringDecision decision = decision(2, 1);
         MatchPlan plan = new MatchPlan("CTIM:1", decision.seed(), "matchplan-2", 10, 20,

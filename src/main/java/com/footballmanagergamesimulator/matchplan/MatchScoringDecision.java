@@ -16,13 +16,16 @@ public record MatchScoringDecision(
         double awayPower,
         Double homeXg,
         Double awayXg) {
-    public static final String ALGORITHM_VERSION = "compartment-score-1";
+    public static final String ALGORITHM_VERSION = ScoreEngineKind.COMPARTMENT_V1.algorithmVersion();
 
     public MatchScoringDecision {
         if (fixtureKey == null || fixtureKey.isBlank()) throw new IllegalArgumentException("fixtureKey must not be blank");
         Objects.requireNonNull(scoreEngine, "scoreEngine");
         if (scoreAlgorithmVersion == null || scoreAlgorithmVersion.isBlank()) {
             throw new IllegalArgumentException("scoreAlgorithmVersion must not be blank");
+        }
+        if (!scoreEngine.algorithmVersion().equals(scoreAlgorithmVersion)) {
+            throw new IllegalArgumentException("algorithm version does not match score engine: " + scoreEngine);
         }
         if (configFingerprint == null || configFingerprint.isBlank()
                 || inputFingerprint == null || inputFingerprint.isBlank()) {

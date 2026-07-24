@@ -9,6 +9,7 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepos
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -303,12 +304,31 @@ public class MatchPlanService {
                 .map(MatchPlan::getScoreDecision);
     }
 
-    /** Persist the regular-time decision before any scorer/event projection begins. */
-    @Transactional
-    public MatchPlan persistScoreDecision(MatchScoringDecision decision,
-                                          long homeTeamId, long awayTeamId,
-                                          int homeScoreET, int awayScoreET,
-                                          int homeShootout, int awayShootout) {
+    public java.util.Optional<PersistedScoringPlan> findPersistedScoringPlan(String fixtureKey,
+                                                                               long homeTeamId,
+                                                                               long awayTeamId) {
+        return matchPlanRepository.findByFixtureKey(fixtureKey)
+                .filter(MatchPlan::hasScoreDecision)
+                .map(plan -> {
+                    if (plan.getHomeTeamId() != homeTeamId || plan.getAwayTeamId() != awayTeamId) {
+                        throw new IllegalStateException("persisted fixture teams do not match: " + fixtureKey);
+                    }
+                    return persisted(plan);
+                });
+    }
+
+    /**
+     * Atomically adopts the first durable scoring decision for a real fixture.
+     * The fixture row is the serialization point; a losing caller always adopts
+     * the values read back from the winner's plan.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PersistedScoringPlan persistOrLoadScoreDecision(MatchScoringDecision decision,
+                                                            long homeTeamId, long awayTeamId,
+                                                            KnockoutPlanSplit knockoutPlanSplit) {
+        if (decision == null || knockoutPlanSplit == null) {
+            throw new IllegalArgumentException("decision and knockoutPlanSplit are required");
+        }
         lockCompetitionFixture(decision.fixtureKey());
         MatchPlan existing = matchPlanRepository.findByFixtureKey(decision.fixtureKey()).orElse(null);
         if (existing != null) {
@@ -316,17 +336,23 @@ public class MatchPlanService {
                 throw new IllegalStateException("existing plan has no persisted score decision: "
                         + decision.fixtureKey());
             }
-            if (!existing.getScoreDecision().equals(decision)) {
-                throw new IllegalStateException("score decision is immutable for " + decision.fixtureKey());
+            if (existing.getHomeTeamId() != homeTeamId || existing.getAwayTeamId() != awayTeamId) {
+                throw new IllegalStateException("persisted fixture teams do not match: " + decision.fixtureKey());
             }
-            return existing;
+            return persisted(existing);
         }
         MatchPlan plan = planningService.plan(decision.fixtureKey(), decision.seed(), homeTeamId, awayTeamId,
-                decision.homeScore90(), decision.awayScore90(), homeScoreET, awayScoreET,
-                homeShootout, awayShootout);
+                knockoutPlanSplit.score90Home(), knockoutPlanSplit.score90Away(),
+                knockoutPlanSplit.etHome(), knockoutPlanSplit.etAway(),
+                knockoutPlanSplit.shootoutHome(), knockoutPlanSplit.shootoutAway());
         plan.applyScoreDecision(decision);
         plan.setStatus(MatchPlan.Status.PLANNED);
-        return matchPlanRepository.save(plan);
+        return persisted(matchPlanRepository.saveAndFlush(plan));
+    }
+
+    private PersistedScoringPlan persisted(MatchPlan plan) {
+        return new PersistedScoringPlan(plan.getScoreDecision(), plan.getKnockoutPlanSplit(),
+                plan.getHomeTeamId(), plan.getAwayTeamId());
     }
 
     /**

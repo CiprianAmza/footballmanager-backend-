@@ -130,11 +130,13 @@ class MatchPlanConcurrencyTest {
         try {
             Future<MatchPlan> first = executor.submit(() -> {
                 start.await();
-                return service.persistScoreDecision(decision, 10L, 20L, -1, -1, -1, -1);
+                return service.persistOrLoadScoreDecision(decision, 10L, 20L,
+                        KnockoutPlanSplit.regularOnly(decision.homeScore90(), decision.awayScore90()));
             });
             Future<MatchPlan> second = executor.submit(() -> {
                 start.await();
-                return service.persistScoreDecision(decision, 10L, 20L, -1, -1, -1, -1);
+                return service.persistOrLoadScoreDecision(decision, 10L, 20L,
+                        KnockoutPlanSplit.regularOnly(decision.homeScore90(), decision.awayScore90()));
             });
             start.countDown();
             assertEquals(decision, first.get(10, TimeUnit.SECONDS).getScoreDecision());

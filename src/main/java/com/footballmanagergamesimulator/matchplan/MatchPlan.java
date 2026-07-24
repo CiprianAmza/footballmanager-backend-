@@ -144,6 +144,14 @@ public class MatchPlan {
                 homePower, awayPower, homeXg, awayXg);
     }
 
+    public KnockoutPlanSplit getKnockoutPlanSplit() {
+        return KnockoutPlanSplit.knockout(homeScore90, awayScore90,
+                hadExtraTime() ? homeScoreET : null,
+                hadExtraTime() ? awayScoreET : null,
+                hadShootout() ? homeShootout : null,
+                hadShootout() ? awayShootout : null);
+    }
+
     public boolean hadExtraTime() { return homeScoreET >= 0 && awayScoreET >= 0; }
     public boolean hadShootout() { return homeShootout >= 0 && awayShootout >= 0; }
 
