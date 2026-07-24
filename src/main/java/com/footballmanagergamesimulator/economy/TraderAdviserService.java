@@ -58,6 +58,7 @@ public class TraderAdviserService {
         }
         AdviserTerms terms = CATALOG.get(adviserCode);
         if (terms == null) throw new EconomyConflictException("ADVISER_NOT_FOUND", "Trader adviser is unavailable");
+        long start = absoluteDay(season, day);
         PersonalAccount account = accountRepository.findByProfileIdForUpdate(profile.getId())
                 .orElseThrow(() -> new EconomyConflictException("ACCOUNT_NOT_FOUND", "Personal account is missing"));
         requireAccountOwner(account, authenticatedUserId);
@@ -65,13 +66,13 @@ public class TraderAdviserService {
                 .findByAccountIdAndHireIdempotencyKey(account.getId(), idempotencyKey).orElse(null);
         if (replay != null) {
             if (!replay.getAdviserCode().equals(adviserCode)
+                    || replay.getContractStartAbsoluteDay() != start
                     || replay.getContractEndAbsoluteDay() - replay.getContractStartAbsoluteDay() + 1 != durationDays) {
                 throw new EconomyConflictException("IDEMPOTENCY_KEY_REUSED",
                         "Idempotency key was already used for different adviser terms");
             }
             return new HireResult(replay, true);
         }
-        long start = absoluteDay(season, day);
         if (contractRepository.findActiveForUpdate(profile.getId(), start).isPresent()) {
             throw new EconomyConflictException("ADVISER_ALREADY_HIRED", "An active trader adviser contract already exists");
         }

@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.controller.GameController;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.person.PersonProfile;
@@ -17,6 +18,10 @@ import org.springframework.test.annotation.DirtiesContext;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,9 +32,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=update",
         "simulation.matchday.parallel.enabled=false",
+        "regent.economy.chairman-starting-wealth-min=0",
         "regent.enabled=true"
 })
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class RegentPhase4BTraderAdviserSaveLoadIT {
     @Autowired private UserService userService;
     @Autowired private PersonProfileService profileService;
@@ -45,6 +51,7 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
     @Autowired private GameController gameController;
     @Autowired private RoundRepository roundRepository;
     @Autowired private CalendarService calendarService;
+    @Autowired private ObjectMapper objectMapper;
 
     @Test
     void hireSalaryAdviceSecurityRetryAndSaveLoadRemainAtomicAndNonOmniscient() {
@@ -59,6 +66,11 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
                 profile, owner.getId(), "STRATEGIST", 30, 1, 1, "hire-strategist");
         assertThat(adviserService.hire(profile, owner.getId(), "STRATEGIST", 30, 1, 1,
                 "hire-strategist").replay()).isTrue();
+        assertThatThrownBy(() -> adviserService.hire(profile, owner.getId(), "STRATEGIST", 30, 1, 2,
+                "hire-strategist"))
+                .isInstanceOf(EconomyConflictException.class)
+                .satisfies(error -> assertThat(((EconomyConflictException) error).getCode())
+                        .isEqualTo("IDEMPOTENCY_KEY_REUSED"));
         assertThat(hire.contract().getSkill()).isEqualTo(70);
         assertThat(hire.contract().getReputation()).isEqualTo(65);
         assertThat(hire.contract().getSalaryPerDay()).isEqualTo(7_500L);
@@ -117,8 +129,121 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
         accountingService.assertReconciled(account.getId());
     }
 
+    @Test
+    void concurrentHireAdviceAndPayrollSerializeAndInsufficientCashTerminatesCleanly() throws Exception {
+        User hireUser = register("adviser-race-hire", CareerRole.CHAIRMAN, 100_000L);
+        PersonProfile hireProfile = profileService.requireForUser(hireUser);
+        CountDownLatch hireStart = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Future<String> first = pool.submit(() -> hireAfter(
+                    hireStart, hireProfile, hireUser.getId(), "race-hire-a"));
+            Future<String> second = pool.submit(() -> hireAfter(
+                    hireStart, hireProfile, hireUser.getId(), "race-hire-b"));
+            hireStart.countDown();
+            assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("OK", "ADVISER_ALREADY_HIRED");
+        }
+        List<TraderAdviserContract> hireContracts = contractRepository.findAll().stream()
+                .filter(value -> value.getProfileId() == hireProfile.getId()).toList();
+        assertThat(hireContracts).hasSize(1).allSatisfy(value -> assertThat(value.isActive()).isTrue());
+
+        priceService.processDay(1, 3);
+        MarketInstrument instrument = instrumentRepository.findByCode("FMX").orElseThrow();
+        CountDownLatch adviceStart = new CountDownLatch(1);
+        TraderAdviserService.AdviceResult left;
+        TraderAdviserService.AdviceResult right;
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Future<TraderAdviserService.AdviceResult> first = pool.submit(() -> adviceAfter(
+                    adviceStart, hireProfile, hireUser.getId(), instrument.getId()));
+            Future<TraderAdviserService.AdviceResult> second = pool.submit(() -> adviceAfter(
+                    adviceStart, hireProfile, hireUser.getId(), instrument.getId()));
+            adviceStart.countDown();
+            left = first.get(20, TimeUnit.SECONDS);
+            right = second.get(20, TimeUnit.SECONDS);
+        }
+        assertThat(List.of(left.replay(), right.replay())).containsExactlyInAnyOrder(false, true);
+        assertThat(fingerprint(left.recommendation())).isEqualTo(fingerprint(right.recommendation()));
+        assertThat(objectMapper.convertValue(left.recommendation(), Map.class))
+                .isEqualTo(objectMapper.convertValue(right.recommendation(), Map.class));
+        assertThat(adviceRepository.count()).isOne();
+
+        User payrollUser = register("adviser-race-payroll", CareerRole.CHAIRMAN, 100_000L);
+        PersonProfile payrollProfile = profileService.requireForUser(payrollUser);
+        TraderAdviserContract payrollContract = adviserService.hire(
+                payrollProfile, payrollUser.getId(), "STRATEGIST", 30, 1, 4, "payroll-hire").contract();
+        PersonalAccount payrollAccount = accountRepository.findByProfileId(payrollProfile.getId()).orElseThrow();
+        CountDownLatch payrollStart = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Future<Void> first = pool.submit(() -> payrollAfter(payrollStart));
+            Future<Void> second = pool.submit(() -> payrollAfter(payrollStart));
+            payrollStart.countDown();
+            first.get(20, TimeUnit.SECONDS);
+            second.get(20, TimeUnit.SECONDS);
+        }
+        List<PersonalLedgerEntry> payrollEntries = ledgerRepository
+                .findAllByAccountIdOrderByCreatedAtAscIdAsc(payrollAccount.getId()).stream()
+                .filter(value -> value.getEntryType() == LedgerEntryType.TRADER_ADVISER_SALARY).toList();
+        assertThat(payrollEntries).hasSize(1);
+        assertThat(payrollEntries.get(0).getIdempotencyKey())
+                .isEqualTo("TRADER-ADVISER-SALARY:" + payrollContract.getId() + ":4");
+        assertThat(accountRepository.findById(payrollAccount.getId()).orElseThrow().getCashBalance())
+                .isEqualTo(92_500L);
+        accountingService.assertReconciled(payrollAccount.getId());
+
+        User poorUser = register("adviser-poor-payroll", CareerRole.CHAIRMAN, 5_000L);
+        PersonProfile poorProfile = profileService.requireForUser(poorUser);
+        TraderAdviserContract poorContract = adviserService.hire(
+                poorProfile, poorUser.getId(), "STRATEGIST", 30, 1, 4, "poor-hire").contract();
+        PersonalAccount poorAccount = accountRepository.findByProfileId(poorProfile.getId()).orElseThrow();
+        adviserService.processDailyPayroll(1, 4);
+        poorContract = contractRepository.findById(poorContract.getId()).orElseThrow();
+        assertThat(poorContract.isActive()).isFalse();
+        assertThat(poorContract.getTerminationReason()).isEqualTo("INSUFFICIENT_FUNDS");
+        assertThat(poorContract.getLastPaidAbsoluteDay()).isEqualTo(3L);
+        assertThat(accountRepository.findById(poorAccount.getId()).orElseThrow().getCashBalance()).isEqualTo(5_000L);
+        assertThat(ledgerRepository.findAllByAccountIdOrderByCreatedAtAscIdAsc(poorAccount.getId()))
+                .filteredOn(value -> value.getEntryType() == LedgerEntryType.TRADER_ADVISER_SALARY)
+                .isEmpty();
+        accountingService.assertReconciled(poorAccount.getId());
+    }
+
+    private String hireAfter(CountDownLatch start, PersonProfile profile, int userId, String key)
+            throws InterruptedException {
+        start.await();
+        try {
+            adviserService.hire(profile, userId, "STRATEGIST", 30, 1, 1, key);
+            return "OK";
+        } catch (EconomyConflictException exception) {
+            return exception.getCode();
+        }
+    }
+
+    private TraderAdviserService.AdviceResult adviceAfter(CountDownLatch start, PersonProfile profile,
+                                                           int userId, long instrumentId) throws InterruptedException {
+        start.await();
+        return adviserService.advise(profile, userId, instrumentId, 1, 3);
+    }
+
+    private Void payrollAfter(CountDownLatch start) throws InterruptedException {
+        start.await();
+        adviserService.processDailyPayroll(1, 4);
+        return null;
+    }
+
+    private static AdviceFingerprint fingerprint(TraderAdviceRecommendation value) {
+        return new AdviceFingerprint(value.getAction(), value.getRiskClass(), value.getHorizonDays(),
+                value.getConfidence(), value.getRisk(), value.getTrailingReturn(),
+                value.getObservedVolatility(), value.getExplanation(), value.getModelVersion());
+    }
+
     private User register(String username, CareerRole role, long wealth) {
         return userService.register(new RegisterRequest(username, username + "@example.com",
                 "correct-password", username, role, wealth));
     }
+
+    private record AdviceFingerprint(com.footballmanagergamesimulator.regent.market.core.AdviceAction action,
+                                     com.footballmanagergamesimulator.regent.market.core.MarketRiskClass riskClass,
+                                     int horizonDays, java.math.BigDecimal confidence, java.math.BigDecimal risk,
+                                     java.math.BigDecimal trailingReturn, java.math.BigDecimal observedVolatility,
+                                     String explanation, String modelVersion) { }
 }
