@@ -31,7 +31,11 @@ class CompartmentAdapterRuntimeIsolationTest {
             "ContextualPlayerRatingCalculator",
             "DefensiveExposureFormula",
             "GoalProbabilityFormula",
-            "CompartmentMath");
+            "CompartmentMath",
+            "CanonicalMatchEvaluation",
+            "CanonicalMatchEvaluationAdapter",
+            "OutcomeProbability",
+            "MatchVenue");
 
     private static final List<String> PHASE6_FORBIDDEN_REFERENCES = List.of(
             "Repository", "jakarta.persistence", "org.springframework", "Human", "PlayerSkills",

@@ -23,6 +23,25 @@ class GoalProbabilityFormulaTest {
     }
 
     @Test
+    void neutralVenueSkipsHomeAdvantage() {
+        var result = formula.expectedGoals(100, 100, 100, 100, 3.0, false);
+        assertThat(result.homeXg()).isCloseTo(1.50, within(1e-12));
+        assertThat(result.awayXg()).isCloseTo(1.50, within(1e-12));
+    }
+
+    @Test
+    void legacyExpectedGoalsKeepsHomeAdvantageEnabled() {
+        var legacy = formula.expectedGoals(100, 100, 100, 100, 3.0);
+        var explicitHome = formula.expectedGoals(100, 100, 100, 100, 3.0, true);
+        assertThat(legacy.homeMatchupShare()).isEqualTo(explicitHome.homeMatchupShare());
+        assertThat(legacy.awayMatchupShare()).isEqualTo(explicitHome.awayMatchupShare());
+        assertThat(legacy.homeXg()).isEqualTo(explicitHome.homeXg());
+        assertThat(legacy.awayXg()).isEqualTo(explicitHome.awayXg());
+        assertThat(legacy.homeGoals().probabilities()).containsExactly(explicitHome.homeGoals().probabilities());
+        assertThat(legacy.awayGoals().probabilities()).containsExactly(explicitHome.awayGoals().probabilities());
+    }
+
+    @Test
     void thirtyPercentContextualAdvantageRaisesShareButLeavesUpsetMass() {
         double favoriteShare = GoalProbabilityFormula.matchupShare(130, 100, 1.5);
         double outsiderShare = GoalProbabilityFormula.matchupShare(100, 130, 1.5);
