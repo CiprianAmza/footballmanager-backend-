@@ -9,8 +9,11 @@ public record SafeCompanyProfile(BigDecimal maximumDailyMagnitude, BigDecimal po
     public SafeCompanyProfile {
         maximumDailyMagnitude = requireRange(maximumDailyMagnitude, BigDecimal.ZERO, new BigDecimal("0.01"),
                 "maximumDailyMagnitude");
-        positiveProbability = requireRange(positiveProbability, BigDecimal.ZERO, BigDecimal.ONE,
+        positiveProbability = requireRange(positiveProbability, new BigDecimal("0.50"), BigDecimal.ONE,
                 "positiveProbability");
+        if (positiveProbability.compareTo(new BigDecimal("0.50")) <= 0) {
+            throw new IllegalArgumentException("positiveProbability must be greater than 0.50");
+        }
         algorithmVersion = requireText(algorithmVersion, "algorithmVersion");
     }
 

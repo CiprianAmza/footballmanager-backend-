@@ -15,7 +15,10 @@ public final class TraderAdviceModel {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(adviser, "adviser");
         Objects.requireNonNull(signal, "signal");
-        double rawNoise = DeterministicMarketRandom.unit(key.saveSeed(), signal.instrumentId(), key.day(),
+        if (!key.instrumentId().equals(signal.instrumentId())) {
+            throw new IllegalArgumentException("key.instrumentId must equal signal.instrumentId");
+        }
+        double rawNoise = DeterministicMarketRandom.unit(key.saveSeed(), key.instrumentId(), key.day(),
                 key.saveVersion() + ':' + adviser.modelVersion(), "adviser-observation") * 2.0d - 1.0d;
         BigDecimal errorAmplitude = BigDecimal.valueOf(100 - adviser.skill()).movePointLeft(4);
         BigDecimal interpreted = signal.trailingReturn().add(BigDecimal.valueOf(rawNoise).multiply(errorAmplitude));

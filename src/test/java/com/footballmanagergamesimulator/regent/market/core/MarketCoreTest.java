@@ -39,15 +39,31 @@ class MarketCoreTest {
     }
 
     @Test
+    void safeCompanyRequiresStrictPositiveBias() {
+        assertThrows(IllegalArgumentException.class, () -> new SafeCompanyProfile(BigDecimal.ZERO, BigDecimal.ZERO, "safe-v1"));
+        assertThrows(IllegalArgumentException.class, () -> new SafeCompanyProfile(BigDecimal.ZERO, new BigDecimal("0.50"), "safe-v1"));
+        assertThrows(IllegalArgumentException.class, () -> new SafeCompanyProfile(BigDecimal.ZERO, new BigDecimal("1.01"), "safe-v1"));
+        assertDoesNotThrow(() -> new SafeCompanyProfile(BigDecimal.ZERO, new BigDecimal("0.5001"), "safe-v1"));
+    }
+
+    @Test
     void speculativeReturnIsHardBoundedAndPriceFloorSurvives() {
         SpeculativeQuoteModel model = new SpeculativeQuoteModel();
-        SpeculativeProfile profile = new SpeculativeProfile(new BigDecimal("2.00"), "spec-v1");
+        SpeculativeProfile profile = new SpeculativeProfile(new BigDecimal("0.75"), "spec-v1");
+        boolean floorApplied = false;
         for (int day = 0; day < 2_000; day++) {
             SpeculativeQuote quote = model.quote(new MarketQuoteKey(7L, "spec", day, "save-v1"), new BigDecimal("1.00"), profile);
             assertTrue(quote.dailyReturn().value().compareTo(new BigDecimal("-0.50")) >= 0);
             assertTrue(quote.dailyReturn().value().compareTo(new BigDecimal("0.50")) <= 0);
-            assertTrue(quote.closingPrice().compareTo(new BigDecimal("2.00")) >= 0);
+            BigDecimal realizedReturn = quote.closingPrice().divide(new BigDecimal("1.00")).subtract(BigDecimal.ONE);
+            assertTrue(realizedReturn.compareTo(new BigDecimal("-0.50")) >= 0);
+            assertTrue(realizedReturn.compareTo(new BigDecimal("0.50")) <= 0);
+            assertTrue(quote.closingPrice().compareTo(new BigDecimal("0.75")) >= 0);
+            floorApplied |= quote.closingPrice().compareTo(new BigDecimal("0.75")) == 0;
         }
+        assertTrue(floorApplied, "the valid floor path must retain the same hard realized-return bound");
+        assertThrows(IllegalArgumentException.class, () -> model.quote(new MarketQuoteKey(7L, "spec", 0L, "save-v1"),
+                new BigDecimal("0.50"), profile));
     }
 
     @Test
@@ -91,6 +107,13 @@ class MarketCoreTest {
                 .anyMatch(component -> component.getName().toLowerCase().contains("future")));
         assertEquals(0, TraderAdvice.class.getDeclaredMethods().length - TraderAdvice.class.getRecordComponents().length - 3,
                 "advice remains an immutable record without an execution API");
+    }
+
+    @Test
+    void adviserRequiresTheQuoteAndSignalToIdentifyTheSameInstrument() {
+        AdviserSignal signal = new AdviserSignal("instrument-a", MarketRiskClass.SAFE_COMPANY, BigDecimal.ZERO, BigDecimal.ZERO);
+        assertThrows(IllegalArgumentException.class, () -> new TraderAdviceModel().recommend(
+                new MarketQuoteKey(1L, "instrument-b", 1L, "save-v1"), adviser("expert", 90), signal));
     }
 
     private TraderAdviser adviser(String id, int skill) {

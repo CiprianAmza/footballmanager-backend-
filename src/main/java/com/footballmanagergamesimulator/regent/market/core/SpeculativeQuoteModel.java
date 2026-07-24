@@ -10,6 +10,9 @@ public final class SpeculativeQuoteModel {
     public SpeculativeQuote quote(MarketQuoteKey key, BigDecimal openingPrice, SpeculativeProfile profile) {
         Objects.requireNonNull(openingPrice, "openingPrice");
         if (openingPrice.signum() <= 0) throw new IllegalArgumentException("openingPrice must be positive");
+        if (openingPrice.compareTo(profile.positiveFloor()) < 0) {
+            throw new IllegalArgumentException("openingPrice must be at least positiveFloor");
+        }
         double unit = DeterministicMarketRandom.unit(key.saveSeed(), key.instrumentId(), key.day(),
                 key.saveVersion() + ':' + profile.algorithmVersion(), "speculative-return");
         DailyReturn dailyReturn = new DailyReturn(BigDecimal.valueOf(unit).multiply(BigDecimal.ONE).subtract(HALF),
