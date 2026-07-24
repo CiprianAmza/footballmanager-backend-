@@ -108,6 +108,55 @@ class MatchPlanConcurrencyTest {
         }
     }
 
+    @Test
+    void concurrentScoreDecisionPersistence_hasOneImmutableWinner() throws Exception {
+        CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
+        fixture.setCompetitionId(100L);
+        fixture.setSeasonNumber("1");
+        fixture.setRound(5L);
+        fixture.setTeam1Id(10L);
+        fixture.setTeam2Id(20L);
+        fixture = fixtureRepository.saveAndFlush(fixture);
+        long fixtureId = fixture.getId();
+        String fixtureKey = MatchPlanService.competitionFixtureKey(fixtureId);
+        MatchScoringDecision decision = new MatchScoringDecision(fixtureKey, 99L,
+                ScoreEngineKind.COMPARTMENT_V1, MatchScoringDecision.ALGORITHM_VERSION,
+                "a".repeat(64), "b".repeat(64), 2, 1, 40, 34, 1.2, 0.8);
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<MatchPlan> first = executor.submit(() -> {
+                start.await();
+                return service.persistScoreDecision(decision, 10L, 20L, -1, -1, -1, -1);
+            });
+            Future<MatchPlan> second = executor.submit(() -> {
+                start.await();
+                return service.persistScoreDecision(decision, 10L, 20L, -1, -1, -1, -1);
+            });
+            start.countDown();
+            assertEquals(decision, first.get(10, TimeUnit.SECONDS).getScoreDecision());
+            assertEquals(decision, second.get(10, TimeUnit.SECONDS).getScoreDecision());
+            assertEquals(1, planRepository.findAll().stream()
+                    .filter(p -> fixtureKey.equals(p.getFixtureKey())).count());
+        } finally {
+            executor.shutdownNow();
+            new TransactionTemplate(txManager).executeWithoutResult(status -> {
+                planRepository.findByFixtureKey(fixtureKey).ifPresent(plan -> {
+                    appearanceRepository.findByMatchPlan(plan).forEach(appearanceRepository::delete);
+                    participantRepository.findByMatchPlanOrderByTeamIdAscParticipantIndexAsc(plan)
+                            .forEach(participantRepository::delete);
+                    substitutionRepository.findByMatchPlanOrderByTeamIdAscSubIndexAsc(plan)
+                            .forEach(substitutionRepository::delete);
+                    planRepository.delete(plan);
+                });
+                fixtureRepository.deleteById(fixtureId);
+            });
+        }
+    }
+
     private Lineup lineup(long base) {
         return new Lineup(List.of(
                 player(base, "GK"), player(base + 1, "DC"), player(base + 2, "DC"),

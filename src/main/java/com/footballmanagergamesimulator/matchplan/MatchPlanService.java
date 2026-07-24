@@ -297,6 +297,38 @@ public class MatchPlanService {
                 .map(p -> p.getStatus() == MatchPlan.Status.COMMITTED).orElse(false);
     }
 
+    public java.util.Optional<MatchScoringDecision> findScoreDecision(String fixtureKey) {
+        return matchPlanRepository.findByFixtureKey(fixtureKey)
+                .filter(MatchPlan::hasScoreDecision)
+                .map(MatchPlan::getScoreDecision);
+    }
+
+    /** Persist the regular-time decision before any scorer/event projection begins. */
+    @Transactional
+    public MatchPlan persistScoreDecision(MatchScoringDecision decision,
+                                          long homeTeamId, long awayTeamId,
+                                          int homeScoreET, int awayScoreET,
+                                          int homeShootout, int awayShootout) {
+        lockCompetitionFixture(decision.fixtureKey());
+        MatchPlan existing = matchPlanRepository.findByFixtureKey(decision.fixtureKey()).orElse(null);
+        if (existing != null) {
+            if (!existing.hasScoreDecision()) {
+                throw new IllegalStateException("existing plan has no persisted score decision: "
+                        + decision.fixtureKey());
+            }
+            if (!existing.getScoreDecision().equals(decision)) {
+                throw new IllegalStateException("score decision is immutable for " + decision.fixtureKey());
+            }
+            return existing;
+        }
+        MatchPlan plan = planningService.plan(decision.fixtureKey(), decision.seed(), homeTeamId, awayTeamId,
+                decision.homeScore90(), decision.awayScore90(), homeScoreET, awayScoreET,
+                homeShootout, awayShootout);
+        plan.applyScoreDecision(decision);
+        plan.setStatus(MatchPlan.Status.PLANNED);
+        return matchPlanRepository.save(plan);
+    }
+
     /**
      * Finalize a live plan after full time: {@code COMPLETED}, persisting the derived
      * appearance projection from the kickoff snapshot + the recorded substitutions.
@@ -506,6 +538,14 @@ public class MatchPlanService {
         //    regenerated.
         MatchPlan existing = matchPlanRepository.findByFixtureKey(fixtureKey).orElse(null);
         if (existing != null) {
+            if (existing.hasScoreDecision()) {
+                if (existing.getStatus() == MatchPlan.Status.COMPLETED
+                        || existing.getStatus() == MatchPlan.Status.COMMITTED) {
+                    return new PlanStep(null,
+                            matchEventRepository.findByFixtureKeyOrderBySlotIndexAscEventOrderAsc(fixtureKey));
+                }
+                return new PlanStep(existing, null);
+            }
             boolean reuse = existing.getStatus() == MatchPlan.Status.COMMITTED
                     || (existing.getStatus() == MatchPlan.Status.COMPLETED && isCurrentVersion(existing));
             if (reuse) {

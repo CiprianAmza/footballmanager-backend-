@@ -27,14 +27,45 @@ public final class CanonicalRuntimeScoringService {
     private final CanonicalScoreSampler sampler;
     private final CanonicalMatchEvaluationAdapter matchAdapter;
     private final CompartmentRuntimeScoringTelemetry telemetry;
+    private final CanonicalScoringFingerprintService fingerprintService;
+    private final MatchEngineConfig matchEngineConfig;
 
     public CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
                                           MatchEngineConfig matchEngineConfig,
                                           CanonicalRuntimeInputFactory runtimeFactory,
                                           CanonicalScoreSampler sampler,
-                                          CompartmentRuntimeScoringTelemetry telemetry) {
-        this(compartmentConfig, runtimeFactory, sampler,
-                new CanonicalMatchEvaluationAdapter(compartmentConfig, matchEngineConfig), telemetry);
+                                          CompartmentRuntimeScoringTelemetry telemetry,
+                                          CanonicalScoringFingerprintService fingerprintService) {
+        this(compartmentConfig, runtimeFactory, matchEngineConfig, sampler,
+                new CanonicalMatchEvaluationAdapter(compartmentConfig, matchEngineConfig), telemetry,
+                fingerprintService);
+    }
+
+    CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
+                                   MatchEngineConfig matchEngineConfig,
+                                   CanonicalRuntimeInputFactory runtimeFactory,
+                                   CanonicalScoreSampler sampler,
+                                   CompartmentRuntimeScoringTelemetry telemetry) {
+        this(compartmentConfig, matchEngineConfig, runtimeFactory, sampler, telemetry,
+                new CanonicalScoringFingerprintService());
+    }
+
+    CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
+                                   RuntimeInputBuilder runtimeBuilder,
+                                   MatchEvaluator evaluator,
+                                   MatchEngineConfig matchEngineConfig,
+                                   CanonicalScoreSampler sampler,
+                                   CompartmentRuntimeScoringTelemetry telemetry,
+                                   CanonicalScoringFingerprintService fingerprintService) {
+        this.compartmentConfig = Objects.requireNonNull(compartmentConfig, "compartmentConfig");
+        this.runtimeFactory = null;
+        this.matchAdapter = null;
+        this.runtimeBuilder = Objects.requireNonNull(runtimeBuilder, "runtimeBuilder");
+        this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
+        this.matchEngineConfig = Objects.requireNonNull(matchEngineConfig, "matchEngineConfig");
+        this.sampler = Objects.requireNonNull(sampler, "sampler");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
+        this.fingerprintService = Objects.requireNonNull(fingerprintService, "fingerprintService");
     }
 
     CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
@@ -42,13 +73,26 @@ public final class CanonicalRuntimeScoringService {
                                    MatchEvaluator evaluator,
                                    CanonicalScoreSampler sampler,
                                    CompartmentRuntimeScoringTelemetry telemetry) {
+        this(compartmentConfig, runtimeBuilder, evaluator, new MatchEngineConfig(), sampler, telemetry,
+                new CanonicalScoringFingerprintService());
+    }
+
+    CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
+                                   CanonicalRuntimeInputFactory runtimeFactory,
+                                   MatchEngineConfig matchEngineConfig,
+                                   CanonicalScoreSampler sampler,
+                                   CanonicalMatchEvaluationAdapter matchAdapter,
+                                   CompartmentRuntimeScoringTelemetry telemetry,
+                                   CanonicalScoringFingerprintService fingerprintService) {
         this.compartmentConfig = Objects.requireNonNull(compartmentConfig, "compartmentConfig");
-        this.runtimeFactory = null;
-        this.matchAdapter = null;
-        this.runtimeBuilder = Objects.requireNonNull(runtimeBuilder, "runtimeBuilder");
-        this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
+        this.runtimeFactory = Objects.requireNonNull(runtimeFactory, "runtimeFactory");
         this.sampler = Objects.requireNonNull(sampler, "sampler");
+        this.matchAdapter = Objects.requireNonNull(matchAdapter, "matchAdapter");
+        this.runtimeBuilder = runtimeFactory::build;
+        this.evaluator = matchAdapter::evaluate;
+        this.matchEngineConfig = Objects.requireNonNull(matchEngineConfig, "matchEngineConfig");
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
+        this.fingerprintService = Objects.requireNonNull(fingerprintService, "fingerprintService");
     }
 
     CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
@@ -56,13 +100,8 @@ public final class CanonicalRuntimeScoringService {
                                    CanonicalScoreSampler sampler,
                                    CanonicalMatchEvaluationAdapter matchAdapter,
                                    CompartmentRuntimeScoringTelemetry telemetry) {
-        this.compartmentConfig = Objects.requireNonNull(compartmentConfig, "compartmentConfig");
-        this.runtimeFactory = Objects.requireNonNull(runtimeFactory, "runtimeFactory");
-        this.sampler = Objects.requireNonNull(sampler, "sampler");
-        this.matchAdapter = Objects.requireNonNull(matchAdapter, "matchAdapter");
-        this.runtimeBuilder = runtimeFactory::build;
-        this.evaluator = matchAdapter::evaluate;
-        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
+        this(compartmentConfig, runtimeFactory, new MatchEngineConfig(), sampler, matchAdapter, telemetry,
+                new CanonicalScoringFingerprintService());
     }
 
     private final RuntimeInputBuilder runtimeBuilder;
@@ -83,7 +122,9 @@ public final class CanonicalRuntimeScoringService {
                     goals.homeGoals(), goals.awayGoals(),
                     evaluation.home().team().attack() + evaluation.home().team().attackProtection(),
                     evaluation.away().team().attack() + evaluation.away().team().attackProtection(),
-                    evaluation);
+                    evaluation,
+                    fingerprintService.configFingerprint(compartmentConfig, matchEngineConfig),
+                    fingerprintService.inputFingerprint(request, home, away));
             telemetry.markSucceeded();
             return Optional.of(score);
         } catch (RuntimeException ex) {

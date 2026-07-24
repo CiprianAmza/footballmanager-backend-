@@ -10,7 +10,14 @@ public record CanonicalRuntimeScore(
         int awayGoals,
         double homePower,
         double awayPower,
-        CanonicalMatchEvaluation evaluation) {
+        CanonicalMatchEvaluation evaluation,
+        String configFingerprint,
+        String inputFingerprint) {
+    public CanonicalRuntimeScore(int homeGoals, int awayGoals, double homePower, double awayPower,
+                                 CanonicalMatchEvaluation evaluation) {
+        this(homeGoals, awayGoals, homePower, awayPower, evaluation, "", "");
+    }
+
     public CanonicalRuntimeScore {
         evaluation = Objects.requireNonNull(evaluation, "evaluation");
         int cap = evaluation.probability().homeGoals().cap();
@@ -23,6 +30,9 @@ public record CanonicalRuntimeScore(
         if (!Double.isFinite(homePower) || homePower < 0.0
                 || !Double.isFinite(awayPower) || awayPower < 0.0) {
             throw new IllegalArgumentException("powers must be finite and non-negative");
+        }
+        if (configFingerprint == null || inputFingerprint == null) {
+            throw new IllegalArgumentException("fingerprints must not be null");
         }
     }
 }

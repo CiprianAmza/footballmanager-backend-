@@ -7,6 +7,9 @@ import com.footballmanagergamesimulator.compartment.shadow.CompartmentShadowEval
 import com.footballmanagergamesimulator.compartment.shadow.ShadowLineupSlotSource;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScoringService;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScore;
+import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoringFingerprintService;
+import com.footballmanagergamesimulator.matchplan.MatchScoringDecision;
+import com.footballmanagergamesimulator.matchplan.ScoreEngineKind;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.FormationData;
@@ -125,6 +128,7 @@ public class MatchRoundSimulator {
     @Autowired private CompartmentEngineConfig compartmentEngineConfig;
     @Autowired private CompartmentShadowEvaluationService compartmentShadowEvaluationService;
     @Autowired private CanonicalRuntimeScoringService canonicalRuntimeScoringService;
+    @Autowired private CanonicalScoringFingerprintService canonicalScoringFingerprintService;
     @Autowired(required = false) private GameplayFeatureConfig gameplayFeatures;
     @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
 
@@ -651,17 +655,28 @@ public class MatchRoundSimulator {
 
                 // Admin override — use forced score if set, otherwise compute normally
                 int[] adminScoreAi = teamPostMatchService.consumePredeterminedScore(_competitionId, (int) _roundId, teamId1, teamId2);
+                final String aiFixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                        .competitionFixtureKey(match.getId());
+                Optional<MatchScoringDecision> persistedScoreDecision = matchPlanService.isEnabled()
+                        ? matchPlanService.findScoreDecision(aiFixtureKey) : Optional.empty();
+                ScoreEngineKind selectedScoreEngine;
+                CanonicalRuntimeScore canonicalScore = null;
                 if (adminScoreAi != null) {
                     teamScore1 = adminScoreAi[0];
                     teamScore2 = adminScoreAi[1];
+                    selectedScoreEngine = ScoreEngineKind.ADMIN_OVERRIDE;
+                } else if (persistedScoreDecision.isPresent()) {
+                    MatchScoringDecision decision = persistedScoreDecision.orElseThrow();
+                    teamScore1 = decision.homeScore90();
+                    teamScore2 = decision.awayScore90();
+                    teamPower1 = decision.homePower();
+                    teamPower2 = decision.awayPower();
+                    selectedScoreEngine = decision.scoreEngine();
                 } else {
                     final long canonicalHomeTeamId = teamId1;
                     final long canonicalAwayTeamId = teamId2;
                     final int canonicalSeason = Integer.parseInt(getCurrentSeason());
-                    Optional<CanonicalRuntimeScore> canonicalScore = engineConfig.getTacticalModel().isEnabled()
-                            ? canonicalRuntimeScoringService.scoreSafely(() -> {
-                                String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
-                                        .competitionFixtureKey(match.getId());
+                    Optional<CanonicalRuntimeScore> canonicalResult = canonicalRuntimeScoringService.scoreSafely(() -> {
                                 PersonalizedTactic homeTactic = canonicalTactic(canonicalHomeTeamId);
                                 PersonalizedTactic awayTactic = canonicalTactic(canonicalAwayTeamId);
                                 List<com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot> homeSlots =
@@ -671,16 +686,18 @@ public class MatchRoundSimulator {
                                         canonicalLineupSlotSources(canonicalAwayTeamId).stream()
                                                 .map(ShadowLineupSlotSource::toRuntimeSlot).toList();
                                 return CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
-                                        fixtureKey, _competitionId, canonicalSeason, (int) _roundId,
+                                        aiFixtureKey, _competitionId, canonicalSeason, (int) _roundId,
                                         canonicalHomeTeamId, canonicalAwayTeamId,
                                         homeTactic, awayTactic, homeSlots, awaySlots);
-                            }) : Optional.empty();
-                    if (canonicalScore.isPresent()) {
-                        CanonicalRuntimeScore score = canonicalScore.orElseThrow();
+                            });
+                    if (canonicalResult.isPresent()) {
+                        canonicalScore = canonicalResult.orElseThrow();
+                        CanonicalRuntimeScore score = canonicalScore;
                         teamScore1 = score.homeGoals();
                         teamScore2 = score.awayGoals();
                         teamPower1 = score.homePower();
                         teamPower2 = score.awayPower();
+                        selectedScoreEngine = ScoreEngineKind.COMPARTMENT_V1;
                     } else if (engineConfig.getTacticalModel().isEnabled()) {
                         // Two-axis model: attack/defense + coaching + each manager's skill-picked tactic.
                         // Replace the scalar teamPower with the two-axis total so stats/morale/knockout stay consistent.
@@ -689,6 +706,7 @@ public class MatchRoundSimulator {
                         teamScore2 = r.score2();
                         teamPower1 = r.power1();
                         teamPower2 = r.power2();
+                        selectedScoreEngine = ScoreEngineKind.TWO_AXIS_FALLBACK;
                     } else {
                         // All scoring via the tuned, config-driven engine (same as the tests).
                         // Per-player morale + fitness are already inside teamPower (PlayerValueService);
@@ -699,6 +717,7 @@ public class MatchRoundSimulator {
                                 random);
                         teamScore1 = scores.get(0);
                         teamScore2 = scores.get(1);
+                        selectedScoreEngine = ScoreEngineKind.SCALAR_FALLBACK;
                     }
                 }
 
@@ -743,6 +762,36 @@ public class MatchRoundSimulator {
                             score90Home, score90Away,
                             knockoutResolution.et1(), knockoutResolution.et2(),
                             knockoutResolution.penalty1(), knockoutResolution.penalty2());
+                }
+
+                if (matchPlanService.isEnabled() && persistedScoreDecision.isEmpty()) {
+                    int decisionEtHome = knockoutResolution == null || knockoutResolution.et1() == null
+                            ? -1 : knockoutResolution.et1();
+                    int decisionEtAway = knockoutResolution == null || knockoutResolution.et2() == null
+                            ? -1 : knockoutResolution.et2();
+                    int decisionShootoutHome = knockoutResolution == null || knockoutResolution.penalty1() == null
+                            ? -1 : knockoutResolution.penalty1();
+                    int decisionShootoutAway = knockoutResolution == null || knockoutResolution.penalty2() == null
+                            ? -1 : knockoutResolution.penalty2();
+                    long decisionSeed = com.footballmanagergamesimulator.matchplan.MatchPlanService.seedFor(
+                            aiFixtureKey, _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            teamId1, teamId2);
+                    String configFingerprint = canonicalScore == null
+                            ? canonicalScoringFingerprintService.configFingerprint(compartmentEngineConfig, engineConfig)
+                            : canonicalScore.configFingerprint();
+                    String inputFingerprint = canonicalScore == null
+                            ? canonicalScoringFingerprintService.legacyInputFingerprint(
+                                    aiFixtureKey, _competitionId, Integer.parseInt(getCurrentSeason()),
+                                    (int) _roundId, teamId1, teamId2, selectedScoreEngine)
+                            : canonicalScore.inputFingerprint();
+                    MatchScoringDecision decision = new MatchScoringDecision(
+                            aiFixtureKey, decisionSeed, selectedScoreEngine,
+                            MatchScoringDecision.ALGORITHM_VERSION, configFingerprint, inputFingerprint,
+                            score90Home, score90Away, teamPower1, teamPower2,
+                            canonicalScore == null ? null : canonicalScore.evaluation().probability().homeXg(),
+                            canonicalScore == null ? null : canonicalScore.evaluation().probability().awayXg());
+                    matchPlanService.persistScoreDecision(decision, teamId1, teamId2,
+                            decisionEtHome, decisionEtAway, decisionShootoutHome, decisionShootoutAway);
                 }
 
                 String aiTactic1 = getManagerTacticCached(teamId1);

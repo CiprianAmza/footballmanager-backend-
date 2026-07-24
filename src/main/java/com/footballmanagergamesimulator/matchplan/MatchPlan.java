@@ -34,6 +34,16 @@ public class MatchPlan {
     private long seed;
     private String algorithmVersion;
 
+    @Enumerated(EnumType.STRING)
+    private ScoreEngineKind scoreEngine;
+    private String scoreAlgorithmVersion;
+    private String scoreConfigFingerprint;
+    private String scoreInputFingerprint;
+    private Double homeXg;
+    private Double awayXg;
+    private Double homePower;
+    private Double awayPower;
+
     private long homeTeamId;
     private long awayTeamId;
 
@@ -82,6 +92,14 @@ public class MatchPlan {
     public String getFixtureKey() { return fixtureKey; }
     public long getSeed() { return seed; }
     public String getAlgorithmVersion() { return algorithmVersion; }
+    public ScoreEngineKind getScoreEngine() { return scoreEngine; }
+    public String getScoreAlgorithmVersion() { return scoreAlgorithmVersion; }
+    public String getScoreConfigFingerprint() { return scoreConfigFingerprint; }
+    public String getScoreInputFingerprint() { return scoreInputFingerprint; }
+    public Double getHomeXg() { return homeXg; }
+    public Double getAwayXg() { return awayXg; }
+    public Double getHomePower() { return homePower; }
+    public Double getAwayPower() { return awayPower; }
     public long getHomeTeamId() { return homeTeamId; }
     public long getAwayTeamId() { return awayTeamId; }
     public int getHomeScore90() { return homeScore90; }
@@ -93,6 +111,38 @@ public class MatchPlan {
     public List<GoalSlot> getGoalSlots() { return goalSlots; }
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }
+
+    public boolean hasScoreDecision() {
+        return scoreEngine != null && scoreAlgorithmVersion != null
+                && scoreConfigFingerprint != null && scoreInputFingerprint != null;
+    }
+
+    public void applyScoreDecision(MatchScoringDecision decision) {
+        if (hasScoreDecision()) {
+            if (!getScoreDecision().equals(decision)) {
+                throw new IllegalStateException("score decision is immutable for " + fixtureKey);
+            }
+            return;
+        }
+        this.seed = decision.seed();
+        this.homeScore90 = decision.homeScore90();
+        this.awayScore90 = decision.awayScore90();
+        this.scoreEngine = decision.scoreEngine();
+        this.scoreAlgorithmVersion = decision.scoreAlgorithmVersion();
+        this.scoreConfigFingerprint = decision.configFingerprint();
+        this.scoreInputFingerprint = decision.inputFingerprint();
+        this.homeXg = decision.homeXg();
+        this.awayXg = decision.awayXg();
+        this.homePower = decision.homePower();
+        this.awayPower = decision.awayPower();
+    }
+
+    public MatchScoringDecision getScoreDecision() {
+        if (!hasScoreDecision()) return null;
+        return new MatchScoringDecision(fixtureKey, seed, scoreEngine, scoreAlgorithmVersion,
+                scoreConfigFingerprint, scoreInputFingerprint, homeScore90, awayScore90,
+                homePower, awayPower, homeXg, awayXg);
+    }
 
     public boolean hadExtraTime() { return homeScoreET >= 0 && awayScoreET >= 0; }
     public boolean hadShootout() { return homeShootout >= 0 && awayShootout >= 0; }
