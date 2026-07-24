@@ -5,6 +5,7 @@ import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluati
 import com.footballmanagergamesimulator.compartment.match.MatchVenue;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeInputFactory;
 import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
+import com.footballmanagergamesimulator.compartment.calibration.CompartmentCalibrationAccumulator;
 import com.footballmanagergamesimulator.compartment.PlayerPosition;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
@@ -98,6 +99,18 @@ class CompartmentShadowEvaluationServiceTest {
                 + observation.orElseThrow().canonicalEvaluation().outcome().draw()
                 + observation.orElseThrow().canonicalEvaluation().outcome().awayWin()).isCloseTo(1.0,
                 org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    void successfulObservationIsDelegatedToCalibrationAccumulator() {
+        CompartmentEngineConfig config = enabledConfig();
+        CompartmentShadowTelemetry telemetry = new CompartmentShadowTelemetry();
+        CompartmentCalibrationAccumulator accumulator = new CompartmentCalibrationAccumulator();
+        CompartmentShadowEvaluationService service = new CompartmentShadowEvaluationService(config,
+                factory(new CountingCapabilityService()), adapter(config), telemetry, accumulator);
+
+        assertThat(service.evaluateSafely(request(2, 1, true, false, true, MatchVenue.HOME))).isPresent();
+        assertThat(accumulator.snapshot().sampleCount()).isEqualTo(1);
     }
 
     @Test

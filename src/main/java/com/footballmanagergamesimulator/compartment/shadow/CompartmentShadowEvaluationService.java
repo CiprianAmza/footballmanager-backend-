@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.compartment.shadow;
 
+import com.footballmanagergamesimulator.compartment.calibration.CompartmentCalibrationAccumulator;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluationAdapter;
 import com.footballmanagergamesimulator.compartment.match.MatchVenue;
@@ -30,23 +31,36 @@ public final class CompartmentShadowEvaluationService {
     private final CanonicalRuntimeInputFactory runtimeFactory;
     private final CanonicalMatchEvaluationAdapter matchAdapter;
     private final CompartmentShadowTelemetry telemetry;
+    private final CompartmentCalibrationAccumulator calibrationAccumulator;
 
     public CompartmentShadowEvaluationService(CompartmentEngineConfig compartmentConfig,
                                               MatchEngineConfig matchEngineConfig,
                                               CanonicalRuntimeInputFactory runtimeFactory,
-                                              CompartmentShadowTelemetry telemetry) {
+                                              CompartmentShadowTelemetry telemetry,
+                                              CompartmentCalibrationAccumulator calibrationAccumulator) {
         this(compartmentConfig, runtimeFactory,
-                new CanonicalMatchEvaluationAdapter(compartmentConfig, matchEngineConfig), telemetry);
+                new CanonicalMatchEvaluationAdapter(compartmentConfig, matchEngineConfig), telemetry,
+                calibrationAccumulator);
+    }
+
+    public CompartmentShadowEvaluationService(CompartmentEngineConfig compartmentConfig,
+                                              CanonicalRuntimeInputFactory runtimeFactory,
+                                              CanonicalMatchEvaluationAdapter matchAdapter,
+                                              CompartmentShadowTelemetry telemetry) {
+        this(compartmentConfig, runtimeFactory, matchAdapter, telemetry,
+                new CompartmentCalibrationAccumulator());
     }
 
     CompartmentShadowEvaluationService(CompartmentEngineConfig compartmentConfig,
                                        CanonicalRuntimeInputFactory runtimeFactory,
                                        CanonicalMatchEvaluationAdapter matchAdapter,
-                                       CompartmentShadowTelemetry telemetry) {
+                                       CompartmentShadowTelemetry telemetry,
+                                       CompartmentCalibrationAccumulator calibrationAccumulator) {
         this.compartmentConfig = Objects.requireNonNull(compartmentConfig, "compartmentConfig");
         this.runtimeFactory = Objects.requireNonNull(runtimeFactory, "runtimeFactory");
         this.matchAdapter = Objects.requireNonNull(matchAdapter, "matchAdapter");
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
+        this.calibrationAccumulator = Objects.requireNonNull(calibrationAccumulator, "calibrationAccumulator");
     }
 
     public Optional<CompartmentShadowObservation> evaluateSafely(ShadowEvaluationRequest request) {
@@ -78,6 +92,7 @@ public final class CompartmentShadowEvaluationService {
                     request.fixtureKey(), request.homeTeamId(), request.awayTeamId(),
                     request.legacyHomeScore(), request.legacyAwayScore(), legacyResult(request), evaluation,
                     totalDurationNanos);
+            calibrationAccumulator.record(observation);
             telemetry.markSucceeded();
             LOG.debug("compartment shadow evaluation fixtureKey={} homeTeamId={} awayTeamId={} "
                             + "legacyHomeScore={} legacyAwayScore={} legacyResult={} homeXg={} awayXg={} "
