@@ -26,6 +26,11 @@ formation only when every locked slot is present; otherwise the first canonical
 formation containing all locks is selected deterministically. No incompatible
 proposed formation is used as a fallback.
 
+Completion is centralized in the enforcement service: valid manager entries are
+kept with their role, duty and instructions, and only missing starter/bench
+slots are filled from the assistant selection. All consumers use the same
+bounded, duplicate-free deterministic result.
+
 The effective formation and XI shown by `getFormation` and `teamView` are
 copies. A saved tactic is never mutated merely because a Chairman mandate is
 active; reads expose the enforced formation and lineup instead.

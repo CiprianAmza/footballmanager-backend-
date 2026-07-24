@@ -35,12 +35,22 @@ public class ChairmanTacticalMandateEnforcementService {
 
     public String effectiveFormation(long teamId, String proposedFormation) {
         EffectiveChairmanMandate current = mandate(teamId);
-        if (current.requiredFormation() != null) return current.requiredFormation();
+        List<String> canonical = tacticService.getAllExistingTactics();
+        if (current.requiredFormation() != null) {
+            if (!canonical.contains(current.requiredFormation())) {
+                throw invalid("TACTICAL_MANDATE_INVALID", "Mandated formation is not canonical");
+            }
+            if (!containsAllLocks(current.requiredFormation(), current)) {
+                throw invalid("MANDATE_SLOT_NOT_IN_FORMATION", "Mandated slot is not in formation");
+            }
+            return current.requiredFormation();
+        }
         if (current.lockedSlots().isEmpty()) return proposedFormation;
-        if (containsAllLocks(proposedFormation, current)) return proposedFormation;
-        return tacticService.getAllExistingTactics().stream()
+        if (canonical.contains(proposedFormation) && containsAllLocks(proposedFormation, current)) return proposedFormation;
+        return canonical.stream()
                 .filter(formation -> containsAllLocks(formation, current))
-                .findFirst().orElse(proposedFormation);
+                .findFirst().orElseThrow(() -> invalid("TACTICAL_MANDATE_INVALID",
+                        "No canonical formation contains all active locks"));
     }
 
     private boolean containsAllLocks(String formation, EffectiveChairmanMandate current) {
@@ -100,6 +110,9 @@ public class ChairmanTacticalMandateEnforcementService {
                 if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation contains an invalid player");
                 continue;
             }
+            if (!runtime && active && eligiblePlayer(teamId, value.getPlayerId(), Set.of()) == null) {
+                throw invalid("MANAGER_XI_INVALID", "Formation player is not eligible for this team");
+            }
             if (runtime && unavailable.contains(value.getPlayerId())) continue;
 
             ResolvedLock byPlayer = lockByPlayer.get(value.getPlayerId());
@@ -141,6 +154,38 @@ public class ChairmanTacticalMandateEnforcementService {
         }
         result.sort(Comparator.comparingInt(FormationData::getPositionIndex).thenComparingLong(FormationData::getPlayerId));
         return List.copyOf(result);
+    }
+
+    /**
+     * Preserves the already-valid manager choices and fills only missing slots
+     * from the deterministic assistant result. This is the sole completion
+     * policy shared by human runtime, saved lineups and read models.
+     */
+    public List<FormationData> completeFormation(List<FormationData> preserved,
+                                                  List<FormationData> assistant) {
+        List<FormationData> result = new ArrayList<>();
+        Set<Integer> positions = new HashSet<>();
+        Set<Long> players = new HashSet<>();
+        addUniqueBounded(preserved, result, positions, players);
+        addUniqueBounded(assistant, result, positions, players);
+        result.sort(Comparator.comparingInt(FormationData::getPositionIndex)
+                .thenComparingLong(FormationData::getPlayerId));
+        return List.copyOf(result);
+    }
+
+    private static void addUniqueBounded(List<FormationData> source, List<FormationData> result,
+                                         Set<Integer> positions, Set<Long> players) {
+        if (source == null) return;
+        for (FormationData value : source) {
+            if (value == null) continue;
+            int position = value.getPositionIndex();
+            long starters = result.stream().filter(item -> item.getPositionIndex() < 30).count();
+            long bench = result.stream().filter(item -> item.getPositionIndex() >= 30).count();
+            if (position < 0 || position > 36 || position < 30 && starters >= 11
+                    || position >= 30 && bench >= 7 || !positions.add(position)
+                    || !players.add(value.getPlayerId())) continue;
+            result.add(copy(value));
+        }
     }
 
     public List<EffectiveChairmanMandate.Slot> eligibleSlots(long teamId, Set<Long> unavailableIds) {

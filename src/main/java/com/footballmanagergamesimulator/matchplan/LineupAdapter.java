@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
+import com.footballmanagergamesimulator.chairman.mandate.EffectiveChairmanMandate;
 import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
@@ -149,9 +150,17 @@ public class LineupAdapter {
 
         List<CoachPermissionService.LockedSlot> legacyLocks = coachPermissionService == null
                 ? List.of() : coachPermissionService.lockedSlots(teamId);
-        formation = mandateEnforcement.enforceFormation(teamId, pt.getTactic(), formation,
+        String effectiveFormation = mandateEnforcement.effectiveFormation(teamId, pt.getTactic());
+        formation = mandateEnforcement.enforceFormation(teamId, effectiveFormation, formation,
                 legacyLocks,
                 unavailableIds(teamId), true).stream().map(LineupAdapter::copyFormationData).collect(Collectors.toCollection(ArrayList::new));
+
+        EffectiveChairmanMandate mandate = mandateEnforcement.mandate(teamId);
+        boolean active = mandate.requiredFormation() != null || !mandate.lockedSlots().isEmpty();
+        if (active && formation.stream().filter(data -> data.getPositionIndex() < BENCH_SLOT_START).count() < REQUIRED_STARTERS) {
+            formation = mandateEnforcement.completeFormation(formation,
+                    tacticController.askAssistant(teamId, effectiveFormation));
+        }
 
         // Sort by slot to preserve canonical order; split starters / bench.
         formation.sort((a, b) -> Integer.compare(a.getPositionIndex(), b.getPositionIndex()));

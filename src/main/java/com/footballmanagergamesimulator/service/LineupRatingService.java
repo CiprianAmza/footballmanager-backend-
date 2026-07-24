@@ -239,38 +239,9 @@ public class LineupRatingService {
         long starters = resolved.stream().filter(data -> data.getPositionIndex() < 30).count();
         if (starters != 11) {
             List<FormationData> automatic = tacticController.askAssistant(teamId, effectiveFormation);
-            resolved = completeRuntimeFormation(resolved, automatic);
+            resolved = mandateEnforcement.completeFormation(resolved, automatic);
         }
         return new RuntimeFormation(effectiveFormation, List.copyOf(resolved));
-    }
-
-    private List<FormationData> completeRuntimeFormation(List<FormationData> preserved,
-                                                         List<FormationData> automatic) {
-        List<FormationData> result = new ArrayList<>(preserved == null ? List.of() : preserved);
-        Set<Integer> positions = new HashSet<>();
-        Set<Long> players = new HashSet<>();
-        result.removeIf(data -> !positions.add(data.getPositionIndex()) || !players.add(data.getPlayerId()));
-        for (FormationData candidate : automatic == null ? List.<FormationData>of() : automatic) {
-            long starters = result.stream().filter(data -> data.getPositionIndex() < 30).count();
-            long bench = result.stream().filter(data -> data.getPositionIndex() >= 30).count();
-            if (candidate.getPositionIndex() < 30 && starters >= 11) continue;
-            if (candidate.getPositionIndex() >= 30 && bench >= 7) continue;
-            if (!positions.add(candidate.getPositionIndex()) || !players.add(candidate.getPlayerId())) continue;
-            result.add(copyFormationData(candidate));
-        }
-        result.sort(java.util.Comparator.comparingInt(FormationData::getPositionIndex)
-                .thenComparingLong(FormationData::getPlayerId));
-        return List.copyOf(result);
-    }
-
-    private static FormationData copyFormationData(FormationData source) {
-        FormationData copy = new FormationData();
-        copy.setPositionIndex(source.getPositionIndex());
-        copy.setPlayerId(source.getPlayerId());
-        copy.setRole(source.getRole());
-        copy.setDuty(source.getDuty());
-        copy.setInstructions(source.getInstructions() == null ? null : List.copyOf(source.getInstructions()));
-        return copy;
     }
 
     private record RuntimeFormation(String formation, List<FormationData> entries) {}

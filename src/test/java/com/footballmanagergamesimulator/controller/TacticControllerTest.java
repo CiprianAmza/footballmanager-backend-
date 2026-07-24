@@ -42,6 +42,7 @@ class TacticControllerTest {
         when(availability.roundUnavailableIds(10L)).thenReturn(java.util.Set.of());
         when(permissions.lockedSlots(10L)).thenReturn(java.util.List.of());
         when(tactics.isKnownFormation("433")).thenReturn(true);
+        when(tactics.getAllExistingTactics()).thenReturn(java.util.List.of("433"));
         when(tactics.getFormationGridIndicesExact("433")).thenReturn(new int[]{1, 2, 3, 10, 12, 14, 20, 21, 23, 24, 27});
         when(tactics.getRoomInTeamByTactic("433")).thenReturn(Map.of("GK", 1));
         when(tactics.getValueForTacticDisplay(anyString())).thenReturn(0);

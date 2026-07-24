@@ -180,11 +180,14 @@ public class TacticController {
         managerView.setTactic(effectiveManagerFormation);
         Set<Long> unavailable = matchSimulationOrchestrator.roundUnavailableIds(teamId);
         managerView = effectiveTacticView(teamId, managerView, unavailable, true);
-        if (managerView.getFormationDataList() == null || managerView.getFormationDataList().isEmpty()) {
-            managerView.setFormationDataList(assistantSelection(teamId, effectiveManagerFormation, unavailable, true));
-        } else {
-            ensureSevenSubstitutes(teamId, managerView.getFormationDataList(), unavailable);
+        List<FormationData> managerFormationData = managerView.getFormationDataList();
+        long managerStarters = managerFormationData == null ? 0
+                : managerFormationData.stream().filter(data -> data.getPositionIndex() < 30).count();
+        if (managerStarters < 11) {
+            managerView.setFormationDataList(mandateEnforcement.completeFormation(managerFormationData,
+                    assistantSelection(teamId, effectiveManagerFormation, unavailable, true)));
         }
+        ensureSevenSubstitutes(teamId, managerView.getFormationDataList(), unavailable);
 
         PersonalizedTacticView bestView = defaultTacticView(teamId, effectiveBestTactic);
         bestView.setFormationDataList(assistantSelection(teamId, effectiveBestTactic, unavailable, true));
@@ -447,12 +450,16 @@ public class TacticController {
             throw new RuntimeException("Team not found.");
 
         List<TacticView> tacticViews = new ArrayList<>();
+        Set<String> effectiveNames = new HashSet<>();
         List<String> allTactics = tacticService.getAllExistingTactics();
         for (String tactic: allTactics) {
-            List<PlayerView> bestEleven = getBestElevenPlayers(team, tacticService.getRoomInTeamByTactic(tactic), tactic);
+            String effectiveTactic = mandateEnforcement.effectiveFormation(_teamId, tactic);
+            if (!effectiveNames.add(effectiveTactic)) continue;
+            List<PlayerView> bestEleven = getBestElevenPlayers(team,
+                    tacticService.getRoomInTeamByTactic(effectiveTactic), effectiveTactic);
 
             TacticView tacticView = new TacticView();
-            tacticView.setTacticName(tactic);
+            tacticView.setTacticName(effectiveTactic);
             tacticView.setTotalRating(bestEleven.stream().mapToDouble(PlayerView::getRating).sum());
 
             tacticViews.add(tacticView);

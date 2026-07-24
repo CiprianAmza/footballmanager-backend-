@@ -138,6 +138,23 @@ class ChairmanTacticalMandateEnforcementServiceTest {
         assertThat(result).allMatch(value -> value.getPositionIndex() <= 36);
     }
 
+    @Test
+    void activeMandateRejectsForeignManagerSelectionAtEditTime() {
+        squad.put(100L, player(100L));
+        Human foreign = player(200L);
+        foreign.setTeamId(11L);
+        squad.put(200L, foreign);
+        ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
+        mandate.setTeamId(10L);
+        mandate.setRequiredFormation("442");
+        mandate.replaceSlots(List.of(new MandateSlot(1, 100L)));
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.of(mandate));
+
+        assertThatThrownBy(() -> service.enforceFormation(10L, "442", List.of(data(3, 200L)),
+                List.of(), Set.of(), false))
+                .hasFieldOrPropertyWithValue("code", "MANAGER_XI_INVALID");
+    }
+
     private static FormationData data(int position, long playerId) {
         FormationData value = new FormationData();
         value.setPositionIndex(position);

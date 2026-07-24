@@ -1652,29 +1652,30 @@ public class MatchRoundSimulator {
      * the two-axis model.
      */
     private String chooseFormation(long teamId) {
-        String mandatedFormation = mandateEnforcement.mandate(teamId).requiredFormation();
-        if (mandatedFormation != null) return mandatedFormation;
         Human manager = tacticalManager(teamId);
         String preferred = manager != null && manager.getTacticStyle() != null
                 ? manager.getTacticStyle() : "442";
+        String candidate;
         if (userContext.isHumanTeam(teamId)) {
-            return preferred;
+            candidate = preferred;
+        } else {
+            List<String> formations = tacticService.getAllExistingTactics();
+            if (formations.isEmpty()) candidate = preferred;
+            else {
+                List<String> ranked = formations.stream()
+                        .sorted(Comparator.comparingDouble((String f) -> formationBaseValue(teamId, f)).reversed())
+                        .toList();
+                if (manager != null && manager.isAlwaysUseBestPossibleTactic()) candidate = ranked.get(0);
+                else if (!engineConfig.getTacticalModel().isEnabled()) candidate = preferred;
+                else {
+                    double[] coach = coachAbilities(teamId);
+                    double skill = Math.max(0, Math.min(100, (coach[0] + coach[1]) / 2.0));
+                    int index = (int) Math.round((100 - skill) / 100.0 * (ranked.size() - 1));
+                    candidate = ranked.get(index);
+                }
+            }
         }
-        List<String> formations = tacticService.getAllExistingTactics();
-        if (formations.isEmpty()) return preferred;
-        List<String> ranked = formations.stream()
-                .sorted(Comparator.comparingDouble((String f) -> formationBaseValue(teamId, f)).reversed())
-                .toList();
-        if (manager != null && manager.isAlwaysUseBestPossibleTactic()) {
-            return ranked.get(0);
-        }
-        if (!engineConfig.getTacticalModel().isEnabled()) {
-            return preferred;
-        }
-        double[] coach = coachAbilities(teamId);
-        double skill = Math.max(0, Math.min(100, (coach[0] + coach[1]) / 2.0));
-        int index = (int) Math.round((100 - skill) / 100.0 * (ranked.size() - 1));
-        return ranked.get(index);
+        return mandateEnforcement.effectiveFormation(teamId, candidate);
     }
 
     /** The base squad value (attack + defense, pre-coaching) a formation yields for a team. */
@@ -1721,8 +1722,9 @@ public class MatchRoundSimulator {
 
     private List<FormationEvaluationStarter> selectFormationStarters(
             FormationEvaluationSquad squad, String formation) {
+        String effectiveFormation = mandateEnforcement.effectiveFormation(squad.teamId(), formation);
         List<String> requiredSlots = new ArrayList<>();
-        tacticService.getRoomInTeamByTactic(formation).entrySet().stream()
+        tacticService.getRoomInTeamByTactic(effectiveFormation).entrySet().stream()
                 .sorted(Comparator.comparingInt(entry ->
                         tacticService.getValueForTacticDisplay(entry.getKey())))
                 .forEach(entry -> {
@@ -1739,7 +1741,7 @@ public class MatchRoundSimulator {
         // Chairman locks have priority over legacy owner/board XI locks.
         Set<Long> chairmanLockedIds = new HashSet<>();
         for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.resolvedLockedSlots(
-                squad.teamId(), formation, squad.legacyLockedSlots(), unavailableIds)) {
+                squad.teamId(), effectiveFormation, squad.legacyLockedSlots(), unavailableIds)) {
             Human lockedPlayer = remaining.stream().filter(player -> player.getId() == lock.playerId()).findFirst().orElse(null);
             if (lockedPlayer == null) continue;
             remaining.remove(lockedPlayer);
@@ -1766,7 +1768,7 @@ public class MatchRoundSimulator {
         for (int i = 0; i < unfilledSlots.size() && i < remaining.size(); i++) {
             selected.add(new FormationEvaluationStarter(remaining.get(i), unfilledSlots.get(i)));
         }
-        return selected;
+        return selected.stream().limit(11).toList();
     }
 
     private List<PlayerView> selectMatchSubstitutes(
