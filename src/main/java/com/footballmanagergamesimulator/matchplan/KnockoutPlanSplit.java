@@ -23,6 +23,12 @@ public record KnockoutPlanSplit(int score90Home, int score90Away,
         }
         validatePhase(etHome, etAway, "extra-time");
         validatePhase(shootoutHome, shootoutAway, "shootout");
+        if (shootoutHome >= 0 && etHome < 0) {
+            throw new IllegalArgumentException("shootout requires extra-time");
+        }
+        if (shootoutHome >= 0 && shootoutHome == shootoutAway) {
+            throw new IllegalArgumentException("shootout must have a winner");
+        }
     }
 
     private static void validatePhase(int home, int away, String phase) {
