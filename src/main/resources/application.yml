@@ -125,6 +125,7 @@ match:
     # path consumes this section yet; false is the mandatory legacy fallback gate.
     compartment:
       enabled: false
+      shadow-enabled: false
       rating:
         attribute-min: 1
         attribute-max: 20

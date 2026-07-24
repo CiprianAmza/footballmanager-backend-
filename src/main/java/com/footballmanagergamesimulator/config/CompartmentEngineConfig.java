@@ -26,6 +26,7 @@ import java.util.Map;
 public class CompartmentEngineConfig {
 
     private boolean enabled = false;
+    private boolean shadowEnabled = false;
     private Rating rating = new Rating();
     private Map<Compartment, CompartmentWeights> compartments = new LinkedHashMap<>();
     private Map<String, Map<Compartment, CompartmentWeights>> positionCompartmentOverrides = new LinkedHashMap<>();
@@ -39,6 +40,8 @@ public class CompartmentEngineConfig {
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public boolean isShadowEnabled() { return shadowEnabled; }
+    public void setShadowEnabled(boolean shadowEnabled) { this.shadowEnabled = shadowEnabled; }
     public Rating getRating() { return rating; }
     public void setRating(Rating rating) { this.rating = rating; }
     public Map<Compartment, CompartmentWeights> getCompartments() { return compartments; }

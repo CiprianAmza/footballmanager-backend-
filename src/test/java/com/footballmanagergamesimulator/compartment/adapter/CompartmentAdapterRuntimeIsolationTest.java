@@ -97,6 +97,35 @@ class CompartmentAdapterRuntimeIsolationTest {
         assertThat(offenders).as("Phase 6 bridge must remain pure and domain-free").isEmpty();
     }
 
+    @Test
+    void phaseNineAllowsOnlyTheShadowServiceFrontier() {
+        Path root = Path.of("src", "main", "java");
+        Path simulator = root.resolve("com/footballmanagergamesimulator/service/MatchRoundSimulator.java");
+        assertThat(read(simulator)).contains("CompartmentShadowEvaluationService");
+        Map<String, List<String>> offenders = new TreeMap<>();
+        try (Stream<Path> files = Files.walk(root)) {
+            files.filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.equals(simulator))
+                    .filter(p -> !p.toString().replace('\\', '/').contains("/compartment/"))
+                    .forEach(p -> {
+                        if (containsIdentifier(read(p), "CompartmentShadowEvaluationService")) {
+                            offenders.computeIfAbsent(root.relativize(p).toString(), k -> new java.util.ArrayList<>())
+                                    .add("CompartmentShadowEvaluationService");
+                        }
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        assertThat(offenders).as("only MatchRoundSimulator may reference the shadow service").isEmpty();
+        String simulatorSource = read(simulator);
+        for (String forbidden : List.of("CanonicalMatchEvaluationAdapter", "CanonicalRuntimeInputFactory",
+                "CanonicalTeamEvaluationAdapter", "GoalProbabilityFormula", "PlayerCapabilityService")) {
+            assertThat(containsIdentifier(simulatorSource, forbidden))
+                    .as("MatchRoundSimulator must not reference " + forbidden).isFalse();
+        }
+    }
+
     private static boolean containsIdentifier(String content, String identifier) {
         int from = 0;
         while (true) {

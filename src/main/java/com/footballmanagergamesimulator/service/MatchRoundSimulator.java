@@ -1,7 +1,10 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
+import com.footballmanagergamesimulator.compartment.shadow.CompartmentShadowEvaluationService;
+import com.footballmanagergamesimulator.compartment.shadow.ShadowLineupSlotSource;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.FormationData;
@@ -117,6 +120,8 @@ public class MatchRoundSimulator {
     @Autowired private UserRepository userRepository;
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
+    @Autowired private CompartmentEngineConfig compartmentEngineConfig;
+    @Autowired private CompartmentShadowEvaluationService compartmentShadowEvaluationService;
     @Autowired(required = false) private GameplayFeatureConfig gameplayFeatures;
     @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
 
@@ -162,6 +167,7 @@ public class MatchRoundSimulator {
     // attack/defense profile and the tactic its manager picked for the season.
     private final Map<Long, TacticalScoreService.TeamProfile> profileCache = new ConcurrentHashMap<>();
     private final Map<Long, TacticalScoreService.TacticVector> tacticVectorCache = new ConcurrentHashMap<>();
+    private final Map<Long, ShadowTacticAxes> shadowTacticCache = new ConcurrentHashMap<>();
     // XI value share in wide positions, for the AI's squad-shape width identity (see teamTacticVector).
     private final Map<Long, Double> wideShareCache = new ConcurrentHashMap<>();
     // Formation ranking used to rebuild the full UI-oriented PlayerView squad for every candidate
@@ -663,6 +669,20 @@ public class MatchRoundSimulator {
                             random);
                     teamScore1 = scores.get(0);
                     teamScore2 = scores.get(1);
+                }
+
+                if (compartmentEngineConfig.isShadowEnabled()) {
+                    boolean shadowEligibleInputs = adminScoreAi == null && engineConfig.getTacticalModel().isEnabled();
+                    compartmentShadowEvaluationService.evaluateSafely(
+                            CompartmentShadowEvaluationService.ShadowEvaluationRequest.home(
+                                    com.footballmanagergamesimulator.matchplan.MatchPlanService
+                                            .competitionFixtureKey(match.getId()),
+                                    teamId1, teamId2, teamScore1, teamScore2,
+                                    true, adminScoreAi != null, engineConfig.getTacticalModel().isEnabled(),
+                                    shadowEligibleInputs ? shadowTactic(teamId1) : null,
+                                    shadowEligibleInputs ? shadowTactic(teamId2) : null,
+                                    shadowEligibleInputs ? shadowLineupSlots(teamId1) : List.of(),
+                                    shadowEligibleInputs ? shadowLineupSlots(teamId2) : List.of()));
                 }
 
                 // The regular-time (90') score, captured before resolveKnockoutMatch folds in
@@ -1368,6 +1388,7 @@ public class MatchRoundSimulator {
         // Width is a squad-shape identity (invisible against a width-neutral panel), set from the XI shape.
         Double ws = wideShareCache.get(teamId);
         if (ws != null) chosen.setWidth(managerTacticService.widthIdentity(ws));
+        shadowTacticCache.put(teamId, ShadowTacticAxes.from(chosen));
         TacticalScoreService.TacticVector v = tacticalScoreService.vector(chosen);
         tacticVectorCache.put(teamId, v);
         return v;
@@ -1584,6 +1605,7 @@ public class MatchRoundSimulator {
     public void invalidateManagerTacticPolicy(long teamId) {
         managerTacticCache.remove(teamId);
         tacticVectorCache.remove(teamId);
+        shadowTacticCache.remove(teamId);
     }
 
     private void invalidateMatchdayLineupCaches(long teamId) {
@@ -1605,6 +1627,7 @@ public class MatchRoundSimulator {
         managerTacticCache.clear();
         profileCache.clear();
         tacticVectorCache.clear();
+        shadowTacticCache.clear();
         wideShareCache.clear();
         formationSquadCache.clear();
         formationValueCache.clear();
@@ -1848,6 +1871,58 @@ public class MatchRoundSimulator {
             List<Human> players,
             Map<Long, PlayerSkills> skillsByPlayerId,
             Map<Long, String> lockedPositionByPlayerId) {}
+
+    private PersonalizedTactic shadowTactic(long teamId) {
+        ShadowTacticAxes axes = shadowTacticCache.get(teamId);
+        return axes == null ? null : axes.toTactic();
+    }
+
+    private List<ShadowLineupSlotSource> shadowLineupSlots(long teamId) {
+        RoundContext context = roundContext.get();
+        FormationEvaluationSquad squad = formationSquadCache.get(teamId);
+        List<TacticController.StarterSlot> starters = starterSlotsCache.get(teamId);
+        if (context == null || squad == null || starters == null) return List.of();
+        Map<Long, Human> players = context.playersByTeam().getOrDefault(teamId, List.of()).stream()
+                .collect(Collectors.toMap(Human::getId, player -> player, (left, right) -> left));
+        Map<Long, PlayerSkills> skills = squad.skillsByPlayerId();
+        Map<Long, FormationData> saved = savedRoleData(teamId);
+        Map<com.footballmanagergamesimulator.compartment.PlayerPosition, Integer> occurrences = new HashMap<>();
+        List<ShadowLineupSlotSource> result = new ArrayList<>();
+        for (TacticController.StarterSlot starter : starters) {
+            Human player = players.get(starter.player().getId());
+            PlayerSkills playerSkills = skills.get(starter.player().getId());
+            com.footballmanagergamesimulator.compartment.PlayerPosition position;
+            try {
+                position = com.footballmanagergamesimulator.compartment.PlayerPosition.require(starter.usedPosition());
+            } catch (RuntimeException ex) {
+                return List.of();
+            }
+            int occurrence = occurrences.merge(position, 1, Integer::sum);
+            if (player == null || playerSkills == null) return List.of();
+            result.add(new ShadowLineupSlotSource(player, playerSkills, saved.get(player.getId()),
+                    position.code(), occurrence));
+        }
+        return result;
+    }
+
+    private record ShadowTacticAxes(String mentality, String tempo, String passingType,
+                                    String defensiveLine, String pressing, String width) {
+        static ShadowTacticAxes from(PersonalizedTactic tactic) {
+            return new ShadowTacticAxes(tactic.getMentality(), tactic.getTempo(), tactic.getPassingType(),
+                    tactic.getDefensiveLine(), tactic.getPressing(), tactic.getWidth());
+        }
+
+        PersonalizedTactic toTactic() {
+            PersonalizedTactic tactic = new PersonalizedTactic();
+            tactic.setMentality(mentality);
+            tactic.setTempo(tempo);
+            tactic.setPassingType(passingType);
+            tactic.setDefensiveLine(defensiveLine);
+            tactic.setPressing(pressing);
+            tactic.setWidth(width);
+            return tactic;
+        }
+    }
 
     private record FormationEvaluationStarter(Human player, String usedPosition) {}
 
