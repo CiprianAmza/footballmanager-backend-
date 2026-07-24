@@ -4,10 +4,12 @@ import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig.MentalityRule;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,10 +26,12 @@ import java.util.Set;
 public final class TeamCompartmentAggregator {
 
     private static final double WIDE_REDISTRIBUTION_SHARE = 0.20;
+    private static final double SHARE_TOLERANCE = 1e-9;
     private static final Comparator<PlayerCompartmentInput> INPUT_ORDER =
             Comparator.comparing((PlayerCompartmentInput input) -> input.slot().position())
                     .thenComparingInt(input -> input.slot().occurrence())
                     .thenComparingLong(PlayerCompartmentInput::playerId);
+    private static final Comparator<PlayerTrait> TRAIT_ORDER = Comparator.comparingInt(Enum::ordinal);
 
     private final CompartmentEngineConfig config;
     private final DefensiveExposureFormula exposureFormula;
@@ -42,6 +46,7 @@ public final class TeamCompartmentAggregator {
         List<PlayerCompartmentInput> ordered = normalizeAndValidate(lineup);
         MentalityRule rule = Objects.requireNonNull(config.getMentalities().get(mentality),
                 "Missing mentality rule for " + mentality);
+        validateMentalityRule(rule);
 
         List<PlayerAggregation> players = ordered.stream()
                 .map(this::toPlayerAggregation)
@@ -160,7 +165,7 @@ public final class TeamCompartmentAggregator {
         var attack = compartment(input.rating(), Compartment.ATTACK);
         var midfield = compartment(input.rating(), Compartment.MIDFIELD);
         var defense = compartment(input.rating(), Compartment.DEFENSE);
-        var behavior = exposureFormula.resolveWorkBehavior(input.traits(), input.instruction(), false);
+        var behavior = exposureFormula.resolveWorkBehavior(new LinkedHashSet<>(input.traits()), input.instruction(), false);
         double adjustedAttack = attack.finalScore() * behavior.attackMultiplier();
         double normalizedDefense = clamp01(defense.finalScore() / config.getRating().getScoreScale());
         double cbRecoveryPace = input.slot().position().isCenterBack() ? paceNormalization(input.rating()) : 0.0;
@@ -235,7 +240,7 @@ public final class TeamCompartmentAggregator {
             double protection = players.stream().mapToDouble(player -> protectionForChannel(player, channel)).sum();
             result.put(channel, new ChannelBreakdown(channel, attack, protection));
         }
-        return Map.copyOf(result);
+        return immutableOrderedMap(result);
     }
 
     private static double attackForChannel(PlayerBreakdown player, WideChannel channel) {
@@ -302,6 +307,37 @@ public final class TeamCompartmentAggregator {
         return weight;
     }
 
+    private void validateMentalityRule(MentalityRule rule) {
+        requireFiniteUnit(rule.getMidfieldToAttack(), "midfieldToAttack");
+        requireFiniteUnit(rule.getMidfieldToDefense(), "midfieldToDefense");
+        double split = rule.getMidfieldToAttack() + rule.getMidfieldToDefense();
+        if (Math.abs(split - 1.0) > SHARE_TOLERANCE) {
+            throw new IllegalArgumentException("midfield shares must sum to 1.0");
+        }
+        requireFiniteUnit(rule.getTransferShare(), "transferShare");
+        if (!Double.isFinite(rule.getOpenness()) || rule.getOpenness() <= 0.0) {
+            throw new IllegalArgumentException("openness must be finite and positive");
+        }
+
+        boolean fromMissing = rule.getTransferFrom() == null;
+        boolean toMissing = rule.getTransferTo() == null;
+        if (fromMissing != toMissing) {
+            throw new IllegalArgumentException("transfer compartments must be both present or both absent");
+        }
+        if (!fromMissing && !TransferDirection.isValidPair(rule.getTransferFrom(), rule.getTransferTo())) {
+            throw new IllegalArgumentException("only Attack<->Defense transfer is supported");
+        }
+        if (rule.getTransferShare() > 0.0 && fromMissing) {
+            throw new IllegalArgumentException("positive transferShare requires transfer compartments");
+        }
+    }
+
+    private static void requireFiniteUnit(double value, String name) {
+        if (!Double.isFinite(value) || value < 0.0 || value > 1.0) {
+            throw new IllegalArgumentException(name + " must be finite and in [0,1]");
+        }
+    }
+
     private static double clamp01(double value) {
         if (!Double.isFinite(value)) {
             throw new IllegalArgumentException("value must be finite");
@@ -311,6 +347,21 @@ public final class TeamCompartmentAggregator {
 
     private static double safeShare(double value, double total) {
         return total <= 0.0 ? 0.0 : value / total;
+    }
+
+    private static <K, V> Map<K, V> immutableOrderedMap(Map<K, V> values) {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
+    private static List<PlayerTrait> immutableOrderedTraits(Collection<PlayerTrait> traits) {
+        if (traits == null || traits.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<PlayerTrait> ordered = traits.stream()
+                .filter(Objects::nonNull)
+                .sorted(TRAIT_ORDER)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return Collections.unmodifiableList(new ArrayList<>(ordered));
     }
 
     public enum ExposureZone {
@@ -407,7 +458,7 @@ public final class TeamCompartmentAggregator {
     public record PlayerCompartmentInput(long playerId,
                                          LineupSlot slot,
                                          ContextualPlayerRating rating,
-                                         Set<PlayerTrait> traits,
+                                         List<PlayerTrait> traits,
                                          ForwardInstruction instruction) {
         public PlayerCompartmentInput {
             if (playerId <= 0) {
@@ -415,7 +466,7 @@ public final class TeamCompartmentAggregator {
             }
             Objects.requireNonNull(slot, "slot");
             Objects.requireNonNull(rating, "rating");
-            traits = traits == null ? Set.of() : Set.copyOf(traits);
+            traits = immutableOrderedTraits(traits);
             instruction = instruction == null ? ForwardInstruction.DEFAULT : instruction;
         }
     }
@@ -467,7 +518,7 @@ public final class TeamCompartmentAggregator {
     public record PlayerBreakdown(
             long playerId,
             LineupSlot slot,
-            Set<PlayerTrait> traits,
+            List<PlayerTrait> traits,
             ForwardInstruction instruction,
             double baseAttack,
             double adjustedAttack,
@@ -488,7 +539,11 @@ public final class TeamCompartmentAggregator {
             WideChannel channel,
             double channelAttackContribution,
             double channelProtectionContribution,
-            ZoneEngagementBreakdown zoneEngagement) {}
+            ZoneEngagementBreakdown zoneEngagement) {
+        public PlayerBreakdown {
+            traits = immutableOrderedTraits(traits);
+        }
+    }
 
     public record TeamAggregationResult(
             Mentality mentality,
@@ -502,7 +557,7 @@ public final class TeamCompartmentAggregator {
             double attack,
             double attackProtection) {
         public TeamAggregationResult {
-            channelBreakdown = Map.copyOf(channelBreakdown);
+            channelBreakdown = immutableOrderedMap(channelBreakdown);
             players = List.copyOf(players);
         }
     }
@@ -524,13 +579,20 @@ public final class TeamCompartmentAggregator {
             if (rule.getTransferShare() == 0.0) {
                 return NONE;
             }
-            if (rule.getTransferFrom() == Compartment.DEFENSE && rule.getTransferTo() == Compartment.ATTACK) {
+            if (isValidPair(rule.getTransferFrom(), rule.getTransferTo())
+                    && rule.getTransferFrom() == Compartment.DEFENSE) {
                 return DEFENSE_TO_ATTACK;
             }
-            if (rule.getTransferFrom() == Compartment.ATTACK && rule.getTransferTo() == Compartment.DEFENSE) {
+            if (isValidPair(rule.getTransferFrom(), rule.getTransferTo())
+                    && rule.getTransferFrom() == Compartment.ATTACK) {
                 return ATTACK_TO_DEFENSE;
             }
             throw new IllegalArgumentException("only Attack<->Defense transfer is supported");
+        }
+
+        static boolean isValidPair(Compartment from, Compartment to) {
+            return (from == Compartment.DEFENSE && to == Compartment.ATTACK)
+                    || (from == Compartment.ATTACK && to == Compartment.DEFENSE);
         }
 
         Compartment from() {

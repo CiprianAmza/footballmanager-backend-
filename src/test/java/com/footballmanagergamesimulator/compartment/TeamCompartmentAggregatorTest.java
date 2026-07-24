@@ -7,12 +7,13 @@ import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.Pl
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.TeamAggregationResult;
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.WideChannel;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
+import com.footballmanagergamesimulator.config.CompartmentEngineConfig.MentalityRule;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -74,10 +75,16 @@ class TeamCompartmentAggregatorTest {
         double channelProtection = result.channelBreakdown().values().stream().mapToDouble(value -> value.protection()).sum();
         assertThat(channelAttack).isCloseTo(result.attack(), within(1e-12));
         assertThat(channelProtection).isCloseTo(result.exposure().protectionBeforeExposure(), within(1e-12));
+        assertThat(new ArrayList<>(result.channelBreakdown().keySet())).containsExactly(
+                WideChannel.CENTRAL,
+                WideChannel.LEFT_HALF_SPACE,
+                WideChannel.RIGHT_HALF_SPACE,
+                WideChannel.LEFT_WIDE,
+                WideChannel.RIGHT_WIDE);
     }
 
     @Test
-    void aggregationIsOrderIndependentAndBreakdownOrderIsDeterministic() {
+    void aggregationIsOrderIndependentAndResultSnapshotIsDeterministic() {
         List<PlayerCompartmentInput> lineup = List.of(
                 player(6, LineupPosition.ST, 1, 30, 10, 5, 0.9),
                 player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
@@ -98,6 +105,7 @@ class TeamCompartmentAggregatorTest {
                 .containsExactly(1L, 3L, 2L, 4L, 5L, 6L);
         assertThat(second.players().stream().map(PlayerBreakdown::playerId).toList())
                 .containsExactlyElementsOf(first.players().stream().map(PlayerBreakdown::playerId).toList());
+        assertThat(snapshot(second)).isEqualTo(snapshot(first));
     }
 
     @Test
@@ -124,11 +132,11 @@ class TeamCompartmentAggregatorTest {
                 player(3, LineupPosition.DM, 1, 15, 20, 80, 0.6),
                 player(4, LineupPosition.DM, 2, 15, 20, 60, 0.4),
                 player(5, LineupPosition.ST, 1, 30, 10, 5, 0.8,
-                        Set.of(PlayerTrait.REFUSES_DEFENSIVE_WORK), ForwardInstruction.TRACK_BACK),
+                        List.of(PlayerTrait.REFUSES_DEFENSIVE_WORK), ForwardInstruction.TRACK_BACK),
                 player(6, LineupPosition.AML, 1, 25, 15, 10, 0.7,
-                        Set.of(), ForwardInstruction.STAY_FORWARD),
+                        List.of(), ForwardInstruction.STAY_FORWARD),
                 player(7, LineupPosition.MR, 1, 20, 15, 15, 0.5,
-                        Set.of(), ForwardInstruction.TRACK_BACK)));
+                        List.of(), ForwardInstruction.TRACK_BACK)));
 
         assertThat(result.coverage().bestDm().raw()).isEqualTo(0.80);
         assertThat(result.coverage().secondDm().raw()).isEqualTo(0.60);
@@ -148,13 +156,35 @@ class TeamCompartmentAggregatorTest {
         TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED, List.of(
                 player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
                 player(2, LineupPosition.ST, 1, 30, 10, 5, 0.8,
-                        Set.of(PlayerTrait.REFUSES_DEFENSIVE_WORK), ForwardInstruction.STAY_FORWARD),
+                        List.of(PlayerTrait.REFUSES_DEFENSIVE_WORK), ForwardInstruction.STAY_FORWARD),
                 player(3, LineupPosition.DC, 1, 10, 10, 45, 0.5)));
 
         PlayerBreakdown striker = breakdown(result, 2);
         assertThat(striker.engagement()).isEqualTo(0.08);
         assertThat(striker.attackMultiplier()).isEqualTo(1.15);
         assertThat(striker.adjustedAttack()).isCloseTo(striker.baseAttack() * 1.15, within(1e-12));
+        assertThat(striker.traits()).containsExactly(PlayerTrait.REFUSES_DEFENSIVE_WORK);
+    }
+
+    @Test
+    void invalidMentalityRulesFailFast() {
+        assertInvalidMentality(rule -> rule.setMidfieldToAttack(Double.NaN), "midfieldToAttack");
+        assertInvalidMentality(rule -> rule.setMidfieldToAttack(1.20), "midfieldToAttack");
+        assertInvalidMentality(rule -> rule.setMidfieldToDefense(-0.10), "midfieldToDefense");
+        assertInvalidMentality(rule -> rule.setMidfieldToDefense(0.40), "midfield shares must sum to 1.0");
+        assertInvalidMentality(rule -> rule.setTransferShare(1.10), "transferShare");
+        assertInvalidMentality(rule -> rule.setOpenness(0.0), "openness");
+        assertInvalidMentality(rule -> rule.setTransferFrom(null), "transfer compartments");
+        assertInvalidMentality(rule -> {
+            rule.setTransferFrom(Compartment.MIDFIELD);
+            rule.setTransferTo(Compartment.ATTACK);
+            rule.setTransferShare(0.20);
+        }, "only Attack<->Defense transfer is supported");
+        assertInvalidMentality(rule -> {
+            rule.setTransferFrom(null);
+            rule.setTransferTo(null);
+            rule.setTransferShare(0.20);
+        }, "positive transferShare requires transfer compartments");
     }
 
     @Test
@@ -247,14 +277,28 @@ class TeamCompartmentAggregatorTest {
                 .orElseThrow();
     }
 
+    private void assertInvalidMentality(java.util.function.Consumer<MentalityRule> mutator, String expectedMessage) {
+        CompartmentEngineConfig invalidConfig = CompartmentConfigFixture.load();
+        MentalityRule invalidRule = copyRule(invalidConfig.getMentalities().get(Mentality.BALANCED));
+        mutator.accept(invalidRule);
+        invalidConfig.getMentalities().put(Mentality.BALANCED, invalidRule);
+        TeamCompartmentAggregator invalidAggregator = new TeamCompartmentAggregator(invalidConfig);
+
+        assertThatThrownBy(() -> invalidAggregator.aggregate(Mentality.BALANCED, List.of(
+                player(1, LineupPosition.GK, 1, 5, 5, 40, 0.0),
+                player(2, LineupPosition.ST, 1, 20, 10, 5, 0.5))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(expectedMessage);
+    }
+
     private PlayerCompartmentInput player(long id, LineupPosition position, int occurrence,
                                           double attack, double midfield, double defense, double pace) {
-        return player(id, position, occurrence, attack, midfield, defense, pace, Set.of(), ForwardInstruction.DEFAULT);
+        return player(id, position, occurrence, attack, midfield, defense, pace, List.of(), ForwardInstruction.DEFAULT);
     }
 
     private PlayerCompartmentInput player(long id, LineupPosition position, int occurrence,
                                           double attack, double midfield, double defense, double pace,
-                                          Set<PlayerTrait> traits, ForwardInstruction instruction) {
+                                          List<PlayerTrait> traits, ForwardInstruction instruction) {
         return new PlayerCompartmentInput(
                 id,
                 new LineupSlot(position, occurrence),
@@ -299,5 +343,35 @@ class TeamCompartmentAggregatorTest {
                 1.0,
                 finalScore,
                 attributes);
+    }
+
+    private MentalityRule copyRule(MentalityRule source) {
+        MentalityRule copy = new MentalityRule();
+        copy.setMidfieldToAttack(source.getMidfieldToAttack());
+        copy.setMidfieldToDefense(source.getMidfieldToDefense());
+        copy.setTransferFrom(source.getTransferFrom());
+        copy.setTransferTo(source.getTransferTo());
+        copy.setTransferShare(source.getTransferShare());
+        copy.setOpenness(source.getOpenness());
+        return copy;
+    }
+
+    private String snapshot(TeamAggregationResult result) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(result.mentality()).append('|')
+                .append(result.openness()).append('|')
+                .append(result.attack()).append('|')
+                .append(result.attackProtection()).append('|');
+        result.channelBreakdown().forEach((channel, breakdown) ->
+                builder.append(channel).append(':').append(breakdown.attack()).append(':')
+                        .append(breakdown.protection()).append('|'));
+        for (PlayerBreakdown player : result.players()) {
+            builder.append(player.playerId()).append('@').append(player.slot().position()).append('#')
+                    .append(player.slot().occurrence()).append(':')
+                    .append(player.traits()).append(':')
+                    .append(player.finalAttackContribution()).append(':')
+                    .append(player.finalProtectionContribution()).append('|');
+        }
+        return builder.toString();
     }
 }
