@@ -57,6 +57,46 @@ class CanonicalPlayerContextAdapterTest {
     }
 
     @Test
+    void evaluationFlagsDescribePositionAndRoleFallbackForTheUsedPosition() {
+        PlayerCapabilitySnapshot snapshot = new PlayerCapabilitySnapshot(12L, PlayerPosition.ST,
+                Map.of(PlayerPosition.ST, 20),
+                Map.of(new PositionRoleKey(PlayerPosition.ST, PlayerRole.POACHER), 15),
+                8, 20, false, false, false);
+        CanonicalLineupPlayer player = new CanonicalLineupPlayer(12L, PlayerPosition.MC, 1,
+                PlayerRole.CENTRAL_MIDFIELDER, Duty.SUPPORT, attributes(15), 90, 70,
+                snapshot, 50, Set.of(), ForwardInstruction.DEFAULT);
+
+        CanonicalPlayerEvaluation evaluation = adapter.evaluate(player, TacticalContextInput.neutral());
+
+        assertThat(evaluation.positionFamiliarityRating()).isEqualTo(12);
+        assertThat(evaluation.roleFamiliarityRating()).isEqualTo(10);
+        assertThat(evaluation.positionFallbackUsed()).isTrue();
+        assertThat(evaluation.roleFallbackUsed()).isTrue();
+    }
+
+    @Test
+    void evaluationFlagsAreFalseWhenUsedPositionAndExactRoleArePersistent() {
+        PlayerCapabilitySnapshot snapshot = capability(13L, 18, 16, 8, 20);
+        CanonicalPlayerEvaluation evaluation = adapter.evaluate(player(snapshot), TacticalContextInput.neutral());
+
+        assertThat(evaluation.positionFallbackUsed()).isFalse();
+        assertThat(evaluation.roleFallbackUsed()).isFalse();
+    }
+
+    @Test
+    void legacyPositionFallbackFlagRemainsTrueWhenLegacyPositionIsInTheMap() {
+        PlayerCapabilitySnapshot snapshot = new PlayerCapabilitySnapshot(14L, PlayerPosition.ST,
+                Map.of(PlayerPosition.ST, 20),
+                Map.of(new PositionRoleKey(PlayerPosition.ST, PlayerRole.POACHER), 10),
+                8, 20, true, false, false);
+
+        CanonicalPlayerEvaluation evaluation = adapter.evaluate(player(snapshot), TacticalContextInput.neutral());
+
+        assertThat(evaluation.positionFallbackUsed()).isTrue();
+        assertThat(evaluation.roleFallbackUsed()).isFalse();
+    }
+
+    @Test
     void nullRoleIsNeutralAndInvalidOrMismatchedInputIsRejected() {
         CanonicalLineupPlayer nullRole = new CanonicalLineupPlayer(5L, PlayerPosition.ST, 1,
                 null, Duty.SUPPORT, attributes(15), 90, 70,

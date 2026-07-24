@@ -57,8 +57,12 @@ public final class CanonicalPlayerContextAdapter {
                 player.roleSuitability(),
                 player.capability().leftFootRating(),
                 player.capability().rightFootRating(),
-                player.capability().positionFallbackUsed(),
-                player.role() == null || player.capability().roleFallbackUsed(),
+                player.capability().positionFallbackUsed()
+                        || !player.capability().positionFamiliarity().containsKey(player.usedPosition()),
+                player.role() == null
+                        || player.capability().roleFallbackUsed()
+                        || !player.capability().roleFamiliarity().containsKey(
+                                player.role() == null ? null : new PositionRoleKey(player.usedPosition(), player.role())),
                 player.capability().footFallbackUsed(),
                 rating);
     }

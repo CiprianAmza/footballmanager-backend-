@@ -43,6 +43,33 @@ public record CanonicalPlayerEvaluation(
         if (roleSuitability < 0.0 || roleSuitability > 100.0) {
             throw new IllegalArgumentException("roleSuitability must be in [0,100]");
         }
+        double expectedPositionFactor = positionFamiliarityRating / 20.0;
+        if (Double.compare(positionFamiliarityFactor, expectedPositionFactor) != 0) {
+            throw new IllegalArgumentException("positionFamiliarityFactor must equal positionFamiliarityRating / 20.0");
+        }
+        if (role == null) {
+            if (roleFamiliarityRating != 10) {
+                throw new IllegalArgumentException("null role requires roleFamiliarityRating 10");
+            }
+            if (Double.compare(roleSuitability, 50.0) != 0) {
+                throw new IllegalArgumentException("null role requires roleSuitability 50.0");
+            }
+            if (!roleFallbackUsed) {
+                throw new IllegalArgumentException("null role requires roleFallbackUsed");
+            }
+        } else {
+            new PositionRoleKey(usedPosition, role);
+        }
+        if (!usedPosition.code().equals(rating.position())) {
+            throw new IllegalArgumentException("rating position does not match usedPosition");
+        }
+        if (rating.duty() != duty) {
+            throw new IllegalArgumentException("rating duty does not match duty");
+        }
+        String expectedRole = role == null ? "" : role.displayName();
+        if (!expectedRole.equals(rating.role())) {
+            throw new IllegalArgumentException("rating role does not match role");
+        }
     }
 
     private static void requireRating(int value, String field) {
