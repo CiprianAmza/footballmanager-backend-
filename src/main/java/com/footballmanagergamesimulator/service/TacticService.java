@@ -158,6 +158,22 @@ public class TacticService {
         return FORMATION_GRID_INDICES.getOrDefault(formationName, FORMATION_GRID_INDICES.get("4-4-2"));
     }
 
+    /** Exact formation APIs for persisted tactical mandates. These never silently fall back. */
+    public boolean isKnownFormation(String formation) {
+        return formation != null && FORMATION_GRID_INDICES.containsKey(formation);
+    }
+
+    public int[] getFormationGridIndicesExact(String formation) {
+        if (!isKnownFormation(formation)) {
+            throw new IllegalArgumentException("Unknown formation: " + formation);
+        }
+        return Arrays.copyOf(FORMATION_GRID_INDICES.get(formation), FORMATION_GRID_INDICES.get(formation).length);
+    }
+
+    public List<String> getAllExactFormationGridNames() {
+        return List.copyOf(FORMATION_GRID_INDICES.keySet());
+    }
+
     public String getPositionFromIndex(int index) {
 
         if (index >= 30) return "Substitute";

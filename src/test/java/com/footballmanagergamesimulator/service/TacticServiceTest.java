@@ -51,4 +51,15 @@ class TacticServiceTest {
                 "4231", "4141", "4411", "4321", "4222", "3421", "532", "5212", "541", "3511");
         assertEquals(expectedTactics, tacticService.getAllExistingTactics());
     }
+
+    @Test
+    void exactFormationLookupRejectsFallbackAndReturnsDefensiveCopy() {
+        assertTrue(tacticService.isKnownFormation("4-4-2"));
+        assertFalse(tacticService.isKnownFormation("missing"));
+        int[] first = tacticService.getFormationGridIndicesExact("442");
+        first[0] = 999;
+        assertNotEquals(999, tacticService.getFormationGridIndicesExact("442")[0]);
+        assertThrows(IllegalArgumentException.class,
+                () -> tacticService.getFormationGridIndicesExact("missing"));
+    }
 }

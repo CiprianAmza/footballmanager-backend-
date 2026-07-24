@@ -5,11 +5,14 @@ import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.person.CareerType;
 import com.footballmanagergamesimulator.chairman.command.ChairmanCommandCentreDtos;
 import com.footballmanagergamesimulator.chairman.command.ChairmanCommandCentreService;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateDtos;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateService;
 import com.footballmanagergamesimulator.user.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -27,6 +30,7 @@ public class ClubController {
     private final TakeoverService takeoverService;
     private final ClubTreasuryService treasuryService;
     private final ChairmanCommandCentreService commandCentreService;
+    private final ChairmanTacticalMandateService tacticalMandateService;
 
     public ClubController(CurrentUserService currentUserService,
                           PersonProfileService profileService,
@@ -34,7 +38,8 @@ public class ClubController {
                           ClubQueryService queryService,
                           TakeoverService takeoverService,
                           ClubTreasuryService treasuryService,
-                          ChairmanCommandCentreService commandCentreService) {
+                          ChairmanCommandCentreService commandCentreService,
+                          ChairmanTacticalMandateService tacticalMandateService) {
         this.currentUserService = currentUserService;
         this.profileService = profileService;
         this.accountingService = accountingService;
@@ -42,6 +47,7 @@ public class ClubController {
         this.takeoverService = takeoverService;
         this.treasuryService = treasuryService;
         this.commandCentreService = commandCentreService;
+        this.tacticalMandateService = tacticalMandateService;
     }
 
     @GetMapping
@@ -65,6 +71,17 @@ public class ClubController {
     @GetMapping("/{teamId}/chairman-command-centre")
     public ChairmanCommandCentreDtos.CommandCentreView commandCentre(@PathVariable long teamId) {
         return commandCentreService.commandCentre(teamId, currentProfile());
+    }
+
+    @GetMapping("/{teamId}/tactical-mandate")
+    public ChairmanTacticalMandateDtos.MandateView tacticalMandate(@PathVariable long teamId) {
+        return tacticalMandateService.get(teamId, currentProfile());
+    }
+
+    @PutMapping("/{teamId}/tactical-mandate")
+    public ChairmanTacticalMandateDtos.MandateView updateTacticalMandate(
+            @PathVariable long teamId, @Valid @RequestBody ChairmanTacticalMandateDtos.UpdateRequest request) {
+        return tacticalMandateService.update(teamId, currentProfile(), request);
     }
 
     @GetMapping("/{teamId}/ownership")

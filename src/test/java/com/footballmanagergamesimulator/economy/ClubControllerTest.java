@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.economy;
 
 import com.footballmanagergamesimulator.chairman.command.ChairmanCommandCentreService;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateService;
 import com.footballmanagergamesimulator.person.CareerType;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
@@ -22,8 +23,9 @@ class ClubControllerTest {
     private final TakeoverService takeovers = mock(TakeoverService.class);
     private final ClubTreasuryService treasury = mock(ClubTreasuryService.class);
     private final ChairmanCommandCentreService commandCentre = mock(ChairmanCommandCentreService.class);
+    private final ChairmanTacticalMandateService tacticalMandates = mock(ChairmanTacticalMandateService.class);
     private final ClubController controller = new ClubController(currentUsers, profiles, accounting,
-            query, takeovers, treasury, commandCentre);
+            query, takeovers, treasury, commandCentre, tacticalMandates);
 
     @Test
     void catalogUsesAuthenticatedProfileAndForwardsScopeWithoutActorIds() {
@@ -76,6 +78,19 @@ class ClubControllerTest {
         assertThat(controller.commandCentre(9L)).isNull();
         verify(commandCentre).commandCentre(9L, chairman);
         verifyNoMoreInteractions(commandCentre);
+    }
+
+    @Test
+    void tacticalMandateUsesAuthenticatedProfileAndRouteTeamIdOnly() {
+        User user = new User();
+        PersonProfile chairman = profile(55L, CareerType.CHAIRMAN);
+        when(currentUsers.requireUser()).thenReturn(user);
+        when(profiles.requireForUser(user)).thenReturn(chairman);
+
+        controller.tacticalMandate(9L);
+
+        verify(tacticalMandates).get(9L, chairman);
+        verifyNoInteractions(query, takeovers, treasury);
     }
 
     private static PersonProfile profile(long id, CareerType type) {
