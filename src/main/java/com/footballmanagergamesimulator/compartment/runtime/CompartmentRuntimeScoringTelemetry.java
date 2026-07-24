@@ -8,9 +8,15 @@ public final class CompartmentRuntimeScoringTelemetry {
     private long succeeded;
     private long failed;
 
-    public synchronized void markAttempted() { attempted++; }
-    public synchronized void markSucceeded() { succeeded++; }
-    public synchronized void markFailed() { failed++; }
+    public synchronized void markSucceeded() {
+        attempted++;
+        succeeded++;
+    }
+
+    public synchronized void markFailed() {
+        attempted++;
+        failed++;
+    }
 
     public synchronized CompartmentRuntimeScoringTelemetrySnapshot snapshot() {
         return new CompartmentRuntimeScoringTelemetrySnapshot(attempted, succeeded, failed);

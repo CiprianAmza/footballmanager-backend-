@@ -38,6 +38,20 @@ public final class CanonicalRuntimeScoringService {
     }
 
     CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
+                                   RuntimeInputBuilder runtimeBuilder,
+                                   MatchEvaluator evaluator,
+                                   CanonicalScoreSampler sampler,
+                                   CompartmentRuntimeScoringTelemetry telemetry) {
+        this.compartmentConfig = Objects.requireNonNull(compartmentConfig, "compartmentConfig");
+        this.runtimeFactory = null;
+        this.matchAdapter = null;
+        this.runtimeBuilder = Objects.requireNonNull(runtimeBuilder, "runtimeBuilder");
+        this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
+        this.sampler = Objects.requireNonNull(sampler, "sampler");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
+    }
+
+    CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
                                    CanonicalRuntimeInputFactory runtimeFactory,
                                    CanonicalScoreSampler sampler,
                                    CanonicalMatchEvaluationAdapter matchAdapter,
@@ -46,18 +60,22 @@ public final class CanonicalRuntimeScoringService {
         this.runtimeFactory = Objects.requireNonNull(runtimeFactory, "runtimeFactory");
         this.sampler = Objects.requireNonNull(sampler, "sampler");
         this.matchAdapter = Objects.requireNonNull(matchAdapter, "matchAdapter");
+        this.runtimeBuilder = runtimeFactory::build;
+        this.evaluator = matchAdapter::evaluate;
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
     }
 
+    private final RuntimeInputBuilder runtimeBuilder;
+    private final MatchEvaluator evaluator;
+
     public Optional<CanonicalRuntimeScore> scoreSafely(Supplier<RuntimeScoringRequest> requestSupplier) {
         if (!compartmentConfig.isEnabled()) return Optional.empty();
-        telemetry.markAttempted();
         try {
             RuntimeScoringRequest request = Objects.requireNonNull(requestSupplier, "requestSupplier").get();
             validate(request);
-            CanonicalRuntimeTeamInput home = runtimeFactory.build(request.homeTactic(), request.homeSlots());
-            CanonicalRuntimeTeamInput away = runtimeFactory.build(request.awayTactic(), request.awaySlots());
-            CanonicalMatchEvaluation evaluation = matchAdapter.evaluate(home, away, request.venue());
+            CanonicalRuntimeTeamInput home = runtimeBuilder.build(request.homeTactic(), request.homeSlots());
+            CanonicalRuntimeTeamInput away = runtimeBuilder.build(request.awayTactic(), request.awaySlots());
+            CanonicalMatchEvaluation evaluation = evaluator.evaluate(home, away, request.venue());
             long seed = MatchPlanService.seedFor(request.fixtureKey(), request.competitionId(), request.season(),
                     request.round(), request.homeTeamId(), request.awayTeamId());
             CanonicalScoreSampler.GoalSample goals = sampler.sample(evaluation, seed);
@@ -125,5 +143,16 @@ public final class CanonicalRuntimeScoringService {
             homeSlots = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(homeSlots, "homeSlots")));
             awaySlots = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(awaySlots, "awaySlots")));
         }
+    }
+
+    @FunctionalInterface
+    interface RuntimeInputBuilder {
+        CanonicalRuntimeTeamInput build(PersonalizedTactic tactic, List<RuntimeLineupSlot> slots);
+    }
+
+    @FunctionalInterface
+    interface MatchEvaluator {
+        CanonicalMatchEvaluation evaluate(CanonicalRuntimeTeamInput home,
+                                           CanonicalRuntimeTeamInput away, MatchVenue venue);
     }
 }

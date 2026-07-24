@@ -1,12 +1,26 @@
 package com.footballmanagergamesimulator.compartment.runtime;
 
+import com.footballmanagergamesimulator.compartment.Mentality;
+import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator;
+import com.footballmanagergamesimulator.compartment.adapter.CanonicalTeamEvaluation;
+import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluationAdapter;
+import com.footballmanagergamesimulator.compartment.match.MatchVenue;
+import com.footballmanagergamesimulator.compartment.match.OutcomeProbability;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.compartment.GoalProbabilityFormula;
+import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.model.PlayerSkills;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -37,14 +51,37 @@ class CanonicalRuntimeScoringServiceTest {
     }
 
     @Test
-    void successfulEvaluationUsesCanonicalPowersAndOneSample() {
+    void successfulEvaluationUsesValidCanonicalInputAndDeterministicBoundedScore() {
         CompartmentEngineConfig config = enabledConfig();
-        CanonicalRuntimeScoringService service = service(config);
+        CanonicalMatchEvaluation evaluation = evaluation();
         var request = CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
                 "fixture", 7, 2026, 3, 11, 22,
-                new PersonalizedTactic(), new PersonalizedTactic(), List.of(), List.of());
-        assertThat(service.scoreSafely(() -> request)).isEmpty();
-        assertThat(service.telemetrySnapshot()).isEqualTo(new CompartmentRuntimeScoringTelemetrySnapshot(1, 0, 1));
+                new PersonalizedTactic(), new PersonalizedTactic(), slots(1), slots(101));
+        CanonicalRuntimeScoringService service = new CanonicalRuntimeScoringService(config,
+                (tactic, slots) -> null, (home, away, venue) -> evaluation,
+                new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
+
+        var first = service.scoreSafely(() -> request).orElseThrow();
+        var secondService = new CanonicalRuntimeScoringService(config,
+                (tactic, slots) -> null, (home, away, venue) -> evaluation,
+                new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
+        var second = secondService.scoreSafely(() -> request).orElseThrow();
+        assertThat(first.homeGoals()).isBetween(0, 2);
+        assertThat(first.awayGoals()).isBetween(0, 2);
+        assertThat(second).isEqualTo(first);
+        assertThat(first.homePower()).isEqualTo(43.0);
+        assertThat(first.awayPower()).isEqualTo(34.0);
+        assertThat(service.telemetrySnapshot()).isEqualTo(new CompartmentRuntimeScoringTelemetrySnapshot(1, 1, 0));
+
+        var differentFixture = CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
+                "different-fixture", 7, 2026, 3, 11, 22,
+                new PersonalizedTactic(), new PersonalizedTactic(), slots(1), slots(101));
+        var thirdService = new CanonicalRuntimeScoringService(config,
+                (tactic, slots) -> null, (home, away, venue) -> evaluation,
+                new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
+        var third = thirdService.scoreSafely(() -> differentFixture).orElseThrow();
+        assertThat(third.homeGoals()).isBetween(0, 2);
+        assertThat(third.awayGoals()).isBetween(0, 2);
     }
 
     @Test
@@ -60,6 +97,17 @@ class CanonicalRuntimeScoringServiceTest {
         assertThat(config.isShadowEnabled()).isFalse();
     }
 
+    @Test
+    void samplerIsSpringBeanAndIsInjectedIntoRuntimeServiceWithoutDatabase() throws Exception {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(Wiring.class)) {
+            CanonicalScoreSampler sampler = context.getBean(CanonicalScoreSampler.class);
+            CanonicalRuntimeScoringService service = context.getBean(CanonicalRuntimeScoringService.class);
+            var field = CanonicalRuntimeScoringService.class.getDeclaredField("sampler");
+            field.setAccessible(true);
+            assertThat(sampler).isSameAs(field.get(service));
+        }
+    }
+
     private static CanonicalRuntimeScoringService service(CompartmentEngineConfig config) {
         return new CanonicalRuntimeScoringService(config,
                 new CanonicalRuntimeInputFactory(mock(com.footballmanagergamesimulator.service.PlayerCapabilityService.class),
@@ -72,5 +120,74 @@ class CanonicalRuntimeScoringServiceTest {
         CompartmentEngineConfig config = new CompartmentEngineConfig();
         config.setEnabled(true);
         return config;
+    }
+
+    private static List<RuntimeLineupSlot> slots(long offset) {
+        PlayerPosition[] positions = {PlayerPosition.GK, PlayerPosition.DC, PlayerPosition.DL,
+                PlayerPosition.DR, PlayerPosition.DM, PlayerPosition.MC, PlayerPosition.ML,
+                PlayerPosition.MR, PlayerPosition.AMC, PlayerPosition.AML, PlayerPosition.ST};
+        List<RuntimeLineupSlot> result = new ArrayList<>();
+        for (int i = 0; i < positions.length; i++) {
+            long id = offset + i;
+            Human player = new Human();
+            player.setId(id);
+            player.setFitness(90.0);
+            player.setMorale(70.0);
+            PlayerSkills skills = new PlayerSkills();
+            skills.setPlayerId(id);
+            skills.setPosition(positions[i].code());
+            result.add(new RuntimeLineupSlot(player, skills, null, positions[i], 1));
+        }
+        return List.copyOf(result);
+    }
+
+    private static CanonicalMatchEvaluation evaluation() {
+        GoalProbabilityFormula.GoalDistribution homeGoals =
+                new GoalProbabilityFormula.GoalDistribution(1.0, 1.0, 2, new double[]{.2, .3, .5}, 0, 2);
+        GoalProbabilityFormula.GoalDistribution awayGoals =
+                new GoalProbabilityFormula.GoalDistribution(1.0, 1.0, 2, new double[]{.1, .2, .7}, 0, 2);
+        GoalProbabilityFormula.MatchProbability probability = new GoalProbabilityFormula.MatchProbability(
+                .5, .5, 1.0, 1.0, homeGoals, awayGoals);
+        return new CanonicalMatchEvaluation(
+                new CanonicalTeamEvaluation(List.of(), aggregation(40.0, 3.0)),
+                new CanonicalTeamEvaluation(List.of(), aggregation(30.0, 4.0)),
+                MatchVenue.HOME, 1.0, probability, new OutcomeProbability(.3, .4, .3));
+    }
+
+    private static TeamCompartmentAggregator.TeamAggregationResult aggregation(double attack, double protection) {
+        return new TeamCompartmentAggregator.TeamAggregationResult(Mentality.BALANCED, 1.0,
+                new TeamCompartmentAggregator.RawTotals(0, 0, 0),
+                new TeamCompartmentAggregator.MentalityRedistribution(0, 0, null, null, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                java.util.Map.of(), null,
+                new TeamCompartmentAggregator.ExposureBreakdown(0, 0, 0, 1, protection, protection),
+                List.of(), attack, protection);
+    }
+
+    @Configuration
+    static class Wiring {
+        @Bean CompartmentEngineConfig compartmentConfig() { return new CompartmentEngineConfig(); }
+        @Bean MatchEngineConfig matchConfig() { return new MatchEngineConfig(); }
+        @Bean com.footballmanagergamesimulator.service.PlayerCapabilityService capabilityService() {
+            return mock(com.footballmanagergamesimulator.service.PlayerCapabilityService.class);
+        }
+        @Bean com.footballmanagergamesimulator.service.PlayerRoleService roleService() {
+            return mock(com.footballmanagergamesimulator.service.PlayerRoleService.class);
+        }
+        @Bean CanonicalRuntimeInputFactory runtimeFactory(
+                com.footballmanagergamesimulator.service.PlayerCapabilityService capabilities,
+                com.footballmanagergamesimulator.service.PlayerRoleService roles) {
+            return new CanonicalRuntimeInputFactory(capabilities, roles);
+        }
+        @Bean CanonicalScoreSampler sampler() { return new CanonicalScoreSampler(); }
+        @Bean CompartmentRuntimeScoringTelemetry telemetry() {
+            return new CompartmentRuntimeScoringTelemetry();
+        }
+        @Bean CanonicalRuntimeScoringService scoringService(
+                CompartmentEngineConfig config, MatchEngineConfig matchConfig,
+                CanonicalRuntimeInputFactory factory, CanonicalScoreSampler sampler,
+                CompartmentRuntimeScoringTelemetry telemetry) {
+            return new CanonicalRuntimeScoringService(config, matchConfig, factory, sampler, telemetry);
+        }
     }
 }

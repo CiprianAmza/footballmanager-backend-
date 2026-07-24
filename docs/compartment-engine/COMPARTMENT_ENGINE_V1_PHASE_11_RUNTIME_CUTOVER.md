@@ -14,9 +14,10 @@ by downstream 90-minute match effects.
 
 Admin predetermined scores remain authoritative. Human, live, standalone, extra-time and penalty
 paths remain on their existing engines. When the authoritative flag is on, shadow evaluation is
-not run for the same fixture. Runtime telemetry is bounded and thread-safe, with
+not run for the same fixture. Runtime telemetry is bounded and thread-safe. Each terminal outcome
+atomically increments `attempted` together with either `succeeded` or `failed`, preserving
 `attempted == succeeded + failed`; the flag-off path does not invoke the request supplier or
-increment runtime attempts.
+modify any runtime counter.
 
 Phase 11 does not change the legacy scorer, RNG, MatchPlan, persistence, frontend, Chairman,
 feature-flag defaults, or any Phase 0-10 formula.

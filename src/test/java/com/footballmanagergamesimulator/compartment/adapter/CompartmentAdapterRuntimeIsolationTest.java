@@ -127,6 +127,29 @@ class CompartmentAdapterRuntimeIsolationTest {
         }
     }
 
+    @Test
+    void phaseElevenHasOneAiCutoverHookAndLeavesLegacyBoundariesInPlace() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        assertThat(count(simulator, "canonicalRuntimeScoringService.scoreSafely")).isEqualTo(1);
+
+        int aiStart = simulator.indexOf("aiMatches++");
+        int admin = simulator.indexOf("consumePredeterminedScore(_competitionId, (int) _roundId, teamId1, teamId2", aiStart);
+        int cutover = simulator.indexOf("canonicalRuntimeScoringService.scoreSafely");
+        int twoAxisFallback = simulator.indexOf("TwoAxisResult r = twoAxisScores(teamId1, null, teamId2, null)", cutover);
+        assertThat(admin).isGreaterThanOrEqualTo(0).isLessThan(cutover);
+        assertThat(twoAxisFallback).isGreaterThan(cutover);
+        assertThat(simulator).contains("compartmentEngineConfig.isShadowEnabled() && !compartmentEngineConfig.isEnabled()");
+        int humanStart = simulator.indexOf("if (isHumanMatch)");
+        assertThat(humanStart).isGreaterThanOrEqualTo(0).isLessThan(cutover);
+        assertThat(simulator.substring(humanStart, cutover)).doesNotContain("canonicalRuntimeScoringService");
+
+        int standalone = simulator.indexOf("public MatchOutcome scoreStandaloneMatch");
+        assertThat(standalone).isGreaterThanOrEqualTo(0);
+        assertThat(simulator.substring(standalone)).doesNotContain("canonicalRuntimeScoringService");
+        assertThat(simulator).contains("if (isHumanMatch)").contains("if (knockout)");
+    }
+
     private static boolean containsIdentifier(String content, String identifier) {
         int from = 0;
         while (true) {
@@ -142,6 +165,16 @@ class CompartmentAdapterRuntimeIsolationTest {
             }
             from = idx + 1;
         }
+    }
+
+    private static int count(String content, String value) {
+        int count = 0;
+        int from = 0;
+        while ((from = content.indexOf(value, from)) >= 0) {
+            count++;
+            from += value.length();
+        }
+        return count;
     }
 
     private static boolean isIdentifierPart(char c) {

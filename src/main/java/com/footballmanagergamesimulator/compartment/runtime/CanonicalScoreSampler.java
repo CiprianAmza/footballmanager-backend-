@@ -5,8 +5,10 @@ import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluati
 
 import java.util.Objects;
 import java.util.SplittableRandom;
+import org.springframework.stereotype.Component;
 
 /** Pure, deterministic inverse-CDF sampler for one canonical match evaluation. */
+@Component
 public final class CanonicalScoreSampler {
     private static final double SUM_TOLERANCE = 1e-9;
 
