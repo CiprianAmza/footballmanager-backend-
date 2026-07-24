@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.economy;
 
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
+import com.footballmanagergamesimulator.person.CareerType;
 import com.footballmanagergamesimulator.user.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -9,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -38,17 +40,21 @@ public class ClubController {
     }
 
     @GetMapping
-    public List<ClubDtos.ClubSummary> clubs() {
+    public List<ClubDtos.ClubSummary> clubs(
+            @RequestParam(defaultValue = "ALL") ClubCatalogScope scope) {
         PersonProfile profile = currentProfile();
         accountingService.ensureAccount(profile);
-        return queryService.clubs(profile.getId());
+        return queryService.clubs(scope, profile.getId());
     }
 
     @GetMapping("/{teamId}/chairman-dashboard")
     public ClubDtos.Dashboard dashboard(@PathVariable long teamId) {
         PersonProfile profile = currentProfile();
+        if (profile.getCareerType() != CareerType.CHAIRMAN) {
+            throw new EconomyConflictException("CHAIRMAN_REQUIRED", "A chairman career is required");
+        }
         accountingService.ensureAccount(profile);
-        return queryService.dashboard(teamId, profile.getId());
+        return queryService.dashboard(teamId, profile);
     }
 
     @GetMapping("/{teamId}/ownership")

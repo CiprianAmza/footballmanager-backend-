@@ -1,6 +1,10 @@
 package com.footballmanagergamesimulator.economy;
 
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.person.CareerType;
+import com.footballmanagergamesimulator.person.PersonProfile;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,6 +15,7 @@ import java.util.List;
 @Service
 public class ClubQueryService {
     private final TeamRepository teamRepository;
+    private final CompetitionRepository competitionRepository;
     private final PersonalAccountRepository accountRepository;
     private final ClubCapTableService capTableService;
     private final ClubValuationService valuationService;
@@ -19,6 +24,7 @@ public class ClubQueryService {
     private final RegentEconomyProperties properties;
 
     public ClubQueryService(TeamRepository teamRepository,
+                            CompetitionRepository competitionRepository,
                             PersonalAccountRepository accountRepository,
                             ClubCapTableService capTableService,
                             ClubValuationService valuationService,
@@ -26,6 +32,7 @@ public class ClubQueryService {
                             TakeoverQuoteRepository quoteRepository,
                             RegentEconomyProperties properties) {
         this.teamRepository = teamRepository;
+        this.competitionRepository = competitionRepository;
         this.accountRepository = accountRepository;
         this.capTableService = capTableService;
         this.valuationService = valuationService;
@@ -36,32 +43,56 @@ public class ClubQueryService {
 
     @Transactional
     public List<ClubDtos.ClubSummary> clubs(long principalProfileId) {
+        return clubs(ClubCatalogScope.ALL, principalProfileId);
+    }
+
+    @Transactional
+    public List<ClubDtos.ClubSummary> clubs(ClubCatalogScope scope, long principalProfileId) {
         capTableService.ensureAllMigrated();
         Long principalAccount = accountRepository.findByProfileId(principalProfileId)
                 .map(PersonalAccount::getId).orElse(null);
+        java.util.Map<Long, String> competitionNames = competitionRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(Competition::getId, Competition::getName));
         return teamRepository.findAll().stream().sorted(java.util.Comparator.comparingLong(Team::getId))
                 .map(team -> {
                     ClubCapTableService.CapTable cap = capTableService.view(team.getId());
                     ClubCapTableService.Holding controller = controller(cap);
-                    return new ClubDtos.ClubSummary(team.getId(), team.getName(),
-                            money(valuationService.value(team.getId()).totalValue()),
+                    ClubCapTableService.Holding principal = principal(cap, principalAccount);
+                    long principalShares = principal == null ? 0 : principal.quantity();
+                    boolean held = principalShares > 0;
+                    boolean controlled = principalAccount != null
+                            && principalAccount.equals(cap.controllingAccountId());
+                    if (scope == ClubCatalogScope.HELD && !held
+                            || scope == ClubCatalogScope.CONTROLLED && !controlled) return null;
+                    ClubValuationService.Valuation valuation = valuationService.value(team.getId());
+                    return new ClubDtos.ClubSummary(team.getId(), team.getName(), team.getCompetitionId(),
+                            competitionNames.get(team.getCompetitionId()), money(valuation.totalValue()),
                             controller == null ? null : controller.profileId(),
                             controller == null ? null : controller.displayName(),
-                            principalAccount != null && principalAccount.equals(cap.controllingAccountId()));
-                }).toList();
+                            principalShares, stakeBps(principalShares, cap.issuedShares()),
+                            money(valuationService.equityValue(valuation, principalShares, cap.issuedShares())),
+                            held, controlled);
+                }).filter(java.util.Objects::nonNull).toList();
     }
 
     @Transactional
-    public ClubDtos.Dashboard dashboard(long teamId, long principalProfileId) {
+    public ClubDtos.Dashboard dashboard(long teamId, PersonProfile principal) {
+        if (principal.getCareerType() != CareerType.CHAIRMAN) {
+            throw new EconomyConflictException("CHAIRMAN_REQUIRED", "A chairman career is required");
+        }
         Team team = teamRepository.findById(teamId)
                 .orElseThrow(() -> new EconomyConflictException("CLUB_NOT_FOUND", "Club was not found"));
         ClubCapTableService.CapTable cap = capTableService.ensureMigrated(teamId);
+        Long principalAccount = accountRepository.findByProfileId(principal.getId())
+                .map(PersonalAccount::getId).orElse(null);
+        if (principalAccount == null || !principalAccount.equals(cap.controllingAccountId())) {
+            throw new EconomyConflictException("CLUB_CONTROL_REQUIRED",
+                    "Authenticated chairman does not control this club");
+        }
         ClubValuationService.Valuation valuation = valuationService.value(teamId);
         ClubFinancialPolicyService.Policy policy = policyService.policy(team);
-        Long principalAccount = accountRepository.findByProfileId(principalProfileId)
-                .map(PersonalAccount::getId).orElse(null);
         return new ClubDtos.Dashboard(teamId, team.getName(), valuation(valuation), capTable(cap, valuation),
-                treasury(policy), principalAccount != null && principalAccount.equals(cap.controllingAccountId()));
+                treasury(policy), true);
     }
 
     @Transactional
@@ -126,7 +157,15 @@ public class ClubQueryService {
         return value.holdings().stream().filter(ClubCapTableService.Holding::controlling).findFirst().orElse(null);
     }
 
+    private static ClubCapTableService.Holding principal(ClubCapTableService.CapTable value,
+                                                          Long accountId) {
+        if (accountId == null) return null;
+        return value.holdings().stream().filter(holding -> holding.accountId() == accountId)
+                .findFirst().orElse(null);
+    }
+
     private static int stakeBps(long quantity, long supply) {
+        if (quantity == 0) return 0;
         return BigInteger.valueOf(quantity).multiply(BigInteger.valueOf(10_000L))
                 .divide(BigInteger.valueOf(supply)).intValueExact();
     }

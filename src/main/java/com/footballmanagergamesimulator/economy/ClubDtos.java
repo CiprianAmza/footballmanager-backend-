@@ -30,9 +30,12 @@ public final class ClubDtos {
                                EconomyDtos.Money dueObligations,
                                EconomyDtos.Money distributableCash,
                                boolean withdrawalRestricted) { }
-    public record ClubSummary(long teamId, String name, EconomyDtos.Money valuation,
+    public record ClubSummary(long teamId, String name, long competitionId,
+                              String competitionName, EconomyDtos.Money valuation,
                               Long controllingProfileId, String controllingDisplayName,
-                              boolean controlledByPrincipal) { }
+                              long principalShares, int principalStakeBps,
+                              EconomyDtos.Money principalEquityValue,
+                              boolean heldByPrincipal, boolean controlledByPrincipal) { }
     public record Dashboard(long teamId, String name, ValuationView valuation,
                             CapTableView capTable, TreasuryView treasury,
                             boolean controlledByPrincipal) { }
