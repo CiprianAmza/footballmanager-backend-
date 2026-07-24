@@ -46,6 +46,22 @@ class ChairmanTacticalMandateEnforcementServiceTest {
     }
 
     @Test
+    void absentMandateRuntimeStillFiltersUnavailableWithLegacySemantics() {
+        List<FormationData> result = service.enforceFormation(10L, "442",
+                List.of(data(1, 10L)), List.of(), Set.of(10L), true);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void absentMandateEditPreservesUnavailableWithLegacySemantics() {
+        List<FormationData> result = service.enforceFormation(10L, "442",
+                List.of(data(1, 10L)), List.of(), Set.of(10L), false);
+
+        assertThat(result).extracting(FormationData::getPlayerId).containsExactly(10L);
+    }
+
+    @Test
     void chairmanFormationFiltersOldExclusiveSlotAndLocksWinOverLegacy() {
         squad.put(100L, player(100L));
         squad.put(101L, player(101L));
@@ -153,6 +169,33 @@ class ChairmanTacticalMandateEnforcementServiceTest {
         assertThatThrownBy(() -> service.enforceFormation(10L, "442", List.of(data(3, 200L)),
                 List.of(), Set.of(), false))
                 .hasFieldOrPropertyWithValue("code", "MANAGER_XI_INVALID");
+    }
+
+    @Test
+    void activeMandateRuntimeOmitsForeignStaffRetiredAndUnavailablePlayers() {
+        Human locked = player(100L);
+        Human foreign = player(200L);
+        foreign.setTeamId(11L);
+        Human staff = player(201L);
+        staff.setTypeId(TypeNames.MANAGER_TYPE);
+        Human retired = player(202L);
+        retired.setRetired(true);
+        squad.put(100L, locked);
+        squad.put(200L, foreign);
+        squad.put(201L, staff);
+        squad.put(202L, retired);
+        ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
+        mandate.setTeamId(10L);
+        mandate.setRequiredFormation("442");
+        mandate.replaceSlots(List.of(new MandateSlot(1, 100L)));
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.of(mandate));
+
+        List<FormationData> result = service.enforceFormation(10L, "442", List.of(
+                data(3, 200L), data(4, 201L), data(5, 202L), data(6, 203L)),
+                List.of(), Set.of(203L), true);
+
+        assertThat(result).extracting(FormationData::getPlayerId)
+                .containsExactly(100L).doesNotContain(200L, 201L, 202L, 203L);
     }
 
     @Test

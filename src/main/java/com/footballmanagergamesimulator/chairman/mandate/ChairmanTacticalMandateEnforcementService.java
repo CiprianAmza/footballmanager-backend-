@@ -106,12 +106,21 @@ public class ChairmanTacticalMandateEnforcementService {
         Set<Integer> seenPositions = new HashSet<>();
         Set<Long> seenPlayers = new HashSet<>();
         for (FormationData value : submittedCopy) {
-            if (value == null || value.getPlayerId() <= 0) {
+            if (value == null) {
                 if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation contains an invalid player");
                 continue;
             }
-            if (active && eligiblePlayer(teamId, value.getPlayerId(), runtime ? unavailable : Set.of()) == null) {
-                if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation player is not eligible for this team");
+            if (value.getPlayerId() <= 0) {
+                if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation contains an invalid player");
+                continue;
+            }
+            if (active) {
+                Human eligible = eligiblePlayer(teamId, value.getPlayerId(), runtime ? unavailable : Set.of());
+                if (eligible == null) {
+                    if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation player is not eligible for this team");
+                    continue;
+                }
+            } else if (runtime && unavailable.contains(value.getPlayerId())) {
                 continue;
             }
 

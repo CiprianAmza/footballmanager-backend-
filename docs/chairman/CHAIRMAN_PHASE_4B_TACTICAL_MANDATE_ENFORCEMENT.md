@@ -31,6 +31,10 @@ kept with their role, duty and instructions, and only missing starter/bench
 slots are filled from the assistant selection. All consumers use the same
 bounded, duplicate-free deterministic result.
 
+Without an active mandate, enforcement preserves the legacy contract: runtime
+filters only the supplied unavailable set, while edit-time does not apply
+Chairman team/type/retired validation.
+
 The effective formation and XI shown by `getFormation` and `teamView` are
 copies. A saved tactic is never mutated merely because a Chairman mandate is
 active; reads expose the enforced formation and lineup instead.
