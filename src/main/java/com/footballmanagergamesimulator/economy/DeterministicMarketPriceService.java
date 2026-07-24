@@ -1,28 +1,52 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.regent.market.core.ClubEquityProfile;
+import com.footballmanagergamesimulator.regent.market.core.ClubEquityQuote;
+import com.footballmanagergamesimulator.regent.market.core.ClubEquityQuoteModel;
+import com.footballmanagergamesimulator.regent.market.core.DailyReturn;
+import com.footballmanagergamesimulator.regent.market.core.MarketQuoteKey;
+import com.footballmanagergamesimulator.regent.market.core.SafeCompanyProfile;
+import com.footballmanagergamesimulator.regent.market.core.SafeCompanyReturnModel;
+import com.footballmanagergamesimulator.regent.market.core.SpeculativeProfile;
+import com.footballmanagergamesimulator.regent.market.core.SpeculativeQuote;
+import com.footballmanagergamesimulator.regent.market.core.SpeculativeQuoteModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigInteger;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 @Service
 public class DeterministicMarketPriceService {
     public static final String MARKET_V1 = "market-v1";
+    public static final String RISK_V1 = "risk-v1";
     private static final BigInteger BPS = BigInteger.valueOf(10_000L);
+    private static final SafeCompanyProfile SAFE_V1 = new SafeCompanyProfile(
+            new BigDecimal("0.01"), new BigDecimal("0.60"), RISK_V1);
+    private static final SpeculativeProfile SPECULATIVE_V1 = new SpeculativeProfile(BigDecimal.ONE, RISK_V1);
+    private static final ClubEquityProfile CLUB_V1 = new ClubEquityProfile(
+            new BigDecimal("0.03"), BigDecimal.ONE, RISK_V1);
 
     private final MarketBootstrapService bootstrapService;
     private final MarketInstrumentRepository instrumentRepository;
     private final MarketPriceSnapshotRepository snapshotRepository;
     private final RegentEconomyProperties properties;
+    private final ClubValuationService clubValuationService;
+    private final TraderAdviserService traderAdviserService;
 
     public DeterministicMarketPriceService(MarketBootstrapService bootstrapService,
                                            MarketInstrumentRepository instrumentRepository,
                                            MarketPriceSnapshotRepository snapshotRepository,
-                                           RegentEconomyProperties properties) {
+                                           RegentEconomyProperties properties,
+                                           ClubValuationService clubValuationService,
+                                           TraderAdviserService traderAdviserService) {
         this.bootstrapService = bootstrapService;
         this.instrumentRepository = instrumentRepository;
         this.snapshotRepository = snapshotRepository;
         this.properties = properties;
+        this.clubValuationService = clubValuationService;
+        this.traderAdviserService = traderAdviserService;
     }
 
     @Transactional
@@ -35,6 +59,7 @@ public class DeterministicMarketPriceService {
         for (MarketInstrument listed : instrumentRepository.findAllByActiveTrueOrderByCodeAsc()) {
             processInstrument(listed.getId(), season, day);
         }
+        traderAdviserService.processDailyPayroll(season, day);
     }
 
     private void processInstrument(long instrumentId, int season, int targetDay) {
@@ -59,11 +84,7 @@ public class DeterministicMarketPriceService {
             long weeklyAnchor = ((day - 1) % 7 == 0 || latest == null || latest.getSeasonNumber() != season)
                     ? previous : latest.getWeeklyAnchorPrice();
             long deterministicHash = deterministicHash(instrument, season, day);
-            int requestedBps = deterministicBps(instrument, deterministicHash);
-            long proposed = applyBps(previous, requestedBps);
-            long weeklyMinimum = boundedPrice(weeklyAnchor, -instrument.getWeeklyLimitBps());
-            long weeklyMaximum = boundedPrice(weeklyAnchor, instrument.getWeeklyLimitBps());
-            long close = Math.max(1L, Math.min(weeklyMaximum, Math.max(weeklyMinimum, proposed)));
+            long close = riskClose(instrument, previous, season, day);
 
             MarketPriceSnapshot snapshot = new MarketPriceSnapshot();
             snapshot.setInstrumentId(instrumentId);
@@ -80,6 +101,46 @@ public class DeterministicMarketPriceService {
         }
         instrument.setCurrentPrice(previous);
         instrumentRepository.save(instrument);
+    }
+
+    private long riskClose(MarketInstrument instrument, long previous, int season, int day) {
+        requireSupportedRiskVersion(instrument.getRiskConfigVersion());
+        long absoluteDay;
+        try {
+            absoluteDay = Math.addExact(Math.multiplyExact((long) season - 1L, 366L), day);
+        } catch (ArithmeticException exception) {
+            throw new EconomyConflictException("MARKET_DATE_OVERFLOW", "Market date exceeds supported range");
+        }
+        MarketQuoteKey key = new MarketQuoteKey(instrument.getPriceSeed(), instrument.getCode(), absoluteDay,
+                "11:" + instrument.getRiskConfigVersion());
+        return switch (instrument.getRiskClass()) {
+            case SAFE_COMPANY -> applyReturn(previous, new SafeCompanyReturnModel().quote(key, SAFE_V1));
+            case SPECULATIVE -> {
+                SpeculativeQuote quote = new SpeculativeQuoteModel().quote(
+                        key, BigDecimal.valueOf(previous), SPECULATIVE_V1);
+                yield applyReturn(previous, quote.dailyReturn());
+            }
+            case CLUB_EQUITY -> clubClose(instrument, key);
+        };
+    }
+
+    private long clubClose(MarketInstrument instrument, MarketQuoteKey key) {
+        if (instrument.getTeamId() == null || instrument.getTotalSupply() <= 0) {
+            throw new EconomyConflictException("INVALID_CLUB_EQUITY", "Club equity requires a club and finite supply");
+        }
+        ClubValuationService.Valuation valuation = clubValuationService.value(instrument.getTeamId());
+        ClubEquityQuote quote = new ClubEquityQuoteModel().quote(
+                key, BigDecimal.valueOf(valuation.totalValue()), instrument.getTotalSupply(), CLUB_V1);
+        try {
+            return Math.max(1L, quote.quotedPrice().setScale(0, RoundingMode.HALF_UP).longValueExact());
+        } catch (ArithmeticException exception) {
+            throw new EconomyConflictException("MONEY_OVERFLOW", "Market price exceeds supported range");
+        }
+    }
+
+    private static long applyReturn(long opening, DailyReturn dailyReturn) {
+        int changeBps = dailyReturn.value().movePointRight(4).setScale(0, RoundingMode.HALF_UP).intValueExact();
+        return applyBps(opening, changeBps);
     }
 
     static int deterministicBps(MarketInstrument instrument, int season, int day) {
@@ -106,6 +167,13 @@ public class DeterministicMarketPriceService {
         }
     }
 
+    private static void requireSupportedRiskVersion(String version) {
+        if (!RISK_V1.equals(version)) {
+            throw new EconomyConflictException("UNSUPPORTED_RISK_CONFIG",
+                    "Market risk configuration is not supported: " + version);
+        }
+    }
+
     static long applyBps(long price, int changeBps) {
         if (price <= 0) throw new EconomyConflictException("INVALID_MARKET_PRICE", "Market price must be positive");
         BigInteger delta = BigInteger.valueOf(price).multiply(BigInteger.valueOf(changeBps)).divide(BPS);
@@ -117,9 +185,13 @@ public class DeterministicMarketPriceService {
     }
 
     private static int actualBps(long previous, long close) {
-        BigInteger value = BigInteger.valueOf(close - previous).multiply(BPS)
+        BigInteger value = BigInteger.valueOf(close).subtract(BigInteger.valueOf(previous)).multiply(BPS)
                 .divide(BigInteger.valueOf(previous));
-        return value.intValueExact();
+        try {
+            return value.intValueExact();
+        } catch (ArithmeticException exception) {
+            throw new EconomyConflictException("MARKET_RETURN_OVERFLOW", "Daily market return exceeds supported range");
+        }
     }
 
     private static long exactPositive(BigInteger value) {

@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.regent.market.core.MarketRiskClass;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -39,6 +40,11 @@ public class MarketInstrument {
     private long priceSeed;
     @Column(name = "price_algorithm_version", nullable = false, length = 32)
     private String priceAlgorithmVersion = DeterministicMarketPriceService.MARKET_V1;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "risk_class", nullable = false, length = 24)
+    private MarketRiskClass riskClass = MarketRiskClass.SAFE_COMPANY;
+    @Column(name = "risk_config_version", nullable = false, length = 32)
+    private String riskConfigVersion = DeterministicMarketPriceService.RISK_V1;
     @Column(name = "daily_limit_bps", nullable = false)
     private int dailyLimitBps;
     @Column(name = "weekly_limit_bps", nullable = false)
@@ -67,6 +73,10 @@ public class MarketInstrument {
     public void setPriceSeed(long value) { this.priceSeed = value; }
     public String getPriceAlgorithmVersion() { return priceAlgorithmVersion; }
     public void setPriceAlgorithmVersion(String value) { this.priceAlgorithmVersion = value; }
+    public MarketRiskClass getRiskClass() { return riskClass; }
+    public void setRiskClass(MarketRiskClass value) { this.riskClass = value; }
+    public String getRiskConfigVersion() { return riskConfigVersion; }
+    public void setRiskConfigVersion(String value) { this.riskConfigVersion = value; }
     public int getDailyLimitBps() { return dailyLimitBps; }
     public void setDailyLimitBps(int value) { this.dailyLimitBps = value; }
     public int getWeeklyLimitBps() { return weeklyLimitBps; }

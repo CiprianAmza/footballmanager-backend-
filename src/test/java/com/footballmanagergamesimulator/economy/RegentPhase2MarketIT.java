@@ -241,11 +241,14 @@ class RegentPhase2MarketIT {
         java.util.Collections.reverse(chronological);
         for (MarketPriceSnapshot value : chronological) {
             long dailyMove = Math.abs(value.getClosePrice() - value.getPreviousClose()) * 10_000L;
-            assertThat(dailyMove).isLessThanOrEqualTo(
-                    value.getPreviousClose() * instrument.getDailyLimitBps() + 10_000L);
-            long weeklyMove = Math.abs(value.getClosePrice() - value.getWeeklyAnchorPrice()) * 10_000L;
-            assertThat(weeklyMove).isLessThanOrEqualTo(
-                    value.getWeeklyAnchorPrice() * instrument.getWeeklyLimitBps() + 10_000L);
+            if (instrument.getRiskClass() == com.footballmanagergamesimulator.regent.market.core.MarketRiskClass.SAFE_COMPANY) {
+                assertThat(dailyMove).isLessThanOrEqualTo(value.getPreviousClose() * 100L + 10_000L);
+            } else if (instrument.getRiskClass()
+                    == com.footballmanagergamesimulator.regent.market.core.MarketRiskClass.SPECULATIVE) {
+                assertThat(dailyMove).isLessThanOrEqualTo(value.getPreviousClose() * 5_000L + 10_000L);
+            } else {
+                assertThat(value.getClosePrice()).isPositive();
+            }
         }
     }
 

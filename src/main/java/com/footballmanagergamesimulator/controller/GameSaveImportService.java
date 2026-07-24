@@ -46,7 +46,9 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_7 = 7;
     static final int SAVE_VERSION_8 = 8;
     static final int SAVE_VERSION_9 = 9;
-    static final int CURRENT_SAVE_VERSION = 10;
+    static final int SAVE_VERSION_10 = 10;
+    static final int SAVE_VERSION_11 = 11;
+    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_11;
 
     private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
             new StayForwardSeedIdentity(107L, "Kvekrpur", 14L, "ST"),
@@ -126,8 +128,10 @@ public class GameSaveImportService {
             new TableSpec("assetCatalogItems", "ASSET_CATALOG_ITEM", SAVE_VERSION_7),
             new TableSpec("ownedAssets", "OWNED_ASSET", SAVE_VERSION_7),
             new TableSpec("personalLedgerEntries", "PERSONAL_LEDGER_ENTRY", SAVE_VERSION_7),
+            new TableSpec("traderAdviserContracts", "TRADER_ADVISER_CONTRACT", SAVE_VERSION_11),
             new TableSpec("marketInstruments", "MARKET_INSTRUMENT", SAVE_VERSION_8),
             new TableSpec("marketPriceSnapshots", "MARKET_PRICE_SNAPSHOT", SAVE_VERSION_8),
+            new TableSpec("traderAdviceRecommendations", "TRADER_ADVICE_RECOMMENDATION", SAVE_VERSION_11),
             new TableSpec("portfolioPositions", "PORTFOLIO_POSITION", SAVE_VERSION_8),
             new TableSpec("marketTrades", "MARKET_TRADE", SAVE_VERSION_8),
             new TableSpec("clubFinancialObligations", "CLUB_FINANCIAL_OBLIGATION", SAVE_VERSION_9),
@@ -552,7 +556,7 @@ public class GameSaveImportService {
         String tableName = table.spec().tableName();
         if (!Set.of("PERSONAL_ACCOUNT", "OWNED_ASSET", "PERSONAL_LEDGER_ENTRY",
                 "PORTFOLIO_POSITION", "MARKET_TRADE", "TAKEOVER_QUOTE",
-                "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER").contains(tableName)
+                "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER", "TRADER_ADVISER_CONTRACT").contains(tableName)
                 || table.rows().isEmpty()) {
             return table.rows();
         }
@@ -656,16 +660,25 @@ public class GameSaveImportService {
             // Phase-1 economy reconciliation is H2-only; the economy tables and
             // their ledger invariants are not part of the cross-database v6 contract.
             validateEconomy(connection, plan.sourceVersion() >= SAVE_VERSION_8,
-                    plan.sourceVersion() >= SAVE_VERSION_9);
+                    plan.sourceVersion() >= SAVE_VERSION_9, plan.sourceVersion() >= CURRENT_SAVE_VERSION);
         }
     }
 
     private void applyLegacyDefaults(int sourceVersion, String tableName, LinkedHashMap<String, Object> mapped,
                                      Set<String> validColumns) {
         if ("HUMAN".equals(tableName) && validColumns.contains("STAY_FORWARD")
-                && (sourceVersion < CURRENT_SAVE_VERSION || mapped.get("STAY_FORWARD") == null)) {
-            mapped.put("STAY_FORWARD", sourceVersion < CURRENT_SAVE_VERSION
+                && (sourceVersion < SAVE_VERSION_10 || mapped.get("STAY_FORWARD") == null)) {
+            mapped.put("STAY_FORWARD", sourceVersion < SAVE_VERSION_10
                     && isCanonicalStayForwardSeed(mapped));
+        }
+        if ("MARKET_INSTRUMENT".equals(tableName) && sourceVersion < CURRENT_SAVE_VERSION) {
+            Object type = mapped.get("INSTRUMENT_TYPE");
+            Object code = mapped.get("CODE");
+            if (validColumns.contains("RISK_CLASS")) {
+                mapped.put("RISK_CLASS", "CLUB".equals(String.valueOf(type)) ? "CLUB_EQUITY"
+                        : "MEDIA11".equals(String.valueOf(code)) ? "SPECULATIVE" : "SAFE_COMPANY");
+            }
+            if (validColumns.contains("RISK_CONFIG_VERSION")) mapped.put("RISK_CONFIG_VERSION", "risk-v1");
         }
     }
 
@@ -674,7 +687,7 @@ public class GameSaveImportService {
     }
 
     private void validateEconomy(Connection connection, boolean validatePhase2,
-                                 boolean validatePhase3) throws SQLException {
+                                 boolean validatePhase3, boolean validatePhase4) throws SQLException {
         long invalidAccounts = scalarLong(connection, """
                 SELECT COUNT(*) FROM PERSONAL_ACCOUNT a
                 WHERE a.CASH_BALANCE < 0 OR a.LIFETIME_CAREER_EARNINGS < 0
@@ -713,6 +726,10 @@ public class GameSaveImportService {
                    OR instrument.WEEKLY_LIMIT_BPS < instrument.DAILY_LIMIT_BPS
                    OR instrument.WEEKLY_LIMIT_BPS > 10000
                    OR instrument.PRICE_ALGORITHM_VERSION <> 'market-v1'
+                   OR instrument.RISK_CONFIG_VERSION <> 'risk-v1'
+                   OR instrument.RISK_CLASS NOT IN ('SAFE_COMPANY', 'SPECULATIVE', 'CLUB_EQUITY')
+                   OR (instrument.INSTRUMENT_TYPE = 'CLUB' AND instrument.RISK_CLASS <> 'CLUB_EQUITY')
+                   OR (instrument.INSTRUMENT_TYPE = 'COMPANY' AND instrument.RISK_CLASS = 'CLUB_EQUITY')
                    OR instrument.AVAILABLE_SUPPLY + COALESCE((
                        SELECT SUM(position.QUANTITY) FROM PORTFOLIO_POSITION position
                        WHERE position.INSTRUMENT_ID = instrument.ID), 0) <> instrument.TOTAL_SUPPLY
@@ -801,6 +818,29 @@ public class GameSaveImportService {
                          AND LOCATE(transfer.CORRELATION_ID, financial.DESCRIPTION) > 0)
                 """);
         if (invalidTransfers != 0) throw invalid("club cash transfer does not reconcile with mirrored ledgers");
+        if (!validatePhase4) return;
+        long invalidAdvisers = scalarLong(connection, """
+                SELECT COUNT(*) FROM TRADER_ADVISER_CONTRACT contract
+                LEFT JOIN PERSONAL_ACCOUNT account ON account.ID = contract.ACCOUNT_ID
+                WHERE account.ID IS NULL OR account.PROFILE_ID <> contract.PROFILE_ID
+                   OR contract.SKILL NOT BETWEEN 0 AND 100 OR contract.REPUTATION NOT BETWEEN 0 AND 100
+                   OR contract.SALARY_PER_DAY < 0
+                   OR contract.CONTRACT_END_ABSOLUTE_DAY < contract.CONTRACT_START_ABSOLUTE_DAY
+                   OR contract.LAST_PAID_ABSOLUTE_DAY < contract.CONTRACT_START_ABSOLUTE_DAY - 1
+                   OR contract.LAST_PAID_ABSOLUTE_DAY > contract.CONTRACT_END_ABSOLUTE_DAY
+                """);
+        if (invalidAdvisers != 0) throw invalid("trader adviser contract state is inconsistent");
+        long invalidAdvice = scalarLong(connection, """
+                SELECT COUNT(*) FROM TRADER_ADVICE_RECOMMENDATION advice
+                LEFT JOIN TRADER_ADVISER_CONTRACT contract ON contract.ID = advice.CONTRACT_ID
+                LEFT JOIN MARKET_INSTRUMENT instrument ON instrument.ID = advice.INSTRUMENT_ID
+                WHERE contract.ID IS NULL OR instrument.ID IS NULL
+                   OR advice.RISK_CLASS <> instrument.RISK_CLASS
+                   OR advice.ACTION NOT IN ('BUY', 'SELL', 'HOLD')
+                   OR advice.CONFIDENCE NOT BETWEEN 0 AND 1 OR advice.RISK NOT BETWEEN 0 AND 1
+                   OR advice.OBSERVED_VOLATILITY < 0
+                """);
+        if (invalidAdvice != 0) throw invalid("trader advice state is inconsistent");
     }
 
     private void validateAccountCompatibility(Connection connection, ImportPlan plan,
@@ -901,14 +941,15 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9 or 10");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10 or 11");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
                 && version != SAVE_VERSION_7 && version != SAVE_VERSION_8
                 && version != SAVE_VERSION_9
+                && version != SAVE_VERSION_10
                 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9 or 10");
+            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10 or 11");
         }
         return version;
     }

@@ -204,7 +204,13 @@ class GameSaveRealSchemaTest {
                 Map.entry("CASH_BALANCE_AFTER", 900L), Map.entry("QUANTITY_AFTER", 100L),
                 Map.entry("COST_BASIS_AFTER", 100L))));
 
-        assertThat(importService.prepare(v8).sourceVersion()).isEqualTo(8);
+        GameSaveImportService.ImportPlan migratedV8 = importService.prepare(v8);
+        assertThat(migratedV8.sourceVersion()).isEqualTo(8);
+        assertThat(migratedV8.tables().stream()
+                .filter(table -> table.spec().tableName().equals("MARKET_INSTRUMENT"))
+                .findFirst().orElseThrow().rows().get(0).asMap())
+                .containsEntry("RISK_CLASS", "SAFE_COMPANY")
+                .containsEntry("RISK_CONFIG_VERSION", "risk-v1");
 
         Map<String, Object> minted = new LinkedHashMap<>(v8);
         minted.put("marketInstruments", List.of(Map.ofEntries(

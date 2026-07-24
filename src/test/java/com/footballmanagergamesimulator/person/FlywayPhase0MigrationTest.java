@@ -23,10 +23,14 @@ class FlywayPhase0MigrationTest {
             assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '1' AND \"success\" = TRUE")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '2' AND \"success\" = TRUE")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '5' AND \"success\" = TRUE")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '6' AND \"success\" = TRUE")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM person_profile")).isZero();
             assertThat(count(statement, "SELECT COUNT(*) FROM asset_catalog_item")).isEqualTo(8);
             assertThat(count(statement, "SELECT COUNT(*) FROM asset_catalog_item WHERE asset_type='APARTMENT' AND apartment_rooms BETWEEN 1 AND 4")).isEqualTo(4);
             assertThat(count(statement, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='HUMAN' AND COLUMN_NAME='STAY_FORWARD'")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='MARKET_INSTRUMENT' AND COLUMN_NAME IN ('RISK_CLASS', 'RISK_CONFIG_VERSION')")).isEqualTo(2);
+            assertThat(count(statement, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('TRADER_ADVISER_CONTRACT', 'TRADER_ADVICE_RECOMMENDATION')")).isEqualTo(2);
+            assertThat(count(statement, "SELECT COUNT(*) FROM market_instrument WHERE code='MEDIA11' AND risk_class='SPECULATIVE' AND risk_config_version='risk-v1'")).isEqualTo(1);
         }
     }
 

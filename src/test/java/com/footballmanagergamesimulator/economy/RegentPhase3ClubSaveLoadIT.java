@@ -59,7 +59,7 @@ class RegentPhase3ClubSaveLoadIT {
     @Autowired private ClubCashTransferRepository transferRepository;
 
     @Test
-    void v10RoundTripRestoresCapTableTakeoverTreasuryAndRetryBoundaries() throws Exception {
+    void v11RoundTripRestoresCapTableTakeoverTreasuryAndRetryBoundaries() throws Exception {
         Round round = roundRepository.findById(1L).orElseThrow();
         calendarService.getOrCreateCalendar((int) round.getSeason());
         Team team = teamRepository.findAll().stream().sorted(Comparator.comparingLong(Team::getId))
@@ -90,7 +90,7 @@ class RegentPhase3ClubSaveLoadIT {
 
         Map<String, Object> exported = objectMapper.readValue(
                 objectMapper.writeValueAsBytes(gameController.exportGame()), new TypeReference<>() { });
-        assertThat(exported.get("saveVersion")).isEqualTo(10);
+        assertThat(exported.get("saveVersion")).isEqualTo(11);
         assertThat((List<?>) exported.get("clubCapTableStates")).isNotEmpty();
         assertThat((List<?>) exported.get("takeoverQuotes")).isNotEmpty();
         assertThat((List<?>) exported.get("takeoverExecutions")).isNotEmpty();

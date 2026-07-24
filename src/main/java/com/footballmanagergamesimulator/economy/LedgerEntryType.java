@@ -4,6 +4,7 @@ public enum LedgerEntryType {
     STARTING_CAPITAL,
     MIGRATION_OPENING,
     SALARY,
+    TRADER_ADVISER_SALARY,
     BONUS,
     ASSET_PURCHASE,
     ASSET_SALE,
