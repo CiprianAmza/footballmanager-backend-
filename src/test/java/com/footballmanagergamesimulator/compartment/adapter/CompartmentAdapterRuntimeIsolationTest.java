@@ -134,7 +134,7 @@ class CompartmentAdapterRuntimeIsolationTest {
         assertThat(count(simulator, "canonicalRuntimeScoringService.scoreSafely")).isEqualTo(1);
 
         int aiStart = simulator.indexOf("aiMatches++");
-        int admin = simulator.indexOf("consumePredeterminedScore(_competitionId, (int) _roundId, teamId1, teamId2", aiStart);
+        int admin = simulator.indexOf("peekPredeterminedScore(", aiStart);
         int cutover = simulator.indexOf("canonicalRuntimeScoringService.scoreSafely");
         int twoAxisFallback = simulator.indexOf("TwoAxisResult r = twoAxisScores(teamId1, null, teamId2, null)", cutover);
         assertThat(admin).isGreaterThanOrEqualTo(0).isLessThan(cutover);

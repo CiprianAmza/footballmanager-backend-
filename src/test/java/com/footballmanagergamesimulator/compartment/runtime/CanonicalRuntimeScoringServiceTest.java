@@ -1,6 +1,11 @@
 package com.footballmanagergamesimulator.compartment.runtime;
 
 import com.footballmanagergamesimulator.compartment.Mentality;
+import com.footballmanagergamesimulator.compartment.Duty;
+import com.footballmanagergamesimulator.compartment.ForwardInstruction;
+import com.footballmanagergamesimulator.compartment.PlayerAttribute;
+import com.footballmanagergamesimulator.compartment.adapter.CanonicalLineupPlayer;
+import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalTeamEvaluation;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
@@ -58,12 +63,14 @@ class CanonicalRuntimeScoringServiceTest {
                 "fixture", 7, 2026, 3, 11, 22,
                 new PersonalizedTactic(), new PersonalizedTactic(), slots(1), slots(101));
         CanonicalRuntimeScoringService service = new CanonicalRuntimeScoringService(config,
-                (tactic, slots) -> null, (home, away, venue) -> evaluation,
+                (tactic, slots) -> canonicalTeam(slots.get(0).player().getId()),
+                (home, away, venue) -> evaluation,
                 new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
 
         var first = service.scoreSafely(() -> request).orElseThrow();
         var secondService = new CanonicalRuntimeScoringService(config,
-                (tactic, slots) -> null, (home, away, venue) -> evaluation,
+                (tactic, slots) -> canonicalTeam(slots.get(0).player().getId()),
+                (home, away, venue) -> evaluation,
                 new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
         var second = secondService.scoreSafely(() -> request).orElseThrow();
         assertThat(first.homeGoals()).isBetween(0, 2);
@@ -77,7 +84,8 @@ class CanonicalRuntimeScoringServiceTest {
                 "different-fixture", 7, 2026, 3, 11, 22,
                 new PersonalizedTactic(), new PersonalizedTactic(), slots(1), slots(101));
         var thirdService = new CanonicalRuntimeScoringService(config,
-                (tactic, slots) -> null, (home, away, venue) -> evaluation,
+                (tactic, slots) -> canonicalTeam(slots.get(0).player().getId()),
+                (home, away, venue) -> evaluation,
                 new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
         var third = thirdService.scoreSafely(() -> differentFixture).orElseThrow();
         assertThat(third.homeGoals()).isBetween(0, 2);
@@ -139,6 +147,27 @@ class CanonicalRuntimeScoringServiceTest {
             result.add(new RuntimeLineupSlot(player, skills, null, positions[i], 1));
         }
         return List.copyOf(result);
+    }
+
+    private static CanonicalRuntimeTeamInput canonicalTeam(long offset) {
+        PlayerPosition[] positions = {PlayerPosition.GK, PlayerPosition.DC, PlayerPosition.DL,
+                PlayerPosition.DR, PlayerPosition.DM, PlayerPosition.MC, PlayerPosition.ML,
+                PlayerPosition.MR, PlayerPosition.AMC, PlayerPosition.AML, PlayerPosition.ST};
+        List<CanonicalLineupPlayer> players = new ArrayList<>();
+        java.util.Map<Long, com.footballmanagergamesimulator.compartment.TacticalContextInput> contexts = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < positions.length; i++) {
+            long id = offset + i;
+            java.util.EnumMap<PlayerAttribute, Integer> attributes = new java.util.EnumMap<>(PlayerAttribute.class);
+            for (PlayerAttribute attribute : PlayerAttribute.values()) attributes.put(attribute, 10);
+            CanonicalLineupPlayer player = new CanonicalLineupPlayer(id, positions[i], 1, null, Duty.SUPPORT,
+                    attributes, 90, 70,
+                    new PlayerCapabilitySnapshot(id, positions[i], java.util.Map.of(positions[i], 20),
+                            java.util.Map.of(), 8, 20, false, false, false), 50,
+                    java.util.Set.of(), ForwardInstruction.DEFAULT);
+            players.add(player);
+            contexts.put(id, com.footballmanagergamesimulator.compartment.TacticalContextInput.neutral());
+        }
+        return new CanonicalRuntimeTeamInput(Mentality.BALANCED, players, contexts);
     }
 
     private static CanonicalMatchEvaluation evaluation() {

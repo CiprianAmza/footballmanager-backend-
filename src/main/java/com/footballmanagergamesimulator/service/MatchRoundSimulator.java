@@ -373,15 +373,12 @@ public class MatchRoundSimulator {
                 continue;
             }
 
-            // Durable idempotency + concurrency guard (flag ON only): a fixture whose canonical
-            // plan is already COMMITTED was fully processed in a prior/parallel run — result,
-            // scorers, stats and EVERY post-match effect. Skip the whole iteration BEFORE score
-            // RNG and before any effect, so re-running the same round is a clean no-op that never
-            // re-runs scoring, never duplicates MatchStats/standings/finance, and never diverges
-            // from the immutable plan. The pessimistic fixture lock serializes two concurrent
-            // rounds on the same fixture: the loser blocks until the winner commits, then observes
-            // the committed plan here and no-ops instead of racing the same inserts.
-            if (matchPlanService.isEnabled()) {
+            boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
+
+            // HUMAN retains the existing outer fixture lock. AI must reach the REQUIRES_NEW
+            // persist-or-load transaction without holding this lock, otherwise the same JDBC
+            // connection can deadlock itself on SELECT ... FOR UPDATE.
+            if (isHumanMatch && matchPlanService.isEnabled()) {
                 String committedKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                         .competitionFixtureKey(match.getId());
                 matchPlanService.lockFixture(committedKey);
@@ -389,8 +386,6 @@ public class MatchRoundSimulator {
                     continue;
                 }
             }
-
-            boolean isHumanMatch = userContext.isHumanTeam(teamId1) || userContext.isHumanTeam(teamId2);
 
             int teamScore1, teamScore2;
             double teamPower1, teamPower2;
@@ -662,18 +657,27 @@ public class MatchRoundSimulator {
                 ScoreEngineKind selectedScoreEngine;
                 CanonicalRuntimeScore canonicalScore = null;
                 int[] adminScoreAi = null;
-                com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit planSplit;
+                com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit planSplit =
+                        com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit.regularOnly(0, 0);
                 if (persistedScoreDecision.isPresent()) {
-                    MatchScoringDecision decision = persistedScoreDecision.orElseThrow();
-                    teamScore1 = decision.homeScore90();
-                    teamScore2 = decision.awayScore90();
-                    teamPower1 = decision.homePower();
-                    teamPower2 = decision.awayPower();
-                    selectedScoreEngine = decision.scoreEngine();
-                    planSplit = persistedPlan.orElseThrow().knockoutPlanSplit();
+                    AdoptedScoring adoptedScoring = adoptScoringPlan(persistedPlan.orElseThrow(), match,
+                            teamId1, teamId2, firstLegScores, knockout);
+                    teamScore1 = adoptedScoring.homeScore();
+                    teamScore2 = adoptedScoring.awayScore();
+                    teamPower1 = adoptedScoring.homePower();
+                    teamPower2 = adoptedScoring.awayPower();
+                    selectedScoreEngine = adoptedScoring.engine();
+                    planSplit = adoptedScoring.split();
+                    knockoutResolution = adoptedScoring.knockoutResolution();
+                    // An existing plan is read before the candidate path. Acquire the outer
+                    // lock only after that read, then verify terminal ownership before effects.
+                    matchPlanService.lockFixture(aiFixtureKey);
+                    if (matchPlanService.isPlanCommitted(aiFixtureKey)) {
+                        continue;
+                    }
                 } else {
                     // Predetermined scores are consumed only after the immutable decision lookup.
-                    adminScoreAi = teamPostMatchService.consumePredeterminedScore(
+                    adminScoreAi = teamPostMatchService.peekPredeterminedScore(
                             _competitionId, (int) _roundId, teamId1, teamId2);
                     if (adminScoreAi != null) {
                     teamScore1 = adminScoreAi[0];
@@ -773,7 +777,11 @@ public class MatchRoundSimulator {
                     String inputFingerprint = canonicalScore == null
                             ? canonicalScoringFingerprintService.fallbackInputFingerprint(
                                     aiFixtureKey, teamId1, teamId2, teamPower1, teamPower2,
-                                    null, null, teamTalkFactor(teamId1), teamTalkFactor(teamId2), selectedScoreEngine)
+                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
+                                            ? tacticVectorCache.get(teamId1) : null,
+                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
+                                            ? tacticVectorCache.get(teamId2) : null,
+                                    teamTalkFactor(teamId1), teamTalkFactor(teamId2), selectedScoreEngine)
                             : canonicalScore.inputFingerprint();
                     MatchScoringDecision decision = new MatchScoringDecision(
                             aiFixtureKey, decisionSeed, selectedScoreEngine,
@@ -783,25 +791,37 @@ public class MatchRoundSimulator {
                             canonicalScore == null ? null : canonicalScore.evaluation().probability().awayXg());
                     com.footballmanagergamesimulator.matchplan.PersistedScoringPlan adopted =
                             matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2, planSplit);
-                    MatchScoringDecision winner = adopted.decision();
-                    teamScore1 = winner.homeScore90();
-                    teamScore2 = winner.awayScore90();
-                    teamPower1 = winner.homePower();
-                    teamPower2 = winner.awayPower();
-                    selectedScoreEngine = winner.scoreEngine();
-                    planSplit = adopted.knockoutPlanSplit();
-                    persistedScoreDecision = Optional.of(winner);
-                    teamScore1 += Math.max(0, planSplit.etHome());
-                    teamScore2 += Math.max(0, planSplit.etAway());
+                    AdoptedScoring adoptedScoring = adoptScoringPlan(adopted, match, teamId1, teamId2,
+                            firstLegScores, knockout);
+                    teamScore1 = adoptedScoring.homeScore();
+                    teamScore2 = adoptedScoring.awayScore();
+                    teamPower1 = adoptedScoring.homePower();
+                    teamPower2 = adoptedScoring.awayPower();
+                    selectedScoreEngine = adoptedScoring.engine();
+                    planSplit = adoptedScoring.split();
+                    knockoutResolution = adoptedScoring.knockoutResolution();
+                    persistedScoreDecision = Optional.of(adoptedScoring.decision());
+
+                    // The REQUIRES_NEW winner is now durable. Only the caller that owns the
+                    // outer fixture lock may proceed to effects; a concurrent caller observes
+                    // COMMITTED here and exits without consuming admin or producing effects.
+                    matchPlanService.lockFixture(aiFixtureKey);
+                    if (matchPlanService.isPlanCommitted(aiFixtureKey)) {
+                        continue;
+                    }
+                    if (adoptedScoring.decision().scoreEngine() == ScoreEngineKind.ADMIN_OVERRIDE) {
+                        teamPostMatchService.consumePredeterminedScore(
+                                _competitionId, (int) _roundId, teamId1, teamId2);
+                    }
                 }
 
                 // Shadow is an observation of the adopted decision and must run only
                 // after persist-or-load has selected the immutable winner.
                 if (compartmentEngineConfig.isShadowEnabled() && !compartmentEngineConfig.isEnabled()) {
-                    final boolean shadowAdminForced = adminScoreAi != null;
+                    final boolean shadowAdminForced = selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE;
                     final boolean shadowTacticalEnabled = engineConfig.getTacticalModel().isEnabled();
-                    final int shadowHomeScore = teamScore1;
-                    final int shadowAwayScore = teamScore2;
+                    final int shadowHomeScore = planSplit.score90Home();
+                    final int shadowAwayScore = planSplit.score90Away();
                     compartmentShadowEvaluationService.evaluateSafely(() ->
                             CompartmentShadowEvaluationService.ShadowEvaluationRequest.home(
                                     aiFixtureKey, teamId1, teamId2, shadowHomeScore, shadowAwayScore, true,
@@ -1548,6 +1568,67 @@ public class MatchRoundSimulator {
             if (goal) ga[0]++; else ga[1]++;
         }
         return tally;
+    }
+
+    /** One adoption path for both the pre-existing plan and the REQUIRES_NEW winner. */
+    private AdoptedScoring adoptScoringPlan(
+            com.footballmanagergamesimulator.matchplan.PersistedScoringPlan persisted,
+            CompetitionTeamInfoMatch match, long homeTeamId, long awayTeamId,
+            Map<Long, int[]> firstLegScores, boolean knockout) {
+        MatchScoringDecision decision = persisted.decision();
+        com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit split = persisted.knockoutPlanSplit();
+        int homeScore = split.score90Home() + Math.max(0, split.etHome());
+        int awayScore = split.score90Away() + Math.max(0, split.etAway());
+        KnockoutMatchResolution resolution = knockout
+                ? reconstructKnockoutResolution(match, homeTeamId, awayTeamId, split, firstLegScores,
+                        homeScore, awayScore)
+                : null;
+        return new AdoptedScoring(decision, decision.scoreEngine(), split, homeScore, awayScore,
+                decision.homePower(), decision.awayPower(), resolution);
+    }
+
+    private record AdoptedScoring(MatchScoringDecision decision, ScoreEngineKind engine,
+                                  com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit split,
+                                  int homeScore, int awayScore, double homePower, double awayPower,
+                                  KnockoutMatchResolution knockoutResolution) {}
+
+    private KnockoutMatchResolution reconstructKnockoutResolution(
+            CompetitionTeamInfoMatch match, long homeTeamId, long awayTeamId,
+            com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit split,
+            Map<Long, int[]> firstLegScores, int homeScore, int awayScore) {
+        Integer penaltyHome = split.shootoutHome() >= 0 ? split.shootoutHome() : null;
+        Integer penaltyAway = split.shootoutAway() >= 0 ? split.shootoutAway() : null;
+        boolean penalties = penaltyHome != null && penaltyAway != null;
+        Long winner;
+        String decidedBy;
+        Integer aggregateHome = null;
+        Integer aggregateAway = null;
+        String suffix;
+        if (match.getLegNumber() == 2 && match.getTieId() != 0 && firstLegScores.get(match.getTieId()) != null) {
+            int[] leg1 = firstLegScores.get(match.getTieId());
+            aggregateHome = leg1[1] + homeScore;
+            aggregateAway = leg1[0] + awayScore;
+            winner = penalties ? (penaltyHome > penaltyAway ? homeTeamId : awayTeamId)
+                    : aggregateHome > aggregateAway ? homeTeamId
+                    : aggregateAway > aggregateHome ? awayTeamId : null;
+            decidedBy = penalties ? "PENALTIES"
+                    : split.etHome() >= 0 ? "EXTRA_TIME" : "AGGREGATE";
+            suffix = " (agg " + aggregateHome + "-" + aggregateAway
+                    + (penalties ? ", pens " + penaltyHome + "-" + penaltyAway
+                    : split.etHome() >= 0 ? ", a.e.t." : "") + ")";
+        } else {
+            winner = penalties ? (penaltyHome > penaltyAway ? homeTeamId : awayTeamId)
+                    : homeScore > awayScore ? homeTeamId
+                    : awayScore > homeScore ? awayTeamId : null;
+            decidedBy = penalties ? "PENALTIES"
+                    : split.etHome() >= 0 ? "EXTRA_TIME" : "NORMAL";
+            suffix = penalties ? " (pens " + penaltyHome + "-" + penaltyAway + ")"
+                    : split.etHome() >= 0 ? " (a.e.t.)" : "";
+        }
+        return new KnockoutMatchResolution(homeScore, awayScore, suffix, winner, decidedBy,
+                penaltyHome, penaltyAway, aggregateHome, aggregateAway,
+                split.etHome() >= 0 ? split.etHome() : null,
+                split.etAway() >= 0 ? split.etAway() : null);
     }
 
     private record KnockoutMatchResolution(

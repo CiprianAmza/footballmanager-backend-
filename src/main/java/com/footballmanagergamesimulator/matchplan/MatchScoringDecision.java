@@ -17,6 +17,7 @@ public record MatchScoringDecision(
         Double homeXg,
         Double awayXg) {
     public static final String ALGORITHM_VERSION = ScoreEngineKind.COMPARTMENT_V1.algorithmVersion();
+    private static final String FINGERPRINT_PATTERN = "[0-9a-f]{64}";
 
     public MatchScoringDecision {
         if (fixtureKey == null || fixtureKey.isBlank()) throw new IllegalArgumentException("fixtureKey must not be blank");
@@ -27,9 +28,9 @@ public record MatchScoringDecision(
         if (!scoreEngine.algorithmVersion().equals(scoreAlgorithmVersion)) {
             throw new IllegalArgumentException("algorithm version does not match score engine: " + scoreEngine);
         }
-        if (configFingerprint == null || configFingerprint.isBlank()
-                || inputFingerprint == null || inputFingerprint.isBlank()) {
-            throw new IllegalArgumentException("fingerprints must not be blank");
+        if (configFingerprint == null || !configFingerprint.matches(FINGERPRINT_PATTERN)
+                || inputFingerprint == null || !inputFingerprint.matches(FINGERPRINT_PATTERN)) {
+            throw new IllegalArgumentException("fingerprints must be lowercase SHA-256 values");
         }
         if (homeScore90 < 0 || awayScore90 < 0) throw new IllegalArgumentException("scores must be non-negative");
         if (!Double.isFinite(homePower) || homePower < 0 || !Double.isFinite(awayPower) || awayPower < 0) {

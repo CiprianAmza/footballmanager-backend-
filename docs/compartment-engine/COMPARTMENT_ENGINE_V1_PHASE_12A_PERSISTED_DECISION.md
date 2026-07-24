@@ -5,11 +5,12 @@ Phase 12A persists one immutable regular-time scoring decision with each AI-vs-A
 configuration/input fingerprints, score, powers and canonical xG when available. Admin,
 Compartment V1, two-axis fallback and scalar fallback are explicit engine kinds.
 
-The AI path checks the predetermined score first, then an existing persisted decision. A new
-decision is created only after the 90-minute score and any existing knockout projection are
-known, and is saved before scorer/event/stat projections begin. A fixture lock and the immutable
-decision fields make retries and concurrent callers reuse the winner across `PLANNED`,
-`IN_PROGRESS`, `COMPLETED` and `COMMITTED` states. Configuration changes do not resample an
+The AI path checks for a persisted decision before peeking at a predetermined/admin score. A new
+candidate is created only after the 90-minute score and any knockout projection are known, then
+persisted through a `REQUIRES_NEW` fixture-serialized operation. The first persistent decision
+wins; every concurrent or retrying candidate adopts that winner. Game effects begin only after
+the outer fixture lock is acquired and the fixture is verified not `COMMITTED`; a committed
+fixture therefore produces no duplicate effects. Configuration changes do not resample an
 existing decision.
 
 Configuration fingerprints are lowercase SHA-256 values over the canonical compartment and

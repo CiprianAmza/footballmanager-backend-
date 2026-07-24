@@ -119,28 +119,34 @@ class MatchPlanConcurrencyTest {
         fixture = fixtureRepository.saveAndFlush(fixture);
         long fixtureId = fixture.getId();
         String fixtureKey = MatchPlanService.competitionFixtureKey(fixtureId);
-        MatchScoringDecision decision = new MatchScoringDecision(fixtureKey, 99L,
+        MatchScoringDecision firstDecision = new MatchScoringDecision(fixtureKey, 99L,
                 ScoreEngineKind.COMPARTMENT_V1, MatchScoringDecision.ALGORITHM_VERSION,
                 "a".repeat(64), "b".repeat(64), 2, 1, 40, 34, 1.2, 0.8);
+        MatchScoringDecision secondDecision = new MatchScoringDecision(fixtureKey, 100L,
+                ScoreEngineKind.TWO_AXIS_FALLBACK, ScoreEngineKind.TWO_AXIS_FALLBACK.algorithmVersion(),
+                "c".repeat(64), "d".repeat(64), 0, 3, 31, 46, null, null);
         TestTransaction.flagForCommit();
         TestTransaction.end();
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
         try {
-            Future<MatchPlan> first = executor.submit(() -> {
+            Future<PersistedScoringPlan> first = executor.submit(() -> {
                 start.await();
-                return service.persistOrLoadScoreDecision(decision, 10L, 20L,
-                        KnockoutPlanSplit.regularOnly(decision.homeScore90(), decision.awayScore90()));
+                return service.persistOrLoadScoreDecision(firstDecision, 10L, 20L,
+                        KnockoutPlanSplit.regularOnly(firstDecision.homeScore90(), firstDecision.awayScore90()));
             });
-            Future<MatchPlan> second = executor.submit(() -> {
+            Future<PersistedScoringPlan> second = executor.submit(() -> {
                 start.await();
-                return service.persistOrLoadScoreDecision(decision, 10L, 20L,
-                        KnockoutPlanSplit.regularOnly(decision.homeScore90(), decision.awayScore90()));
+                return service.persistOrLoadScoreDecision(secondDecision, 10L, 20L,
+                        KnockoutPlanSplit.knockout(secondDecision.homeScore90(), secondDecision.awayScore90(),
+                                1, 0, 4, 3));
             });
             start.countDown();
-            assertEquals(decision, first.get(10, TimeUnit.SECONDS).getScoreDecision());
-            assertEquals(decision, second.get(10, TimeUnit.SECONDS).getScoreDecision());
+            PersistedScoringPlan firstWinner = first.get(10, TimeUnit.SECONDS);
+            PersistedScoringPlan secondWinner = second.get(10, TimeUnit.SECONDS);
+            assertEquals(firstWinner.decision(), secondWinner.decision());
+            assertEquals(firstWinner.knockoutPlanSplit(), secondWinner.knockoutPlanSplit());
             assertEquals(1, planRepository.findAll().stream()
                     .filter(p -> fixtureKey.equals(p.getFixtureKey())).count());
         } finally {

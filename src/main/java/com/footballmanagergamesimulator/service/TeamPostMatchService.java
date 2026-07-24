@@ -368,9 +368,17 @@ public class TeamPostMatchService {
     // tuned MatchSimulationService.calculateScores so the game uses the exact
     // mechanism the invariant/tuner tests validate.
 
-    /** Admin override: if an un-consumed PredeterminedScore exists for this
-     *  exact (competition, season, round, team1, team2), returns it and marks
-     *  it consumed so it isn't reused. Returns null if no override is set. */
+    /** Read-only admin peek used while constructing a candidate decision. */
+    public int[] peekPredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
+        int season = roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
+        return predeterminedScoreRepository
+                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2IdAndConsumedFalse(
+                        competitionId, season, roundId, team1Id, team2Id)
+                .map(p -> new int[]{p.getTeam1Score(), p.getTeam2Score()})
+                .orElse(null);
+    }
+
+    /** Admin override: consume only after its fixture decision has been durably adopted. */
     public int[] consumePredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
         int season = roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
         Optional<PredeterminedScore> preset = predeterminedScoreRepository
