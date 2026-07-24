@@ -101,8 +101,8 @@ class FlywayPhase0MigrationTest {
             assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity")).isEqualTo(3);
             assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile")).isEqualTo(3);
 
-            statement.executeUpdate("INSERT INTO human(name, type_id, retired) VALUES ('New Player', 1, FALSE)", Statement.RETURN_GENERATED_KEYS);
-            long newPlayerId = generatedId(statement);
+            long newPlayerId = 204L;
+            statement.executeUpdate("INSERT INTO human(id, name, type_id, retired) VALUES (204, 'New Player', 1, FALSE)");
             statement.executeUpdate("INSERT INTO player_position_familiarity (player_id, position_code, familiarity, primary_position, version) VALUES (200, 'DC', 10, FALSE, 0)", Statement.RETURN_GENERATED_KEYS);
             long generatedPositionId = generatedId(statement);
             statement.executeUpdate("INSERT INTO player_foot_profile (player_id, left_foot_rating, right_foot_rating, version) VALUES (" + newPlayerId + ", 8, 20, 0)", Statement.RETURN_GENERATED_KEYS);
