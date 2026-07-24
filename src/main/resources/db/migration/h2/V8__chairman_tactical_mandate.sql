@@ -6,8 +6,7 @@ CREATE TABLE chairman_tactical_mandate (
     updated_season INT NOT NULL,
     updated_game_day INT NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
-    CONSTRAINT uk_chairman_tactical_mandate_team UNIQUE (team_id),
-    CONSTRAINT fk_mandate_team FOREIGN KEY (team_id) REFERENCES team(id)
+    CONSTRAINT uk_chairman_tactical_mandate_team UNIQUE (team_id)
 );
 
 CREATE TABLE chairman_tactical_mandate_slot (
@@ -18,6 +17,5 @@ CREATE TABLE chairman_tactical_mandate_slot (
     CONSTRAINT uk_mandate_slot_position UNIQUE (mandate_id, position_index),
     CONSTRAINT uk_mandate_slot_player UNIQUE (mandate_id, required_player_id),
     CONSTRAINT fk_mandate_slot_mandate FOREIGN KEY (mandate_id)
-        REFERENCES chairman_tactical_mandate(id) ON DELETE CASCADE,
-    CONSTRAINT fk_mandate_slot_player FOREIGN KEY (required_player_id) REFERENCES human(id)
+        REFERENCES chairman_tactical_mandate(id) ON DELETE CASCADE
 );

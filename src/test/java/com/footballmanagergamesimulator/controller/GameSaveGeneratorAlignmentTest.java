@@ -41,7 +41,8 @@ class GameSaveGeneratorAlignmentTest {
     private static final Set<String> POST_V8_IDENTITY_TABLES = Set.of(
             "CLUB_FINANCIAL_OBLIGATION", "CLUB_CAP_TABLE_STATE", "TAKEOVER_QUOTE",
             "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER", "TRADER_ADVISER_CONTRACT",
-            "TRADER_ADVICE_RECOMMENDATION");
+            "TRADER_ADVICE_RECOMMENDATION", "CHAIRMAN_TACTICAL_MANDATE",
+            "CHAIRMAN_TACTICAL_MANDATE_SLOT");
 
     @jakarta.annotation.Resource private GameSaveImportService service;
     @jakarta.annotation.Resource private JdbcTemplate jdbc;

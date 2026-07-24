@@ -437,7 +437,8 @@ class RegentPhase3ClubEconomyIT {
         mockMvc.perform(get("/api/clubs/{teamId}/ownership", team.getId()).session(manager))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.issuedShares").value(1_000_000));
         mockMvc.perform(get("/api/clubs/{teamId}/chairman-dashboard", team.getId()).session(chairman))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.teamId").value(team.getId()));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CLUB_CONTROL_REQUIRED"));
     }
 
     private Team freshTeam(int index) {

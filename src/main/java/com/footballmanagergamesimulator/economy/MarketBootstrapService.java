@@ -10,6 +10,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
@@ -52,6 +53,19 @@ public class MarketBootstrapService {
      */
     public synchronized void ensureAllInstruments() {
         isolatedTransaction.executeWithoutResult(status -> ensureAllInstrumentsInTransaction());
+    }
+
+    /**
+     * Rebuilds missing instruments inside an already active caller transaction.
+     * Save import must use this path: suspending its transaction and opening a
+     * REQUIRES_NEW transaction would make H2 wait on rows locked by the import
+     * itself.
+     */
+    public synchronized void ensureAllInstrumentsInCurrentTransaction() {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("an active transaction is required for in-transaction market bootstrap");
+        }
+        ensureAllInstrumentsInTransaction();
     }
 
     private void ensureAllInstrumentsInTransaction() {

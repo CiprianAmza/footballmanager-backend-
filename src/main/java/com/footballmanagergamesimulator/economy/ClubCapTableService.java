@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -76,12 +77,29 @@ public class ClubCapTableService {
     public synchronized void ensureAllMigrated() {
         isolatedTransaction.executeWithoutResult(status -> {
             marketBootstrapService.ensureAllInstruments();
-            for (MarketInstrument instrument : instrumentRepository.findAllByActiveTrueOrderByCodeAsc()) {
-                if (instrument.getInstrumentType() == MarketInstrumentType.CLUB) {
-                    ensureMigratedInTransaction(instrument.getTeamId());
-                }
-            }
+            ensureAllMigratedInTransaction();
         });
+    }
+
+    /**
+     * Reconciles cap tables inside the caller's transaction. This is the only
+     * safe path during atomic save import because REQUIRES_NEW would contend
+     * with the import transaction's own MARKET_INSTRUMENT locks on H2.
+     */
+    public synchronized void ensureAllMigratedInCurrentTransaction() {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("an active transaction is required for in-transaction cap-table migration");
+        }
+        marketBootstrapService.ensureAllInstrumentsInCurrentTransaction();
+        ensureAllMigratedInTransaction();
+    }
+
+    private void ensureAllMigratedInTransaction() {
+        for (MarketInstrument instrument : instrumentRepository.findAllByActiveTrueOrderByCodeAsc()) {
+            if (instrument.getInstrumentType() == MarketInstrumentType.CLUB) {
+                ensureMigratedInTransaction(instrument.getTeamId());
+            }
+        }
     }
 
     public synchronized CapTable ensureMigrated(long teamId) {

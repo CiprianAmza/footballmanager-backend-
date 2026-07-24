@@ -138,7 +138,9 @@ public class GameSaveImportService {
             new TableSpec("clubCapTableStates", "CLUB_CAP_TABLE_STATE", SAVE_VERSION_9),
             new TableSpec("takeoverQuotes", "TAKEOVER_QUOTE", SAVE_VERSION_9),
             new TableSpec("takeoverExecutions", "TAKEOVER_EXECUTION", SAVE_VERSION_9),
-            new TableSpec("clubCashTransfers", "CLUB_CASH_TRANSFER", SAVE_VERSION_9)
+            new TableSpec("clubCashTransfers", "CLUB_CASH_TRANSFER", SAVE_VERSION_9),
+            new TableSpec("chairmanTacticalMandates", "CHAIRMAN_TACTICAL_MANDATE", SAVE_VERSION_11),
+            new TableSpec("chairmanTacticalMandateSlots", "CHAIRMAN_TACTICAL_MANDATE_SLOT", SAVE_VERSION_11)
     );
 
     /** Account/security rows and migration metadata are installation state, never save state. */
@@ -343,8 +345,11 @@ public class GameSaveImportService {
             }
             personProfileService.backfill();
             if (economyBootstrapService != null) economyBootstrapService.ensureAllAccounts();
-            if (marketBootstrapService != null) marketBootstrapService.ensureAllInstruments();
-            if (capTableService != null) capTableService.ensureAllMigrated();
+            if (capTableService != null) {
+                capTableService.ensureAllMigratedInCurrentTransaction();
+            } else if (marketBootstrapService != null) {
+                marketBootstrapService.ensureAllInstrumentsInCurrentTransaction();
+            }
             validateWorld(live, schema, plan);
             validateAccountCompatibility(live, plan, schema);
         } catch (SQLException exception) {
