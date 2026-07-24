@@ -26,6 +26,10 @@ class PlayerRoleServiceTest {
         service = new PlayerRoleService();
         cfg = new MatchEngineConfig();
         service.engineConfig = cfg;
+        for (String position : new String[]{"GK", "DC", "DL", "DR", "DM", "MC", "AMC", "ML", "MR", "AML", "AMR", "ST"}) {
+            service.getRolesForPosition(position).forEach(role ->
+                    cfg.getRoleWeights().getAttributes().put(role.name, new java.util.LinkedHashMap<>(role.keyAttributes)));
+        }
     }
 
     private PlayerSkills uniformSkills(String position, int v) {

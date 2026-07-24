@@ -52,7 +52,11 @@ public final class CanonicalScoringWeightCatalog {
                                 add(leaves, "compartment.position-compartment-overrides." + e.getKey() + "." + c.getKey().name() + ".attributes." + a.getKey().name(), CanonicalScoringWeightKey.Category.POSITION,
                                         a.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator"))));
         compartment.getPositions().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> addMultipliers(leaves, "compartment.positions." + e.getKey(), e.getValue(), CanonicalScoringWeightKey.Category.POSITION));
-        compartment.getRoles().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> addMultipliers(leaves, "compartment.roles." + e.getKey().name(), e.getValue(), CanonicalScoringWeightKey.Category.ROLE));
+        compartment.getRoles().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> {
+            if (e.getKey() != com.footballmanagergamesimulator.compartment.PlayerRole.SHADOW_STRIKER) {
+                addMultipliers(leaves, "compartment.roles." + e.getKey().name(), e.getValue(), CanonicalScoringWeightKey.Category.ROLE);
+            }
+        });
         compartment.getDuties().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> addMultipliers(leaves, "compartment.duties." + e.getKey().name(), e.getValue(), CanonicalScoringWeightKey.Category.DUTY));
         compartment.getMentalities().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> {
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".midfield-to-attack", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getMidfieldToAttack(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
@@ -75,9 +79,7 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.probability.home-advantage", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getHomeAdvantage(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
         add(leaves, "compartment.probability.gamma-shape", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getGammaShape(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
         add(leaves, "compartment.probability.goal-cap", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getGoalCap(), CanonicalScoringWeightKey.Type.INTEGER, "goal probability");
-        add(leaves, "compartment.probability.extra-time-scale", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getExtraTimeScale(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
-        add(leaves, "compartment.probability.interval-lower-quantile", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getIntervalLowerQuantile(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
-        add(leaves, "compartment.probability.interval-upper-quantile", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getIntervalUpperQuantile(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
+        add(leaves, "compartment.aggregation.wide-redistribution-share", CanonicalScoringWeightKey.Category.EXPOSURE, compartment.getAggregation().getWideRedistributionShare(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator");
         // The canonical compartment path only consumes the resolver's familiarity matrix.
         // PlayerValue scale/rating/morale/fitness and attribute weights belong to legacy.
         addNested(leaves, "match.player-value.familiarity-penalty", match.getPlayerValue().getFamiliarityPenalty(), CanonicalScoringWeightKey.Category.PLAYER_VALUE, "PlayerValue");
@@ -89,8 +91,6 @@ public final class CanonicalScoringWeightCatalog {
     private static void addWorkRule(Map<String, CanonicalScoringWeightKey> leaves, String path, CompartmentEngineConfig.WorkRule rule) {
         add(leaves, path + ".engagement", CanonicalScoringWeightKey.Category.WORK_RATE, rule.getEngagement(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator");
         add(leaves, path + ".attack-multiplier", CanonicalScoringWeightKey.Category.WORK_RATE, rule.getAttackMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator");
-        add(leaves, path + ".ignores-defensive-instructions", CanonicalScoringWeightKey.Category.WORK_RATE, rule.isIgnoresDefensiveInstructions(), CanonicalScoringWeightKey.Type.DISCRETE, "TeamCompartmentAggregator");
-        add(leaves, path + ".forced-defensive-morale-delta", CanonicalScoringWeightKey.Category.WORK_RATE, rule.getForcedDefensiveMoraleDelta(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator");
     }
 
     private static void addNested(Map<String, CanonicalScoringWeightKey> leaves, String prefix, Map<?, ?> values,
@@ -111,8 +111,19 @@ public final class CanonicalScoringWeightCatalog {
         leaves.putIfAbsent(path, new CanonicalScoringWeightKey(path, category, value, type,
                 CanonicalScoringWeightKey.PerturbationMode.DIRECT, consumer));
     }
-    public List<CanonicalScoringWeightKey> leafWeights() { return List.copyOf(byPath.values()); }
+    public List<CanonicalScoringWeightKey> leafWeights() {
+        return byPath.values().stream()
+                .filter(key -> key.type() != CanonicalScoringWeightKey.Type.DISCRETE)
+                .toList();
+    }
+    public List<CanonicalScoringWeightKey> numericScoringWeights() { return leafWeights(); }
+    public List<String> nonNumericControls() {
+        return byPath.values().stream().filter(key -> key.type() == CanonicalScoringWeightKey.Type.DISCRETE)
+                .map(CanonicalScoringWeightKey::path).toList();
+    }
+    public List<String> diagnosticOnlyParameters() { return List.of("compartment.probability.extra-time-scale", "compartment.probability.interval-lower-quantile", "compartment.probability.interval-upper-quantile"); }
+    public List<String> inactiveOrFutureParameters() { return List.of("compartment.work-rate.*.forced-defensive-morale-delta", "match.instruction-weights", "match.player-value.weights"); }
     public CanonicalScoringWeightKey get(String path) { return byPath.get(path); }
     public CanonicalScoringWeightKey require(String path) { if (!byPath.containsKey(path)) throw new IllegalArgumentException("unknown weight: " + path); return byPath.get(path); }
-    public int size() { return byPath.size(); }
+    public int size() { return leafWeights().size(); }
 }

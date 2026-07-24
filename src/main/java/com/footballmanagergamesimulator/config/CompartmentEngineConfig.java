@@ -36,6 +36,7 @@ public class CompartmentEngineConfig {
     private WorkRate workRate = new WorkRate();
     private Exposure exposure = new Exposure();
     private Probability probability = new Probability();
+    private Aggregation aggregation = new Aggregation();
     private Map<String, Map<PlayerAttribute, Double>> contextRules = defaultContextRules();
 
     public boolean isEnabled() { return enabled; }
@@ -67,6 +68,8 @@ public class CompartmentEngineConfig {
     public void setExposure(Exposure exposure) { this.exposure = exposure; }
     public Probability getProbability() { return probability; }
     public void setProbability(Probability probability) { this.probability = probability; }
+    public Aggregation getAggregation() { return aggregation; }
+    public void setAggregation(Aggregation aggregation) { this.aggregation = aggregation; }
     public Map<String, Map<PlayerAttribute, Double>> getContextRules() { return contextRules; }
     public void setContextRules(Map<String, Map<PlayerAttribute, Double>> contextRules) {
         this.contextRules = contextRules;
@@ -296,5 +299,12 @@ public class CompartmentEngineConfig {
         public void setIntervalLowerQuantile(double v) { this.intervalLowerQuantile = v; }
         public double getIntervalUpperQuantile() { return intervalUpperQuantile; }
         public void setIntervalUpperQuantile(double v) { this.intervalUpperQuantile = v; }
+    }
+
+    public static class Aggregation {
+        private double wideRedistributionShare = 0.20;
+
+        public double getWideRedistributionShare() { return wideRedistributionShare; }
+        public void setWideRedistributionShare(double value) { this.wideRedistributionShare = value; }
     }
 }

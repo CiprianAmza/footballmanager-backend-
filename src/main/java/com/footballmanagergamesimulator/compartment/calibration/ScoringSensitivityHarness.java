@@ -62,7 +62,17 @@ public final class ScoringSensitivityHarness {
                 t.attack() / matches, t.midfield() / matches, t.defense() / matches,
                 t.protection() / matches, ci,
                 matches, fingerprints.configFingerprint(baseline.compartment(), baseline.match()),
-                fingerprints.configFingerprint(tested.compartment(), tested.match()), paired);
+                fingerprints.configFingerprint(tested.compartment(), tested.match()), paired,
+                b.attack() / matches, t.attack() / matches,
+                b.midfield() / matches, t.midfield() / matches,
+                b.defense() / matches, t.defense() / matches,
+                b.protection() / matches, t.protection() / matches,
+                b.homeXg() / matches, t.homeXg() / matches,
+                b.awayXg() / matches, t.awayXg() / matches,
+                b.homeWin() / matches, t.homeWin() / matches,
+                b.drawProbability() / matches, t.drawProbability() / matches,
+                b.awayWin() / matches, t.awayWin() / matches,
+                pmfL1(b, t), false, true);
     }
 
     private List<SeasonStats> runSeasons(ScoringSensitivityScenario scenario,
@@ -80,13 +90,24 @@ public final class ScoringSensitivityHarness {
                 CanonicalScoreSampler.GoalSample sample = sampler.sample(evaluation, scenario.seed() + season * 38L + match);
                 int own = home == homeTeam ? sample.homeGoals() : sample.awayGoals();
                 int opponent = home == homeTeam ? sample.awayGoals() : sample.homeGoals();
-                stats.add(own, opponent, home == homeTeam ? evaluation.probability().homeXg() : evaluation.probability().awayXg(),
-                        home == homeTeam ? evaluation.probability().awayXg() : evaluation.probability().homeXg(),
+                stats.add(own, opponent, evaluation,
                         home == homeTeam ? evaluation.home() : evaluation.away());
             }
             seasons.add(stats);
         }
         return seasons;
+    }
+
+    private static double pmfL1(SeasonStats baseline, SeasonStats tested) {
+        java.util.Set<Integer> goals = new java.util.HashSet<>();
+        goals.addAll(baseline.homePmf().keySet()); goals.addAll(tested.homePmf().keySet());
+        goals.addAll(baseline.awayPmf().keySet()); goals.addAll(tested.awayPmf().keySet());
+        double l1 = 0.0;
+        for (int goal : goals) {
+            l1 += Math.abs(baseline.homePmf().getOrDefault(goal, 0.0) - tested.homePmf().getOrDefault(goal, 0.0));
+            l1 += Math.abs(baseline.awayPmf().getOrDefault(goal, 0.0) - tested.awayPmf().getOrDefault(goal, 0.0));
+        }
+        return l1;
     }
 
     private static double confidence95(List<Double> deltas) {
@@ -99,16 +120,30 @@ public final class ScoringSensitivityHarness {
     private static final class SeasonStats {
         private int points, gf, ga, wins, draws, losses;
         private double xgf, xga, attack, midfield, defense, protection;
-        void add(int own, int opponent, double ownXg, double opponentXg, CanonicalTeamEvaluation evaluation) {
-            gf += own; ga += opponent; xgf += ownXg; xga += opponentXg;
+        private double homeXg, awayXg, homeWin, drawProbability, awayWin;
+        private final java.util.Map<Integer, Double> homePmf = new java.util.HashMap<>();
+        private final java.util.Map<Integer, Double> awayPmf = new java.util.HashMap<>();
+        void add(int own, int opponent, com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation evaluation,
+                 CanonicalTeamEvaluation evaluatedTeam) {
+            gf += own; ga += opponent; xgf += evaluation.probability().homeXg(); xga += evaluation.probability().awayXg();
+            homeXg += evaluation.probability().homeXg(); awayXg += evaluation.probability().awayXg();
+            homeWin += evaluation.outcome().homeWin(); drawProbability += evaluation.outcome().draw(); awayWin += evaluation.outcome().awayWin();
+            double[] homeProbabilities = evaluation.probability().homeGoals().probabilities();
+            double[] awayProbabilities = evaluation.probability().awayGoals().probabilities();
+            for (int i = 0; i < homeProbabilities.length; i++) homePmf.merge(i, homeProbabilities[i], Double::sum);
+            for (int i = 0; i < awayProbabilities.length; i++) awayPmf.merge(i, awayProbabilities[i], Double::sum);
             if (own > opponent) { points += 3; wins++; } else if (own == opponent) { points++; draws++; } else losses++;
-            attack += evaluation.team().rawTotals().attack(); midfield += evaluation.team().rawTotals().midfield();
-            defense += evaluation.team().rawTotals().defense(); protection += evaluation.team().attackProtection();
+            attack += evaluatedTeam.team().rawTotals().attack(); midfield += evaluatedTeam.team().rawTotals().midfield();
+            defense += evaluatedTeam.team().rawTotals().defense(); protection += evaluatedTeam.team().attackProtection();
         }
         int points() { return points; }
         int gf() { return gf; } int ga() { return ga; } int wins() { return wins; } int draws() { return draws; } int losses() { return losses; }
         double xgf() { return xgf; } double xga() { return xga; } double attack() { return attack; } double midfield() { return midfield; }
         double defense() { return defense; } double protection() { return protection; }
-        static SeasonStats sum(List<SeasonStats> values) { SeasonStats out = new SeasonStats(); values.forEach(v -> { out.points += v.points; out.gf += v.gf; out.ga += v.ga; out.wins += v.wins; out.draws += v.draws; out.losses += v.losses; out.xgf += v.xgf; out.xga += v.xga; out.attack += v.attack; out.midfield += v.midfield; out.defense += v.defense; out.protection += v.protection; }); return out; }
+        double homeXg() { return homeXg; } double awayXg() { return awayXg; }
+        double homeWin() { return homeWin; } double drawProbability() { return drawProbability; } double awayWin() { return awayWin; }
+        java.util.Map<Integer, Double> homePmf() { return java.util.Map.copyOf(homePmf); }
+        java.util.Map<Integer, Double> awayPmf() { return java.util.Map.copyOf(awayPmf); }
+        static SeasonStats sum(List<SeasonStats> values) { SeasonStats out = new SeasonStats(); values.forEach(v -> { out.points += v.points; out.gf += v.gf; out.ga += v.ga; out.wins += v.wins; out.draws += v.draws; out.losses += v.losses; out.xgf += v.xgf; out.xga += v.xga; out.attack += v.attack; out.midfield += v.midfield; out.defense += v.defense; out.protection += v.protection; out.homeXg += v.homeXg; out.awayXg += v.awayXg; out.homeWin += v.homeWin; out.drawProbability += v.drawProbability; out.awayWin += v.awayWin; v.homePmf.forEach((goal, probability) -> out.homePmf.merge(goal, probability, Double::sum)); v.awayPmf.forEach((goal, probability) -> out.awayPmf.merge(goal, probability, Double::sum)); }); return out; }
     }
 }

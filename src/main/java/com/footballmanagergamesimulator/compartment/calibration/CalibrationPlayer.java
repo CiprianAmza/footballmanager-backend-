@@ -48,6 +48,8 @@ public record CalibrationPlayer(
             throw new IllegalArgumentException("foot ratings must be in [1,20]");
         }
         if (!Double.isFinite(fitness) || !Double.isFinite(morale)) throw new IllegalArgumentException("fitness/morale must be finite");
-        if (role != null) new com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey(position, role);
+        if (role != null && role != PlayerRole.SHADOW_STRIKER) {
+            new com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey(position, role);
+        }
     }
 }

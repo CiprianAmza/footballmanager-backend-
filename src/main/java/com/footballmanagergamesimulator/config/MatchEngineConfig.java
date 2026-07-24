@@ -1268,7 +1268,18 @@ public class MatchEngineConfig {
 
         /** Config override map for a role's attribute weights, or {@code null} if none. */
         public Map<String, Double> attributesFor(String roleName) {
-            return attributes.get(roleName);
+            Map<String, Double> direct = attributes.get(roleName);
+            if (direct != null) return direct;
+            String normalized = normalizeRoleKey(roleName);
+            return attributes.entrySet().stream()
+                    .filter(entry -> normalizeRoleKey(entry.getKey()).equals(normalized))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        private static String normalizeRoleKey(String value) {
+            return value == null ? "" : value.replace(" ", "").replace("-", "");
         }
     }
 

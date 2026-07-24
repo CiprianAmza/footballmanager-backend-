@@ -25,7 +25,6 @@ import java.util.Set;
  */
 public final class TeamCompartmentAggregator {
 
-    static final double WIDE_REDISTRIBUTION_SHARE = 0.20;
     private static final double SHARE_TOLERANCE = 1e-9;
     private static final Comparator<PlayerCompartmentInput> INPUT_ORDER =
             Comparator.comparing((PlayerCompartmentInput input) -> input.slot().position())
@@ -325,8 +324,8 @@ public final class TeamCompartmentAggregator {
         };
     }
 
-    private static double wideRedistributionShare(PlayerPosition position) {
-        return position.isWideEligible() ? WIDE_REDISTRIBUTION_SHARE : 0.0;
+    private double wideRedistributionShare(PlayerPosition position) {
+        return position.isWideEligible() ? config.getAggregation().getWideRedistributionShare() : 0.0;
     }
 
     private void validateMentalityRule(MentalityRule rule) {

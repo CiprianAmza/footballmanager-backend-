@@ -15,10 +15,6 @@ public record PositionRoleKey(PlayerPosition position, PlayerRole role) {
     private static final Set<PlayerRole> MC_ROLES = Set.of(PlayerRole.CENTRAL_MIDFIELDER,
             PlayerRole.DEEP_LYING_PLAYMAKER, PlayerRole.BALL_WINNING_MIDFIELDER,
             PlayerRole.BOX_TO_BOX_MIDFIELDER, PlayerRole.ADVANCED_PLAYMAKER, PlayerRole.MEZZALA);
-    private static final Set<PlayerRole> MC_ROLES_WITH_SHADOW = Set.of(PlayerRole.CENTRAL_MIDFIELDER,
-            PlayerRole.DEEP_LYING_PLAYMAKER, PlayerRole.BALL_WINNING_MIDFIELDER,
-            PlayerRole.BOX_TO_BOX_MIDFIELDER, PlayerRole.ADVANCED_PLAYMAKER, PlayerRole.MEZZALA,
-            PlayerRole.SHADOW_STRIKER);
     private static final Set<PlayerRole> WIDE_ROLES = Set.of(PlayerRole.WINGER,
             PlayerRole.INSIDE_FORWARD, PlayerRole.WIDE_MIDFIELDER, PlayerRole.INVERTED_WINGER);
     private static final Set<PlayerRole> ST_ROLES = Set.of(PlayerRole.ADVANCED_FORWARD,
@@ -33,8 +29,8 @@ public record PositionRoleKey(PlayerPosition position, PlayerRole role) {
             Map.entry(PlayerPosition.WBL, FB_ROLES),
             Map.entry(PlayerPosition.WBR, FB_ROLES),
             Map.entry(PlayerPosition.DM, MC_ROLES),
-            Map.entry(PlayerPosition.MC, MC_ROLES_WITH_SHADOW),
-            Map.entry(PlayerPosition.AMC, MC_ROLES_WITH_SHADOW),
+            Map.entry(PlayerPosition.MC, MC_ROLES),
+            Map.entry(PlayerPosition.AMC, MC_ROLES),
             Map.entry(PlayerPosition.ML, WIDE_ROLES),
             Map.entry(PlayerPosition.MR, WIDE_ROLES),
             Map.entry(PlayerPosition.AML, WIDE_ROLES),

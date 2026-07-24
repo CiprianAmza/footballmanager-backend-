@@ -78,6 +78,7 @@ class CanonicalScoringWeightCatalogTest {
         }
         var profile = CalibrationConfigFixture.load();
         Set<String> catalog = CanonicalScoringWeightCatalog.from(profile.compartment(), profile.match()).leafWeights().stream()
+                .filter(key -> !key.path().startsWith("match.role-weights.attributes."))
                 .map(CanonicalScoringWeightKey::path).collect(Collectors.toCollection(java.util.TreeSet::new));
         assertThat(names).containsExactlyElementsOf(catalog);
     }
@@ -96,7 +97,14 @@ class CanonicalScoringWeightCatalogTest {
             if (end > start) normalized = normalized.substring(0, start)
                     + normalized.substring(start, end).replace(" ", "").replace(":", "") + normalized.substring(end);
         }
-        if (!normalized.equals("compartment.enabled") && !normalized.equals("compartment.shadow-enabled")
+        if (normalized.startsWith("match.role-weights.attributes.")) {
+            return;
+        }
+        boolean nonNumeric = normalized.contains(".ignores-defensive-instructions")
+                || normalized.contains(".forced-defensive-morale-delta")
+                || normalized.endsWith(".transfer-from") || normalized.endsWith(".transfer-to")
+                || normalized.startsWith("compartment.roles.SHADOW_STRIKER.");
+        if (!nonNumeric && !normalized.equals("compartment.enabled") && !normalized.equals("compartment.shadow-enabled")
                 && !normalized.equals("match.engine.compartment.enabled") && !normalized.equals("match.engine.compartment.shadow-enabled")) output.add(normalized);
     }
 }

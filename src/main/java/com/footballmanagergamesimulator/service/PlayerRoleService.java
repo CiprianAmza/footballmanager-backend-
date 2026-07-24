@@ -49,7 +49,7 @@ public class PlayerRoleService {
             return PlayerSkillsService.computeOverallRating(skills);
         }
 
-        return weightedRoleSuitability(skills, role);
+        return weightedRoleSuitability(skills, role, false);
     }
 
     /** Computes suitability using the position the player is actually filling. */
@@ -63,7 +63,7 @@ public class PlayerRoleService {
         if (role == null) {
             throw new IllegalArgumentException("role " + roleName + " is not available for " + usedPosition);
         }
-        return weightedRoleSuitability(skills, role);
+        return weightedRoleSuitability(skills, role, true);
     }
 
     /** Returns whether a canonical role definition permits the supplied duty. */
@@ -83,10 +83,10 @@ public class PlayerRoleService {
         return role.duties.stream().anyMatch(allowed -> allowed.equalsIgnoreCase(duty));
     }
 
-    private double weightedRoleSuitability(PlayerSkills skills, RoleDef role) {
+    private double weightedRoleSuitability(PlayerSkills skills, RoleDef role, boolean requireExternalWeights) {
 
         double weighted = 0;
-        for (Map.Entry<String, Double> entry : effectiveKeyAttributes(role).entrySet()) {
+        for (Map.Entry<String, Double> entry : effectiveKeyAttributes(role, requireExternalWeights).entrySet()) {
             String attr = entry.getKey();
             double weight = entry.getValue();
             var getter = PlayerSkillsService.GETTER_MAP.get(attr);
@@ -119,14 +119,34 @@ public class PlayerRoleService {
      * defaults merged with any per-attribute overrides (override wins; new attributes added).
      * Returns the defaults unchanged when no override exists for the role.
      */
-    private Map<String, Double> effectiveKeyAttributes(RoleDef role) {
+    private Map<String, Double> effectiveKeyAttributes(RoleDef role, boolean requireExternalWeights) {
         Map<String, Double> override = engineConfig.getRoleWeights().attributesFor(role.name);
+        if (requireExternalWeights) {
+            if (override == null || override.isEmpty()) {
+                throw new IllegalStateException("Missing or incomplete role attribute weights for " + role.name);
+            }
+            Map<String, Double> canonical = new LinkedHashMap<>();
+            for (String attribute : role.keyAttributes.keySet()) {
+                String normalized = normalizeAttribute(attribute);
+                Double configured = override.entrySet().stream()
+                        .filter(entry -> normalizeAttribute(entry.getKey()).equals(normalized))
+                        .map(Map.Entry::getValue).findFirst().orElse(null);
+                if (configured == null) throw new IllegalStateException(
+                        "Missing or incomplete role attribute weights for " + role.name + ": " + attribute);
+                canonical.put(attribute, configured);
+            }
+            return Map.copyOf(canonical);
+        }
         if (override == null || override.isEmpty()) {
             return role.keyAttributes;
         }
         Map<String, Double> merged = new HashMap<>(role.keyAttributes);
         merged.putAll(override);
         return merged;
+    }
+
+    private static String normalizeAttribute(String value) {
+        return value == null ? "" : value.replace(" ", "").replace("-", "");
     }
 
     /**

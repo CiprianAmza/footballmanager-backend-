@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.compartment.calibration;
 
 import com.footballmanagergamesimulator.compartment.Mentality;
+import com.footballmanagergamesimulator.compartment.PlayerRole;
+import com.footballmanagergamesimulator.compartment.PlayerAttribute;
 
 /** Builds a deterministic fixture that activates the consumer named by a catalog leaf. */
 public final class CalibrationScenarioFactory {
@@ -12,6 +14,14 @@ public final class CalibrationScenarioFactory {
         String path = leaf.path();
         var team = base.baselineTeam();
         if (path.contains("SHADOW_STRIKER")) team = team.withShadowStriker();
+        else if (path.startsWith("compartment.roles.")) {
+            String role = path.substring("compartment.roles.".length(), path.indexOf('.', "compartment.roles.".length()));
+            team = team.withRole(PlayerRole.valueOf(role));
+        }
+        if (path.contains(".attributes.")) {
+            String attribute = path.substring(path.lastIndexOf('.') + 1);
+            team = team.withAttribute(PlayerAttribute.valueOf(attribute));
+        }
         else if (path.contains("mentalities.")) {
             String name = path.substring(path.indexOf("mentalities.") + 12);
             name = name.substring(0, name.indexOf('.'));

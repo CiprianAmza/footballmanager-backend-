@@ -2,8 +2,6 @@
 match:
   engine:
     compartment:
-      enabled: false
-      shadow-enabled: false
       rating:
         attribute-min: 1
         attribute-max: 20
@@ -195,9 +193,8 @@ match:
         home-advantage: 1.08
         gamma-shape: 12.0
         goal-cap: 7
-        extra-time-scale: 0.3333333333333333
-        interval-lower-quantile: 0.05
-        interval-upper-quantile: 0.95
+      aggregation:
+        wide-redistribution-share: 0.20
       context-rules:
         mentality:attacking: { OFF_THE_BALL: 0.15, COMPOSURE: 0.10 }
         mentality:very attacking: { OFF_THE_BALL: 0.30, COMPOSURE: 0.20 }
@@ -255,3 +252,342 @@ match:
         WBR: { GK: 0.1, DR: 0.9, MR: 0.7, WBL: 0.6, DC: 0.5, AMR: 0.5, MC: 0.45 }
     role-weights:
       suitability-scale: 5.0
+      attributes:
+        "Goalkeeper":
+          "Reflexes": 0.20
+          "Handling": 0.18
+          "Positioning": 0.14
+          "One On Ones": 0.10
+          "Command Of Area": 0.10
+          "Concentration": 0.08
+          "Anticipation": 0.06
+          "Kicking": 0.06
+          "Agility": 0.04
+          "Composure": 0.04
+        "Sweeper Keeper":
+          "Reflexes": 0.14
+          "Handling": 0.10
+          "One On Ones": 0.12
+          "Rushing Out": 0.0
+          "Command Of Area": 0.12
+          "Kicking": 0.10
+          "First Touch": 0.08
+          "Passing": 0.08
+          "Anticipation": 0.08
+          "Composure": 0.08
+          "Positioning": 0.05
+          "Agility": 0.05
+        "Central Defender":
+          "Tackling": 0.15
+          "Marking": 0.14
+          "Positioning": 0.13
+          "Heading": 0.10
+          "Strength": 0.08
+          "Concentration": 0.08
+          "Anticipation": 0.08
+          "Bravery": 0.06
+          "Jumping Reach": 0.06
+          "Composure": 0.04
+          "Pace": 0.04
+          "Decisions": 0.04
+        "Ball-Playing Defender":
+          "Tackling": 0.10
+          "Marking": 0.10
+          "Positioning": 0.10
+          "Passing": 0.12
+          "First Touch": 0.08
+          "Composure": 0.08
+          "Vision": 0.06
+          "Technique": 0.06
+          "Concentration": 0.06
+          "Anticipation": 0.06
+          "Heading": 0.06
+          "Decisions": 0.06
+          "Strength": 0.06
+        "No-Nonsense Defender":
+          "Tackling": 0.14
+          "Marking": 0.14
+          "Heading": 0.12
+          "Strength": 0.12
+          "Bravery": 0.10
+          "Positioning": 0.10
+          "Jumping Reach": 0.08
+          "Aggression": 0.08
+          "Concentration": 0.06
+          "Anticipation": 0.06
+        "Full-Back":
+          "Tackling": 0.12
+          "Marking": 0.10
+          "Positioning": 0.10
+          "Pace": 0.10
+          "Stamina": 0.08
+          "Work Rate": 0.08
+          "Crossing": 0.06
+          "Concentration": 0.06
+          "Anticipation": 0.06
+          "Teamwork": 0.06
+          "Acceleration": 0.06
+          "Decisions": 0.06
+          "Strength": 0.06
+        "Wing-Back":
+          "Crossing": 0.14
+          "Pace": 0.12
+          "Stamina": 0.10
+          "Dribbling": 0.08
+          "Acceleration": 0.08
+          "Work Rate": 0.08
+          "Tackling": 0.06
+          "Passing": 0.06
+          "Technique": 0.06
+          "Off The Ball": 0.06
+          "Teamwork": 0.06
+          "Agility": 0.05
+          "Decisions": 0.05
+        "Inverted Wing-Back":
+          "Passing": 0.12
+          "Dribbling": 0.10
+          "First Touch": 0.08
+          "Technique": 0.08
+          "Vision": 0.08
+          "Decisions": 0.08
+          "Composure": 0.08
+          "Pace": 0.06
+          "Tackling": 0.06
+          "Acceleration": 0.06
+          "Stamina": 0.06
+          "Work Rate": 0.06
+          "Off The Ball": 0.08
+        "Central Midfielder":
+          "Passing": 0.14
+          "Tackling": 0.08
+          "Decisions": 0.08
+          "Teamwork": 0.08
+          "First Touch": 0.07
+          "Technique": 0.07
+          "Stamina": 0.07
+          "Work Rate": 0.07
+          "Positioning": 0.06
+          "Vision": 0.06
+          "Concentration": 0.06
+          "Composure": 0.06
+          "Anticipation": 0.05
+          "Dribbling": 0.05
+        "Deep-Lying Playmaker":
+          "Passing": 0.18
+          "Vision": 0.14
+          "First Touch": 0.10
+          "Technique": 0.10
+          "Composure": 0.08
+          "Decisions": 0.08
+          "Teamwork": 0.06
+          "Anticipation": 0.06
+          "Flair": 0.05
+          "Concentration": 0.05
+          "Positioning": 0.05
+          "Balance": 0.05
+        "Ball-Winning Midfielder":
+          "Tackling": 0.16
+          "Work Rate": 0.12
+          "Stamina": 0.10
+          "Aggression": 0.10
+          "Anticipation": 0.08
+          "Positioning": 0.08
+          "Teamwork": 0.06
+          "Strength": 0.06
+          "Bravery": 0.06
+          "Concentration": 0.06
+          "Marking": 0.06
+          "Decisions": 0.06
+        "Box-to-Box Midfielder":
+          "Stamina": 0.12
+          "Work Rate": 0.10
+          "Passing": 0.08
+          "Tackling": 0.08
+          "Finishing": 0.06
+          "Long Shots": 0.06
+          "Off The Ball": 0.06
+          "Teamwork": 0.06
+          "Pace": 0.06
+          "Decisions": 0.06
+          "Dribbling": 0.06
+          "First Touch": 0.06
+          "Anticipation": 0.06
+          "Strength": 0.04
+          "Technique": 0.04
+        "Advanced Playmaker":
+          "Vision": 0.14
+          "Passing": 0.14
+          "First Touch": 0.10
+          "Technique": 0.10
+          "Flair": 0.08
+          "Composure": 0.08
+          "Decisions": 0.08
+          "Dribbling": 0.08
+          "Off The Ball": 0.06
+          "Anticipation": 0.06
+          "Agility": 0.04
+          "Balance": 0.04
+        "Mezzala":
+          "Dribbling": 0.10
+          "Passing": 0.10
+          "Technique": 0.08
+          "Off The Ball": 0.08
+          "Vision": 0.08
+          "Decisions": 0.08
+          "Acceleration": 0.06
+          "Pace": 0.06
+          "First Touch": 0.06
+          "Long Shots": 0.06
+          "Finishing": 0.06
+          "Stamina": 0.06
+          "Work Rate": 0.06
+          "Flair": 0.06
+        "Winger":
+          "Crossing": 0.14
+          "Dribbling": 0.12
+          "Pace": 0.10
+          "Acceleration": 0.08
+          "Technique": 0.08
+          "Agility": 0.06
+          "Flair": 0.06
+          "Off The Ball": 0.06
+          "First Touch": 0.06
+          "Passing": 0.06
+          "Stamina": 0.06
+          "Work Rate": 0.06
+          "Decisions": 0.06
+        "Inside Forward":
+          "Finishing": 0.14
+          "Dribbling": 0.12
+          "Acceleration": 0.08
+          "Off The Ball": 0.08
+          "Composure": 0.08
+          "First Touch": 0.06
+          "Technique": 0.06
+          "Pace": 0.06
+          "Passing": 0.06
+          "Long Shots": 0.06
+          "Anticipation": 0.06
+          "Decisions": 0.06
+          "Agility": 0.04
+          "Flair": 0.04
+        "Wide Midfielder":
+          "Crossing": 0.10
+          "Work Rate": 0.10
+          "Stamina": 0.10
+          "Passing": 0.08
+          "Tackling": 0.08
+          "Teamwork": 0.08
+          "Pace": 0.06
+          "Dribbling": 0.06
+          "Positioning": 0.06
+          "Decisions": 0.06
+          "Technique": 0.06
+          "Concentration": 0.06
+          "Anticipation": 0.05
+          "First Touch": 0.05
+        "Inverted Winger":
+          "Dribbling": 0.14
+          "Passing": 0.10
+          "Vision": 0.08
+          "Technique": 0.08
+          "First Touch": 0.08
+          "Acceleration": 0.08
+          "Agility": 0.06
+          "Pace": 0.06
+          "Long Shots": 0.06
+          "Composure": 0.06
+          "Decisions": 0.06
+          "Flair": 0.06
+          "Off The Ball": 0.04
+          "Finishing": 0.04
+        "Advanced Forward":
+          "Finishing": 0.14
+          "Off The Ball": 0.10
+          "Composure": 0.08
+          "Dribbling": 0.08
+          "First Touch": 0.08
+          "Technique": 0.06
+          "Anticipation": 0.06
+          "Pace": 0.06
+          "Acceleration": 0.06
+          "Decisions": 0.06
+          "Heading": 0.06
+          "Strength": 0.04
+          "Agility": 0.04
+          "Balance": 0.04
+          "Flair": 0.04
+        "Poacher":
+          "Finishing": 0.20
+          "Off The Ball": 0.14
+          "Anticipation": 0.12
+          "Composure": 0.10
+          "Heading": 0.08
+          "First Touch": 0.06
+          "Technique": 0.06
+          "Concentration": 0.06
+          "Pace": 0.06
+          "Acceleration": 0.06
+          "Decisions": 0.06
+        "Target Man":
+          "Heading": 0.14
+          "Strength": 0.14
+          "Jumping Reach": 0.10
+          "First Touch": 0.08
+          "Finishing": 0.08
+          "Balance": 0.06
+          "Bravery": 0.06
+          "Composure": 0.06
+          "Off The Ball": 0.06
+          "Passing": 0.06
+          "Teamwork": 0.06
+          "Anticipation": 0.05
+          "Decisions": 0.05
+        "Deep-Lying Forward":
+          "First Touch": 0.10
+          "Passing": 0.10
+          "Technique": 0.10
+          "Vision": 0.08
+          "Composure": 0.08
+          "Dribbling": 0.08
+          "Flair": 0.06
+          "Off The Ball": 0.06
+          "Finishing": 0.06
+          "Decisions": 0.06
+          "Teamwork": 0.06
+          "Strength": 0.06
+          "Balance": 0.05
+          "Anticipation": 0.05
+        "Pressing Forward":
+          "Work Rate": 0.14
+          "Aggression": 0.10
+          "Stamina": 0.10
+          "Finishing": 0.08
+          "Anticipation": 0.08
+          "Bravery": 0.06
+          "Off The Ball": 0.06
+          "Teamwork": 0.06
+          "Pace": 0.06
+          "Acceleration": 0.06
+          "Decisions": 0.06
+          "Composure": 0.06
+          "Strength": 0.04
+          "First Touch": 0.04
+        "Complete Forward":
+          "Finishing": 0.10
+          "Heading": 0.06
+          "Dribbling": 0.08
+          "First Touch": 0.08
+          "Off The Ball": 0.08
+          "Passing": 0.06
+          "Technique": 0.06
+          "Composure": 0.06
+          "Strength": 0.06
+          "Pace": 0.06
+          "Anticipation": 0.06
+          "Decisions": 0.06
+          "Vision": 0.04
+          "Work Rate": 0.04
+          "Flair": 0.04
+          "Acceleration": 0.04
+          "Balance": 0.02

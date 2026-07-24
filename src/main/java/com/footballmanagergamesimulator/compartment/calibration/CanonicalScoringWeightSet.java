@@ -202,6 +202,8 @@ public final class CanonicalScoringWeightSet {
                 case "interval-upper-quantile" -> compartment.getProbability().setIntervalUpperQuantile(override.value());
                 default -> throw new IllegalArgumentException("unknown probability leaf: " + key);
             }
+        } else if (key.equals("compartment.aggregation.wide-redistribution-share")) {
+            compartment.getAggregation().setWideRedistributionShare(override.value());
         } else if (key.equals("match.instruction-weights.clamp-min")) {
             match.getInstructionWeights().setClampMin(override.value());
         } else if (key.equals("match.instruction-weights.clamp-max")) {
@@ -301,6 +303,7 @@ public final class CanonicalScoringWeightSet {
         target.getProbability().setExtraTimeScale(source.getProbability().getExtraTimeScale());
         target.getProbability().setIntervalLowerQuantile(source.getProbability().getIntervalLowerQuantile());
         target.getProbability().setIntervalUpperQuantile(source.getProbability().getIntervalUpperQuantile());
+        target.getAggregation().setWideRedistributionShare(source.getAggregation().getWideRedistributionShare());
         return target;
     }
 

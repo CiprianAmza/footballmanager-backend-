@@ -46,9 +46,8 @@ public final class CanonicalScoringFingerprintService {
                 + ',' + compartment.getExposure().getPenaltyExponent()
                 + "|probability=" + compartment.getProbability().getMatchupExponent() + ','
                 + compartment.getProbability().getHomeAdvantage() + ',' + compartment.getProbability().getGammaShape()
-                + ',' + compartment.getProbability().getGoalCap() + ',' + compartment.getProbability().getExtraTimeScale()
-                + ',' + compartment.getProbability().getIntervalLowerQuantile() + ','
-                + compartment.getProbability().getIntervalUpperQuantile()
+                + ',' + compartment.getProbability().getGoalCap()
+                + "|aggregation=" + compartment.getAggregation().getWideRedistributionShare()
                 + "|playerValue=" + match.getPlayerValue().getScaleMultiplier() + ','
                 + match.getPlayerValue().getRatingFloor() + ',' + match.getPlayerValue().getRatingCeil()
                 + ',' + match.getPlayerValue().getMoraleNeutral() + ',' + match.getPlayerValue().getMoraleSlope()
