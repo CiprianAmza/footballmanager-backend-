@@ -79,11 +79,12 @@ class FlywayPhase0MigrationTest {
                     """);
             statement.execute("""
                     INSERT INTO human(id, name, team_id, type_id, position, age, season_created, rating, retired) VALUES
-                    (10, 'Kvekrpur', 14, 1, 'ST', 20, 1, 300, FALSE),
-                    (11, 'Dostoievski', 14, 1, 'ST', 15, 1, 300, FALSE),
-                    (12, 'Shakespeare', 13, 1, 'ST', 15, 1, 300, FALSE),
-                    (13, 'Kvekrpur', 1, 1, 'ST', 20, 1, 300, FALSE),
-                    (14, 'Shakespeare', 13, 1, 'ST', 15, 1, 299, FALSE)
+                    (107, 'Kvekrpur', 14, 1, 'ST', 34, 1, 367.6487908232764, FALSE),
+                    (108, 'Dostoievski', 14, 1, 'ST', 29, 7, 342.25, FALSE),
+                    (4060, 'Shakespeare', 13, 1, 'ST', 25, 6, 300, FALSE),
+                    (759, 'Kvekrpur', 22, 1, 'ST', 26, 4, 149.85, FALSE),
+                    (4061, 'Shakespeare', 13, 1, 'MC', 25, 6, 300, FALSE),
+                    (1080, 'Dostoievski', 14, 4, 'ST', 29, 7, 342.25, FALSE)
                     """);
         }
 
@@ -93,8 +94,8 @@ class FlywayPhase0MigrationTest {
         try (Connection connection = DriverManager.getConnection(url, "sa", "");
              Statement statement = connection.createStatement()) {
             assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE stay_forward = TRUE")).isEqualTo(3);
-            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE id IN (10, 11, 12) AND stay_forward = TRUE")).isEqualTo(3);
-            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE id IN (13, 14) AND stay_forward = FALSE")).isEqualTo(2);
+            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE id IN (107, 108, 4060) AND stay_forward = TRUE")).isEqualTo(3);
+            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE id IN (759, 4061, 1080) AND stay_forward = FALSE")).isEqualTo(3);
         }
     }
 

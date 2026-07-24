@@ -49,9 +49,9 @@ public class GameSaveImportService {
     static final int CURRENT_SAVE_VERSION = 10;
 
     private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
-            new StayForwardSeedIdentity("Kvekrpur", 14L, "ST", 20, 300.0),
-            new StayForwardSeedIdentity("Dostoievski", 14L, "ST", 15, 300.0),
-            new StayForwardSeedIdentity("Shakespeare", 13L, "ST", 15, 300.0)
+            new StayForwardSeedIdentity(107L, "Kvekrpur", 14L, "ST"),
+            new StayForwardSeedIdentity(108L, "Dostoievski", 14L, "ST"),
+            new StayForwardSeedIdentity(4060L, "Shakespeare", 13L, "ST")
     );
 
     private static final List<TableSpec> MANIFEST = List.of(
@@ -1044,16 +1044,13 @@ public class GameSaveImportService {
         }
     }
 
-    private record StayForwardSeedIdentity(String name, long teamId, String position,
-                                           int age, double rating) {
+    private record StayForwardSeedIdentity(Long id, String name, long teamId, String position) {
         boolean matches(Map<String, Object> human) {
-            return textEquals(human.get("NAME"), name)
+            return (id == null || longEquals(human.get("ID"), id))
+                    && textEquals(human.get("NAME"), name)
                     && longEquals(human.get("TEAM_ID"), teamId)
                     && longEquals(human.get("TYPE_ID"), 1L)
-                    && textEquals(human.get("POSITION"), position)
-                    && longEquals(human.get("AGE"), age)
-                    && longEquals(human.get("SEASON_CREATED"), 1L)
-                    && doubleEquals(human.get("RATING"), rating);
+                    && textEquals(human.get("POSITION"), position);
         }
     }
 
@@ -1113,15 +1110,6 @@ public class GameSaveImportService {
         if (value instanceof Number number) return number.longValue() == expected;
         try {
             return value != null && Long.parseLong(value.toString()) == expected;
-        } catch (NumberFormatException exception) {
-            return false;
-        }
-    }
-
-    private static boolean doubleEquals(Object value, double expected) {
-        if (value instanceof Number number) return Math.abs(number.doubleValue() - expected) < 1e-9;
-        try {
-            return value != null && Math.abs(Double.parseDouble(value.toString()) - expected) < 1e-9;
         } catch (NumberFormatException exception) {
             return false;
         }

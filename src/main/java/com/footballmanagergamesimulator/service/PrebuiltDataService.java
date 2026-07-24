@@ -80,6 +80,7 @@ public class PrebuiltDataService {
         st.execute("ALTER TABLE SCORER ADD COLUMN IF NOT EXISTS ROUND_NUMBER INTEGER DEFAULT 0 NOT NULL");
         st.execute("ALTER TABLE PLAYER_SEASON_STAT ADD COLUMN IF NOT EXISTS CHANCES_CREATED DOUBLE DEFAULT 0 NOT NULL");
         st.execute("ALTER TABLE HUMAN ADD COLUMN IF NOT EXISTS ALWAYS_CONTINUE BOOLEAN DEFAULT FALSE NOT NULL");
+        migrateStayForwardSnapshotSchema(st);
 
         st.execute("ALTER TABLE COMPETITION_TEAM_INFO_DETAIL ADD COLUMN IF NOT EXISTS WINNER_TEAM_ID INTEGER");
         st.execute("ALTER TABLE COMPETITION_TEAM_INFO_DETAIL ADD COLUMN IF NOT EXISTS DECIDED_BY VARCHAR(255)");
@@ -115,6 +116,26 @@ public class PrebuiltDataService {
         st.execute("ALTER TABLE MATCH_PLAYER_RATING ADD COLUMN IF NOT EXISTS MOUTH_SHAPE INTEGER DEFAULT 0 NOT NULL");
         st.execute("ALTER TABLE MATCH_PLAYER_RATING ADD COLUMN IF NOT EXISTS BROW_SHAPE INTEGER DEFAULT 0 NOT NULL");
         st.execute("ALTER TABLE MATCH_PLAYER_RATING ADD COLUMN IF NOT EXISTS SPECIES VARCHAR(20) DEFAULT 'human'");
+    }
+
+    private static void migrateStayForwardSnapshotSchema(Statement st) throws SQLException {
+        st.execute("ALTER TABLE HUMAN ADD COLUMN IF NOT EXISTS STAY_FORWARD BOOLEAN");
+        st.execute("""
+                EXECUTE IMMEDIATE (
+                    SELECT CASE WHEN COUNT(*) = 5 THEN
+                        'UPDATE HUMAN SET STAY_FORWARD = TRUE WHERE STAY_FORWARD IS NULL AND ('
+                        || '(ID = 107 AND NAME = ''Kvekrpur'' AND TEAM_ID = 14 AND TYPE_ID = 1 AND POSITION = ''ST'') OR '
+                        || '(ID = 108 AND NAME = ''Dostoievski'' AND TEAM_ID = 14 AND TYPE_ID = 1 AND POSITION = ''ST'') OR '
+                        || '(ID = 4060 AND NAME = ''Shakespeare'' AND TEAM_ID = 13 AND TYPE_ID = 1 AND POSITION = ''ST''))'
+                    ELSE 'SELECT 1' END
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = 'HUMAN'
+                      AND COLUMN_NAME IN ('ID', 'NAME', 'TEAM_ID', 'TYPE_ID', 'POSITION')
+                )
+                """);
+        st.execute("UPDATE HUMAN SET STAY_FORWARD = FALSE WHERE STAY_FORWARD IS NULL");
+        st.execute("ALTER TABLE HUMAN ALTER COLUMN STAY_FORWARD SET DEFAULT FALSE");
+        st.execute("ALTER TABLE HUMAN ALTER COLUMN STAY_FORWARD SET NOT NULL");
     }
 
     /** Render a filesystem path as a safe single-quoted SQL string literal. */

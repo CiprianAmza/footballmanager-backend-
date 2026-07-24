@@ -76,35 +76,39 @@ class GameSaveRealSchemaTest {
     @Test
     void oldSaveImportPromotesOnlyCanonicalSeededStayForwardIdentities() {
         Map<String, Object> v9 = realSchemaSave(9);
-        Map<String, Object> kvekrpur = canonicalSeedRow(10L, "Kvekrpur", 14L, 20);
-        Map<String, Object> dostoievski = canonicalSeedRow(11L, "Dostoievski", 14L, 15);
-        Map<String, Object> shakespeare = canonicalSeedRow(12L, "Shakespeare", 13L, 15);
-        Map<String, Object> sameNameWrongTeam = canonicalSeedRow(13L, "Kvekrpur", 1L, 20);
-        Map<String, Object> sameNameWrongRating = canonicalSeedRow(14L, "Shakespeare", 13L, 15);
-        sameNameWrongRating.put("rating", 299.0);
+        Map<String, Object> kvekrpur = canonicalSeedRow(107L, "Kvekrpur", 14L, 34, 1L, 367.6487908232764);
+        Map<String, Object> dostoievski = canonicalSeedRow(108L, "Dostoievski", 14L, 29, 7L, 342.25);
+        Map<String, Object> shakespeare = canonicalSeedRow(4060L, "Shakespeare", 13L, 25, 6L, 300.0);
+        Map<String, Object> sameNameWrongTeam = canonicalSeedRow(759L, "Kvekrpur", 22L, 26, 4L, 149.85);
+        Map<String, Object> sameNameWrongPosition = canonicalSeedRow(4061L, "Shakespeare", 13L, 25, 6L, 300.0);
+        sameNameWrongPosition.put("position", "MC");
+        Map<String, Object> sameNameWrongType = canonicalSeedRow(1080L, "Dostoievski", 14L, 29, 7L, 342.25);
+        sameNameWrongType.put("typeId", 4L);
         v9.put("humans", List.of(kvekrpur, dostoievski, shakespeare,
-                sameNameWrongTeam, sameNameWrongRating));
+                sameNameWrongTeam, sameNameWrongPosition, sameNameWrongType));
 
         GameSaveImportService.ImportPlan plan = importService.prepare(v9);
 
         assertThat(humanStayForwardById(plan))
-                .containsEntry(10L, true)
-                .containsEntry(11L, true)
-                .containsEntry(12L, true)
-                .containsEntry(13L, false)
-                .containsEntry(14L, false);
+                .containsEntry(107L, true)
+                .containsEntry(108L, true)
+                .containsEntry(4060L, true)
+                .containsEntry(759L, false)
+                .containsEntry(4061L, false)
+                .containsEntry(1080L, false);
     }
 
     @Test
     void v10ExplicitFalseRoundTripsWithoutLegacyPromotion() {
         Map<String, Object> v10 = realSchemaSave(10);
-        Map<String, Object> kvekrpurFalse = canonicalSeedRow(10L, "Kvekrpur", 14L, 20);
+        Map<String, Object> kvekrpurFalse = canonicalSeedRow(
+                107L, "Kvekrpur", 14L, 34, 1L, 367.6487908232764);
         kvekrpurFalse.put("stayForward", false);
         v10.put("humans", List.of(kvekrpurFalse));
 
         GameSaveImportService.ImportPlan plan = importService.prepare(v10);
 
-        assertThat(humanStayForwardById(plan)).containsEntry(10L, false);
+        assertThat(humanStayForwardById(plan)).containsEntry(107L, false);
     }
 
     @Test
@@ -256,13 +260,14 @@ class GameSaveRealSchemaTest {
         return human;
     }
 
-    private Map<String, Object> canonicalSeedRow(long id, String name, long teamId, int age) {
+    private Map<String, Object> canonicalSeedRow(long id, String name, long teamId,
+                                                 int age, long seasonCreated, double rating) {
         Map<String, Object> human = humanRow(id, name);
         human.put("teamId", teamId);
         human.put("position", "ST");
         human.put("age", age);
-        human.put("seasonCreated", 1L);
-        human.put("rating", 300.0);
+        human.put("seasonCreated", seasonCreated);
+        human.put("rating", rating);
         return human;
     }
 
