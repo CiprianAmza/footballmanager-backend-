@@ -14,4 +14,5 @@ public interface CompetitionHistoryRepository extends JpaRepository<CompetitionH
     List<CompetitionHistory> findAllBySeasonNumber(long seasonNumber);
     List<CompetitionHistory> findAllByCompetitionIdAndSeasonNumber(long competitionId, long seasonNumber);
     List<CompetitionHistory> findAllByCompetitionIdIn(Collection<Long> competitionIds);
+    List<CompetitionHistory> findAllByTeamIdIn(Collection<Long> teamIds);
 }

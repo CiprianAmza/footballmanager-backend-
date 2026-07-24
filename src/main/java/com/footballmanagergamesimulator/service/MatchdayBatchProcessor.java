@@ -8,6 +8,10 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.ManagerInbox;
+import com.footballmanagergamesimulator.economy.ClubCapTableService;
+import com.footballmanagergamesimulator.person.CareerType;
+import com.footballmanagergamesimulator.person.PersonProfile;
+import com.footballmanagergamesimulator.person.PersonProfileRepository;
 import com.footballmanagergamesimulator.model.PressConference;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
@@ -60,6 +64,9 @@ public class MatchdayBatchProcessor {
     @Autowired private HumanRepository humanRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private ManagerInboxRepository managerInboxRepository;
+    @Autowired private ClubCapTableService clubCapTableService;
+    @Autowired private PersonProfileRepository personProfileRepository;
+    @Autowired private ChairmanInboxNotificationService chairmanInbox;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
@@ -426,6 +433,8 @@ public class MatchdayBatchProcessor {
 
         // Group results by competition so each competition gets its own inbox message
         Map<String, StringBuilder> resultsByCompetition = new LinkedHashMap<>();
+        Map<String, List<Map<String, Object>>> rowsByCompetition = new LinkedHashMap<>();
+        Set<Long> matchTeamIds = new HashSet<>();
 
         for (CalendarEvent event : matchEvents) {
             if (event.getCompetitionId() == null || event.getMatchday() <= 0) continue;
@@ -435,13 +444,28 @@ public class MatchdayBatchProcessor {
 
             String competitionName = (String) otherResults.get(0).get("competitionName");
             StringBuilder sb = resultsByCompetition.computeIfAbsent(competitionName, k -> new StringBuilder());
+            List<Map<String, Object>> rows = rowsByCompetition.computeIfAbsent(competitionName, k -> new ArrayList<>());
             for (Map<String, Object> mr : otherResults) {
+                rows.add(mr);
+                addLong(matchTeamIds, mr.get("team1Id"));
+                addLong(matchTeamIds, mr.get("team2Id"));
                 sb.append(mr.get("team1Name")).append(" ")
                         .append(mr.get("score")).append(" ")
                         .append(mr.get("team2Name")).append("\n");
             }
         }
 
+        Map<Long, PersonProfile> chairmanProfiles = new java.util.HashMap<>();
+        if (!matchTeamIds.isEmpty()) {
+            Set<Long> profileIds = clubCapTableService.viewBatch(matchTeamIds).values().stream()
+                    .flatMap(table -> table.holdings().stream()).filter(ClubCapTableService.Holding::controlling)
+                    .map(ClubCapTableService.Holding::profileId).collect(Collectors.toSet());
+            personProfileRepository.findAllById(profileIds).stream()
+                    .filter(profile -> profile.getCareerType() == CareerType.CHAIRMAN)
+                    .forEach(profile -> chairmanProfiles.put(profile.getId(), profile));
+        }
+
+        Map<Long, ClubCapTableService.CapTable> matchTables = matchTeamIds.isEmpty() ? Map.of() : clubCapTableService.viewBatch(matchTeamIds);
         for (Map.Entry<String, StringBuilder> entry : resultsByCompetition.entrySet()) {
             String content = entry.getValue().toString().trim();
             if (content.isEmpty()) continue;
@@ -458,6 +482,31 @@ public class MatchdayBatchProcessor {
                 inbox.setCreatedAt(System.currentTimeMillis());
                 managerInboxRepository.save(inbox);
             }
+            for (Map<String, Object> row : rowsByCompetition.getOrDefault(entry.getKey(), List.of())) {
+                Long home = asLong(row.get("team1Id"));
+                Long away = asLong(row.get("team2Id"));
+                for (Long teamId : java.util.stream.Stream.of(home, away).filter(Objects::nonNull).toList()) {
+                    ClubCapTableService.CapTable table = matchTables.get(teamId);
+                    Long profileId = table == null ? null : table.holdings().stream().filter(ClubCapTableService.Holding::controlling)
+                            .map(ClubCapTableService.Holding::profileId).findFirst().orElse(null);
+                    if (profileId == null || !chairmanProfiles.containsKey(profileId)) continue;
+                    Object fixture = row.getOrDefault("fixtureId", home + ":" + away);
+                    chairmanInbox.notify(profileId, teamId, calendar.getSeason(), calendar.getCurrentDay(),
+                            "CONTROLLED_CLUB_MATCH_RESULT", "Controlled club match result", content,
+                            "MATCH_RESULT:" + entry.getKey() + ":" + calendar.getSeason() + ":" + calendar.getCurrentDay() + ":" + fixture + ":" + profileId);
+                }
+            }
         }
+    }
+
+    private static void addLong(Set<Long> target, Object value) {
+        Long parsed = asLong(value);
+        if (parsed != null) target.add(parsed);
+    }
+
+    private static Long asLong(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try { return Long.valueOf(value.toString()); } catch (NumberFormatException ignored) { return null; }
     }
 }

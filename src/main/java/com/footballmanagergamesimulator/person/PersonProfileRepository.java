@@ -10,6 +10,9 @@ import java.util.Optional;
 
 public interface PersonProfileRepository extends JpaRepository<PersonProfile, Long> {
     Optional<PersonProfile> findByUserId(Integer userId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select profile from PersonProfile profile where profile.id = :id")
+    Optional<PersonProfile> findByIdForUpdate(@Param("id") long id);
     Optional<PersonProfile> findByHumanId(Long humanId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

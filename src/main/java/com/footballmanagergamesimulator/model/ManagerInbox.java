@@ -31,8 +31,9 @@ public class ManagerInbox {
 
     private Long recipientProfileId;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
-    private String audience = "MANAGER";
+    private InboxAudience audience = InboxAudience.MANAGER;
 
     private String deduplicationKey;
 

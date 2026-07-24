@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.footballmanagergamesimulator.person.PersonProfileRepository;
+import com.footballmanagergamesimulator.model.InboxAudience;
 import java.util.Objects;
 
 @Service
@@ -66,7 +67,7 @@ public class TeamAccessGuard {
         if (user != null && user.getCareerRole() == CareerRole.CHAIRMAN) {
             return profileRepository.findByUserId(user.getId()).map(profile ->
                     Objects.equals(profile.getId(), message.getRecipientProfileId())
-                            && ("CHAIRMAN".equals(message.getAudience()) || "BOTH".equals(message.getAudience())))
+                            && (message.getAudience() == InboxAudience.CHAIRMAN || message.getAudience() == InboxAudience.BOTH))
                     .orElse(false);
         }
         Long accessibleTeamId = resolveInboxTeamId(user, message.getTeamId());

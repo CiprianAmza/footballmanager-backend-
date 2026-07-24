@@ -22,6 +22,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class TraderAdviserService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.footballmanagergamesimulator.service.ChairmanInboxNotificationService chairmanInbox;
     static final String ADVICE_V1 = "advice-v1";
     private static final LocalDate DATE_EPOCH = LocalDate.of(2000, 1, 1);
     private static final List<AdviserTerms> CATALOGUE = List.of(
@@ -100,7 +102,11 @@ public class TraderAdviserService {
         contract.setModelVersion(ADVICE_V1);
         contract.setHireIdempotencyKey(idempotencyKey);
         contract.setActive(true);
-        return new HireResult(contractRepository.save(contract), false);
+        TraderAdviserContract saved = contractRepository.save(contract);
+        chairmanInbox.notify(profile.getId(), 0L, season, day, "TRADER_ADVISER_HIRED", "Trader adviser hired",
+                "Your " + terms.adviserCode() + " trader adviser contract is active.",
+                "ADVISER_HIRED:" + saved.getId());
+        return new HireResult(saved, false);
     }
 
     /** Pays every missing contractual day, making direct catch-up and ordinary daily Fast Forward equivalent. */
@@ -186,7 +192,10 @@ public class TraderAdviserService {
         recommendation.setObservedVolatility(observation.volatility());
         recommendation.setExplanation(advice.explanation());
         recommendation.setModelVersion(advice.modelVersion());
-        return new AdviceResult(adviceRepository.save(recommendation), false);
+        TraderAdviceRecommendation saved = adviceRepository.save(recommendation);
+        chairmanInbox.notify(profile.getId(), 0L, season, day, "TRADER_ADVICE_AVAILABLE", "Trader advice available",
+                saved.getExplanation(), "ADVICE:" + saved.getId());
+        return new AdviceResult(saved, false);
     }
 
     private static Observation observation(List<MarketPriceSnapshot> values, long fallbackPrice) {

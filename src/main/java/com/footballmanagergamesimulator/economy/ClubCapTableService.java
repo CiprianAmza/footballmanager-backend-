@@ -332,7 +332,24 @@ public class ClubCapTableService {
     private CapTable view(MarketInstrument instrument, ClubCapTableState state,
                           List<PortfolioPosition> positions, Map<Long, PersonalAccount> accounts,
                           Map<Long, PersonProfile> profiles) {
-        long held = positions.stream().mapToLong(PortfolioPosition::getQuantity).sum();
+        long held = 0;
+        for (PortfolioPosition position : positions) {
+            if (position.getQuantity() < 0 || position.getTotalCostBasis() < 0) {
+                throw new EconomyConflictException("CAP_TABLE_INVALID", "Negative club holding is not allowed");
+            }
+            held = add(held, position.getQuantity());
+        }
+        if (held > instrument.getTotalSupply()
+                || add(held, instrument.getAvailableSupply()) != instrument.getTotalSupply()) {
+            throw new EconomyConflictException("SUPPLY_CONSERVATION_FAILED", "Club cap table does not reconcile");
+        }
+        List<Long> controllers = positions.stream()
+                .filter(position -> controls(position.getQuantity(), instrument.getTotalSupply(), controlThreshold()))
+                .map(PortfolioPosition::getAccountId).toList();
+        if (controllers.size() > 1 || !java.util.Objects.equals(
+                controllers.isEmpty() ? null : controllers.get(0), state.getControllingAccountId())) {
+            throw new EconomyConflictException("CAP_TABLE_CONTROLLER_MISMATCH", "Cap table controller does not reconcile");
+        }
         List<Holding> holdings = positions.stream().sorted(Comparator.comparingLong(PortfolioPosition::getAccountId)).map(position -> {
             PersonalAccount account = accounts.get(position.getAccountId());
             PersonProfile profile = account == null ? null : profiles.get(account.getProfileId());

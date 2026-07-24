@@ -38,7 +38,12 @@ public final class ClubDtos {
                               boolean heldByPrincipal, boolean controlledByPrincipal) { }
     public record Dashboard(long teamId, String name, ValuationView valuation,
                             CapTableView capTable, TreasuryView treasury,
-                            boolean controlledByPrincipal) { }
+                            boolean controlledByPrincipal, EconomyDtos.Money personalAvailableCash) {
+        public Dashboard(long teamId, String name, ValuationView valuation, CapTableView capTable,
+                         TreasuryView treasury, boolean controlledByPrincipal) {
+            this(teamId, name, valuation, capTable, treasury, controlledByPrincipal, null);
+        }
+    }
 
     public record QuoteRequest(@NotBlank String idempotencyKey) { }
     public record TakeoverRequest(@NotBlank String quoteId, @NotBlank String idempotencyKey) { }

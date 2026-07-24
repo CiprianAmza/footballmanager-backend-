@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.ManagerInbox;
+import com.footballmanagergamesimulator.model.InboxAudience;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.user.TeamAccessGuard;
 import com.footballmanagergamesimulator.user.CurrentUserService;
@@ -44,7 +45,7 @@ public class InboxController {
         if (user.getCareerRole() == CareerRole.CHAIRMAN) {
             return profileRepository.findByUserId(user.getId())
                     .map(profile -> ResponseEntity.ok(managerInboxRepository
-                            .findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(profile.getId(), List.of("CHAIRMAN", "BOTH"))))
+                            .findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(profile.getId(), List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH))))
                     .orElseGet(() -> ResponseEntity.ok(List.of()));
         }
         Long teamId = resolveTeamId(0, request);
@@ -58,7 +59,7 @@ public class InboxController {
         if (user.getCareerRole() == CareerRole.CHAIRMAN) {
             return ResponseEntity.ok(profileRepository.findByUserId(user.getId())
                     .map(profile -> managerInboxRepository.countByRecipientProfileIdAndAudienceInAndIsReadFalse(
-                            profile.getId(), List.of("CHAIRMAN", "BOTH"))).orElse(0L));
+                            profile.getId(), List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH))).orElse(0L));
         }
         Long teamId = resolveTeamId(0, request);
         return ResponseEntity.ok(teamId == null ? 0L : managerInboxRepository.countByTeamIdAndIsReadFalse(teamId));
@@ -73,7 +74,7 @@ public class InboxController {
         if (user.getCareerRole() == CareerRole.CHAIRMAN) {
             boolean allowed = profileRepository.findByUserId(user.getId()).map(profile ->
                     java.util.Objects.equals(profile.getId(), message.get().getRecipientProfileId())
-                            && List.of("CHAIRMAN", "BOTH").contains(message.get().getAudience())).orElse(false);
+                            && List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH).contains(message.get().getAudience())).orElse(false);
             if (!allowed) return ResponseEntity.status(403).body(Map.of("success", false));
         } else if (!teamAccessGuard.canAccessInboxMessage(request, message.get())) {
             return ResponseEntity.status(403).body(Map.of("success", false));
@@ -90,7 +91,7 @@ public class InboxController {
         List<ManagerInbox> unread;
         if (user.getCareerRole() == CareerRole.CHAIRMAN) {
             unread = profileRepository.findByUserId(user.getId()).map(profile -> managerInboxRepository
-                    .findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(profile.getId(), List.of("CHAIRMAN", "BOTH")))
+                    .findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(profile.getId(), List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH)))
                     .orElse(List.of()).stream().filter(m -> !m.isRead()).toList();
         } else {
             Long teamId = resolveTeamId(0, request);
@@ -105,7 +106,8 @@ public class InboxController {
     public List<ManagerInbox> getMessages(@PathVariable(name = "teamId") long teamId, HttpServletRequest request) {
         Long effectiveTeamId = resolveTeamId(teamId, request);
         if (effectiveTeamId == null || effectiveTeamId <= 0) return Collections.emptyList();
-        return managerInboxRepository.findAllByTeamIdOrderByIdDesc(effectiveTeamId);
+        return managerInboxRepository.findAllByTeamIdAndAudienceInOrderByIdDesc(effectiveTeamId,
+                List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
     }
 
     @GetMapping("/messages/{teamId}/{season}")
@@ -114,14 +116,16 @@ public class InboxController {
                                                   HttpServletRequest request) {
         Long effectiveTeamId = resolveTeamId(teamId, request);
         if (effectiveTeamId == null || effectiveTeamId <= 0) return Collections.emptyList();
-        return managerInboxRepository.findAllByTeamIdAndSeasonNumberOrderByIdDesc(effectiveTeamId, season);
+        return managerInboxRepository.findAllByTeamIdAndSeasonNumberOrderByIdDesc(effectiveTeamId, season).stream()
+                .filter(message -> message.getAudience() == InboxAudience.MANAGER || message.getAudience() == InboxAudience.BOTH).toList();
     }
 
     @GetMapping("/unreadCount/{teamId}")
     public long getUnreadCount(@PathVariable(name = "teamId") long teamId, HttpServletRequest request) {
         Long effectiveTeamId = resolveTeamId(teamId, request);
         if (effectiveTeamId == null || effectiveTeamId <= 0) return 0;
-        return managerInboxRepository.countByTeamIdAndIsReadFalse(effectiveTeamId);
+        return managerInboxRepository.countByTeamIdAndAudienceInAndIsReadFalse(effectiveTeamId,
+                List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
     }
 
     @PostMapping("/markRead/{messageId}")
@@ -132,7 +136,8 @@ public class InboxController {
             return ResponseEntity.status(404).body(Map.of("success", false, "message", "Message not found"));
         }
         ManagerInbox message = opt.get();
-        if (!teamAccessGuard.canAccessInboxMessage(request, message)) {
+        if (!teamAccessGuard.canAccessInboxMessage(request, message)
+                || message.getAudience() == InboxAudience.CHAIRMAN) {
             return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not allowed"));
         }
         message.setRead(true);
@@ -147,7 +152,8 @@ public class InboxController {
         if (effectiveTeamId == null || effectiveTeamId <= 0) {
             return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not allowed"));
         }
-        List<ManagerInbox> unread = managerInboxRepository.findAllByTeamIdAndIsReadFalse(effectiveTeamId);
+        List<ManagerInbox> unread = managerInboxRepository.findAllByTeamIdAndAudienceInAndIsReadFalse(effectiveTeamId,
+                List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
         unread.forEach(message -> {
             message.setRead(true);
             managerInboxRepository.save(message);

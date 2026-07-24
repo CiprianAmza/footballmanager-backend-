@@ -19,6 +19,7 @@ import java.util.*;
 
 @Service
 public class ChairmanTacticalMandateService {
+    @Autowired private com.footballmanagergamesimulator.service.ChairmanInboxNotificationService chairmanInbox;
     private final ChairmanTacticalMandateRepository mandateRepository;
     private final TeamRepository teamRepository;
     private final HumanRepository humanRepository;
@@ -84,6 +85,9 @@ public class ChairmanTacticalMandateService {
                 .map(slot -> new MandateSlot(slot.positionIndex(), slot.playerId())).toList();
         mandate.replaceSlots(slots);
         ChairmanTacticalMandateDtos.MandateView result = view(mandateRepository.saveAndFlush(mandate));
+        chairmanInbox.notify(principal.getId(), teamId, result.updatedSeason(), result.updatedGameDay(),
+                "TACTICAL_MANDATE_UPDATED", "Tactical mandate updated", "A new tactical mandate was committed.",
+                "MANDATE:" + teamId + ":" + result.version());
         if (eventPublisher != null) eventPublisher.publishEvent(new ChairmanTacticalMandateChangedEvent(teamId));
         return result;
     }

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,7 +40,11 @@ class ClubQueryServiceTest {
         when(competitions.findAll()).thenReturn(List.of(competition(20L, "Liga Real")));
         when(teams.findAll()).thenReturn(List.of(team(2L, 20L, "Beta"), team(1L, 20L, "Alpha")));
         when(capTables.view(anyLong())).thenAnswer(invocation -> capTable(invocation.getArgument(0)));
+        when(capTables.viewBatch(any())).thenAnswer(invocation -> ((List<Long>) invocation.getArgument(0)).stream()
+                .collect(java.util.stream.Collectors.toMap(id -> id, this::capTable)));
         when(valuations.value(anyLong())).thenAnswer(invocation -> valuation(invocation.getArgument(0)));
+        when(valuations.valueBatch(any())).thenAnswer(invocation -> ((List<Team>) invocation.getArgument(0)).stream()
+                .collect(java.util.stream.Collectors.toMap(Team::getId, team -> valuation(team.getId()))));
         when(valuations.equityValue(any(), anyLong(), anyLong()))
                 .thenAnswer(invocation -> invocation.<Long>getArgument(1) * 100L);
     }

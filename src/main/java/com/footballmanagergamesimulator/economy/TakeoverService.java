@@ -19,6 +19,8 @@ import java.util.UUID;
 
 @Service
 public class TakeoverService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.footballmanagergamesimulator.service.ChairmanInboxNotificationService chairmanInbox;
     private final PersonalAccountRepository accountRepository;
     private final PersonalAccountingService accountingService;
     private final MarketInstrumentRepository instrumentRepository;
@@ -268,6 +270,9 @@ public class TakeoverService {
         execution.setQuantityAfter(buyerPosition.getQuantity());
         TakeoverExecution saved = executionRepository.save(execution);
         probe.checkpoint("TAKEOVER_AFTER_EXECUTION_RECORD");
+        chairmanInbox.notify(profile.getId(), team.getId(), date.season(), date.day(), "CONTROL_ACQUIRED",
+                "Club control acquired", "You acquired control of " + team.getName() + ".",
+                "CONTROL_ACQUIRED:" + saved.getExecutionKey());
         return new ExecutionResult(saved, false);
     }
 

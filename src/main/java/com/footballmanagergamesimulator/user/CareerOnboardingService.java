@@ -9,6 +9,8 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.JobOfferService;
+import com.footballmanagergamesimulator.service.ChairmanInboxNotificationService;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,8 @@ import java.util.Map;
 
 @Service
 public class CareerOnboardingService {
+
+    @Autowired private ChairmanInboxNotificationService chairmanInbox;
 
     private final UserRepository userRepository;
     private final HumanRepository humanRepository;
@@ -121,6 +125,9 @@ public class CareerOnboardingService {
         user.setEverManaged(false);
         userRepository.save(user);
         PersonProfile profile = profileService.requireForUser(user);
+        chairmanInbox.notify(profile.getId(), 0L, 0, 0, "CHAIRMAN_WELCOME", "Welcome to the Chairman's office",
+                "Your Chairman career is ready. Choose your club strategy from the global game world.",
+                "CHAIRMAN_WELCOME:" + profile.getId());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", true);
         result.put("careerRole", CareerRole.CHAIRMAN);

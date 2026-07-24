@@ -15,6 +15,8 @@ import java.util.UUID;
 
 @Service
 public class ClubTreasuryService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.footballmanagergamesimulator.service.ChairmanInboxNotificationService chairmanInbox;
     private final PersonalAccountRepository accountRepository;
     private final PersonalAccountingService accountingService;
     private final MarketInstrumentRepository instrumentRepository;
@@ -143,6 +145,12 @@ public class ClubTreasuryService {
         transfer.setDistributableBefore(policy.distributableCash());
         ClubCashTransfer saved = transferRepository.save(transfer);
         probe.checkpoint("TREASURY_AFTER_TRANSFER_RECORD");
+        chairmanInbox.notify(profile.getId(), teamId, date.season(), date.day(), "TREASURY_TRANSFER",
+                direction == ClubCashTransferDirection.INJECTION ? "Funds injected into club" : "Funds withdrawn from club",
+                direction == ClubCashTransferDirection.INJECTION
+                        ? "Injected " + amount + " into " + team.getName()
+                        : "Withdrew " + amount + " from distributable funds of " + team.getName(),
+                "TREASURY:" + saved.getTransferKey());
         return new TransferResult(saved, false);
     }
 

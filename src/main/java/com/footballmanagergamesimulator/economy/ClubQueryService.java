@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ClubQueryService {
@@ -54,19 +55,27 @@ public class ClubQueryService {
         java.util.Map<Long, String> competitionNames = competitionRepository.findAll().stream()
                 .collect(java.util.stream.Collectors.toMap(Competition::getId, Competition::getName));
         java.util.Map<Long, ClubCapTableService.CapTable> capTables = capTableService.viewBatch(teams.stream().map(Team::getId).toList());
-        return teams.stream()
-                .map(team -> {
+        List<Team> included = teams.stream().filter(team -> {
                     ClubCapTableService.CapTable cap = capTables.get(team.getId());
-                    if (cap == null) return null;
+                    if (cap == null) return false;
                     ClubCapTableService.Holding controller = controller(cap);
                     ClubCapTableService.Holding principal = principal(cap, principalAccount);
                     long principalShares = principal == null ? 0 : principal.quantity();
                     boolean held = principalShares > 0;
                     boolean controlled = principalAccount != null
                             && principalAccount.equals(cap.controllingAccountId());
-                    if (scope == ClubCatalogScope.HELD && !held
-                            || scope == ClubCatalogScope.CONTROLLED && !controlled) return null;
-                    ClubValuationService.Valuation valuation = valuationService.value(team.getId());
+                    return !(scope == ClubCatalogScope.HELD && !held
+                            || scope == ClubCatalogScope.CONTROLLED && !controlled);
+                }).toList();
+        Map<Long, ClubValuationService.Valuation> valuations = valuationService.valueBatch(included);
+        return included.stream().map(team -> {
+                    ClubCapTableService.CapTable cap = capTables.get(team.getId());
+                    ClubCapTableService.Holding controller = controller(cap);
+                    ClubCapTableService.Holding principal = principal(cap, principalAccount);
+                    long principalShares = principal == null ? 0 : principal.quantity();
+                    boolean held = principalShares > 0;
+                    boolean controlled = principalAccount != null && principalAccount.equals(cap.controllingAccountId());
+                    ClubValuationService.Valuation valuation = valuations.get(team.getId());
                     return new ClubDtos.ClubSummary(team.getId(), team.getName(), team.getCompetitionId(),
                             competitionNames.get(team.getCompetitionId()), money(valuation.totalValue()),
                             controller == null ? null : controller.profileId(),
@@ -74,7 +83,7 @@ public class ClubQueryService {
                             principalShares, stakeBps(principalShares, cap.issuedShares()),
                             money(valuationService.equityValue(valuation, principalShares, cap.issuedShares())),
                             held, controlled);
-                }).filter(java.util.Objects::nonNull).toList();
+                }).toList();
     }
 
     @Transactional
@@ -93,8 +102,10 @@ public class ClubQueryService {
         }
         ClubValuationService.Valuation valuation = valuationService.value(teamId);
         ClubFinancialPolicyService.Policy policy = policyService.policy(team);
+        EconomyDtos.Money personalCash = accountRepository.findByProfileId(principal.getId())
+                .map(value -> money(value.getCashBalance())).orElse(money(0));
         return new ClubDtos.Dashboard(teamId, team.getName(), valuation(valuation), capTable(cap, valuation),
-                treasury(policy), true);
+                treasury(policy), true, personalCash);
     }
 
     @Transactional

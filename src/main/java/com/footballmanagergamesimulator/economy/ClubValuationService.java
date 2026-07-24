@@ -19,6 +19,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
+import java.util.Collection;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -58,22 +62,59 @@ public class ClubValuationService {
     }
 
     Valuation value(Team team) {
+        List<Human> players = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+        List<ClubFinancialObligation> obligations = obligationRepository
+                .findAllByTeamIdAndSettledFalseOrderByDueSeasonAscDueDayAscIdAsc(team.getId());
+        Stadium stadium = stadiumRepository.findByTeamId(team.getId()).orElse(null);
+        TeamFacilities facilities = facilitiesRepository.findByTeamId(team.getId());
+        List<CompetitionHistory> histories = historyRepository.findByTeamId(team.getId());
+        return calculate(team, players, obligations, stadium, facilities, histories);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, Valuation> valueBatch(Collection<Team> teams) {
+        if (teams.isEmpty()) return Map.of();
+        List<Long> teamIds = teams.stream().map(Team::getId).toList();
+        Map<Long, List<Human>> players = new HashMap<>();
+        humanRepository.findAllByTeamIdInAndTypeId(teamIds, TypeNames.PLAYER_TYPE)
+                .forEach(player -> players.computeIfAbsent(player.getTeamId(), ignored -> new ArrayList<>()).add(player));
+        Map<Long, List<ClubFinancialObligation>> obligations = new HashMap<>();
+        obligationRepository.findAllByTeamIdInAndSettledFalseOrderByTeamIdAscDueSeasonAscDueDayAscIdAsc(teamIds)
+                .forEach(value -> obligations.computeIfAbsent(value.getTeamId(), ignored -> new ArrayList<>()).add(value));
+        Map<Long, Stadium> stadiums = new HashMap<>();
+        stadiumRepository.findAllByTeamIdIn(teamIds).forEach(value -> stadiums.put(value.getTeamId(), value));
+        Map<Long, TeamFacilities> facilities = new HashMap<>();
+        facilitiesRepository.findAllByTeamIdIn(teamIds).forEach(value -> facilities.put(value.getTeamId(), value));
+        Map<Long, List<CompetitionHistory>> histories = new HashMap<>();
+        historyRepository.findAllByTeamIdIn(teamIds)
+                .forEach(value -> histories.computeIfAbsent(value.getTeamId(), ignored -> new ArrayList<>()).add(value));
+        Map<Long, Valuation> result = new HashMap<>();
+        for (Team team : teams) {
+            result.put(team.getId(), calculate(team, players.getOrDefault(team.getId(), List.of()),
+                    obligations.getOrDefault(team.getId(), List.of()), stadiums.get(team.getId()),
+                    facilities.get(team.getId()), histories.getOrDefault(team.getId(), List.of())));
+        }
+        return result;
+    }
+
+    private Valuation calculate(Team team, List<Human> players, List<ClubFinancialObligation> obligations,
+                                Stadium stadium, TeamFacilities facilities, List<CompetitionHistory> histories) {
         RegentEconomyProperties.Club config = properties.getClub();
         validateConfiguration(config);
-        long squad = squadValue(team.getId());
-        long obligations = dueObligations(team.getId());
-        long cashNet = exactSubtract(exactSubtract(team.getTotalFinances(), Math.max(0, team.getDebt())), obligations);
-        long stadium = stadiumAndFacilitiesValue(team.getId(), team.getStadiumCapacity(), config);
+        long squad = squadValue(players);
+        long dueObligations = dueObligations(obligations);
+        long cashNet = exactSubtract(exactSubtract(team.getTotalFinances(), Math.max(0, team.getDebt())), dueObligations);
+        long stadiumValue = stadiumAndFacilitiesValue(team.getStadiumCapacity(), config, stadium, facilities);
         long brand = exactMultiply(Math.max(0, team.getReputation()), config.getReputationPointValue());
-        long beforePerformance = exactAdd(exactAdd(squad, cashNet), exactAdd(stadium, brand));
-        int performanceBps = performanceBps(team.getId(), config);
+        long beforePerformance = exactAdd(exactAdd(squad, cashNet), exactAdd(stadiumValue, brand));
+        int performanceBps = performanceBps(histories, config);
         long performance = applyBps(beforePerformance, performanceBps);
         long raw = exactAdd(beforePerformance, performance);
         long total = Math.max(config.getMinimumValuation(), raw);
         String stateVersion = stateVersion(config.getValuationVersion(), team.getId(), squad, team.getTotalFinances(),
-                team.getDebt(), obligations, stadium, brand, performanceBps, performance, total);
+                team.getDebt(), dueObligations, stadiumValue, brand, performanceBps, performance, total);
         return new Valuation(team.getId(), config.getValuationVersion(), stateVersion, squad,
-                team.getTotalFinances(), team.getDebt(), obligations, cashNet, stadium, brand,
+                team.getTotalFinances(), team.getDebt(), dueObligations, cashNet, stadiumValue, brand,
                 performanceBps, performance, total);
     }
 
@@ -92,17 +133,24 @@ public class ClubValuationService {
     }
 
     private long squadValue(long teamId) {
+        return squadValue(humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE));
+    }
+
+    private long squadValue(List<Human> players) {
         long total = 0;
-        for (Human human : humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)) {
+        for (Human human : players) {
             if (!human.isRetired()) total = exactAdd(total, Math.max(0, human.getTransferValue()));
         }
         return total;
     }
 
     private long dueObligations(long teamId) {
+        return dueObligations(obligationRepository.findAllByTeamIdAndSettledFalseOrderByDueSeasonAscDueDayAscIdAsc(teamId));
+    }
+
+    private long dueObligations(List<ClubFinancialObligation> obligations) {
         long total = 0;
-        for (ClubFinancialObligation obligation : obligationRepository
-                .findAllByTeamIdAndSettledFalseOrderByDueSeasonAscDueDayAscIdAsc(teamId)) {
+        for (ClubFinancialObligation obligation : obligations) {
             total = exactAdd(total, Math.max(0, obligation.getAmountRemaining()));
         }
         return total;
@@ -111,6 +159,11 @@ public class ClubValuationService {
     private long stadiumAndFacilitiesValue(long teamId, int fallbackCapacity,
                                             RegentEconomyProperties.Club config) {
         Stadium stadium = stadiumRepository.findByTeamId(teamId).orElse(null);
+        return stadiumAndFacilitiesValue(fallbackCapacity, config, stadium, facilitiesRepository.findByTeamId(teamId));
+    }
+
+    private long stadiumAndFacilitiesValue(int fallbackCapacity, RegentEconomyProperties.Club config,
+                                            Stadium stadium, TeamFacilities facilities) {
         int capacity = stadium == null ? Math.max(0, fallbackCapacity) : Math.max(0, stadium.getEffectiveCapacity());
         long levels = 0;
         if (stadium != null) {
@@ -123,7 +176,6 @@ public class ClubValuationService {
             levels = exactAdd(levels, Math.max(0, stadium.getTrainingPitchLevel()));
             levels = exactAdd(levels, Math.max(0, stadium.getParkingLevel()));
         }
-        TeamFacilities facilities = facilitiesRepository.findByTeamId(teamId);
         long facilityLevels = facilities == null ? 0 : exactAdd(exactAdd(
                 Math.max(0, facilities.getYouthAcademyLevel()), Math.max(0, facilities.getYouthTrainingLevel())),
                 exactAdd(Math.max(0, facilities.getSeniorTrainingLevel()), Math.max(0, facilities.getScoutingLevel())));
@@ -133,7 +185,11 @@ public class ClubValuationService {
     }
 
     private int performanceBps(long teamId, RegentEconomyProperties.Club config) {
-        List<CompetitionHistory> eligible = historyRepository.findByTeamId(teamId).stream()
+        return performanceBps(historyRepository.findByTeamId(teamId), config);
+    }
+
+    private int performanceBps(List<CompetitionHistory> source, RegentEconomyProperties.Club config) {
+        List<CompetitionHistory> eligible = source.stream()
                 .filter(value -> value.getGames() > 0)
                 .sorted(Comparator.comparingLong(CompetitionHistory::getSeasonNumber).reversed()
                         .thenComparingLong(CompetitionHistory::getCompetitionId))
