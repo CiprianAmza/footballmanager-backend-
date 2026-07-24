@@ -3,11 +3,13 @@ package com.footballmanagergamesimulator.matchplan;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateRepository;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandate;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.Injury;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.HumanRepository;
@@ -180,6 +182,45 @@ class LineupAdapterTest {
     }
 
     @Test
+    void userSaved_activeMandateCompletesAfterUnavailableSavedPlayerIsRemoved() throws Exception {
+        long unavailableId = 11L;
+        long replacementId = 99L;
+        int[] grid = {1, 3, 10, 11, 13, 14, 20, 21, 23, 24, 27};
+        List<FormationData> saved = new ArrayList<>();
+        List<FormationData> assistant = new ArrayList<>();
+        for (int i = 0; i < grid.length; i++) {
+            long id = i + 1L;
+            human(id, "MC", 10L);
+            saved.add(fd(grid[i], id));
+            assistant.add(fd(grid[i], id == unavailableId ? replacementId : id));
+        }
+        human(replacementId, "MC", 10L);
+
+        ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
+        mandate.setTeamId(10L);
+        mandate.setRequiredFormation("442");
+        Injury injury = new Injury();
+        injury.setTeamId(10L);
+        injury.setPlayerId(unavailableId);
+        injury.setDaysRemaining(3);
+        when(injuryRepo.findAllByTeamIdAndDaysRemainingGreaterThan(10L, 0)).thenReturn(List.of(injury));
+        when(suspensionRepo.findAllByTeamIdAndActive(10L, true)).thenReturn(List.of());
+        when(tc.askAssistant(10L, "442")).thenReturn(assistant);
+        savePt(saved);
+
+        LineupAdapter configured = adapter();
+        when(mandateRepo.findByTeamId(10L)).thenReturn(Optional.of(mandate));
+        LineupAdapter.Result result = configured.build(10L, "442", 42L, LineupAdapter.Mode.USER_SAVED);
+
+        assertEquals(LineupAdapter.Source.USER_SAVED, result.source());
+        assertEquals(11, result.lineup().getStartingXI().size());
+        assertTrue(result.lineup().getStartingXI().stream().noneMatch(c -> c.playerId() == unavailableId));
+        assertTrue(result.lineup().getBench().stream().noneMatch(c -> c.playerId() == unavailableId));
+        assertEquals(1, result.lineup().getStartingXI().stream().filter(c -> c.playerId() == replacementId).count());
+        assertEquals(11, result.lineup().getStartingXI().stream().map(Contributor::playerId).distinct().count());
+    }
+
+    @Test
     void userSaved_starOnBench_staysOnBench() throws Exception {
         stubBestEleven(50, List.of());
         for (long i = 1; i <= 11; i++) human(i, "MC", 10L);
@@ -237,6 +278,7 @@ class LineupAdapterTest {
 
     private void savePt(List<FormationData> list) throws Exception {
         PersonalizedTactic pt = new PersonalizedTactic();
+        pt.setTactic("442");
         pt.setFirst11(mapper.writeValueAsString(list));
         when(ptRepo.findPersonalizedTacticByTeamId(anyLong())).thenReturn(Optional.of(pt));
     }

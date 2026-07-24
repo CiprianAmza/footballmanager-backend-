@@ -184,6 +184,8 @@ class ChairmanTacticalMandateEnforcementServiceTest {
         squad.put(200L, foreign);
         squad.put(201L, staff);
         squad.put(202L, retired);
+        Human unavailable = player(203L);
+        squad.put(203L, unavailable);
         ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
         mandate.setTeamId(10L);
         mandate.setRequiredFormation("442");

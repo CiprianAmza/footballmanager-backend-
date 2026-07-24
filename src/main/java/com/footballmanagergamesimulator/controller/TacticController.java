@@ -184,8 +184,8 @@ public class TacticController {
         long managerStarters = managerFormationData == null ? 0
                 : managerFormationData.stream().filter(data -> data.getPositionIndex() < 30).count();
         if (managerStarters < 11) {
-            managerView.setFormationDataList(mandateEnforcement.completeFormation(managerFormationData,
-                    assistantSelection(teamId, effectiveManagerFormation, unavailable, true)));
+            managerView.setFormationDataList(new ArrayList<>(mandateEnforcement.completeFormation(managerFormationData,
+                    assistantSelection(teamId, effectiveManagerFormation, unavailable, true))));
         }
         ensureSevenSubstitutes(teamId, managerView.getFormationDataList(), unavailable);
 

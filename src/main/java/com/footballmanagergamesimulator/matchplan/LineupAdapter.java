@@ -158,8 +158,8 @@ public class LineupAdapter {
         EffectiveChairmanMandate mandate = mandateEnforcement.mandate(teamId);
         boolean active = mandate.requiredFormation() != null || !mandate.lockedSlots().isEmpty();
         if (active && formation.stream().filter(data -> data.getPositionIndex() < BENCH_SLOT_START).count() < REQUIRED_STARTERS) {
-            formation = mandateEnforcement.completeFormation(formation,
-                    tacticController.askAssistant(teamId, effectiveFormation));
+            formation = new ArrayList<>(mandateEnforcement.completeFormation(formation,
+                    tacticController.askAssistant(teamId, effectiveFormation)));
         }
 
         // Sort by slot to preserve canonical order; split starters / bench.

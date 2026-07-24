@@ -133,6 +133,77 @@ class LineupRatingServiceTest {
         verify(controller, never()).askAssistant(anyLong(), anyString());
     }
 
+    @Test
+    void activeRuntimeRatingsAndSnapshotUseTheSameReplacementForUnavailableSavedPlayer() throws Exception {
+        PersonalizedTacticRepository tactics = mock(PersonalizedTacticRepository.class);
+        ChairmanTacticalMandateRepository mandates = mock(ChairmanTacticalMandateRepository.class);
+        HumanRepository humans = mock(HumanRepository.class);
+        PlayerSkillsRepository skills = mock(PlayerSkillsRepository.class);
+        MatchSimulationOrchestrator availability = mock(MatchSimulationOrchestrator.class);
+        CoachPermissionService permissions = mock(CoachPermissionService.class);
+        TacticController controller = mock(TacticController.class);
+        PlayerValueService values = mock(PlayerValueService.class);
+        PlayerRoleService roles = mock(PlayerRoleService.class);
+        PlayerInstructionService instructions = mock(PlayerInstructionService.class);
+
+        ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
+        mandate.setTeamId(10L);
+        mandate.setRequiredFormation("442");
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.of(mandate));
+        when(availability.roundUnavailableIds(10L)).thenReturn(Set.of(105L));
+        when(permissions.lockedSlots(10L)).thenReturn(List.of());
+        when(humans.findById(anyLong())).thenAnswer(invocation -> Optional.of(player(invocation.getArgument(0))));
+        when(skills.findPlayerSkillsByPlayerId(anyLong())).thenReturn(Optional.empty());
+        when(values.familiarityFactor(anyString(), anyString())).thenReturn(1.0);
+        when(values.moraleFactor(anyDouble())).thenReturn(1.0);
+        when(values.fitnessFactor(anyDouble())).thenReturn(1.0);
+        when(instructions.computeInstructionMultiplier(any(), anyString(), anyString())).thenReturn(1.0);
+
+        int[] grid = {1, 3, 10, 11, 13, 14, 20, 21, 23, 24, 27};
+        List<FormationData> savedEntries = new ArrayList<>();
+        List<FormationData> assistantEntries = new ArrayList<>();
+        for (int i = 0; i < grid.length; i++) {
+            savedEntries.add(data(grid[i], 100L + i));
+            assistantEntries.add(data(grid[i], i == 5 ? 900L : 100L + i));
+        }
+        PersonalizedTactic saved = new PersonalizedTactic();
+        saved.setTeamId(10L);
+        saved.setTactic("442");
+        saved.setFirst11(new ObjectMapper().writeValueAsString(savedEntries));
+        when(tactics.findPersonalizedTacticByTeamId(10L)).thenReturn(Optional.of(saved));
+        when(controller.askAssistant(10L, "442")).thenReturn(assistantEntries);
+
+        LineupRatingService service = new LineupRatingService();
+        ReflectionTestUtils.setField(service, "personalizedTacticRepository", tactics);
+        ReflectionTestUtils.setField(service, "humanRepository", humans);
+        ReflectionTestUtils.setField(service, "playerSkillsRepository", skills);
+        ReflectionTestUtils.setField(service, "competitionRepository", mock(CompetitionRepository.class));
+        ReflectionTestUtils.setField(service, "teamRepository", mock(TeamRepository.class));
+        ReflectionTestUtils.setField(service, "scorerRepository", mock(ScorerRepository.class));
+        ReflectionTestUtils.setField(service, "scorerLeaderboardRepository", mock(ScorerLeaderboardRepository.class));
+        ReflectionTestUtils.setField(service, "matchPlayerRatingRepository", mock(MatchPlayerRatingRepository.class));
+        ReflectionTestUtils.setField(service, "tacticService", new TacticService());
+        ReflectionTestUtils.setField(service, "mandateEnforcement",
+                new ChairmanTacticalMandateEnforcementService(mandates, humans, new TacticService()));
+        ReflectionTestUtils.setField(service, "coachPermissionService", permissions);
+        ReflectionTestUtils.setField(service, "playerValueService", values);
+        ReflectionTestUtils.setField(service, "playerRoleService", roles);
+        ReflectionTestUtils.setField(service, "playerInstructionService", instructions);
+        ReflectionTestUtils.setField(service, "tacticController", controller);
+        ReflectionTestUtils.setField(service, "matchSimulationOrchestrator", availability);
+
+        List<Long> ratingIds = service.computePlayerRatings(10L, "442").stream()
+                .map(LineupRatingService.PlayerRatingLine::playerId).toList();
+        List<Long> snapshotIds = ReflectionTestUtils.<List<FormationData>>invokeMethod(service,
+                        "buildFormationSnapshot", 10L, "442").stream()
+                .filter(value -> value.getPositionIndex() < 30)
+                .map(FormationData::getPlayerId).toList();
+
+        assertThat(ratingIds).hasSize(11).doesNotContain(105L).contains(900L).doesNotHaveDuplicates();
+        assertThat(snapshotIds).containsExactlyElementsOf(ratingIds)
+                .doesNotContain(105L).contains(900L).doesNotHaveDuplicates();
+    }
+
     private static ChairmanTacticalMandate mandate() {
         ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
         mandate.setTeamId(10L);
