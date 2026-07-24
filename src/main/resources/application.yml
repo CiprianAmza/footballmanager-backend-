@@ -121,8 +121,7 @@ match:
       max-ball-step: 4.0
   engine:
 
-    # Compartment Engine V1 Phase 0/1 contract only. Nothing in the runtime scoring
-    # path consumes this section yet; false is the mandatory legacy fallback gate.
+    # Compartment Engine V1 contract. Both flags remain false until the rollout is enabled.
     compartment:
       enabled: false
       shadow-enabled: false

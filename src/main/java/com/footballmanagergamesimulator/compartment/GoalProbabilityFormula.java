@@ -9,7 +9,7 @@ import java.util.Objects;
  * RNG-free probability preview for the future canonical scorer.
  *
  * <p>It computes matchup shares/xG and the exact Gamma-Poisson predictive PMF analytically. It
- * never samples a score and is not called by any runtime path in Phase 0/1.
+ * never samples a score; runtime scoring samples only the PMFs returned here.
  */
 public final class GoalProbabilityFormula {
 

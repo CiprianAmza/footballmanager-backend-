@@ -16,10 +16,9 @@ import java.util.Map;
 /**
  * Typed Phase 0/1 contract for the future compartment engine.
  *
- * <p>The bean is intentionally not consumed by a runtime scoring path in this phase. It only binds
- * the complete initial coefficient catalogue under {@code match.engine.compartment}; pure formula
- * classes receive it explicitly. The flag remains off until canonical integration is separately
- * reviewed.
+ * <p>The bean binds the complete coefficient catalogue under {@code match.engine.compartment};
+ * canonical runtime scoring receives it explicitly. Both rollout flags remain off until the
+ * authoritative integration is separately enabled.
  */
 @Configuration
 @ConfigurationProperties(prefix = "match.engine.compartment")
