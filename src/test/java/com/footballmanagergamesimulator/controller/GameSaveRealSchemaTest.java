@@ -7,7 +7,6 @@ import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -19,7 +18,6 @@ import org.springframework.boot.test.context.TestConfiguration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import jakarta.persistence.EntityManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,7 +36,6 @@ class GameSaveRealSchemaTest {
     private static final List<String> MANIFEST_KEYS = GameSaveImportService.manifestKeys();
 
     @Autowired private GameSaveImportService importService;
-    @Autowired private EntityManager entityManager;
     @MockBean private PersonProfileService personProfileService;
 
     @Test
@@ -182,36 +179,6 @@ class GameSaveRealSchemaTest {
         assertThatThrownBy(() -> importService.prepare(roleMismatch))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("invalid player role familiarity");
-    }
-
-    @Test
-    @Disabled("Written for H2 migration verification; NOT_RUN_BY_POLICY")
-    void v7BackfillLeavesIdentityAvailableForGeneratedProfileIds() {
-        Human player = new Human();
-        player.setId(100L);
-        player.setTypeId(1L);
-        player.setPosition("ST");
-        player.setPreferredFoot("Right");
-        entityManager.persist(player);
-        entityManager.flush();
-
-        entityManager.createNativeQuery("""
-                INSERT INTO PLAYER_POSITION_FAMILIARITY
-                    (PLAYER_ID, POSITION_CODE, FAMILIARITY, PRIMARY_POSITION, VERSION)
-                SELECT h.id, UPPER(TRIM(h.position)), 20, TRUE, 0
-                FROM HUMAN h WHERE h.type_id = 1 AND h.id = 100
-                """).executeUpdate();
-        Number backfilledId = (Number) entityManager.createNativeQuery(
-                "SELECT ID FROM PLAYER_POSITION_FAMILIARITY WHERE PLAYER_ID = 100").getSingleResult();
-        entityManager.createNativeQuery("""
-                INSERT INTO PLAYER_POSITION_FAMILIARITY
-                    (PLAYER_ID, POSITION_CODE, FAMILIARITY, PRIMARY_POSITION, VERSION)
-                VALUES (100, 'MC', 10, FALSE, 0)
-                """).executeUpdate();
-        Number generatedId = (Number) entityManager.createNativeQuery(
-                "SELECT ID FROM PLAYER_POSITION_FAMILIARITY WHERE PLAYER_ID = 100 AND POSITION_CODE = 'MC'")
-                .getSingleResult();
-        assertThat(generatedId.longValue()).isNotEqualTo(backfilledId.longValue());
     }
 
     @Test

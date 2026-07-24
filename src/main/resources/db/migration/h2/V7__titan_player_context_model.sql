@@ -42,36 +42,38 @@ CREATE TABLE IF NOT EXISTS player_foot_profile (
     CONSTRAINT fk_player_foot_profile_human FOREIGN KEY (player_id) REFERENCES human(id)
 );
 
-INSERT INTO player_position_familiarity (
-    player_id, position_code, familiarity, primary_position, version)
-SELECT h.id, UPPER(TRIM(h.position)), 20, TRUE, 0
-FROM human h
-WHERE h.type_id = 1
-  AND h.position IS NOT NULL
-  AND UPPER(TRIM(h.position)) IN (
-      'GK', 'DC', 'DL', 'DR', 'WBL', 'WBR', 'DM', 'MC', 'ML', 'MR', 'AMC', 'AML', 'AMR', 'ST')
-  AND NOT EXISTS (
-      SELECT 1 FROM player_position_familiarity existing
-      WHERE existing.player_id = h.id AND existing.position_code = UPPER(TRIM(h.position)))
-ORDER BY h.id;
+EXECUTE IMMEDIATE (
+    SELECT CASE WHEN COUNT(*) = 1 THEN
+        'INSERT INTO player_position_familiarity '
+        || '(player_id, position_code, familiarity, primary_position, version) '
+        || 'SELECT h.id, UPPER(TRIM(h.position)), 20, TRUE, 0 FROM human h '
+        || 'WHERE h.type_id = 1 AND h.position IS NOT NULL '
+        || 'AND UPPER(TRIM(h.position)) IN (''GK'', ''DC'', ''DL'', ''DR'', ''WBL'', ''WBR'', ''DM'', ''MC'', ''ML'', ''MR'', ''AMC'', ''AML'', ''AMR'', ''ST'') '
+        || 'AND NOT EXISTS (SELECT 1 FROM player_position_familiarity existing '
+        || 'WHERE existing.player_id = h.id AND existing.position_code = UPPER(TRIM(h.position))) '
+        || 'ORDER BY h.id'
+    ELSE
+        'INSERT INTO player_position_familiarity '
+        || '(player_id, position_code, familiarity, primary_position, version) '
+        || 'SELECT h.id, ''ST'', 20, TRUE, 0 FROM human h WHERE 1 = 0'
+    END
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'HUMAN' AND COLUMN_NAME = 'POSITION'
+);
 
-INSERT INTO player_foot_profile (
-    player_id, left_foot_rating, right_foot_rating, version)
-SELECT h.id,
-       CASE h.preferred_foot
-           WHEN 'Left' THEN 20
-           WHEN 'Both' THEN 16
-           ELSE 8
-       END,
-       CASE h.preferred_foot
-           WHEN 'Left' THEN 8
-           WHEN 'Both' THEN 16
-           ELSE 20
-       END,
-       0
-FROM human h
-WHERE h.type_id = 1
-  AND NOT EXISTS (
-      SELECT 1 FROM player_foot_profile existing
-      WHERE existing.player_id = h.id)
-ORDER BY h.id;
+EXECUTE IMMEDIATE (
+    SELECT CASE WHEN COUNT(*) = 1 THEN
+        'INSERT INTO player_foot_profile (player_id, left_foot_rating, right_foot_rating, version) '
+        || 'SELECT h.id, CASE h.preferred_foot WHEN ''Left'' THEN 20 WHEN ''Both'' THEN 16 ELSE 8 END, '
+        || 'CASE h.preferred_foot WHEN ''Left'' THEN 8 WHEN ''Both'' THEN 16 ELSE 20 END, 0 FROM human h '
+        || 'WHERE h.type_id = 1 AND NOT EXISTS (SELECT 1 FROM player_foot_profile existing '
+        || 'WHERE existing.player_id = h.id) ORDER BY h.id'
+    ELSE
+        'INSERT INTO player_foot_profile (player_id, left_foot_rating, right_foot_rating, version) '
+        || 'SELECT h.id, 8, 20, 0 FROM human h WHERE h.type_id = 1 '
+        || 'AND NOT EXISTS (SELECT 1 FROM player_foot_profile existing '
+        || 'WHERE existing.player_id = h.id) ORDER BY h.id'
+    END
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'HUMAN' AND COLUMN_NAME = 'PREFERRED_FOOT'
+);
