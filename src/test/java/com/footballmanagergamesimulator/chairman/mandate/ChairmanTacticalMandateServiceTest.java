@@ -1,6 +1,5 @@
 package com.footballmanagergamesimulator.chairman.mandate;
 
-import com.footballmanagergamesimulator.economy.ClubDtos;
 import com.footballmanagergamesimulator.economy.ClubQueryService;
 import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.model.Human;
@@ -19,6 +18,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class ChairmanTacticalMandateServiceTest {
@@ -27,14 +27,18 @@ class ChairmanTacticalMandateServiceTest {
     private final HumanRepository players = mock(HumanRepository.class);
     private final GameCalendarRepository calendars = mock(GameCalendarRepository.class);
     private final ClubQueryService clubs = mock(ClubQueryService.class);
+    private final TacticService tactics = mock(TacticService.class);
     private final ChairmanTacticalMandateService service = new ChairmanTacticalMandateService(
-            mandates, teams, players, calendars, clubs, new TacticService());
+            mandates, teams, players, calendars, clubs, tactics);
     private final PersonProfile chairman = profile(7L);
 
     @BeforeEach
     void setUp() {
         when(teams.findByIdForUpdate(10L)).thenReturn(Optional.of(new Team()));
         when(mandates.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(tactics.isKnownFormation(anyString())).thenReturn(false);
+        when(tactics.isKnownFormation("442")).thenReturn(true);
+        when(tactics.getFormationGridIndicesExact("442")).thenReturn(new int[]{1, 3, 5});
         GameCalendar calendar = new GameCalendar();
         calendar.setSeason(2); calendar.setCurrentDay(12);
         when(calendars.findTopByOrderBySeasonDesc()).thenReturn(Optional.of(calendar));
@@ -47,7 +51,7 @@ class ChairmanTacticalMandateServiceTest {
         var saved = service.update(10L, chairman, new ChairmanTacticalMandateDtos.UpdateRequest(null, null, 0));
         assertThat(saved.teamId()).isEqualTo(10L);
         assertThat(saved.requiredFormation()).isNull();
-        assertThat(saved.version()).isZero();
+        assertThat(saved.version()).isEqualTo(1);
     }
 
     @Test
@@ -59,6 +63,23 @@ class ChairmanTacticalMandateServiceTest {
                 new ChairmanTacticalMandateDtos.UpdateRequest("missing", null, 0)))
                 .hasFieldOrPropertyWithValue("code", "CLUB_CONTROL_REQUIRED");
         verifyNoInteractions(players);
+    }
+
+    @Test
+    void nonChairmanIsRejectedBeforeTeamLockOrRequestValidation() {
+        PersonProfile manager = profile(8L);
+        manager.setCareerType(CareerType.MANAGER);
+        assertThatThrownBy(() -> service.update(10L, manager,
+                new ChairmanTacticalMandateDtos.UpdateRequest("unknown", null, 0)))
+                .hasFieldOrPropertyWithValue("code", "CHAIRMAN_REQUIRED");
+        verifyNoInteractions(teams, players, tactics, clubs);
+    }
+
+    @Test
+    void nullPrincipalIsRejectedBeforeTeamLock() {
+        assertThatThrownBy(() -> service.update(10L, null, null))
+                .hasFieldOrPropertyWithValue("code", "CHAIRMAN_REQUIRED");
+        verifyNoInteractions(teams, players, tactics, clubs);
     }
 
     @Test
@@ -79,14 +100,28 @@ class ChairmanTacticalMandateServiceTest {
 
     @Test
     void staleWriterLosesAfterFirstVersionedWrite() {
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.empty());
+        var first = service.update(10L, chairman,
+                new ChairmanTacticalMandateDtos.UpdateRequest(null, null, 0));
+        assertThat(first.version()).isEqualTo(1);
         ChairmanTacticalMandate existing = new ChairmanTacticalMandate();
         existing.setTeamId(10L);
         when(mandates.findByTeamId(10L)).thenReturn(Optional.of(existing));
-        service.update(10L, chairman, new ChairmanTacticalMandateDtos.UpdateRequest(null, null, 0));
-        existing.setVersion(1L);
         assertThatThrownBy(() -> service.update(10L, chairman,
                 new ChairmanTacticalMandateDtos.UpdateRequest(null, null, 0)))
                 .hasFieldOrPropertyWithValue("code", "TACTICAL_MANDATE_STALE");
+    }
+
+    @Test
+    void currentApiVersionIsAcceptedAndEntityVersionIsMappedOneBased() {
+        ChairmanTacticalMandate existing = new ChairmanTacticalMandate();
+        existing.setTeamId(10L);
+        existing.setVersion(0L);
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.of(existing));
+        var updated = service.update(10L, chairman,
+                new ChairmanTacticalMandateDtos.UpdateRequest(null, null, 1));
+        assertThat(updated.version()).isEqualTo(1);
+        assertThat(existing.getVersion()).isZero();
     }
 
     private static PersonProfile profile(long id) {

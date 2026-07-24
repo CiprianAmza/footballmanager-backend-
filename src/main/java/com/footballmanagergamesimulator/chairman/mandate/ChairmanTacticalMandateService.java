@@ -40,7 +40,8 @@ public class ChairmanTacticalMandateService {
 
     @Transactional(readOnly = true)
     public ChairmanTacticalMandateDtos.MandateView get(long teamId, PersonProfile principal) {
-        authorize(teamId, principal);
+        requireChairman(principal);
+        clubQueryService.dashboard(teamId, principal);
         return mandateRepository.findByTeamId(teamId)
                 .map(this::view)
                 .orElse(empty(teamId));
@@ -49,10 +50,11 @@ public class ChairmanTacticalMandateService {
     @Transactional
     public ChairmanTacticalMandateDtos.MandateView update(long teamId, PersonProfile principal,
                                                            ChairmanTacticalMandateDtos.UpdateRequest request) {
-        if (request == null) throw new ChairmanTacticalMandateException("INVALID_MANDATE_SLOT", "Request is required");
+        requireChairman(principal);
         teamRepository.findByIdForUpdate(teamId).orElseThrow(() ->
                 new ChairmanTacticalMandateException("CLUB_NOT_FOUND", "Club was not found"));
-        authorize(teamId, principal);
+        clubQueryService.dashboard(teamId, principal);
+        if (request == null) throw new ChairmanTacticalMandateException("INVALID_MANDATE_SLOT", "Request is required");
 
         List<ChairmanTacticalMandateDtos.LockedSlot> requested = request.lockedSlots() == null
                 ? List.of() : List.copyOf(request.lockedSlots());
@@ -65,7 +67,7 @@ public class ChairmanTacticalMandateService {
             if (request.expectedVersion() != 0) throw stale();
             mandate = new ChairmanTacticalMandate();
             mandate.setTeamId(teamId);
-        } else if (mandate.getVersion() != request.expectedVersion()) {
+        } else if (apiVersion(mandate) != request.expectedVersion()) {
             throw stale();
         }
 
@@ -80,12 +82,10 @@ public class ChairmanTacticalMandateService {
         return view(mandateRepository.saveAndFlush(mandate));
     }
 
-    private void authorize(long teamId, PersonProfile principal) {
-        if (principal.getCareerType() != CareerType.CHAIRMAN) {
+    private static void requireChairman(PersonProfile principal) {
+        if (principal == null || principal.getCareerType() != CareerType.CHAIRMAN) {
             throw error("CHAIRMAN_REQUIRED", "A chairman career is required");
         }
-        // This is the canonical cap-table authorization and deliberately runs before validation.
-        clubQueryService.dashboard(teamId, principal);
     }
 
     private void validateFormationAndSlots(String formation, List<ChairmanTacticalMandateDtos.LockedSlot> slots) {
@@ -124,7 +124,12 @@ public class ChairmanTacticalMandateService {
         List<ChairmanTacticalMandateDtos.LockedSlot> slots = value.sortedSlots().stream()
                 .map(slot -> new ChairmanTacticalMandateDtos.LockedSlot(slot.getPositionIndex(), slot.getRequiredPlayerId())).toList();
         return new ChairmanTacticalMandateDtos.MandateView(value.getTeamId(), value.getRequiredFormation(), slots,
-                value.getVersion(), value.getUpdatedByProfileId(), value.getUpdatedSeason(), value.getUpdatedGameDay());
+                apiVersion(value), value.getUpdatedByProfileId(), value.getUpdatedSeason(), value.getUpdatedGameDay());
+    }
+
+    /** Converts the persisted zero-based JPA version to the one-based API contract. */
+    private static long apiVersion(ChairmanTacticalMandate value) {
+        return value.getVersion() + 1;
     }
 
     private static ChairmanTacticalMandateDtos.MandateView empty(long teamId) {

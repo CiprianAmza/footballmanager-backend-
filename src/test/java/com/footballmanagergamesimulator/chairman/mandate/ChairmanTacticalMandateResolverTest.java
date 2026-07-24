@@ -26,12 +26,17 @@ class ChairmanTacticalMandateResolverTest {
 
         List<ChairmanTacticalMandateResolver.ProposedSlot> compatibleInput = List.of(
                 new ChairmanTacticalMandateResolver.ProposedSlot(1, 10),
-                new ChairmanTacticalMandateResolver.ProposedSlot(3, 77));
+                new ChairmanTacticalMandateResolver.ProposedSlot(3, 77),
+                new ChairmanTacticalMandateResolver.ProposedSlot(5, 88));
         var one = resolver.resolve("442", compatibleInput, new ChairmanTacticalMandateResolver.Mandate("433",
                 List.of(new ChairmanTacticalMandateResolver.ProposedSlot(7, 99))));
         assertThat(one.slots()).containsExactly(new ChairmanTacticalMandateResolver.ProposedSlot(1, 10),
                 new ChairmanTacticalMandateResolver.ProposedSlot(3, 77),
                 new ChairmanTacticalMandateResolver.ProposedSlot(7, 99));
+        assertThat(compatibleInput).containsExactly(
+                new ChairmanTacticalMandateResolver.ProposedSlot(1, 10),
+                new ChairmanTacticalMandateResolver.ProposedSlot(3, 77),
+                new ChairmanTacticalMandateResolver.ProposedSlot(5, 88));
     }
 
     @Test

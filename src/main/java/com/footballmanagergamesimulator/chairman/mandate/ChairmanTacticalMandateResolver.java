@@ -45,14 +45,15 @@ public final class ChairmanTacticalMandateResolver {
 
         List<ProposedSlot> result = new ArrayList<>();
         for (ProposedSlot slot : managerXI) {
+            if (!valid.contains(slot.positionIndex())) {
+                if (mandate.requiredFormation() != null) continue;
+                throw error("MANAGER_XI_INVALID", "Manager XI slot is not in formation");
+            }
             if (!imposedPositions.contains(slot.positionIndex()) && !imposedPlayers.contains(slot.playerId())) result.add(slot);
         }
         result.addAll(mandate.lockedSlots());
         validateUnique(result, "MANAGER_XI_INVALID");
         if (result.size() > 11) throw error("MANAGER_XI_INVALID", "XI cannot contain more than 11 players");
-        if (result.stream().anyMatch(slot -> !valid.contains(slot.positionIndex()))) {
-            throw error("MANDATE_SLOT_NOT_IN_FORMATION", "XI slot is not in formation");
-        }
         result.sort(Comparator.comparingInt(ProposedSlot::positionIndex).thenComparingLong(ProposedSlot::playerId));
         return new ResolvedXI(effective, result);
     }

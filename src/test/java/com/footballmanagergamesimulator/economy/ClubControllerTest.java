@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.economy;
 
 import com.footballmanagergamesimulator.chairman.command.ChairmanCommandCentreService;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateService;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateDtos;
 import com.footballmanagergamesimulator.person.CareerType;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
@@ -90,6 +91,21 @@ class ClubControllerTest {
         controller.tacticalMandate(9L);
 
         verify(tacticalMandates).get(9L, chairman);
+        verifyNoInteractions(query, takeovers, treasury);
+    }
+
+    @Test
+    void tacticalMandatePutUsesOnlyAuthenticatedPrincipalAndRouteTeamId() {
+        User user = new User();
+        PersonProfile chairman = profile(55L, CareerType.CHAIRMAN);
+        when(currentUsers.requireUser()).thenReturn(user);
+        when(profiles.requireForUser(user)).thenReturn(chairman);
+        ChairmanTacticalMandateDtos.UpdateRequest request =
+                new ChairmanTacticalMandateDtos.UpdateRequest(null, List.of(), 0);
+
+        controller.updateTacticalMandate(21L, request);
+
+        verify(tacticalMandates).update(21L, chairman, request);
         verifyNoInteractions(query, takeovers, treasury);
     }
 
