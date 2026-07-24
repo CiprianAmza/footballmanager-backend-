@@ -4,6 +4,7 @@ import com.footballmanagergamesimulator.compartment.PlayerPosition;
 import com.footballmanagergamesimulator.compartment.PlayerRole;
 import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
 import com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey;
+import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilityResolver;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PlayerFootProfile;
@@ -172,6 +173,20 @@ class PlayerCapabilityServiceTest {
         assertThat(PlayerCapabilityService.legacyFootRatings("Both")).isEqualTo(new PlayerCapabilityService.FootRatings(16, 16));
         assertThat(PlayerCapabilityService.legacyFootRatings(null)).isEqualTo(new PlayerCapabilityService.FootRatings(8, 20));
         assertThat(PlayerCapabilityService.legacyFootRatings("Unknown")).isEqualTo(new PlayerCapabilityService.FootRatings(8, 20));
+    }
+
+    @Test
+    void publicFallbackMethodsDelegateToCanonicalResolver() {
+        PlayerCapabilityResolver resolver = new PlayerCapabilityResolver(config);
+        PlayerCapabilitySnapshot snapshot = new PlayerCapabilitySnapshot(15L, PlayerPosition.ST,
+                Map.of(PlayerPosition.ST, 17), Map.of(), 8, 20, false, true, true);
+
+        assertThat(service.fallbackPositionFamiliarity("ST", PlayerPosition.MC))
+                .isEqualTo(resolver.fallbackPositionFamiliarity("ST", PlayerPosition.MC));
+        assertThat(service.positionFamiliarityOrFallback(snapshot, PlayerPosition.MC))
+                .isEqualTo(resolver.positionFamiliarityOrFallback(snapshot, PlayerPosition.MC));
+        assertThat(service.roleFamiliarityOrFallback(snapshot, PlayerPosition.ST, PlayerRole.POACHER))
+                .isEqualTo(resolver.roleFamiliarityOrFallback(snapshot, PlayerPosition.ST, PlayerRole.POACHER));
     }
 
     private static Human human(long id, String position, String preferredFoot) {
