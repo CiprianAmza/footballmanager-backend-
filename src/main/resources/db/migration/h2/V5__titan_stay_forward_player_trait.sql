@@ -6,7 +6,7 @@ EXECUTE IMMEDIATE (
         || '(id = 107 AND name = ''Kvekrpur'' AND team_id = 14 AND type_id = 1 AND position = ''ST'') OR '
         || '(id = 108 AND name = ''Dostoievski'' AND team_id = 14 AND type_id = 1 AND position = ''ST'') OR '
         || '(id = 4060 AND name = ''Shakespeare'' AND team_id = 13 AND type_id = 1 AND position = ''ST''))'
-    ELSE 'SELECT 1' END
+    ELSE 'UPDATE human SET stay_forward = stay_forward WHERE 1 = 0' END
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'HUMAN'
       AND COLUMN_NAME IN ('ID', 'NAME', 'TEAM_ID', 'TYPE_ID', 'POSITION')

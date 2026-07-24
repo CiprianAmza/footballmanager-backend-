@@ -26,13 +26,7 @@ class PrebuiltDataServiceTest {
         dataSource.setPassword("");
 
         Path snapshot = tempDir.resolve("old-prebuilt-data.sql");
-        Files.writeString(snapshot, """
-                CREATE TABLE TEAM (ID BIGINT PRIMARY KEY);
-                CREATE TABLE SCORER (ID BIGINT PRIMARY KEY);
-                CREATE TABLE PLAYER_SEASON_STAT (ID BIGINT PRIMARY KEY);
-                CREATE TABLE COMPETITION_TEAM_INFO_DETAIL (ID BIGINT PRIMARY KEY);
-                CREATE TABLE COMPETITION_TEAM_INFO_MATCH (ID BIGINT PRIMARY KEY);
-                CREATE TABLE MATCH_PLAYER_RATING (ID BIGINT PRIMARY KEY);
+        Files.writeString(snapshot, auxiliarySnapshotTables() + """
                 CREATE TABLE HUMAN (
                     ID BIGINT PRIMARY KEY,
                     NAME VARCHAR(255),
@@ -76,5 +70,53 @@ class PrebuiltDataServiceTest {
                 SELECT COUNT(*) FROM HUMAN
                 WHERE ID IN (759, 4061, 1080) AND STAY_FORWARD = FALSE
                 """, Long.class)).isEqualTo(3L);
+    }
+
+    @Test
+    void oldSnapshotRestoreFallsBackWhenIdentityColumnsAreAbsent() throws Exception {
+        JdbcDataSource dataSource = new JdbcDataSource();
+        dataSource.setURL("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1");
+        dataSource.setUser("sa");
+        dataSource.setPassword("");
+
+        Path snapshot = tempDir.resolve("old-prebuilt-data-without-identity-columns.sql");
+        Files.writeString(snapshot, auxiliarySnapshotTables() + """
+                CREATE TABLE HUMAN (
+                    ID BIGINT PRIMARY KEY,
+                    NAME VARCHAR(255),
+                    RETIRED BOOLEAN
+                );
+                INSERT INTO HUMAN(ID, NAME, RETIRED) VALUES
+                    (107, 'Kvekrpur', FALSE),
+                    (108, 'Dostoievski', FALSE),
+                    (4060, 'Shakespeare', FALSE);
+                """);
+
+        PrebuiltDataService service = new PrebuiltDataService(dataSource);
+        ReflectionTestUtils.setField(service, "snapshotPath", snapshot.toString());
+
+        service.restore();
+        service.restore();
+
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'HUMAN' AND COLUMN_NAME = 'STAY_FORWARD'
+                """, Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM HUMAN WHERE STAY_FORWARD = TRUE", Long.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM HUMAN WHERE STAY_FORWARD = FALSE", Long.class)).isEqualTo(3L);
+    }
+
+    private static String auxiliarySnapshotTables() {
+        return """
+                CREATE TABLE TEAM (ID BIGINT PRIMARY KEY);
+                CREATE TABLE SCORER (ID BIGINT PRIMARY KEY);
+                CREATE TABLE PLAYER_SEASON_STAT (ID BIGINT PRIMARY KEY);
+                CREATE TABLE COMPETITION_TEAM_INFO_DETAIL (ID BIGINT PRIMARY KEY);
+                CREATE TABLE COMPETITION_TEAM_INFO_MATCH (ID BIGINT PRIMARY KEY);
+                CREATE TABLE MATCH_PLAYER_RATING (ID BIGINT PRIMARY KEY);
+                """;
     }
 }

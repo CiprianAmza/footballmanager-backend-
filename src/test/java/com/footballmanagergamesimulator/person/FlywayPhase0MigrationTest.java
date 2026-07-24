@@ -99,6 +99,38 @@ class FlywayPhase0MigrationTest {
         }
     }
 
+    @Test
+    void v5StayForwardMigrationFallsBackWhenLegacyIdentityColumnsAreAbsent() throws Exception {
+        String url = url();
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE human (
+                        id BIGINT PRIMARY KEY,
+                        name VARCHAR(255),
+                        type_id BIGINT,
+                        retired BOOLEAN
+                    )
+                    """);
+            statement.execute("""
+                    INSERT INTO human(id, name, type_id, retired) VALUES
+                    (107, 'Kvekrpur', 1, FALSE),
+                    (108, 'Dostoievski', 1, FALSE),
+                    (4060, 'Shakespeare', 1, FALSE)
+                    """);
+        }
+
+        migrate(url);
+        migrate(url);
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            assertThat(count(statement, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='HUMAN' AND COLUMN_NAME='STAY_FORWARD'")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE stay_forward = TRUE")).isZero();
+            assertThat(count(statement, "SELECT COUNT(*) FROM human WHERE stay_forward = FALSE")).isEqualTo(3);
+        }
+    }
+
     private void migrate(String url) {
         Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration/h2")
                 .baselineOnMigrate(true).baselineVersion("0").load().migrate();

@@ -253,9 +253,37 @@ class GameSaveRealSchemaTest {
     private Map<String, Object> humanRow(long id, String name) {
         Map<String, Object> human = new LinkedHashMap<>();
         human.put("id", id);
+        human.put("agentId", 0L);
+        human.put("skillsId", 0L);
+        human.put("typeId", 1L);
+        human.put("age", 20);
+        human.put("shirtNumber", 0);
+        human.put("salary", 0L);
+        human.put("wealth", 0L);
         human.put("name", name);
         human.put("teamId", 1L);
-        human.put("typeId", 1L);
+        human.put("position", "ST");
+        human.put("contractEndSeason", 0);
+        human.put("wage", 0L);
+        human.put("releaseClause", 0L);
+        human.put("currentAbility", 0);
+        human.put("potentialAbility", 0);
+        human.put("transferValue", 0L);
+        human.put("rating", 0.0);
+        human.put("fitness", 0.0);
+        human.put("morale", 0.0);
+        human.put("seasonCreated", 1L);
+        human.put("bestEverRating", 0.0);
+        human.put("seasonOfBestEverRating", 0);
+        human.put("managerReputation", 500);
+        human.put("careerEarnings", 0L);
+        human.put("offensiveAbility", 50.0);
+        human.put("defensiveAbility", 50.0);
+        human.put("attendPressConferences", true);
+        human.put("viewFullMatch", false);
+        human.put("watchGoalHighlights", true);
+        human.put("ownerArrogance", 0.0);
+        human.put("coachHumiliation", 0.0);
         human.put("retired", false);
         return human;
     }

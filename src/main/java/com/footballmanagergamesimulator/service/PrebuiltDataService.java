@@ -127,7 +127,7 @@ public class PrebuiltDataService {
                         || '(ID = 107 AND NAME = ''Kvekrpur'' AND TEAM_ID = 14 AND TYPE_ID = 1 AND POSITION = ''ST'') OR '
                         || '(ID = 108 AND NAME = ''Dostoievski'' AND TEAM_ID = 14 AND TYPE_ID = 1 AND POSITION = ''ST'') OR '
                         || '(ID = 4060 AND NAME = ''Shakespeare'' AND TEAM_ID = 13 AND TYPE_ID = 1 AND POSITION = ''ST''))'
-                    ELSE 'SELECT 1' END
+                    ELSE 'UPDATE HUMAN SET STAY_FORWARD = STAY_FORWARD WHERE 1 = 0' END
                     FROM INFORMATION_SCHEMA.COLUMNS
                     WHERE TABLE_NAME = 'HUMAN'
                       AND COLUMN_NAME IN ('ID', 'NAME', 'TEAM_ID', 'TYPE_ID', 'POSITION')
