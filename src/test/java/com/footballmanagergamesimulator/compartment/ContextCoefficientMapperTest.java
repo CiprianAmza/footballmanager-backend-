@@ -38,6 +38,20 @@ class ContextCoefficientMapperTest {
     }
 
     @Test
+    void neutralAndUnknownStayEmptyWithPositiveOnlyBounds() {
+        ContextCoefficientMapper positiveOnly = new ContextCoefficientMapper(config(.20, .80));
+        assertThat(positiveOnly.map(TacticalContextInput.neutral()).coefficients()).isEmpty();
+        assertThat(positiveOnly.map(unknownContext()).coefficients()).isEmpty();
+    }
+
+    @Test
+    void neutralAndUnknownStayEmptyWithNegativeOnlyBounds() {
+        ContextCoefficientMapper negativeOnly = new ContextCoefficientMapper(config(-.80, -.20));
+        assertThat(negativeOnly.map(TacticalContextInput.neutral()).coefficients()).isEmpty();
+        assertThat(negativeOnly.map(unknownContext()).coefficients()).isEmpty();
+    }
+
+    @Test
     void everyCanonicalPlayerInstructionIsSupportedAndRelevantOnly() {
         assertOnly(instructions("Mark Tighter"), PlayerAttribute.MARKING, PlayerAttribute.CONCENTRATION);
         assertOnly(instructions("Close Down More"), PlayerAttribute.WORK_RATE, PlayerAttribute.STAMINA, PlayerAttribute.ANTICIPATION);
@@ -104,6 +118,10 @@ class ContextCoefficientMapperTest {
 
     private static TacticalContextInput instructions(String... values) {
         return new TacticalContextInput("Balanced", "Standard", "Normal", "Standard", "Standard", "Balanced", List.of(values));
+    }
+
+    private static TacticalContextInput unknownContext() {
+        return new TacticalContextInput("mystery", "unknown", "?", "legacy", "none", "standard-ish", List.of("???"));
     }
 
     private static CompartmentEngineConfig config(double min, double max) {

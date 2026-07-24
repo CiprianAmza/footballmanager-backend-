@@ -42,8 +42,9 @@ public final class ContextCoefficientMapper {
 
         EnumMap<PlayerAttribute, Double> applied = new EnumMap<>(PlayerAttribute.class);
         List<ContextCoefficientMapping.Clamp> clamps = new ArrayList<>();
-        for (PlayerAttribute attribute : PlayerAttribute.values()) {
-            double raw = requested.getOrDefault(attribute, 0.0);
+        for (Map.Entry<PlayerAttribute, Double> entry : requested.entrySet()) {
+            PlayerAttribute attribute = entry.getKey();
+            double raw = entry.getValue();
             double bounded = Math.max(minimum, Math.min(maximum, raw));
             if (bounded != 0.0) applied.put(attribute, bounded);
             if (Double.compare(raw, bounded) != 0) {
