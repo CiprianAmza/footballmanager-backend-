@@ -1,0 +1,47 @@
+# Canonical Compartment Engine V1 weight catalog. Values mirror the Phase 12B
+# defaults; this file is imported after application.yml so the bound profile is
+# explicit without changing rollout flags or runtime formulas.
+match:
+  engine:
+    compartment:
+      context-rules:
+        mentality:attacking: { OFF_THE_BALL: 0.15, COMPOSURE: 0.10 }
+        mentality:very attacking: { OFF_THE_BALL: 0.30, COMPOSURE: 0.20 }
+        mentality:defensive: { POSITIONING: 0.15, CONCENTRATION: 0.10 }
+        mentality:very defensive: { POSITIONING: 0.30, CONCENTRATION: 0.20 }
+        tempo:higher: { DECISIONS: 0.15, FIRST_TOUCH: 0.10 }
+        tempo:much higher: { DECISIONS: 0.30, FIRST_TOUCH: 0.20 }
+        tempo:lower: { TECHNIQUE: 0.10, VISION: 0.10 }
+        tempo:much lower: { TECHNIQUE: 0.20, VISION: 0.20 }
+        passing:short: { PASSING: 0.15, FIRST_TOUCH: 0.10 }
+        passing:long: { PASSING: 0.10, VISION: 0.20, KICKING: 0.15 }
+        line:high: { PACE: 0.20, ANTICIPATION: 0.15, POSITIONING: 0.10 }
+        line:deep: { HEADING: 0.15, CONCENTRATION: 0.15, POSITIONING: 0.10 }
+        pressing:high: { WORK_RATE: 0.20, STAMINA: 0.20, ANTICIPATION: 0.10 }
+        pressing:low: { POSITIONING: 0.10, CONCENTRATION: 0.10 }
+        width:wide: { PACE: 0.10, DRIBBLING: 0.10, PASSING: 0.05 }
+        width:narrow: { TECHNIQUE: 0.10, FIRST_TOUCH: 0.10, DECISIONS: 0.05 }
+        instruction:mark tighter: { MARKING: 0.20, CONCENTRATION: 0.10 }
+        instruction:close down more: { WORK_RATE: 0.15, STAMINA: 0.10, ANTICIPATION: 0.10 }
+        instruction:close down less: { POSITIONING: 0.15, CONCENTRATION: 0.10 }
+        instruction:tackle harder: { TACKLING: 0.20, BRAVERY: 0.10 }
+        instruction:stay on feet: { DECISIONS: 0.15, POSITIONING: 0.10 }
+        instruction:ease off tackles: { DECISIONS: 0.10, TACKLING: 0.05 }
+        instruction:get further forward: { OFF_THE_BALL: 0.20, STAMINA: 0.10 }
+        instruction:hold position: { POSITIONING: 0.20, CONCENTRATION: 0.10 }
+        instruction:shoot more often: { FINISHING: 0.20, COMPOSURE: 0.10 }
+        instruction:shoot less often: { DECISIONS: 0.15, PASSING: 0.10 }
+        instruction:dribble more: { DRIBBLING: 0.20, ACCELERATION: 0.10 }
+        instruction:dribble less: { FIRST_TOUCH: 0.10, PASSING: 0.10 }
+        instruction:roam from position: { OFF_THE_BALL: 0.15, DECISIONS: 0.10 }
+        instruction:sit narrower: { TECHNIQUE: 0.10, FIRST_TOUCH: 0.10 }
+        instruction:stay wider: { PACE: 0.10, DRIBBLING: 0.10 }
+        instruction:move into channels: { OFF_THE_BALL: 0.20, ANTICIPATION: 0.10 }
+        instruction:drop deeper: { FIRST_TOUCH: 0.10, VISION: 0.15, PASSING: 0.10 }
+        instruction:pass it shorter: { PASSING: 0.15, FIRST_TOUCH: 0.10 }
+        instruction:try more direct passes: { PASSING: 0.15, VISION: 0.20 }
+        instruction:cross from byline: { PACE: 0.10, DRIBBLING: 0.10, PASSING: 0.15 }
+        instruction:cross from deep: { PASSING: 0.20, VISION: 0.10 }
+        instruction:play through balls: { VISION: 0.20, PASSING: 0.15, DECISIONS: 0.10 }
+      roles:
+        SHADOW_STRIKER: { attack: 1.14, midfield: 0.98, defense: 0.86 }

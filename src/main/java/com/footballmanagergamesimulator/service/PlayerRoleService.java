@@ -360,6 +360,16 @@ public class PlayerRoleService {
                                 Map.entry("Off The Ball", 0.06), Map.entry("Anticipation", 0.06),
                                 Map.entry("Agility", 0.04), Map.entry("Balance", 0.04)
                         )),
+                new RoleDef("Shadow Striker", "Attacking midfielder arriving late in the box",
+                        List.of("Attack", "Support"),
+                        Map.ofEntries(
+                                Map.entry("Off The Ball", 5.0), Map.entry("Finishing", 5.0),
+                                Map.entry("Anticipation", 4.0), Map.entry("Composure", 4.0),
+                                Map.entry("First Touch", 4.0), Map.entry("Dribbling", 3.0),
+                                Map.entry("Technique", 3.0), Map.entry("Acceleration", 3.0),
+                                Map.entry("Decisions", 3.0), Map.entry("Passing", 2.0),
+                                Map.entry("Vision", 2.0), Map.entry("Work Rate", 1.0)
+                        )),
                 new RoleDef("Mezzala", "Half-space midfielder who moves into wide areas",
                         List.of("Support", "Attack"),
                         Map.ofEntries(

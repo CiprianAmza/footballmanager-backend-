@@ -36,6 +36,7 @@ public class CompartmentEngineConfig {
     private WorkRate workRate = new WorkRate();
     private Exposure exposure = new Exposure();
     private Probability probability = new Probability();
+    private Map<String, Map<PlayerAttribute, Double>> contextRules = defaultContextRules();
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -66,6 +67,61 @@ public class CompartmentEngineConfig {
     public void setExposure(Exposure exposure) { this.exposure = exposure; }
     public Probability getProbability() { return probability; }
     public void setProbability(Probability probability) { this.probability = probability; }
+    public Map<String, Map<PlayerAttribute, Double>> getContextRules() { return contextRules; }
+    public void setContextRules(Map<String, Map<PlayerAttribute, Double>> contextRules) {
+        this.contextRules = contextRules;
+    }
+
+    private static Map<String, Map<PlayerAttribute, Double>> defaultContextRules() {
+        Map<String, Map<PlayerAttribute, Double>> rules = new LinkedHashMap<>();
+        add(rules, "mentality:attacking", PlayerAttribute.OFF_THE_BALL, .15, PlayerAttribute.COMPOSURE, .10);
+        add(rules, "mentality:very attacking", PlayerAttribute.OFF_THE_BALL, .30, PlayerAttribute.COMPOSURE, .20);
+        add(rules, "mentality:defensive", PlayerAttribute.POSITIONING, .15, PlayerAttribute.CONCENTRATION, .10);
+        add(rules, "mentality:very defensive", PlayerAttribute.POSITIONING, .30, PlayerAttribute.CONCENTRATION, .20);
+        add(rules, "tempo:higher", PlayerAttribute.DECISIONS, .15, PlayerAttribute.FIRST_TOUCH, .10);
+        add(rules, "tempo:much higher", PlayerAttribute.DECISIONS, .30, PlayerAttribute.FIRST_TOUCH, .20);
+        add(rules, "tempo:lower", PlayerAttribute.TECHNIQUE, .10, PlayerAttribute.VISION, .10);
+        add(rules, "tempo:much lower", PlayerAttribute.TECHNIQUE, .20, PlayerAttribute.VISION, .20);
+        add(rules, "passing:short", PlayerAttribute.PASSING, .15, PlayerAttribute.FIRST_TOUCH, .10);
+        add(rules, "passing:long", PlayerAttribute.PASSING, .10, PlayerAttribute.VISION, .20, PlayerAttribute.KICKING, .15);
+        add(rules, "line:high", PlayerAttribute.PACE, .20, PlayerAttribute.ANTICIPATION, .15, PlayerAttribute.POSITIONING, .10);
+        add(rules, "line:deep", PlayerAttribute.HEADING, .15, PlayerAttribute.CONCENTRATION, .15, PlayerAttribute.POSITIONING, .10);
+        add(rules, "pressing:high", PlayerAttribute.WORK_RATE, .20, PlayerAttribute.STAMINA, .20, PlayerAttribute.ANTICIPATION, .10);
+        add(rules, "pressing:low", PlayerAttribute.POSITIONING, .10, PlayerAttribute.CONCENTRATION, .10);
+        add(rules, "width:wide", PlayerAttribute.PACE, .10, PlayerAttribute.DRIBBLING, .10, PlayerAttribute.PASSING, .05);
+        add(rules, "width:narrow", PlayerAttribute.TECHNIQUE, .10, PlayerAttribute.FIRST_TOUCH, .10, PlayerAttribute.DECISIONS, .05);
+        add(rules, "instruction:mark tighter", PlayerAttribute.MARKING, .20, PlayerAttribute.CONCENTRATION, .10);
+        add(rules, "instruction:close down more", PlayerAttribute.WORK_RATE, .15, PlayerAttribute.STAMINA, .10, PlayerAttribute.ANTICIPATION, .10);
+        add(rules, "instruction:close down less", PlayerAttribute.POSITIONING, .15, PlayerAttribute.CONCENTRATION, .10);
+        add(rules, "instruction:tackle harder", PlayerAttribute.TACKLING, .20, PlayerAttribute.BRAVERY, .10);
+        add(rules, "instruction:stay on feet", PlayerAttribute.DECISIONS, .15, PlayerAttribute.POSITIONING, .10);
+        add(rules, "instruction:ease off tackles", PlayerAttribute.DECISIONS, .10, PlayerAttribute.TACKLING, .05);
+        add(rules, "instruction:get further forward", PlayerAttribute.OFF_THE_BALL, .20, PlayerAttribute.STAMINA, .10);
+        add(rules, "instruction:hold position", PlayerAttribute.POSITIONING, .20, PlayerAttribute.CONCENTRATION, .10);
+        add(rules, "instruction:shoot more often", PlayerAttribute.FINISHING, .20, PlayerAttribute.COMPOSURE, .10);
+        add(rules, "instruction:shoot less often", PlayerAttribute.DECISIONS, .15, PlayerAttribute.PASSING, .10);
+        add(rules, "instruction:dribble more", PlayerAttribute.DRIBBLING, .20, PlayerAttribute.ACCELERATION, .10);
+        add(rules, "instruction:dribble less", PlayerAttribute.FIRST_TOUCH, .10, PlayerAttribute.PASSING, .10);
+        add(rules, "instruction:roam from position", PlayerAttribute.OFF_THE_BALL, .15, PlayerAttribute.DECISIONS, .10);
+        add(rules, "instruction:sit narrower", PlayerAttribute.TECHNIQUE, .10, PlayerAttribute.FIRST_TOUCH, .10);
+        add(rules, "instruction:stay wider", PlayerAttribute.PACE, .10, PlayerAttribute.DRIBBLING, .10);
+        add(rules, "instruction:move into channels", PlayerAttribute.OFF_THE_BALL, .20, PlayerAttribute.ANTICIPATION, .10);
+        add(rules, "instruction:drop deeper", PlayerAttribute.FIRST_TOUCH, .10, PlayerAttribute.VISION, .15, PlayerAttribute.PASSING, .10);
+        add(rules, "instruction:pass it shorter", PlayerAttribute.PASSING, .15, PlayerAttribute.FIRST_TOUCH, .10);
+        add(rules, "instruction:try more direct passes", PlayerAttribute.PASSING, .15, PlayerAttribute.VISION, .20);
+        add(rules, "instruction:cross from byline", PlayerAttribute.PACE, .10, PlayerAttribute.DRIBBLING, .10, PlayerAttribute.PASSING, .15);
+        add(rules, "instruction:cross from deep", PlayerAttribute.PASSING, .20, PlayerAttribute.VISION, .10);
+        add(rules, "instruction:play through balls", PlayerAttribute.VISION, .20, PlayerAttribute.PASSING, .15, PlayerAttribute.DECISIONS, .10);
+        return rules;
+    }
+
+    private static void add(Map<String, Map<PlayerAttribute, Double>> rules, String key, Object... values) {
+        Map<PlayerAttribute, Double> row = new LinkedHashMap<>();
+        for (int i = 0; i < values.length; i += 2) {
+            row.put((PlayerAttribute) values[i], (Double) values[i + 1]);
+        }
+        rules.put(key, row);
+    }
 
     public static class Rating {
         private int attributeMin = 1;
