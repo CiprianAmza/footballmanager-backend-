@@ -32,7 +32,18 @@ public record CalibrationPlayer(
         int rightFoot,
         Set<PlayerTrait> traits,
         ForwardInstruction instruction,
-        TacticalContextInput context) {
+        TacticalContextInput context,
+        PlayerPosition primaryPosition,
+        Map<String, Integer> namedAttributes) {
+    public CalibrationPlayer(long playerId, PlayerPosition position, int occurrence, PlayerRole role, Duty duty,
+                             Map<PlayerAttribute, Integer> attributes, Map<PlayerAttribute, Double> roleAttributeWeights,
+                             double fitness, double morale, Map<PlayerPosition, Integer> positionFamiliarity,
+                             Map<com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey, Integer> roleFamiliarity,
+                             int leftFoot, int rightFoot, Set<PlayerTrait> traits, ForwardInstruction instruction,
+                             TacticalContextInput context) {
+        this(playerId, position, occurrence, role, duty, attributes, roleAttributeWeights, fitness, morale,
+                positionFamiliarity, roleFamiliarity, leftFoot, rightFoot, traits, instruction, context, position, Map.of());
+    }
     public CalibrationPlayer {
         if (playerId <= 0 || occurrence < 1) throw new IllegalArgumentException("invalid player identity");
         position = Objects.requireNonNull(position, "position");
@@ -44,6 +55,8 @@ public record CalibrationPlayer(
         traits = traits == null ? Set.of() : Set.copyOf(traits);
         instruction = Objects.requireNonNull(instruction, "instruction");
         context = Objects.requireNonNull(context, "context");
+        primaryPosition = Objects.requireNonNull(primaryPosition, "primaryPosition");
+        namedAttributes = Map.copyOf(namedAttributes == null ? Map.of() : namedAttributes);
         if (leftFoot < 1 || leftFoot > 20 || rightFoot < 1 || rightFoot > 20) {
             throw new IllegalArgumentException("foot ratings must be in [1,20]");
         }

@@ -55,9 +55,21 @@ public final class CanonicalScoringWeightSet {
                 case "attribute-min" -> compartment.getRating().setAttributeMin((int) override.value());
                 case "attribute-max" -> compartment.getRating().setAttributeMax((int) override.value());
                 case "score-scale" -> compartment.getRating().setScoreScale(override.value());
-                case "context-factor-min" -> compartment.getRating().setContextFactorMin(override.value());
+                case "context-factor-min" -> {
+                    compartment.getRating().setContextFactorMin(override.value());
+                    compartment.getContextRules().entrySet().stream()
+                            .filter(entry -> entry.getKey().equals("instruction:close down less"))
+                            .findFirst().ifPresent(entry -> entry.getValue()
+                                    .put(com.footballmanagergamesimulator.compartment.PlayerAttribute.CONCENTRATION, -1.0));
+                }
                 case "context-factor-max" -> compartment.getRating().setContextFactorMax(override.value());
-                case "total-context-min" -> compartment.getRating().setTotalContextMin(override.value());
+                case "total-context-min" -> {
+                    compartment.getRating().setTotalContextMin(override.value());
+                    compartment.getContextRules().entrySet().stream()
+                            .filter(entry -> entry.getKey().equals("instruction:close down less"))
+                            .findFirst().ifPresent(entry -> entry.getValue()
+                                    .put(com.footballmanagergamesimulator.compartment.PlayerAttribute.CONCENTRATION, -1.0));
+                }
                 case "total-context-max" -> compartment.getRating().setTotalContextMax(override.value());
                 case "context-coefficient-min" -> compartment.getRating().setContextCoefficientMin(override.value());
                 case "context-coefficient-max" -> compartment.getRating().setContextCoefficientMax(override.value());
@@ -103,9 +115,24 @@ public final class CanonicalScoringWeightSet {
             if (parts.length != 5) throw new IllegalArgumentException("unsupported familiarity weight: " + key);
             match.getPlayerValue().getFamiliarityPenalty().computeIfAbsent(parts[3], ignored -> new LinkedHashMap<>()).put(parts[4], override.value());
         } else if (key.startsWith("match.role-weights.attributes.")) {
-            String[] parts = key.split("\\.");
-            if (parts.length != 5) throw new IllegalArgumentException("unsupported role attribute weight: " + key);
-            match.getRoleWeights().getAttributes().computeIfAbsent(parts[3], ignored -> new LinkedHashMap<>()).put(parts[4], override.value());
+            String prefix = "match.role-weights.attributes.";
+            String path = key.substring(prefix.length());
+            int separator = path.lastIndexOf('.');
+            if (separator <= 0 || separator == path.length() - 1) {
+                throw new IllegalArgumentException("unsupported role attribute weight: " + key);
+            }
+            String roleDisplay = path.substring(0, separator);
+            String attributeDisplay = path.substring(separator + 1);
+            com.footballmanagergamesimulator.compartment.PlayerRole role =
+                    com.footballmanagergamesimulator.compartment.PlayerRole.fromDisplayName(roleDisplay)
+                            .orElseThrow(() -> new IllegalArgumentException("unknown role attribute role: " + roleDisplay));
+            String attribute = com.footballmanagergamesimulator.service.PlayerSkillsService.GETTER_MAP.keySet().stream()
+                    .filter(candidate -> normalize(candidate).equals(normalize(attributeDisplay)))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("unknown role attribute: " + attributeDisplay));
+            String roleKey = match.getRoleWeights().getAttributes().keySet().stream()
+                    .filter(candidate -> normalize(candidate).equals(normalize(role.displayName())))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("missing role weights for " + role.displayName()));
+            match.getRoleWeights().getAttributes().get(roleKey).put(attribute, override.value());
         } else if (key.startsWith("compartment.context-rules.")) {
             String[] parts = key.split("\\.", 4);
             if (parts.length != 4) throw new IllegalArgumentException("unsupported override: " + key);
@@ -114,11 +141,12 @@ public final class CanonicalScoringWeightSet {
             com.footballmanagergamesimulator.compartment.PlayerAttribute attribute =
                     com.footballmanagergamesimulator.compartment.PlayerAttribute.valueOf(parts[3]);
             Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double> row = compartment.getContextRules().get(source);
-            if (row == null) {
-                var match = compartment.getContextRules().entrySet().stream()
-                        .filter(entry -> entry.getKey().replace(" ", "").replace(":", "").equals(normalizedSource)).findFirst();
-                row = match.map(Map.Entry::getValue).orElse(null);
-            }
+            var matchingRows = compartment.getContextRules().entrySet().stream()
+                    .filter(entry -> entry.getKey().replace(" ", "").replace(":", "").equals(normalizedSource))
+                    .sorted(java.util.Comparator.comparing((Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> entry)
+                            -> entry.getKey().contains(":") ? 0 : 1).thenComparing(Map.Entry::getKey))
+                    .toList();
+            if (!matchingRows.isEmpty()) row = matchingRows.get(0).getValue();
             if (row == null) throw new IllegalArgumentException("unknown context rule: " + source);
             row.put(attribute, override.value());
         } else if (key.startsWith("compartment.compartments.")) {
@@ -156,8 +184,8 @@ public final class CanonicalScoringWeightSet {
             if (parts.length != 4) throw new IllegalArgumentException("unsupported override: " + key);
             var rule = compartment.getMentalities().get(com.footballmanagergamesimulator.compartment.Mentality.valueOf(parts[2]));
             switch (parts[3]) {
-                case "midfield-to-attack" -> rule.setMidfieldToAttack(override.value());
-                case "midfield-to-defense" -> rule.setMidfieldToDefense(override.value());
+                case "midfield-to-attack" -> { rule.setMidfieldToAttack(override.value()); rule.setMidfieldToDefense(1.0 - override.value()); }
+                case "midfield-to-defense" -> { rule.setMidfieldToDefense(override.value()); rule.setMidfieldToAttack(1.0 - override.value()); }
                 case "transfer-share" -> rule.setTransferShare(override.value());
                 case "openness" -> rule.setOpenness(override.value());
                 default -> throw new IllegalArgumentException("unknown mentality leaf: " + key);
@@ -232,6 +260,10 @@ public final class CanonicalScoringWeightSet {
             case "defense" -> multipliers.setDefense(value);
             default -> throw new IllegalArgumentException("unknown multiplier axis: " + axis);
         }
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.replace(" ", "").replace("-", "").replace("_", "").toUpperCase();
     }
 
     private static CompartmentEngineConfig copyCompartment(CompartmentEngineConfig source) {

@@ -22,7 +22,7 @@ public final class CalibrationInputFactory {
         Map<Long, com.footballmanagergamesimulator.compartment.TacticalContextInput> contexts = new LinkedHashMap<>();
         for (CalibrationPlayer player : raw.players()) {
             double suitability = roleSuitability(player, weights.match());
-            PlayerCapabilitySnapshot capability = new PlayerCapabilitySnapshot(player.playerId(), player.position(),
+            PlayerCapabilitySnapshot capability = new PlayerCapabilitySnapshot(player.playerId(), player.primaryPosition(),
                     player.positionFamiliarity(), player.roleFamiliarity(), player.leftFoot(), player.rightFoot(), false,
                     false, false);
             CanonicalLineupPlayer canonical = new CanonicalLineupPlayer(player.playerId(), player.position(), player.occurrence(),
@@ -37,9 +37,8 @@ public final class CalibrationInputFactory {
     private double roleSuitability(CalibrationPlayer player, MatchEngineConfig match) {
         if (player.role() == null || player.roleAttributeWeights().isEmpty()) return 50.0;
         Map<PlayerAttribute, Double> roleWeights = new EnumMap<>(PlayerAttribute.class);
-        if (player.role() == com.footballmanagergamesimulator.compartment.PlayerRole.SHADOW_STRIKER) {
-            roleWeights.putAll(player.roleAttributeWeights());
-        } else {
+        Map<String, Double> namedWeights = new LinkedHashMap<>();
+        {
             String family = switch (player.position()) {
                 case GK -> "GK"; case DC -> "DC"; case DL, WBL -> "DL"; case DR, WBR -> "DR";
                 case DM, MC, AMC -> "MC"; case ML, AML -> "ML"; case MR, AMR -> "MR"; case ST -> "ST";
@@ -49,23 +48,26 @@ public final class CalibrationInputFactory {
                     .findFirst().ifPresent(role -> role.keyAttributes.forEach((name, value) ->
                             com.footballmanagergamesimulator.service.PlayerSkillsService.GETTER_MAP.entrySet().stream()
                                     .filter(e -> e.getKey().equals(name)).findFirst().ifPresent(e -> {
-                                    PlayerAttribute attribute = attribute(name);
-                                    if (attribute != null) roleWeights.put(attribute, value);
+                            PlayerAttribute attribute = attribute(name);
+                            if (attribute != null) roleWeights.put(attribute, value);
+                            else namedWeights.put(name, value);
                                     })));
         }
         Map<String, Double> overrides = match.getRoleWeights().attributesFor(player.role().displayName());
         if (overrides != null) overrides.forEach((name, value) -> {
             PlayerAttribute attribute = attribute(name);
             if (attribute != null) roleWeights.put(attribute, value);
+            else namedWeights.put(name, value);
         });
         if (roleWeights.isEmpty()) roleWeights.putAll(player.roleAttributeWeights());
         double weighted = roleWeights.entrySet().stream()
                 .mapToDouble(e -> player.attributes().getOrDefault(e.getKey(), 1) * e.getValue()).sum();
+        weighted += namedWeights.entrySet().stream()
+                .mapToDouble(e -> player.namedAttributes().getOrDefault(e.getKey(), 1) * e.getValue()).sum();
         return Math.max(1.0, Math.min(100.0, weighted * match.getRoleWeights().getSuitabilityScale()));
     }
 
     private static PlayerAttribute attribute(String name) {
-        if (name.equals("Rushing Out")) return PlayerAttribute.COMMAND_OF_AREA;
         try { return PlayerAttribute.valueOf(name.replace(' ', '_').toUpperCase()); }
         catch (IllegalArgumentException ignored) { return null; }
     }

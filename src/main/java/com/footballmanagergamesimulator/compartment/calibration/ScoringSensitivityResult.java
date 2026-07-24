@@ -46,6 +46,7 @@ public record ScoringSensitivityResult(
         double baselineDrawProbability, double testedDrawProbability,
         double baselineAwayWinProbability, double testedAwayWinProbability,
         double pmfL1Delta,
+        double baselineWideChannelAttack, double testedWideChannelAttack,
         boolean candidateRole, boolean liveSelectable) {
     public ScoringSensitivityResult {
         scenarioId = java.util.Objects.requireNonNull(scenarioId, "scenarioId");
@@ -69,19 +70,8 @@ public record ScoringSensitivityResult(
                 || Math.abs(testedHomeWinProbability - baselineHomeWinProbability) > epsilon
                 || Math.abs(testedDrawProbability - baselineDrawProbability) > epsilon
                 || Math.abs(testedAwayWinProbability - baselineAwayWinProbability) > epsilon
+                || Math.abs(testedWideChannelAttack - baselineWideChannelAttack) > epsilon
                 || pmfL1Delta > epsilon;
-    }
-
-    public ScoringSensitivityResult withRoleClassification(boolean candidate, boolean selectable) {
-        return new ScoringSensitivityResult(scenarioId, seed, seasons, matches, weightKey, baselineValue, testedValue,
-                baselineAveragePoints, testedAveragePoints, averagePoints, pointsDelta, baselineGoalsFor, testedGoalsFor,
-                baselineGoalsAgainst, testedGoalsAgainst, baselineXgFor, testedXgFor, baselineXgAgainst, testedXgAgainst,
-                goalsFor, goalsAgainst, xgFor, xgAgainst, wins, draws, losses, attack, midfield, defense,
-                attackProtection, confidenceInterval, sampleCount, baselineFingerprint, testedFingerprint, pairedSeasonDeltas,
-                baselineAttack, testedAttack, baselineMidfield, testedMidfield, baselineDefense, testedDefense,
-                baselineAttackProtection, testedAttackProtection, baselineHomeXg, testedHomeXg, baselineAwayXg, testedAwayXg,
-                baselineHomeWinProbability, testedHomeWinProbability, baselineDrawProbability, testedDrawProbability,
-                baselineAwayWinProbability, testedAwayWinProbability, pmfL1Delta, candidate, selectable);
     }
 
     public ScoringSensitivityResult(String weightKey, double baselineValue, double testedValue,
@@ -94,6 +84,6 @@ public record ScoringSensitivityResult(
                 xgAgainst, xgAgainst, goalsFor, goalsAgainst, xgFor, xgAgainst, wins, draws, losses,
                 attack, midfield, defense, attackProtection, confidenceInterval, sampleCount, "", "", java.util.List.of(),
                 attack, attack, midfield, midfield, defense, defense, attackProtection, attackProtection,
-                xgFor, xgFor, xgAgainst, xgAgainst, 0, 0, 0, 0, 0, 0, 0, false, true);
+                xgFor, xgFor, xgAgainst, xgAgainst, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, true);
     }
 }

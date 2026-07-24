@@ -244,7 +244,6 @@ public class PlayerRoleService {
                         List.of("Defend", "Support", "Attack"),
                         Map.ofEntries(
                                 Map.entry("Reflexes", 0.14), Map.entry("Handling", 0.10),
-                                Map.entry("One On Ones", 0.12), Map.entry("Rushing Out", 0.0), // mapped to Command Of Area
                                 Map.entry("Command Of Area", 0.12), Map.entry("Kicking", 0.10),
                                 Map.entry("First Touch", 0.08), Map.entry("Passing", 0.08),
                                 Map.entry("Anticipation", 0.08), Map.entry("Composure", 0.08),

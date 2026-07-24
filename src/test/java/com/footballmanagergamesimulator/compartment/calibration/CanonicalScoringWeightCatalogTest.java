@@ -17,7 +17,7 @@ class CanonicalScoringWeightCatalogTest {
     void catalogIsStableAndContainsContextAndRoleWeights() {
         var config = CalibrationConfigFixture.load();
         var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
-        assertThat(catalog.size()).isGreaterThan(30);
+        assertThat(catalog.size()).isEqualTo(741);
         assertThat(catalog.leafWeights()).isSortedAccordingTo(java.util.Comparator.comparing(CanonicalScoringWeightKey::path));
         assertThat(catalog.get("compartment.context-rules.linehigh.PACE")).isNotNull();
         assertThat(catalog.get("match.role-weights.suitability-scale")).isNotNull();
@@ -78,7 +78,6 @@ class CanonicalScoringWeightCatalogTest {
         }
         var profile = CalibrationConfigFixture.load();
         Set<String> catalog = CanonicalScoringWeightCatalog.from(profile.compartment(), profile.match()).leafWeights().stream()
-                .filter(key -> !key.path().startsWith("match.role-weights.attributes."))
                 .map(CanonicalScoringWeightKey::path).collect(Collectors.toCollection(java.util.TreeSet::new));
         assertThat(names).containsExactlyElementsOf(catalog);
     }
@@ -96,9 +95,6 @@ class CanonicalScoringWeightCatalogTest {
             int end = normalized.indexOf('.', start);
             if (end > start) normalized = normalized.substring(0, start)
                     + normalized.substring(start, end).replace(" ", "").replace(":", "") + normalized.substring(end);
-        }
-        if (normalized.startsWith("match.role-weights.attributes.")) {
-            return;
         }
         boolean nonNumeric = normalized.contains(".ignores-defensive-instructions")
                 || normalized.contains(".forced-defensive-morale-delta")

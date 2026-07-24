@@ -36,6 +36,7 @@ public final class ScoringSensitivityHarness {
         Objects.requireNonNull(scenario, "scenario");
         CanonicalScoringWeightSet baseline = CanonicalScoringWeightSet.baseline(baselineCompartment, baselineMatch);
         CanonicalScoringWeightSet tested = baseline.override(catalog, override);
+        activateFallbackConsumer(override.key(), baseline, tested);
         CanonicalMatchEvaluationAdapter baselineAdapter = new CanonicalMatchEvaluationAdapter(
                 baseline.compartment(), baseline.match());
         CanonicalMatchEvaluationAdapter testedAdapter = new CanonicalMatchEvaluationAdapter(
@@ -72,7 +73,18 @@ public final class ScoringSensitivityHarness {
                 b.homeWin() / matches, t.homeWin() / matches,
                 b.drawProbability() / matches, t.drawProbability() / matches,
                 b.awayWin() / matches, t.awayWin() / matches,
-                pmfL1(b, t), false, true);
+                pmfL1(b, t), b.wideChannelAttack() / matches, t.wideChannelAttack() / matches, false, true);
+    }
+
+    private static void activateFallbackConsumer(String key, CanonicalScoringWeightSet baseline,
+                                                  CanonicalScoringWeightSet tested) {
+        if (key.endsWith("default-position-multiplier")) {
+            baseline.compartment().getPositions().remove("AMC");
+            tested.compartment().getPositions().remove("AMC");
+        } else if (key.endsWith("default-role-multiplier")) {
+            baseline.compartment().getRoles().remove(com.footballmanagergamesimulator.compartment.PlayerRole.WINGER);
+            tested.compartment().getRoles().remove(com.footballmanagergamesimulator.compartment.PlayerRole.WINGER);
+        }
     }
 
     private List<SeasonStats> runSeasons(ScoringSensitivityScenario scenario,
@@ -120,7 +132,7 @@ public final class ScoringSensitivityHarness {
     private static final class SeasonStats {
         private int points, gf, ga, wins, draws, losses;
         private double xgf, xga, attack, midfield, defense, protection;
-        private double homeXg, awayXg, homeWin, drawProbability, awayWin;
+        private double homeXg, awayXg, homeWin, drawProbability, awayWin, wideChannelAttack;
         private final java.util.Map<Integer, Double> homePmf = new java.util.HashMap<>();
         private final java.util.Map<Integer, Double> awayPmf = new java.util.HashMap<>();
         void add(int own, int opponent, com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation evaluation,
@@ -135,6 +147,10 @@ public final class ScoringSensitivityHarness {
             if (own > opponent) { points += 3; wins++; } else if (own == opponent) { points++; draws++; } else losses++;
             attack += evaluatedTeam.team().rawTotals().attack(); midfield += evaluatedTeam.team().rawTotals().midfield();
             defense += evaluatedTeam.team().rawTotals().defense(); protection += evaluatedTeam.team().attackProtection();
+            wideChannelAttack += evaluatedTeam.team().channelBreakdown().values().stream()
+                    .filter(channel -> channel.channel() != com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.WideChannel.CENTRAL)
+                    .mapToDouble(com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator.ChannelBreakdown::attack)
+                    .sum();
         }
         int points() { return points; }
         int gf() { return gf; } int ga() { return ga; } int wins() { return wins; } int draws() { return draws; } int losses() { return losses; }
@@ -142,8 +158,9 @@ public final class ScoringSensitivityHarness {
         double defense() { return defense; } double protection() { return protection; }
         double homeXg() { return homeXg; } double awayXg() { return awayXg; }
         double homeWin() { return homeWin; } double drawProbability() { return drawProbability; } double awayWin() { return awayWin; }
+        double wideChannelAttack() { return wideChannelAttack; }
         java.util.Map<Integer, Double> homePmf() { return java.util.Map.copyOf(homePmf); }
         java.util.Map<Integer, Double> awayPmf() { return java.util.Map.copyOf(awayPmf); }
-        static SeasonStats sum(List<SeasonStats> values) { SeasonStats out = new SeasonStats(); values.forEach(v -> { out.points += v.points; out.gf += v.gf; out.ga += v.ga; out.wins += v.wins; out.draws += v.draws; out.losses += v.losses; out.xgf += v.xgf; out.xga += v.xga; out.attack += v.attack; out.midfield += v.midfield; out.defense += v.defense; out.protection += v.protection; out.homeXg += v.homeXg; out.awayXg += v.awayXg; out.homeWin += v.homeWin; out.drawProbability += v.drawProbability; out.awayWin += v.awayWin; v.homePmf.forEach((goal, probability) -> out.homePmf.merge(goal, probability, Double::sum)); v.awayPmf.forEach((goal, probability) -> out.awayPmf.merge(goal, probability, Double::sum)); }); return out; }
+        static SeasonStats sum(List<SeasonStats> values) { SeasonStats out = new SeasonStats(); values.forEach(v -> { out.points += v.points; out.gf += v.gf; out.ga += v.ga; out.wins += v.wins; out.draws += v.draws; out.losses += v.losses; out.xgf += v.xgf; out.xga += v.xga; out.attack += v.attack; out.midfield += v.midfield; out.defense += v.defense; out.protection += v.protection; out.homeXg += v.homeXg; out.awayXg += v.awayXg; out.homeWin += v.homeWin; out.drawProbability += v.drawProbability; out.awayWin += v.awayWin; out.wideChannelAttack += v.wideChannelAttack; v.homePmf.forEach((goal, probability) -> out.homePmf.merge(goal, probability, Double::sum)); v.awayPmf.forEach((goal, probability) -> out.awayPmf.merge(goal, probability, Double::sum)); }); return out; }
     }
 }

@@ -2,14 +2,17 @@ package com.footballmanagergamesimulator.compartment.calibration;
 
 import com.footballmanagergamesimulator.compartment.Compartment;
 import com.footballmanagergamesimulator.compartment.PlayerAttribute;
+import com.footballmanagergamesimulator.compartment.PlayerRole;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.footballmanagergamesimulator.service.PlayerSkillsService;
 
 /** Immutable, lexicographically ordered view of all bound canonical leaves. */
 public final class CanonicalScoringWeightCatalog {
@@ -84,7 +87,7 @@ public final class CanonicalScoringWeightCatalog {
         // PlayerValue scale/rating/morale/fitness and attribute weights belong to legacy.
         addNested(leaves, "match.player-value.familiarity-penalty", match.getPlayerValue().getFamiliarityPenalty(), CanonicalScoringWeightKey.Category.PLAYER_VALUE, "PlayerValue");
         add(leaves, "match.role-weights.suitability-scale", CanonicalScoringWeightKey.Category.ROLE_FIT, match.getRoleWeights().getSuitabilityScale(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerRoleService");
-        addNested(leaves, "match.role-weights.attributes", match.getRoleWeights().getAttributes(), CanonicalScoringWeightKey.Category.ROLE_FIT, "PlayerRoleService");
+        addRoleAttributeWeights(leaves, match.getRoleWeights().getAttributes());
         return new CanonicalScoringWeightCatalog(leaves);
     }
 
@@ -100,6 +103,35 @@ public final class CanonicalScoringWeightCatalog {
                     if (e.getValue() instanceof Map<?, ?> nested) addNested(leaves, prefix + "." + e.getKey(), nested, category, consumer);
                     else add(leaves, prefix + "." + e.getKey(), category, e.getValue(), e.getValue() instanceof Boolean ? CanonicalScoringWeightKey.Type.DISCRETE : CanonicalScoringWeightKey.Type.CONTINUOUS, consumer);
                 });
+    }
+
+    private static void addRoleAttributeWeights(Map<String, CanonicalScoringWeightKey> leaves,
+                                                Map<String, Map<String, Double>> values) {
+        values.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(roleEntry -> {
+            PlayerRole role = resolveRole(roleEntry.getKey());
+            roleEntry.getValue().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(attribute -> {
+                String displayAttribute = resolveAttribute(attribute.getKey());
+                add(leaves, "match.role-weights.attributes." + role.displayName() + "." + displayAttribute,
+                        CanonicalScoringWeightKey.Category.ROLE_FIT, attribute.getValue(),
+                        CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerRoleService");
+            });
+        });
+    }
+
+    private static PlayerRole resolveRole(String value) {
+        return PlayerRole.fromDisplayName(value).orElseGet(() -> Arrays.stream(PlayerRole.values())
+                .filter(role -> normalize(value).equals(normalize(role.displayName())))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("unknown role attribute role: " + value)));
+    }
+
+    private static String resolveAttribute(String value) {
+        return PlayerSkillsService.GETTER_MAP.keySet().stream()
+                .filter(attribute -> normalize(attribute).equals(normalize(value)))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("unknown role attribute: " + value));
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.replace(" ", "").replace("-", "").replace("_", "").toUpperCase();
     }
 
     private static void addMultipliers(Map<String, CanonicalScoringWeightKey> leaves, String path, CompartmentEngineConfig.CompartmentMultipliers m, CanonicalScoringWeightKey.Category category) {
