@@ -6,13 +6,13 @@ import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnap
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.matchplan.ScoreEngineKind;
-import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.service.TacticalScoreService;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -62,8 +62,7 @@ public final class CanonicalScoringFingerprintService {
                                    CanonicalRuntimeTeamInput home, CanonicalRuntimeTeamInput away) {
         return sha256("input|fixture=" + request.fixtureKey() + "|competition=" + request.competitionId()
                 + "|season=" + request.season() + "|round=" + request.round() + "|home=" + request.homeTeamId()
-                + "|away=" + request.awayTeamId() + "|homeTactic=" + tactic(request.homeTactic())
-                + "|awayTactic=" + tactic(request.awayTactic()) + "|home=" + team(home)
+                + "|away=" + request.awayTeamId() + "|home=" + team(home)
                 + "|away=" + team(away));
     }
 
@@ -75,25 +74,44 @@ public final class CanonicalScoringFingerprintService {
     }
 
     public String fallbackInputFingerprint(String fixtureKey, long homeTeamId, long awayTeamId,
-                                           double homePower, double awayPower, TacticalScoreService.TacticVector homeVector,
-                                           TacticalScoreService.TacticVector awayVector, Double homeTalk, Double awayTalk,
-                                           ScoreEngineKind engine) {
+                                           double homeRawPower, double awayRawPower,
+                                           double homeEffectivePower, double awayEffectivePower,
+                                           TacticalScoreService.TeamProfile homeProfile,
+                                           TacticalScoreService.TeamProfile awayProfile,
+                                           TacticalScoreService.TacticVector homeVector,
+                                           TacticalScoreService.TacticVector awayVector,
+                                           Double homeTalk, Double awayTalk, ScoreEngineKind engine) {
         return sha256("fallback|engine=" + engine.name() + "|fixture=" + fixtureKey + "|home=" + homeTeamId
-                + "|away=" + awayTeamId + "|powers=" + homePower + ',' + awayPower
+                + "|away=" + awayTeamId + "|rawPowers=" + homeRawPower + ',' + awayRawPower
+                + "|effectivePowers=" + homeEffectivePower + ',' + awayEffectivePower
+                + "|profiles=" + profile(homeProfile) + ',' + profile(awayProfile)
                 + "|vectors=" + vector(homeVector) + ',' + vector(awayVector)
                 + "|talk=" + scalar(homeTalk) + ',' + scalar(awayTalk));
     }
 
-    public String adminOverrideFingerprint(String fixtureKey, int homeScore, int awayScore) {
+    public String adminOverrideConfigFingerprint() {
+        return sha256("admin-override-1|config");
+    }
+
+    public String adminOverrideInputFingerprint(String fixtureKey, int homeScore, int awayScore) {
         return sha256("admin-override-1|fixture=" + fixtureKey + "|score=" + homeScore + ':' + awayScore);
     }
 
+    public String adminOverrideFingerprint(String fixtureKey, int homeScore, int awayScore) {
+        return adminOverrideConfigFingerprint();
+    }
+
     public String fallbackConfigFingerprint(MatchEngineConfig match, ScoreEngineKind engine) {
-        return sha256("fallback-config|engine=" + engine.name() + "|playerValue="
-                + match.getPlayerValue().getScaleMultiplier() + ',' + match.getPlayerValue().getRatingFloor()
-                + ',' + match.getPlayerValue().getRatingCeil()
-                + "|teamTalk=" + teamTalk(match.getTeamTalk())
-                + "|tactical=" + tactical(match.getTacticalModel()));
+        String material = "fallback-config|engine=" + engine.name();
+        if (engine == ScoreEngineKind.TWO_AXIS_FALLBACK) {
+            material += "|teamTalk=" + teamTalk(match.getTeamTalk())
+                    + "|tactical=" + tactical(match.getTacticalModel());
+        } else {
+            material += "|power=" + power(match.getPower())
+                    + "|playerValue=" + playerValue(match.getPlayerValue())
+                    + "|teamTalk=" + teamTalk(match.getTeamTalk());
+        }
+        return sha256(material);
     }
 
     private static String team(CanonicalRuntimeTeamInput team) {
@@ -136,6 +154,24 @@ public final class CanonicalScoringFingerprintService {
         return Double.toString(value);
     }
 
+    private static String profile(TacticalScoreService.TeamProfile p) {
+        if (p == null) return "null";
+        return p.attack() + "," + p.defense() + "," + p.pressingMult() + ","
+                + p.disciplineMult() + "," + p.staminaMult();
+    }
+
+    private static String playerValue(MatchEngineConfig.PlayerValue p) {
+        return p.getScaleMultiplier() + "," + p.getRatingFloor() + "," + p.getRatingCeil() + ","
+                + p.getMoraleNeutral() + "," + p.getMoraleSlope() + "," + p.getFitnessFloor() + ","
+                + p.getDefaultFamiliarityPenalty() + "|weights=" + ordered(p.getWeights())
+                + "|familiarity=" + ordered(p.getFamiliarityPenalty());
+    }
+
+    private static String power(MatchEngineConfig.Power p) {
+        return p.getRatioExponent() + "," + p.getExpectedGoalsTotal() + "," + p.getMaxGoalsPerTeam()
+                + "," + p.getMoraleFloor() + "," + p.getMoraleSpread() + "," + p.getHomeAdvantage();
+    }
+
     private static String teamTalk(MatchEngineConfig.TeamTalk t) {
         return t.isEnabled() + "," + t.getMaxSwing() + "," + t.getNeutralReputation() + ',' + t.getReputationSpan();
     }
@@ -149,19 +185,16 @@ public final class CanonicalScoringFingerprintService {
                 + ',' + t.getDirectnessAttackCost() + ',' + t.getPressBypassVulnerability() + ',' + t.getWidthStrength()
                 + ',' + t.getAptitudeGateStrength() + ',' + t.getAptitudeBaseline() + ',' + t.getAptitudeMultMin()
                 + ',' + t.getAptitudeMultMax() + ',' + t.getAiWidthWideThreshold() + ',' + t.getAiWidthNarrowThreshold()
-                + ',' + t.getMaxGoalsPerTeam() + ',' + t.getExtraTimeOpennessScale();
-    }
-
-    private static String tactic(PersonalizedTactic tactic) {
-        if (tactic == null) return "null";
-        return tactic.getMentality() + '|' + tactic.getTempo() + '|' + tactic.getPassingType()
-                + '|' + tactic.getDefensiveLine() + '|' + tactic.getPressing() + '|' + tactic.getWidth()
-                + '|' + tactic.getInPossession() + '|' + tactic.getTimeWasting() + '|' + tactic.getDribbling()
-                + '|' + tactic.getFoulFrequency() + '|' + tactic.getFoulHardness() + '|'
-                + tactic.getTempoFragmentation() + '|' + tactic.getWidePlay() + '|' + tactic.getTransition()
-                + "|setPieces=" + tactic.getPenaltyTakerId() + ',' + tactic.getFreeKickTakerId()
-                + ',' + tactic.getCornerTakerLeftId() + ',' + tactic.getCornerTakerRightId()
-                + "|tactic=" + tactic.getTactic();
+                + ',' + t.getMaxGoalsPerTeam() + ',' + t.getExtraTimeOpennessScale()
+                + "|panel=" + Arrays.toString(t.getOpponentPanel())
+                + "|maps=" + ordered(t.getAttackShare()) + ordered(t.getMentalityBias())
+                + ordered(t.getPossessionBias()) + ordered(t.getTempoRisk()) + ordered(t.getPassingRisk())
+                + ordered(t.getPossessionControl()) + ordered(t.getTimeWastingControl())
+                + ordered(t.getLineHeightAxis()) + ordered(t.getPressAxis()) + ordered(t.getWidthAxis())
+                + ordered(t.getPassingDirectness()) + ordered(t.getDribblingRisk()) + ordered(t.getFoulControl())
+                + ordered(t.getFoulHardnessControl()) + ordered(t.getFragmentationControl())
+                + ordered(t.getWidePlayWidth()) + ordered(t.getWidePlayRisk())
+                + ordered(t.getTransitionRisk()) + ordered(t.getTransitionControl());
     }
 
     private static String ordered(Map<?, ?> map) {

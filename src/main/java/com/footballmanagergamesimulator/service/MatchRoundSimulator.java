@@ -650,10 +650,13 @@ public class MatchRoundSimulator {
 
                 final String aiFixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                         .competitionFixtureKey(match.getId());
-                Optional<com.footballmanagergamesimulator.matchplan.PersistedScoringPlan> persistedPlan = matchPlanService.isEnabled()
-                        ? matchPlanService.findPersistedScoringPlan(aiFixtureKey, teamId1, teamId2) : Optional.empty();
+                // Persistence is an immutable compatibility boundary: once an AI decision exists,
+                // the current MatchPlan flag cannot route the fixture back to another scorer.
+                Optional<com.footballmanagergamesimulator.matchplan.PersistedScoringPlan> persistedPlan =
+                        matchPlanService.findPersistedScoringPlan(aiFixtureKey, teamId1, teamId2);
                 Optional<MatchScoringDecision> persistedScoreDecision = persistedPlan.map(
                         com.footballmanagergamesimulator.matchplan.PersistedScoringPlan::decision);
+                boolean durablePlan = persistedScoreDecision.isPresent() || matchPlanService.isEnabled();
                 ScoreEngineKind selectedScoreEngine;
                 CanonicalRuntimeScore canonicalScore = null;
                 int[] adminScoreAi = null;
@@ -772,11 +775,24 @@ public class MatchRoundSimulator {
                     String configFingerprint = canonicalScore != null
                             ? canonicalScore.configFingerprint()
                             : selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE
-                            ? canonicalScoringFingerprintService.adminOverrideFingerprint(aiFixtureKey, score90Home, score90Away)
+                            ? canonicalScoringFingerprintService.adminOverrideConfigFingerprint()
                             : canonicalScoringFingerprintService.fallbackConfigFingerprint(engineConfig, selectedScoreEngine);
                     String inputFingerprint = canonicalScore == null
-                            ? canonicalScoringFingerprintService.fallbackInputFingerprint(
+                            ? selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE
+                            ? canonicalScoringFingerprintService.adminOverrideInputFingerprint(
+                                    aiFixtureKey, score90Home, score90Away)
+                            : canonicalScoringFingerprintService.fallbackInputFingerprint(
                                     aiFixtureKey, teamId1, teamId2, teamPower1, teamPower2,
+                                    selectedScoreEngine == ScoreEngineKind.SCALAR_FALLBACK
+                                            ? matchSimulationService.effectiveTeamPower(
+                                                    teamPower1, teamTalkFactor(teamId1), true) : teamPower1,
+                                    selectedScoreEngine == ScoreEngineKind.SCALAR_FALLBACK
+                                            ? matchSimulationService.effectiveTeamPower(
+                                                    teamPower2, teamTalkFactor(teamId2), false) : teamPower2,
+                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
+                                            ? scaleProfile(teamTacticalProfile(teamId1), teamTalkFactor(teamId1)) : null,
+                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
+                                            ? scaleProfile(teamTacticalProfile(teamId2), teamTalkFactor(teamId2)) : null,
                                     selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
                                             ? tacticVectorCache.get(teamId1) : null,
                                     selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
@@ -842,7 +858,7 @@ public class MatchRoundSimulator {
                 // RNG for scorer/assist/participation). Flag OFF: the legacy simplified path.
                 List<Scorer> team1Scorers;
                 List<Scorer> team2Scorers;
-                if (matchPlanService.isEnabled()) {
+                if (durablePlan) {
                     // A COMMITTED fixture never reaches here — it is short-circuited at the top of
                     // the loop. So this always builds the plan fresh for a not-yet-committed fixture.
                     String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
@@ -1537,7 +1553,8 @@ public class MatchRoundSimulator {
     }
 
     private static TacticalScoreService.TeamProfile scaleProfile(TacticalScoreService.TeamProfile p, double k) {
-        return new TacticalScoreService.TeamProfile(p.attack() * k, p.defense() * k);
+        return new TacticalScoreService.TeamProfile(p.attack() * k, p.defense() * k,
+                p.pressingMult(), p.disciplineMult(), p.staminaMult());
     }
 
     /** Public scoreline for a standalone match (e.g. a friendly) using the SAME engine as competitive
@@ -1583,6 +1600,9 @@ public class MatchRoundSimulator {
                 ? reconstructKnockoutResolution(match, homeTeamId, awayTeamId, split, firstLegScores,
                         homeScore, awayScore)
                 : null;
+        if (knockout && match.getLegNumber() == 1 && match.getTieId() != 0) {
+            firstLegScores.put(match.getTieId(), new int[]{homeScore, awayScore});
+        }
         return new AdoptedScoring(decision, decision.scoreEngine(), split, homeScore, awayScore,
                 decision.homePower(), decision.awayPower(), resolution);
     }
@@ -1604,8 +1624,28 @@ public class MatchRoundSimulator {
         Integer aggregateHome = null;
         Integer aggregateAway = null;
         String suffix;
-        if (match.getLegNumber() == 2 && match.getTieId() != 0 && firstLegScores.get(match.getTieId()) != null) {
-            int[] leg1 = firstLegScores.get(match.getTieId());
+        if (match.getLegNumber() == 1 && match.getTieId() != 0) {
+            return new KnockoutMatchResolution(homeScore, awayScore, " (1st leg)", null, "FIRST_LEG",
+                    null, null, null, null, null, null);
+        }
+
+        int[] leg1 = null;
+        if (match.getLegNumber() == 2 && match.getTieId() != 0) {
+            leg1 = firstLegScores.get(match.getTieId());
+            if (leg1 == null) {
+                leg1 = competitionTeamInfoMatchRepository
+                        .findByTieIdAndLegNumber(match.getTieId(), 1)
+                        .map(row -> {
+                            if (row.getTeam1Score() < 0 || row.getTeam2Score() < 0) {
+                                throw new IllegalStateException("first-leg score is unavailable for tie "
+                                        + match.getTieId());
+                            }
+                            return new int[]{row.getTeam1Score(), row.getTeam2Score()};
+                        })
+                        .orElse(null);
+                }
+            }
+        if (leg1 != null) {
             aggregateHome = leg1[1] + homeScore;
             aggregateAway = leg1[0] + awayScore;
             winner = penalties ? (penaltyHome > penaltyAway ? homeTeamId : awayTeamId)

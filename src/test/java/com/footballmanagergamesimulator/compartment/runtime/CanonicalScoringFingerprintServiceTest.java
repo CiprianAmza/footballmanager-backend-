@@ -11,6 +11,7 @@ import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnap
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.service.TacticalScoreService;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -72,6 +73,60 @@ class CanonicalScoringFingerprintServiceTest {
         changed.set(0, changedPlayer);
         assertThat(service.inputFingerprint(request, team(changed), team(changed)))
                 .isNotEqualTo(service.inputFingerprint(request, first, first));
+    }
+
+    @Test
+    void engineFingerprintsContainConsumedInputsAndIgnoreIrrelevantTacticFields() {
+        MatchEngineConfig first = new MatchEngineConfig();
+        MatchEngineConfig second = new MatchEngineConfig();
+        assertThat(service.fallbackConfigFingerprint(first, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.SCALAR_FALLBACK))
+                .isEqualTo(service.fallbackConfigFingerprint(second, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.SCALAR_FALLBACK));
+        second.getPower().setExpectedGoalsTotal(4.0);
+        assertThat(service.fallbackConfigFingerprint(first, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.SCALAR_FALLBACK))
+                .isNotEqualTo(service.fallbackConfigFingerprint(second, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.SCALAR_FALLBACK));
+
+        second = new MatchEngineConfig();
+        second.getTacticalModel().getAttackShare().put("ST", 0.9);
+        assertThat(service.fallbackConfigFingerprint(first, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
+                .isNotEqualTo(service.fallbackConfigFingerprint(second, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
+
+        String profileA = service.fallbackInputFingerprint("CTIM:1", 1, 2, 100, 90,
+                108, 90, new TacticalScoreService.TeamProfile(60, 40, 1.1, 0.9, 1.0),
+                new TacticalScoreService.TeamProfile(50, 40, 1.0, 1.0, 1.0),
+                new TacticalScoreService.TacticVector(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7),
+                new TacticalScoreService.TacticVector(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
+                1.02, 0.98, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK);
+        String profileB = service.fallbackInputFingerprint("CTIM:1", 1, 2, 100, 90,
+                108, 90, new TacticalScoreService.TeamProfile(55, 45, 1.1, 0.9, 1.0),
+                new TacticalScoreService.TeamProfile(50, 40, 1.0, 1.0, 1.0),
+                new TacticalScoreService.TacticVector(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7),
+                new TacticalScoreService.TacticVector(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
+                1.02, 0.98, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK);
+        assertThat(profileA).isNotEqualTo(profileB);
+
+        PersonalizedTactic irrelevantA = new PersonalizedTactic();
+        PersonalizedTactic irrelevantB = new PersonalizedTactic();
+        irrelevantA.setPenaltyTakerId(1L);
+        irrelevantB.setPenaltyTakerId(99L);
+        CanonicalRuntimeScoringService.RuntimeScoringRequest requestA =
+                CanonicalRuntimeScoringService.RuntimeScoringRequest.home("CTIM:1", 7, 2026, 1, 1, 2,
+                        irrelevantA, new PersonalizedTactic(), List.of(), List.of());
+        CanonicalRuntimeScoringService.RuntimeScoringRequest requestB =
+                CanonicalRuntimeScoringService.RuntimeScoringRequest.home("CTIM:1", 7, 2026, 1, 1, 2,
+                        irrelevantB, new PersonalizedTactic(), List.of(), List.of());
+        CanonicalRuntimeTeamInput canonical = team(players(1));
+        assertThat(service.inputFingerprint(requestA, canonical, canonical))
+                .isEqualTo(service.inputFingerprint(requestB, canonical, canonical));
+    }
+
+    @Test
+    void adminFingerprintIsVersionedAndSeparatesConfigFromFixtureScore() {
+        assertThat(service.adminOverrideConfigFingerprint())
+                .matches("[0-9a-f]{64}");
+        assertThat(service.adminOverrideConfigFingerprint())
+                .isNotEqualTo(service.adminOverrideInputFingerprint("CTIM:1", 1, 0));
+        assertThat(service.adminOverrideInputFingerprint("CTIM:1", 1, 0))
+                .isNotEqualTo(service.adminOverrideInputFingerprint("CTIM:1", 2, 0));
     }
 
     private static CompartmentEngineConfig.CompartmentWeights weights(PlayerAttribute attribute, double value) {

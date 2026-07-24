@@ -138,6 +138,11 @@ class CompartmentAdapterRuntimeIsolationTest {
         int cutover = simulator.indexOf("canonicalRuntimeScoringService.scoreSafely");
         int twoAxisFallback = simulator.indexOf("TwoAxisResult r = twoAxisScores(teamId1, null, teamId2, null)", cutover);
         assertThat(admin).isGreaterThanOrEqualTo(0).isLessThan(cutover);
+        int persistedLookup = simulator.indexOf("findPersistedScoringPlan", aiStart);
+        assertThat(persistedLookup).isGreaterThanOrEqualTo(0).isLessThan(cutover);
+        assertThat(simulator).contains("boolean durablePlan = persistedScoreDecision.isPresent() || matchPlanService.isEnabled()")
+                .contains("if (durablePlan)")
+                .contains("isPlanCommitted(aiFixtureKey)");
         assertThat(twoAxisFallback).isGreaterThan(cutover);
         assertThat(simulator).contains("compartmentEngineConfig.isShadowEnabled() && !compartmentEngineConfig.isEnabled()");
         int humanStart = simulator.indexOf("if (isHumanMatch)");
@@ -148,6 +153,23 @@ class CompartmentAdapterRuntimeIsolationTest {
         assertThat(standalone).isGreaterThanOrEqualTo(0);
         assertThat(simulator.substring(standalone)).doesNotContain("canonicalRuntimeScoringService");
         assertThat(simulator).contains("if (isHumanMatch)").contains("if (knockout)");
+    }
+
+    @Test
+    void persistedKnockoutReplayKeepsFirstLegAndRepositoryFallbackSemantics() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        assertThat(simulator).contains("FIRST_LEG")
+                .contains("(1st leg)")
+                .contains("findByTieIdAndLegNumber(match.getTieId(), 1)")
+                .contains("aggregateHome = leg1[1] + homeScore")
+                .contains("aggregateAway = leg1[0] + awayScore")
+                .contains("PENALTIES")
+                .contains("EXTRA_TIME");
+        int helper = simulator.indexOf("private KnockoutMatchResolution reconstructKnockoutResolution");
+        int resolver = simulator.indexOf("private KnockoutMatchResolution resolveKnockoutMatch", helper);
+        assertThat(helper).isGreaterThanOrEqualTo(0).isLessThan(resolver);
+        assertThat(simulator.substring(helper, resolver)).doesNotContain("Random", "random");
     }
 
     private static boolean containsIdentifier(String content, String identifier) {

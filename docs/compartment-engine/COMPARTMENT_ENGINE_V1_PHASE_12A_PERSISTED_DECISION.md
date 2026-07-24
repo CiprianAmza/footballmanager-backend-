@@ -11,7 +11,8 @@ persisted through a `REQUIRES_NEW` fixture-serialized operation. The first persi
 wins; every concurrent or retrying candidate adopts that winner. Game effects begin only after
 the outer fixture lock is acquired and the fixture is verified not `COMMITTED`; a committed
 fixture therefore produces no duplicate effects. Configuration changes do not resample an
-existing decision.
+existing decision. This lookup and finalization rule also applies when the current MatchPlan
+flag is OFF; the flag controls only creation of a new decision.
 
 Configuration fingerprints are lowercase SHA-256 values over the canonical compartment and
 tactical-model coefficients, excluding rollout flags. Input fingerprints are lowercase SHA-256
