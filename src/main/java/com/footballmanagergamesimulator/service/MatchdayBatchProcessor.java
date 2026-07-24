@@ -434,6 +434,7 @@ public class MatchdayBatchProcessor {
         // Group results by competition so each competition gets its own inbox message
         Map<String, StringBuilder> resultsByCompetition = new LinkedHashMap<>();
         Map<String, List<Map<String, Object>>> rowsByCompetition = new LinkedHashMap<>();
+        Map<String, Long> competitionIdsByName = new java.util.HashMap<>();
         Set<Long> matchTeamIds = new HashSet<>();
 
         for (CalendarEvent event : matchEvents) {
@@ -443,6 +444,7 @@ public class MatchdayBatchProcessor {
             if (otherResults.isEmpty()) continue;
 
             String competitionName = (String) otherResults.get(0).get("competitionName");
+            competitionIdsByName.put(competitionName, asLong(otherResults.get(0).get("competitionId")));
             StringBuilder sb = resultsByCompetition.computeIfAbsent(competitionName, k -> new StringBuilder());
             List<Map<String, Object>> rows = rowsByCompetition.computeIfAbsent(competitionName, k -> new ArrayList<>());
             for (Map<String, Object> mr : otherResults) {
@@ -490,10 +492,11 @@ public class MatchdayBatchProcessor {
                     Long profileId = table == null ? null : table.holdings().stream().filter(ClubCapTableService.Holding::controlling)
                             .map(ClubCapTableService.Holding::profileId).findFirst().orElse(null);
                     if (profileId == null || !chairmanProfiles.containsKey(profileId)) continue;
-                    Object fixture = row.getOrDefault("fixtureId", home + ":" + away);
+                    ControlledClubMatchResult result = ControlledClubMatchResult.from(row);
+                    long competitionId = competitionIdsByName.getOrDefault(entry.getKey(), 0L);
                     chairmanInbox.notify(profileId, teamId, calendar.getSeason(), calendar.getCurrentDay(),
-                            "CONTROLLED_CLUB_MATCH_RESULT", "Controlled club match result", content,
-                            "MATCH_RESULT:" + entry.getKey() + ":" + calendar.getSeason() + ":" + calendar.getCurrentDay() + ":" + fixture + ":" + profileId);
+                            "CONTROLLED_CLUB_MATCH_RESULT", "Controlled club match result", result.description(),
+                            "MATCH_RESULT:" + competitionId + ":" + calendar.getSeason() + ":" + calendar.getCurrentDay() + ":" + result.fixtureId() + ":" + profileId);
                 }
             }
         }
@@ -508,5 +511,21 @@ public class MatchdayBatchProcessor {
         if (value instanceof Number number) return number.longValue();
         if (value == null) return null;
         try { return Long.valueOf(value.toString()); } catch (NumberFormatException ignored) { return null; }
+    }
+
+    record ControlledClubMatchResult(long fixtureId, long team1Id, long team2Id,
+                                     String team1Name, String team2Name, String score) {
+        static ControlledClubMatchResult from(Map<String, Object> row) {
+            Long suppliedFixture = asLong(row.get("fixtureId"));
+            long home = asLong(row.get("team1Id")) == null ? 0 : asLong(row.get("team1Id"));
+            long away = asLong(row.get("team2Id")) == null ? 0 : asLong(row.get("team2Id"));
+            long fixture = suppliedFixture == null ? Math.abs(home * 31L + away) : suppliedFixture;
+            return new ControlledClubMatchResult(fixture, home, away,
+                    String.valueOf(row.getOrDefault("team1Name", "Club 1")),
+                    String.valueOf(row.getOrDefault("team2Name", "Club 2")),
+                    String.valueOf(row.getOrDefault("score", "result unavailable")));
+        }
+
+        String description() { return team1Name + " " + score + " " + team2Name + "."; }
     }
 }

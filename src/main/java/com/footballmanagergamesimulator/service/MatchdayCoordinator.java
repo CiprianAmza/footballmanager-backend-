@@ -334,10 +334,13 @@ public class MatchdayCoordinator {
         List<CompetitionTeamInfoDetail> details = competitionTeamInfoDetailRepository
                 .findAllByCompetitionIdAndRoundIdAndSeasonNumber(competitionId, matchday, season);
         for (CompetitionTeamInfoDetail d : details) {
-            if (humanTeamIds.contains(d.getTeam1Id()) || humanTeamIds.contains(d.getTeam2Id())) continue;
             if (d.getScore() == null || d.getScore().isEmpty()) continue;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("competitionName", competition.getName());
+            m.put("competitionId", competitionId);
+            m.put("fixtureId", d.getId());
+            m.put("team1Id", d.getTeam1Id());
+            m.put("team2Id", d.getTeam2Id());
             m.put("team1Name", d.getTeamName1());
             m.put("team2Name", d.getTeamName2());
             m.put("score", d.getScore());

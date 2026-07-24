@@ -49,7 +49,8 @@ public class InboxController {
                     .orElseGet(() -> ResponseEntity.ok(List.of()));
         }
         Long teamId = resolveTeamId(0, request);
-        return ResponseEntity.ok(teamId == null ? List.of() : managerInboxRepository.findAllByTeamIdOrderByIdDesc(teamId));
+        return ResponseEntity.ok(teamId == null ? List.of() : managerInboxRepository
+                .findAllByTeamIdAndAudienceInOrderByIdDesc(teamId, List.of(InboxAudience.MANAGER, InboxAudience.BOTH)));
     }
 
     @GetMapping("/me/unreadCount")
@@ -62,7 +63,8 @@ public class InboxController {
                             profile.getId(), List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH))).orElse(0L));
         }
         Long teamId = resolveTeamId(0, request);
-        return ResponseEntity.ok(teamId == null ? 0L : managerInboxRepository.countByTeamIdAndIsReadFalse(teamId));
+        return ResponseEntity.ok(teamId == null ? 0L : managerInboxRepository
+                .countByTeamIdAndAudienceInAndIsReadFalse(teamId, List.of(InboxAudience.MANAGER, InboxAudience.BOTH)));
     }
 
     @PostMapping("/me/{messageId}/read")

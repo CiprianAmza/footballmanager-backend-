@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.flywaydb.core.Flyway;
 
@@ -33,6 +34,7 @@ public class PrebuiltDataService {
 
     private final Object restoreLock = new Object();
 
+    @Autowired
     public PrebuiltDataService(DataSource dataSource, Flyway flyway) {
         this.dataSource = dataSource;
         this.flyway = flyway;
