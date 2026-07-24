@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.economy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.footballmanagergamesimulator.person.PersonProfile;
+import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.user.CareerRole;
 import com.footballmanagergamesimulator.user.RegisterRequest;
 import com.footballmanagergamesimulator.user.User;
@@ -32,9 +34,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RegentPhase4CApiIT {
 
     @Autowired private UserService userService;
+    @Autowired private PersonProfileService profileService;
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private MarketInstrumentRepository instrumentRepository;
+    @Autowired private PersonalAccountRepository accountRepository;
 
     @Test
     void apiUsesAuthenticatedPrincipalForAdviserDataAndEmitsTypedDtos() throws Exception {
@@ -60,7 +64,9 @@ class RegentPhase4CApiIT {
         mockMvc.perform(get("/api/me/market-adviser").session(first).header("X-User-Id", "999999"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentContract.adviserCode").value("ANALYST"))
-                .andExpect(jsonPath("$.hireOptions[0].optionCode").isNotEmpty());
+                .andExpect(jsonPath("$.hireOptions[0].optionCode").value("ANALYST"))
+                .andExpect(jsonPath("$.hireOptions[1].optionCode").value("STRATEGIST"))
+                .andExpect(jsonPath("$.hireOptions[2].optionCode").value("VETERAN"));
 
         mockMvc.perform(get("/api/me/market-adviser").session(second).header("X-User-Id", "1"))
                 .andExpect(status().isOk())
@@ -101,6 +107,37 @@ class RegentPhase4CApiIT {
                         .content("{\"optionCode\":\"VETERAN\",\"idempotencyKey\":\"hire-poor\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_FUNDS"));
+    }
+
+    @Test
+    void adviserHireReplayWinsBeforeLaterCashDrop() throws Exception {
+        User user = registerChairman("phase4c-replay", 2_000_000L);
+        MockHttpSession session = login("phase4c-replay");
+
+        mockMvc.perform(post("/api/me/market-adviser/hire").session(session).with(csrf())
+                        .contentType("application/json")
+                        .content("{\"optionCode\":\"VETERAN\",\"idempotencyKey\":\"hire-replay\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contractId").isNumber())
+                .andExpect(jsonPath("$.replayed").value(false));
+
+        PersonProfile profile = profileService.requireForUser(user);
+        PersonalAccount account = accountRepository.findByProfileId(profile.getId()).orElseThrow();
+        account.setCashBalance(1L);
+        accountRepository.saveAndFlush(account);
+
+        mockMvc.perform(post("/api/me/market-adviser/hire").session(session).with(csrf())
+                        .contentType("application/json")
+                        .content("{\"optionCode\":\"VETERAN\",\"idempotencyKey\":\"hire-replay\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.adviserCode").value("VETERAN"))
+                .andExpect(jsonPath("$.replayed").value(true));
+
+        mockMvc.perform(post("/api/me/market-adviser/hire").session(session).with(csrf())
+                        .contentType("application/json")
+                        .content("{\"optionCode\":\"ANALYST\",\"idempotencyKey\":\"hire-replay\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
     }
 
     private User registerChairman(String username, long wealth) {

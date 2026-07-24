@@ -105,6 +105,12 @@ public class WebSecurityConfig {
                     // client prices. It is never a Phase-1 compatibility API.
                     requests.requestMatchers("/boardroom/**").denyAll();
                     if (!regentEnabled) {
+                        requests.requestMatchers(HttpMethod.GET, "/api/market/instruments",
+                                "/api/market/instruments/*/history").authenticated();
+                        requests.requestMatchers(HttpMethod.POST, "/api/market/instruments/*/advice",
+                                "/api/me/trades", "/api/me/market-adviser/hire").authenticated();
+                        requests.requestMatchers(HttpMethod.GET, "/api/me/portfolio", "/api/me/trades",
+                                "/api/me/market-adviser").authenticated();
                         requests.requestMatchers("/api/me/**", "/api/people/**", "/api/market/**", "/api/clubs/**",
                                 "/api/club-cash-transfers",
                                 "/api/assets/**", "/api/wealth-rankings/**").denyAll();
