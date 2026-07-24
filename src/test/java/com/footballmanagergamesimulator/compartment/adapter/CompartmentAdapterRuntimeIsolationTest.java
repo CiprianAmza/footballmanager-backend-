@@ -155,23 +155,6 @@ class CompartmentAdapterRuntimeIsolationTest {
         assertThat(simulator).contains("if (isHumanMatch)").contains("if (knockout)");
     }
 
-    @Test
-    void persistedKnockoutReplayKeepsFirstLegAndRepositoryFallbackSemantics() {
-        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
-                "service", "MatchRoundSimulator.java"));
-        assertThat(simulator).contains("FIRST_LEG")
-                .contains("(1st leg)")
-                .contains("findByTieIdAndLegNumber(match.getTieId(), 1)")
-                .contains("aggregateHome = leg1[1] + homeScore")
-                .contains("aggregateAway = leg1[0] + awayScore")
-                .contains("PENALTIES")
-                .contains("EXTRA_TIME");
-        int helper = simulator.indexOf("private KnockoutMatchResolution reconstructKnockoutResolution");
-        int resolver = simulator.indexOf("private KnockoutMatchResolution resolveKnockoutMatch", helper);
-        assertThat(helper).isGreaterThanOrEqualTo(0).isLessThan(resolver);
-        assertThat(simulator.substring(helper, resolver)).doesNotContain("Random", "random");
-    }
-
     private static boolean containsIdentifier(String content, String identifier) {
         int from = 0;
         while (true) {

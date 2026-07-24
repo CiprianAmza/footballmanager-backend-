@@ -165,6 +165,45 @@ class MatchPlanConcurrencyTest {
         }
     }
 
+    @Test
+    void retryReadsPlanThenFreshCommittedVisibilityPreventsSecondEffects() {
+        CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
+        fixture.setCompetitionId(100L);
+        fixture.setSeasonNumber("1");
+        fixture.setRound(5L);
+        fixture.setTeam1Id(10L);
+        fixture.setTeam2Id(20L);
+        fixture = fixtureRepository.saveAndFlush(fixture);
+        long fixtureId = fixture.getId();
+        String fixtureKey = MatchPlanService.competitionFixtureKey(fixtureId);
+        MatchScoringDecision decision = new MatchScoringDecision(fixtureKey, 101L,
+                ScoreEngineKind.COMPARTMENT_V1, MatchScoringDecision.ALGORITHM_VERSION,
+                "e".repeat(64), "f".repeat(64), 1, 0, 40, 30, 1.0, 0.5);
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        try {
+            service.persistOrLoadScoreDecision(decision, 10L, 20L,
+                    KnockoutPlanSplit.regularOnly(1, 0));
+            // Simulate the retry's stale pre-lock read, then publish COMMITTED in another
+            // transaction before the retry obtains its fixture lock.
+            assertEquals(decision, service.findPersistedScoringPlan(fixtureKey, 10L, 20L)
+                    .orElseThrow().decision());
+            new TransactionTemplate(txManager).executeWithoutResult(status -> {
+                MatchPlan plan = planRepository.findByFixtureKey(fixtureKey).orElseThrow();
+                plan.setStatus(MatchPlan.Status.COMMITTED);
+                planRepository.saveAndFlush(plan);
+            });
+            service.lockFixture(fixtureKey);
+            assertEquals(true, service.isPlanCommitted(fixtureKey));
+            // The simulator's committed branch exits before admin/scorer/stat/effect calls.
+        } finally {
+            new TransactionTemplate(txManager).executeWithoutResult(status -> {
+                planRepository.findByFixtureKey(fixtureKey).ifPresent(plan -> planRepository.delete(plan));
+                fixtureRepository.deleteById(fixtureId);
+            });
+        }
+    }
+
     private Lineup lineup(long base) {
         return new Lineup(List.of(
                 player(base, "GK"), player(base + 1, "DC"), player(base + 2, "DC"),

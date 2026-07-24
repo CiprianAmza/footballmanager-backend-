@@ -97,14 +97,11 @@ public final class CanonicalScoringFingerprintService {
         return sha256("admin-override-1|fixture=" + fixtureKey + "|score=" + homeScore + ':' + awayScore);
     }
 
-    public String adminOverrideFingerprint(String fixtureKey, int homeScore, int awayScore) {
-        return adminOverrideConfigFingerprint();
-    }
-
     public String fallbackConfigFingerprint(MatchEngineConfig match, ScoreEngineKind engine) {
         String material = "fallback-config|engine=" + engine.name();
         if (engine == ScoreEngineKind.TWO_AXIS_FALLBACK) {
-            material += "|teamTalk=" + teamTalk(match.getTeamTalk())
+            material += "|playerValue=" + playerValue(match.getPlayerValue())
+                    + "|teamTalk=" + teamTalk(match.getTeamTalk())
                     + "|tactical=" + tactical(match.getTacticalModel());
         } else {
             material += "|power=" + power(match.getPower())

@@ -12,7 +12,9 @@ wins; every concurrent or retrying candidate adopts that winner. Game effects be
 the outer fixture lock is acquired and the fixture is verified not `COMMITTED`; a committed
 fixture therefore produces no duplicate effects. Configuration changes do not resample an
 existing decision. This lookup and finalization rule also applies when the current MatchPlan
-flag is OFF; the flag controls only creation of a new decision.
+flag is OFF; the flag controls only creation of a new decision. Terminal visibility is checked
+with a fresh `REQUIRES_NEW` scalar status query after the fixture lock, so a retry cannot reuse a
+stale outer persistence-context snapshot.
 
 Configuration fingerprints are lowercase SHA-256 values over the canonical compartment and
 tactical-model coefficients, excluding rollout flags. Input fingerprints are lowercase SHA-256

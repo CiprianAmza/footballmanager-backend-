@@ -11,4 +11,6 @@ public interface MatchPlanRepository extends JpaRepository<MatchPlan, Long> {
     Optional<MatchPlan> findByFixtureKey(String fixtureKey);
 
     boolean existsByFixtureKey(String fixtureKey);
+
+    boolean existsByFixtureKeyAndStatus(String fixtureKey, MatchPlan.Status status);
 }

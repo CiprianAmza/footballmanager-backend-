@@ -1616,25 +1616,13 @@ public class MatchRoundSimulator {
             CompetitionTeamInfoMatch match, long homeTeamId, long awayTeamId,
             com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit split,
             Map<Long, int[]> firstLegScores, int homeScore, int awayScore) {
-        Integer penaltyHome = split.shootoutHome() >= 0 ? split.shootoutHome() : null;
-        Integer penaltyAway = split.shootoutAway() >= 0 ? split.shootoutAway() : null;
-        boolean penalties = penaltyHome != null && penaltyAway != null;
-        Long winner;
-        String decidedBy;
-        Integer aggregateHome = null;
-        Integer aggregateAway = null;
-        String suffix;
-        if (match.getLegNumber() == 1 && match.getTieId() != 0) {
-            return new KnockoutMatchResolution(homeScore, awayScore, " (1st leg)", null, "FIRST_LEG",
-                    null, null, null, null, null, null);
-        }
-
         int[] leg1 = null;
         if (match.getLegNumber() == 2 && match.getTieId() != 0) {
             leg1 = firstLegScores.get(match.getTieId());
             if (leg1 == null) {
                 leg1 = competitionTeamInfoMatchRepository
-                        .findByTieIdAndLegNumber(match.getTieId(), 1)
+                        .findByCompetitionIdAndSeasonNumberAndTieIdAndLegNumber(
+                                match.getCompetitionId(), match.getSeasonNumber(), match.getTieId(), 1)
                         .map(row -> {
                             if (row.getTeam1Score() < 0 || row.getTeam2Score() < 0) {
                                 throw new IllegalStateException("first-leg score is unavailable for tie "
@@ -1643,32 +1631,13 @@ public class MatchRoundSimulator {
                             return new int[]{row.getTeam1Score(), row.getTeam2Score()};
                         })
                         .orElse(null);
-                }
             }
-        if (leg1 != null) {
-            aggregateHome = leg1[1] + homeScore;
-            aggregateAway = leg1[0] + awayScore;
-            winner = penalties ? (penaltyHome > penaltyAway ? homeTeamId : awayTeamId)
-                    : aggregateHome > aggregateAway ? homeTeamId
-                    : aggregateAway > aggregateHome ? awayTeamId : null;
-            decidedBy = penalties ? "PENALTIES"
-                    : split.etHome() >= 0 ? "EXTRA_TIME" : "AGGREGATE";
-            suffix = " (agg " + aggregateHome + "-" + aggregateAway
-                    + (penalties ? ", pens " + penaltyHome + "-" + penaltyAway
-                    : split.etHome() >= 0 ? ", a.e.t." : "") + ")";
-        } else {
-            winner = penalties ? (penaltyHome > penaltyAway ? homeTeamId : awayTeamId)
-                    : homeScore > awayScore ? homeTeamId
-                    : awayScore > homeScore ? awayTeamId : null;
-            decidedBy = penalties ? "PENALTIES"
-                    : split.etHome() >= 0 ? "EXTRA_TIME" : "NORMAL";
-            suffix = penalties ? " (pens " + penaltyHome + "-" + penaltyAway + ")"
-                    : split.etHome() >= 0 ? " (a.e.t.)" : "";
         }
-        return new KnockoutMatchResolution(homeScore, awayScore, suffix, winner, decidedBy,
-                penaltyHome, penaltyAway, aggregateHome, aggregateAway,
-                split.etHome() >= 0 ? split.etHome() : null,
-                split.etAway() >= 0 ? split.etAway() : null);
+        KnockoutReplayResolver.Result result = KnockoutReplayResolver.resolve(
+                match.getLegNumber(), match.getTieId(), homeTeamId, awayTeamId, split, leg1);
+        return new KnockoutMatchResolution(result.score1(), result.score2(), result.scoreSuffix(),
+                result.winnerTeamId(), result.decidedBy(), result.penalty1(), result.penalty2(),
+                result.aggregate1(), result.aggregate2(), result.et1(), result.et2());
     }
 
     private record KnockoutMatchResolution(
@@ -1703,8 +1672,12 @@ public class MatchRoundSimulator {
             leg1 = firstLegScores.get(tieId);
             if (leg1 == null) {
                 CompetitionTeamInfoMatch leg1Row = competitionTeamInfoMatchRepository
-                        .findByTieIdAndLegNumber(tieId, 1).orElse(null);
-                if (leg1Row != null && leg1Row.getTeam1Score() >= 0) {
+                        .findByCompetitionIdAndSeasonNumberAndTieIdAndLegNumber(
+                                match.getCompetitionId(), match.getSeasonNumber(), tieId, 1).orElse(null);
+                if (leg1Row != null) {
+                    if (leg1Row.getTeam1Score() < 0 || leg1Row.getTeam2Score() < 0) {
+                        throw new IllegalStateException("first-leg score is unavailable for tie " + tieId);
+                    }
                     leg1 = new int[]{leg1Row.getTeam1Score(), leg1Row.getTeam2Score()};
                 }
             }

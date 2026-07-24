@@ -89,6 +89,10 @@ class CanonicalScoringFingerprintServiceTest {
         second.getTacticalModel().getAttackShare().put("ST", 0.9);
         assertThat(service.fallbackConfigFingerprint(first, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
                 .isNotEqualTo(service.fallbackConfigFingerprint(second, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
+        second = new MatchEngineConfig();
+        second.getPlayerValue().setFitnessFloor(0.8);
+        assertThat(service.fallbackConfigFingerprint(first, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK))
+                .isNotEqualTo(service.fallbackConfigFingerprint(second, com.footballmanagergamesimulator.matchplan.ScoreEngineKind.TWO_AXIS_FALLBACK));
 
         String profileA = service.fallbackInputFingerprint("CTIM:1", 1, 2, 100, 90,
                 108, 90, new TacticalScoreService.TeamProfile(60, 40, 1.1, 0.9, 1.0),

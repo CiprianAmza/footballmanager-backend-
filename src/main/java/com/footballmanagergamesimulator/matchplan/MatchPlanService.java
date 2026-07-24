@@ -293,9 +293,9 @@ public class MatchPlanService {
 
     /** Durable idempotency check: is this fixture's plan already COMMITTED? A committed plan
      *  means the commit already succeeded and durably persisted — a retry must not re-run. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public boolean isPlanCommitted(String fixtureKey) {
-        return matchPlanRepository.findByFixtureKey(fixtureKey)
-                .map(p -> p.getStatus() == MatchPlan.Status.COMMITTED).orElse(false);
+        return matchPlanRepository.existsByFixtureKeyAndStatus(fixtureKey, MatchPlan.Status.COMMITTED);
     }
 
     public java.util.Optional<MatchScoringDecision> findScoreDecision(String fixtureKey) {
