@@ -11,8 +11,9 @@ class ScoringSensitivityHarnessTest {
     void miniRunRebuildsBothPipelinesWithCommonSeedsAndPairedDelta() {
         var fixture = CalibrationScenarioFixtures.selectedWeights();
         var scenario = new ScoringSensitivityScenario("mini", fixture.baselineTeam(), fixture.opponent(), fixture.seed(), 2);
-        var compartment = CalibrationConfigFixture.load();
-        var match = new MatchEngineConfig();
+        var config = CalibrationConfigFixture.load();
+        var compartment = config.compartment();
+        var match = config.match();
         var catalog = CanonicalScoringWeightCatalog.from(compartment, match);
         var result = new ScoringSensitivityHarness(compartment, match, new CanonicalScoreSampler()).run(scenario,
                 catalog, new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 5.5));

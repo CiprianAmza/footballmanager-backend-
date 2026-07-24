@@ -10,8 +10,9 @@ import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoreSample
 class CompartmentBaselineTwoHundredSeasonsIT {
     @Test void baselineIsBetweenFiftyEightAndSixtyTwoPoints() {
         var scenario = CalibrationScenarioFixtures.baseline200Season();
-        var harness = new ScoringSensitivityHarness(CalibrationConfigFixture.load(), new MatchEngineConfig(), new CanonicalScoreSampler());
-        var catalog = CanonicalScoringWeightCatalog.from(CalibrationConfigFixture.load(), new MatchEngineConfig());
+        var config = CalibrationConfigFixture.load();
+        var harness = new ScoringSensitivityHarness(config.compartment(), config.match(), new CanonicalScoreSampler());
+        var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
         var result = harness.run(scenario, catalog, new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 5.0));
         org.assertj.core.api.Assertions.assertThat(result.testedAveragePoints()).isBetween(58.0, 62.0);
         org.assertj.core.api.Assertions.assertThat(result.matches()).isEqualTo(7600);

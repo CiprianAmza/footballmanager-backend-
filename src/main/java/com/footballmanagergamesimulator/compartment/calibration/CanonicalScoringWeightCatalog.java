@@ -25,8 +25,19 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.rating.attribute-min", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getAttributeMin(), CanonicalScoringWeightKey.Type.INTEGER, "rating normalization");
         add(leaves, "compartment.rating.attribute-max", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getAttributeMax(), CanonicalScoringWeightKey.Type.INTEGER, "rating normalization");
         add(leaves, "compartment.rating.score-scale", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getScoreScale(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
+        add(leaves, "compartment.rating.context-factor-min", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getContextFactorMin(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
+        add(leaves, "compartment.rating.context-factor-max", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getContextFactorMax(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
+        add(leaves, "compartment.rating.total-context-min", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getTotalContextMin(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
+        add(leaves, "compartment.rating.total-context-max", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getTotalContextMax(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
         add(leaves, "compartment.rating.context-coefficient-min", CanonicalScoringWeightKey.Category.CONTEXT, compartment.getRating().getContextCoefficientMin(), CanonicalScoringWeightKey.Type.CONTINUOUS, "context coefficient clamp");
         add(leaves, "compartment.rating.context-coefficient-max", CanonicalScoringWeightKey.Category.CONTEXT, compartment.getRating().getContextCoefficientMax(), CanonicalScoringWeightKey.Type.CONTINUOUS, "context coefficient clamp");
+        add(leaves, "compartment.rating.role-fit-base", CanonicalScoringWeightKey.Category.ROLE_FIT, compartment.getRating().getRoleFitBase(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fit");
+        add(leaves, "compartment.rating.role-fit-range", CanonicalScoringWeightKey.Category.ROLE_FIT, compartment.getRating().getRoleFitRange(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fit");
+        add(leaves, "compartment.rating.fitness-floor", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getFitnessFloor(), CanonicalScoringWeightKey.Type.CONTINUOUS, "fitness");
+        add(leaves, "compartment.rating.morale-neutral", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getMoraleNeutral(), CanonicalScoringWeightKey.Type.CONTINUOUS, "morale");
+        add(leaves, "compartment.rating.morale-slope", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getMoraleSlope(), CanonicalScoringWeightKey.Type.CONTINUOUS, "morale");
+        add(leaves, "compartment.rating.default-position-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultPositionMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "position fallback");
+        add(leaves, "compartment.rating.default-role-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultRoleMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fallback");
         compartment.getContextRules().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(row ->
                 row.getValue().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
                         add(leaves, "compartment.context-rules." + row.getKey() + "." + e.getKey().name(), CanonicalScoringWeightKey.Category.CONTEXT,
@@ -46,6 +57,9 @@ public final class CanonicalScoringWeightCatalog {
         compartment.getMentalities().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> {
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".midfield-to-attack", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getMidfieldToAttack(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".midfield-to-defense", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getMidfieldToDefense(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
+            add(leaves, "compartment.mentalities." + e.getKey().name() + ".transfer-from", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getTransferFrom().name(), CanonicalScoringWeightKey.Type.DISCRETE, "MentalityRule");
+            add(leaves, "compartment.mentalities." + e.getKey().name() + ".transfer-to", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getTransferTo().name(), CanonicalScoringWeightKey.Type.DISCRETE, "MentalityRule");
+            add(leaves, "compartment.mentalities." + e.getKey().name() + ".transfer-share", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getTransferShare(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".openness", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getOpenness(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
         });
         compartment.getWorkRate().getTraits().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> addWorkRule(leaves, "compartment.work-rate.traits." + e.getKey().name(), e.getValue()));

@@ -1,9 +1,5 @@
-package com.footballmanagergamesimulator.compartment;
+package com.footballmanagergamesimulator.compartment.calibration;
 
-import com.footballmanagergamesimulator.compartment.calibration.CanonicalScoringWeightCatalog;
-import com.footballmanagergamesimulator.compartment.calibration.CanonicalScoringWeightKey;
-import com.footballmanagergamesimulator.compartment.calibration.CanonicalScoringWeightOverride;
-import com.footballmanagergamesimulator.compartment.calibration.CanonicalScoringWeightSet;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import org.junit.jupiter.api.Test;
 
@@ -13,7 +9,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CanonicalScoringWeightCatalogTest {
     @Test
     void catalogIsStableAndContainsContextAndRoleWeights() {
-        var catalog = CanonicalScoringWeightCatalog.from(CompartmentConfigFixture.load(), new MatchEngineConfig());
+        var config = CalibrationConfigFixture.load();
+        var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
         assertThat(catalog.size()).isGreaterThan(30);
         assertThat(catalog.leafWeights()).isSortedAccordingTo(java.util.Comparator.comparing(CanonicalScoringWeightKey::path));
         assertThat(catalog.get("compartment.context-rules.line:high.PACE")).isNotNull();
@@ -22,8 +19,9 @@ class CanonicalScoringWeightCatalogTest {
 
     @Test
     void overrideDoesNotMutateBaseline() {
-        var baseline = CompartmentConfigFixture.load();
-        var match = new MatchEngineConfig();
+        var config = CalibrationConfigFixture.load();
+        var baseline = config.compartment();
+        var match = config.match();
         var set = CanonicalScoringWeightSet.baseline(baseline, match)
                 .override(CanonicalScoringWeightCatalog.from(baseline, match),
                         new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 6.0));

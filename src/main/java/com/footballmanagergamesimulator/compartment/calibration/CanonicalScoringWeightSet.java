@@ -94,6 +94,18 @@ public final class CanonicalScoringWeightSet {
             match.getPlayerValue().setFitnessFloor(override.value());
         } else if (key.equals("match.player-value.default-familiarity-penalty")) {
             match.getPlayerValue().setDefaultFamiliarityPenalty(override.value());
+        } else if (key.startsWith("match.player-value.weights.")) {
+            String[] parts = key.split("\\.");
+            if (parts.length != 5) throw new IllegalArgumentException("unsupported player-value weight: " + key);
+            match.getPlayerValue().getWeights().computeIfAbsent(parts[3], ignored -> new LinkedHashMap<>()).put(parts[4], override.value());
+        } else if (key.startsWith("match.player-value.familiarity-penalty.")) {
+            String[] parts = key.split("\\.");
+            if (parts.length != 5) throw new IllegalArgumentException("unsupported familiarity weight: " + key);
+            match.getPlayerValue().getFamiliarityPenalty().computeIfAbsent(parts[3], ignored -> new LinkedHashMap<>()).put(parts[4], override.value());
+        } else if (key.startsWith("match.role-weights.attributes.")) {
+            String[] parts = key.split("\\.");
+            if (parts.length != 5) throw new IllegalArgumentException("unsupported role attribute weight: " + key);
+            match.getRoleWeights().getAttributes().computeIfAbsent(parts[3], ignored -> new LinkedHashMap<>()).put(parts[4], override.value());
         } else if (key.startsWith("compartment.context-rules.")) {
             String[] parts = key.split("\\.", 4);
             if (parts.length != 4) throw new IllegalArgumentException("unsupported override: " + key);
@@ -140,6 +152,7 @@ public final class CanonicalScoringWeightSet {
             switch (parts[3]) {
                 case "midfield-to-attack" -> rule.setMidfieldToAttack(override.value());
                 case "midfield-to-defense" -> rule.setMidfieldToDefense(override.value());
+                case "transfer-share" -> rule.setTransferShare(override.value());
                 case "openness" -> rule.setOpenness(override.value());
                 default -> throw new IllegalArgumentException("unknown mentality leaf: " + key);
             }
@@ -187,6 +200,14 @@ public final class CanonicalScoringWeightSet {
             match.getInstructionWeights().setClampMin(override.value());
         } else if (key.equals("match.instruction-weights.clamp-max")) {
             match.getInstructionWeights().setClampMax(override.value());
+        } else if (key.startsWith("match.instruction-weights.bonuses.")) {
+            String[] parts = key.split("\\.");
+            if (parts.length < 5) throw new IllegalArgumentException("unsupported instruction bonus: " + key);
+            MatchEngineConfig.InstructionWeights.InstructionBonus bonus = match.getInstructionWeights().getBonuses()
+                    .computeIfAbsent(parts[3], ignored -> new MatchEngineConfig.InstructionWeights.InstructionBonus());
+            if (parts.length == 5 && parts[4].equals("base")) bonus.setBase(override.value());
+            else if (parts.length == 6 && parts[4].equals("by-position")) bonus.getByPosition().put(parts[5], override.value());
+            else throw new IllegalArgumentException("unsupported instruction bonus: " + key);
         } else {
             throw new IllegalArgumentException("unsupported override: " + key);
         }
@@ -308,6 +329,16 @@ public final class CanonicalScoringWeightSet {
         target.getInstructionWeights().setConflictPenalty(source.getInstructionWeights().getConflictPenalty());
         target.getInstructionWeights().setClampMin(source.getInstructionWeights().getClampMin());
         target.getInstructionWeights().setClampMax(source.getInstructionWeights().getClampMax());
+        Map<String, MatchEngineConfig.InstructionWeights.InstructionBonus> bonuses = new LinkedHashMap<>();
+        source.getInstructionWeights().getBonuses().forEach((key, value) -> {
+            MatchEngineConfig.InstructionWeights.InstructionBonus copy = new MatchEngineConfig.InstructionWeights.InstructionBonus();
+            copy.setBase(value.getBase()); copy.setByPosition(new LinkedHashMap<>(value.getByPosition())); bonuses.put(key, copy);
+        });
+        target.getInstructionWeights().setBonuses(bonuses);
+        java.util.List<MatchEngineConfig.InstructionWeights.ConflictPair> conflicts = new java.util.ArrayList<>();
+        source.getInstructionWeights().getConflicts().forEach(pair -> conflicts.add(
+                new MatchEngineConfig.InstructionWeights.ConflictPair(pair.getA(), pair.getB())));
+        target.getInstructionWeights().setConflicts(conflicts);
         return target;
     }
 
