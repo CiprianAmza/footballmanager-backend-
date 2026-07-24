@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.economy;
 
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.regent.market.core.MarketRiskClass;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -40,9 +41,9 @@ public class MarketBootstrapService {
 
     @Transactional
     public void ensureAllInstruments() {
-        ensureCompany("FMX", "Football Markets Exchange", 1_250, 772360782L);
-        ensureCompany("SPORTTECH", "Sport Technology Group", 850, 1297702381L);
-        ensureCompany("MEDIA11", "Eleven Sports Media", 640, 214013921L);
+        ensureCompany("FMX", "Football Markets Exchange", 1_250, 772360782L, MarketRiskClass.SAFE_COMPANY);
+        ensureCompany("SPORTTECH", "Sport Technology Group", 850, 1297702381L, MarketRiskClass.SAFE_COMPANY);
+        ensureCompany("MEDIA11", "Eleven Sports Media", 640, 214013921L, MarketRiskClass.SPECULATIVE);
         for (Team team : teamRepository.findAll().stream().sorted(java.util.Comparator.comparingLong(Team::getId)).toList()) {
             if (instrumentRepository.findByTeamId(team.getId()).isPresent()) continue;
             MarketInstrument instrument = new MarketInstrument();
@@ -56,6 +57,8 @@ public class MarketBootstrapService {
                     clubValuationService.value(team), CLUB_SUPPLY));
             instrument.setPriceSeed(stableSeed(instrument.getCode()));
             instrument.setPriceAlgorithmVersion(DeterministicMarketPriceService.MARKET_V1);
+            instrument.setRiskClass(MarketRiskClass.CLUB_EQUITY);
+            instrument.setRiskConfigVersion(DeterministicMarketPriceService.RISK_V1);
             instrument.setDailyLimitBps(DEFAULT_DAILY_LIMIT_BPS);
             instrument.setWeeklyLimitBps(DEFAULT_WEEKLY_LIMIT_BPS);
             instrument.setActive(true);
@@ -63,7 +66,7 @@ public class MarketBootstrapService {
         }
     }
 
-    private void ensureCompany(String code, String name, long price, long seed) {
+    private void ensureCompany(String code, String name, long price, long seed, MarketRiskClass riskClass) {
         if (instrumentRepository.findByCode(code).isPresent()) return;
         MarketInstrument instrument = new MarketInstrument();
         instrument.setCode(code);
@@ -74,6 +77,8 @@ public class MarketBootstrapService {
         instrument.setCurrentPrice(price);
         instrument.setPriceSeed(seed);
         instrument.setPriceAlgorithmVersion(DeterministicMarketPriceService.MARKET_V1);
+        instrument.setRiskClass(riskClass);
+        instrument.setRiskConfigVersion(DeterministicMarketPriceService.RISK_V1);
         instrument.setDailyLimitBps(DEFAULT_DAILY_LIMIT_BPS);
         instrument.setWeeklyLimitBps(DEFAULT_WEEKLY_LIMIT_BPS);
         instrument.setActive(true);
