@@ -15,6 +15,17 @@ current Chairman and legacy locks, and filtered for match availability. If the
 effective saved XI is incomplete, the Chairman-aware assistant selection is
 used for the complete XI; no tactic re-save is required after a mandate change.
 
+When no mandate exists, the historical legacy rating path remains authoritative:
+saved XI role/instruction weighting is unchanged, and missing or invalid saved
+data falls back to `getBestElevenWithSlots`. Chairman canonical completion is
+not invoked for that case.
+
+The canonical runtime formation domain is exactly
+`TacticService.getAllExistingTactics()`. Player-only mandates retain a proposed
+formation only when every locked slot is present; otherwise the first canonical
+formation containing all locks is selected deterministically. No incompatible
+proposed formation is used as a fallback.
+
 The effective formation and XI shown by `getFormation` and `teamView` are
 copies. A saved tactic is never mutated merely because a Chairman mandate is
 active; reads expose the enforced formation and lineup instead.

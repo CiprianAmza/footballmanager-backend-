@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.controller.CompetitionController;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
+import com.footballmanagergamesimulator.chairman.mandate.EffectiveChairmanMandate;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.model.Competition;
@@ -113,7 +114,73 @@ public class LineupRatingService {
      * best XI when not.
      */
     public List<PlayerRatingLine> computePlayerRatings(long teamId, String tactic) {
+        EffectiveChairmanMandate mandate = mandateEnforcement.mandate(teamId);
+        if (mandate.requiredFormation() == null && mandate.lockedSlots().isEmpty()) {
+            return computeLegacyPlayerRatings(teamId, tactic);
+        }
         return computePlayerRatings(teamId, tactic, canonicalRuntimeFormation(teamId, tactic));
+    }
+
+    /** The pre-Chairman path is intentionally unchanged for teams without a mandate. */
+    private List<PlayerRatingLine> computeLegacyPlayerRatings(long teamId, String tactic) {
+        Optional<PersonalizedTactic> personalized = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
+        if (personalized.isPresent()) {
+            Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(teamId);
+            try {
+                List<FormationData> formation = objectMapper.readValue(personalized.get().getFirst11(),
+                        new TypeReference<List<FormationData>>() {});
+                List<PlayerRatingLine> lines = new ArrayList<>();
+                for (FormationData data : formation) {
+                    if (data.getPositionIndex() >= 30) continue;
+                    Human player = humanRepository.findById(data.getPlayerId()).orElse(null);
+                    if (player == null || unavailableIds.contains(player.getId())) continue;
+                    String usedPos = TacticService.getBasePosition(
+                            tacticService.getPositionFromIndex(data.getPositionIndex()));
+                    String naturalPos = TacticService.getBasePosition(player.getPosition());
+                    PlayerSkills skills = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()).orElse(null);
+                    double base;
+                    if (skills != null) {
+                        double positional = playerValueService.computePositionalValue(skills, usedPos);
+                        base = data.getRole() != null && !data.getRole().isEmpty()
+                                ? playerRoleService.computeEffectiveRating(skills, data.getRole(), positional) : positional;
+                    } else {
+                        base = player.getRating();
+                    }
+                    double instructionMultiplier = playerInstructionService.computeInstructionMultiplier(
+                            data.getInstructions(), usedPos, "general");
+                    lines.add(new PlayerRatingLine(player.getId(), usedPos,
+                            base * playerValueService.familiarityFactor(naturalPos, usedPos)
+                                    * playerValueService.moraleFactor(player.getMorale())
+                                    * playerValueService.fitnessFactor(player.getFitness())
+                                    * instructionMultiplier));
+                }
+                return lines;
+            } catch (Exception ignored) {
+                // Preserve the legacy fallback for malformed or incomplete saved data.
+            }
+        }
+
+        List<TacticController.StarterSlot> starters =
+                tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
+        List<Long> ids = starters.stream().map(slot -> slot.player().getId()).toList();
+        Map<Long, PlayerSkills> skillsById = new HashMap<>();
+        for (PlayerSkills skill : playerSkillsRepository.findAllByPlayerIdIn(ids)) {
+            skillsById.put(skill.getPlayerId(), skill);
+        }
+        List<PlayerRatingLine> lines = new ArrayList<>();
+        for (TacticController.StarterSlot starter : starters) {
+            PlayerView player = starter.player();
+            String naturalPos = TacticService.getBasePosition(player.getPosition());
+            String usedPos = starter.usedPosition();
+            PlayerSkills skill = skillsById.get(player.getId());
+            double rating = skill != null
+                    ? playerValueService.evaluatePlayer(skill, naturalPos, usedPos,
+                    player.getMorale(), player.getFitness())
+                    : playerValueService.evaluatePlayer(player.getRating(), naturalPos, usedPos,
+                    player.getMorale(), player.getFitness());
+            lines.add(new PlayerRatingLine(player.getId(), usedPos, rating));
+        }
+        return lines;
     }
 
     private List<PlayerRatingLine> computePlayerRatings(long teamId, String tactic,
@@ -171,20 +238,51 @@ public class LineupRatingService {
 
         long starters = resolved.stream().filter(data -> data.getPositionIndex() < 30).count();
         if (starters != 11) {
-            resolved = tacticController.askAssistant(teamId, effectiveFormation);
-            resolved = mandateEnforcement.enforceFormation(teamId, effectiveFormation, resolved,
-                    coachPermissionService.lockedSlots(teamId), unavailable, true);
+            List<FormationData> automatic = tacticController.askAssistant(teamId, effectiveFormation);
+            resolved = completeRuntimeFormation(resolved, automatic);
         }
         return new RuntimeFormation(effectiveFormation, List.copyOf(resolved));
+    }
+
+    private List<FormationData> completeRuntimeFormation(List<FormationData> preserved,
+                                                         List<FormationData> automatic) {
+        List<FormationData> result = new ArrayList<>(preserved == null ? List.of() : preserved);
+        Set<Integer> positions = new HashSet<>();
+        Set<Long> players = new HashSet<>();
+        result.removeIf(data -> !positions.add(data.getPositionIndex()) || !players.add(data.getPlayerId()));
+        for (FormationData candidate : automatic == null ? List.<FormationData>of() : automatic) {
+            long starters = result.stream().filter(data -> data.getPositionIndex() < 30).count();
+            long bench = result.stream().filter(data -> data.getPositionIndex() >= 30).count();
+            if (candidate.getPositionIndex() < 30 && starters >= 11) continue;
+            if (candidate.getPositionIndex() >= 30 && bench >= 7) continue;
+            if (!positions.add(candidate.getPositionIndex()) || !players.add(candidate.getPlayerId())) continue;
+            result.add(copyFormationData(candidate));
+        }
+        result.sort(java.util.Comparator.comparingInt(FormationData::getPositionIndex)
+                .thenComparingLong(FormationData::getPlayerId));
+        return List.copyOf(result);
+    }
+
+    private static FormationData copyFormationData(FormationData source) {
+        FormationData copy = new FormationData();
+        copy.setPositionIndex(source.getPositionIndex());
+        copy.setPlayerId(source.getPlayerId());
+        copy.setRole(source.getRole());
+        copy.setDuty(source.getDuty());
+        copy.setInstructions(source.getInstructions() == null ? null : List.copyOf(source.getInstructions()));
+        return copy;
     }
 
     private record RuntimeFormation(String formation, List<FormationData> entries) {}
 
     /** Captures the complete historical lineup (starters + bench) for a match. */
     public void persistPlayerRatings(long competitionId, int season, int round, long teamId, String tactic) {
-
-        RuntimeFormation effective = canonicalRuntimeFormation(teamId, tactic);
-        List<PlayerRatingLine> lines = computePlayerRatings(teamId, tactic, effective);
+        EffectiveChairmanMandate mandate = mandateEnforcement.mandate(teamId);
+        boolean chairmanActive = mandate.requiredFormation() != null || !mandate.lockedSlots().isEmpty();
+        RuntimeFormation effective = chairmanActive ? canonicalRuntimeFormation(teamId, tactic) : null;
+        List<PlayerRatingLine> lines = chairmanActive
+                ? computePlayerRatings(teamId, tactic, effective)
+                : computeLegacyPlayerRatings(teamId, tactic);
         Map<Long, PlayerRatingLine> lineByPlayer = new HashMap<>();
         for (PlayerRatingLine line : lines) lineByPlayer.put(line.playerId(), line);
 
@@ -195,7 +293,9 @@ public class LineupRatingService {
             scorerByPlayer.put(scorer.getPlayerId(), scorer);
         }
 
-        List<FormationData> formationSnapshot = effective.entries();
+        List<FormationData> formationSnapshot = chairmanActive
+                ? effective.entries() : legacyFormationSnapshot(teamId, tactic);
+        String snapshotFormation = chairmanActive ? effective.formation() : tactic;
         long nationId = resolveTeamNationId(teamId);
 
         List<MatchPlayerRating> existing = matchPlayerRatingRepository
@@ -225,7 +325,7 @@ public class LineupRatingService {
             row.setPlayerName(player.getName());
             row.setPosition(engineLine != null ? engineLine.position() : player.getPosition());
             row.setPositionIndex(formationData.getPositionIndex());
-            row.setFormation(tactic);
+            row.setFormation(snapshotFormation);
             row.setRole(formationData.getRole());
             row.setDuty(formationData.getDuty());
             row.setSubstitute(substitute);
@@ -403,7 +503,47 @@ public class LineupRatingService {
 
     /** Uses the manager's exact saved grid, or deterministically maps the AI-picked XI to it. */
     private List<FormationData> buildFormationSnapshot(long teamId, String tactic) {
-        return canonicalRuntimeFormation(teamId, tactic).entries();
+        EffectiveChairmanMandate mandate = mandateEnforcement.mandate(teamId);
+        if (mandate.requiredFormation() != null || !mandate.lockedSlots().isEmpty()) {
+            return canonicalRuntimeFormation(teamId, tactic).entries();
+        }
+        return legacyFormationSnapshot(teamId, tactic);
+    }
+
+    private List<FormationData> legacyFormationSnapshot(long teamId, String tactic) {
+        Optional<PersonalizedTactic> personalized = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId);
+        if (personalized.isPresent() && personalized.get().getFirst11() != null) {
+            try {
+                List<FormationData> saved = objectMapper.readValue(personalized.get().getFirst11(),
+                        new TypeReference<List<FormationData>>() {});
+                if (!saved.isEmpty()) return saved;
+            } catch (Exception ignored) {
+                // Preserve the previous automatic fallback.
+            }
+        }
+
+        List<FormationData> snapshot = new ArrayList<>();
+        List<TacticController.StarterSlot> starters =
+                tacticController.getBestElevenWithSlots(String.valueOf(teamId), tactic);
+        int[] gridIndices = tacticService.getFormationGridIndices(tactic);
+        Set<Integer> usedGridIndices = new HashSet<>();
+        for (TacticController.StarterSlot starter : starters) {
+            int positionIndex = findGridIndexForSlot(gridIndices, usedGridIndices, starter.usedPosition());
+            if (positionIndex < 0) continue;
+            usedGridIndices.add(positionIndex);
+            FormationData data = new FormationData();
+            data.setPositionIndex(positionIndex);
+            data.setPlayerId(starter.player().getId());
+            snapshot.add(data);
+        }
+        int benchIndex = 30;
+        for (PlayerView substitute : tacticController.getSubstitutions(String.valueOf(teamId), tactic)) {
+            FormationData data = new FormationData();
+            data.setPositionIndex(benchIndex++);
+            data.setPlayerId(substitute.getId());
+            snapshot.add(data);
+        }
+        return snapshot;
     }
 
     private int findGridIndexForSlot(int[] gridIndices, Set<Integer> used, String usedPosition) {

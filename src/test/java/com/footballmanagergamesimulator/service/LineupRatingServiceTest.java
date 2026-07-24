@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandate
 import com.footballmanagergamesimulator.chairman.mandate.MandateSlot;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
+import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
@@ -35,6 +36,41 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class LineupRatingServiceTest {
+    @Test
+    void absentMandateWithoutSavedLineupUsesLegacyBestElevenSlotsNotAssistant() {
+        PersonalizedTacticRepository tactics = mock(PersonalizedTacticRepository.class);
+        ChairmanTacticalMandateRepository mandates = mock(ChairmanTacticalMandateRepository.class);
+        MatchSimulationOrchestrator availability = mock(MatchSimulationOrchestrator.class);
+        TacticController controller = mock(TacticController.class);
+        PlayerSkillsRepository skills = mock(PlayerSkillsRepository.class);
+        PlayerValueService values = mock(PlayerValueService.class);
+        PlayerView view = new PlayerView();
+        view.setId(42L);
+        view.setPosition("MC");
+        view.setRating(12);
+        when(tactics.findPersonalizedTacticByTeamId(10L)).thenReturn(Optional.empty());
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.empty());
+        when(availability.roundUnavailableIds(10L)).thenReturn(Set.of());
+        when(controller.getBestElevenWithSlots("10", "442"))
+                .thenReturn(List.of(new TacticController.StarterSlot(view, "MC")));
+        when(skills.findAllByPlayerIdIn(List.of(42L))).thenReturn(List.of());
+        when(values.evaluatePlayer(12.0, "MC", "MC", 0.0, 0.0)).thenReturn(12.0);
+
+        LineupRatingService service = new LineupRatingService();
+        ReflectionTestUtils.setField(service, "personalizedTacticRepository", tactics);
+        ReflectionTestUtils.setField(service, "mandateEnforcement",
+                new ChairmanTacticalMandateEnforcementService(mandates, mock(HumanRepository.class), new TacticService()));
+        ReflectionTestUtils.setField(service, "matchSimulationOrchestrator", availability);
+        ReflectionTestUtils.setField(service, "tacticController", controller);
+        ReflectionTestUtils.setField(service, "playerSkillsRepository", skills);
+        ReflectionTestUtils.setField(service, "playerValueService", values);
+
+        assertThat(service.computePlayerRatings(10L, "442")).extracting(LineupRatingService.PlayerRatingLine::playerId)
+                .containsExactly(42L);
+        verify(controller).getBestElevenWithSlots("10", "442");
+        verify(controller, never()).askAssistant(anyLong(), anyString());
+    }
+
     @Test
     void savedLineupIsReResolvedWhenChairmanChangesThePlayerAndSnapshotUsesTheSameXI() throws Exception {
         PersonalizedTacticRepository tactics = mock(PersonalizedTacticRepository.class);

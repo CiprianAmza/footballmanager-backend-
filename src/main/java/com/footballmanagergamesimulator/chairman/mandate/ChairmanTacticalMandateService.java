@@ -95,20 +95,21 @@ public class ChairmanTacticalMandateService {
     }
 
     private void validateFormationAndSlots(String formation, List<ChairmanTacticalMandateDtos.LockedSlot> slots) {
+        List<String> canonicalFormations = tacticService.getAllExistingTactics();
         Set<Integer> valid = new HashSet<>();
         if (formation != null) {
-            if (!tacticService.isKnownFormation(formation)) throw error("FORMATION_NOT_FOUND", "Formation is not known: " + formation);
+            if (!canonicalFormations.contains(formation)) {
+                throw error("FORMATION_NOT_FOUND", "Formation is not known: " + formation);
+            }
             for (int index : tacticService.getFormationGridIndicesExact(formation)) valid.add(index);
         } else {
-            Set<String> compatible = tacticService.getAllExactFormationGridNames().stream()
+            Set<String> compatible = canonicalFormations.stream()
                     .filter(known -> slots.stream().allMatch(slot ->
                             contains(tacticService.getFormationGridIndicesExact(known), slot.positionIndex())))
                     .collect(java.util.stream.Collectors.toSet());
             if (!slots.isEmpty() && compatible.isEmpty()) {
-                throw error("MANDATE_SLOT_NOT_IN_FORMATION", "No formation contains all mandated slots");
+                throw error("TACTICAL_MANDATE_INVALID", "No canonical formation contains all mandated slots");
             }
-            // This set is only used for the empty-slot case; compatibility above is
-            // deliberately evaluated per complete formation, never as a union.
             for (String known : compatible) {
                 for (int index : tacticService.getFormationGridIndicesExact(known)) valid.add(index);
             }

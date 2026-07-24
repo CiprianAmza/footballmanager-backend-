@@ -73,9 +73,9 @@ public class ChairmanTacticalMandateEnforcementService {
                                                 Set<Long> unavailableIds, boolean runtime) {
         EffectiveChairmanMandate current = mandate(teamId);
         Set<Long> unavailable = unavailableIds == null ? Set.of() : Set.copyOf(unavailableIds);
-        String effectiveFormation = current.requiredFormation() != null
-                ? current.requiredFormation() : proposedFormation;
-        Set<Integer> grid = validGrid(effectiveFormation, current.requiredFormation() != null);
+        boolean active = current.requiredFormation() != null || !current.lockedSlots().isEmpty();
+        String effectiveFormation = active ? effectiveFormation(teamId, proposedFormation) : proposedFormation;
+        Set<Integer> grid = validGrid(effectiveFormation, active);
         if (!runtime) {
             for (EffectiveChairmanMandate.Slot lock : current.lockedSlots()) {
                 if (eligiblePlayer(teamId, lock.playerId(), unavailable) == null) {
@@ -83,7 +83,7 @@ public class ChairmanTacticalMandateEnforcementService {
                 }
             }
         }
-        List<ResolvedLock> locks = resolvedLocks(teamId, proposedFormation, legacyLocks, unavailable);
+        List<ResolvedLock> locks = resolvedLocks(teamId, effectiveFormation, legacyLocks, unavailable);
         Map<Long, ResolvedLock> lockByPlayer = locks.stream().collect(Collectors.toMap(
                 lock -> lock.slot().playerId(), lock -> lock, (left, right) -> left, LinkedHashMap::new));
         Map<Integer, ResolvedLock> lockByPosition = locks.stream().collect(Collectors.toMap(
@@ -113,10 +113,10 @@ public class ChairmanTacticalMandateEnforcementService {
                 if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation slot is outside pitch and bench bounds");
                 continue;
             }
-            if (value.getPositionIndex() < 30 && current.requiredFormation() != null
+            if (value.getPositionIndex() < 30 && active
                     && !grid.contains(value.getPositionIndex())) continue;
             if (!seenPositions.add(value.getPositionIndex()) || !seenPlayers.add(value.getPlayerId())) {
-                if (!runtime && (current.requiredFormation() != null || !locks.isEmpty())) {
+                if (!runtime && active) {
                     throw invalid("MANAGER_XI_INVALID", "Formation contains duplicate slots or players");
                 }
                 continue;
@@ -151,8 +151,9 @@ public class ChairmanTacticalMandateEnforcementService {
                                              List<CoachPermissionService.LockedSlot> legacyLocks,
                                              Set<Long> unavailableIds) {
         EffectiveChairmanMandate current = mandate(teamId);
-        Set<Integer> grid = validGrid(current.requiredFormation() != null
-                ? current.requiredFormation() : proposedFormation, current.requiredFormation() != null);
+        boolean active = current.requiredFormation() != null || !current.lockedSlots().isEmpty();
+        String effectiveFormation = active ? effectiveFormation(teamId, proposedFormation) : proposedFormation;
+        Set<Integer> grid = validGrid(effectiveFormation, active);
         List<ResolvedLock> result = new ArrayList<>();
         for (EffectiveChairmanMandate.Slot lock : current.lockedSlots()) {
             if (eligiblePlayer(teamId, lock.playerId(), unavailableIds) == null) continue;

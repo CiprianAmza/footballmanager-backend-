@@ -38,6 +38,7 @@ class ChairmanTacticalMandateServiceTest {
         when(mandates.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(tactics.isKnownFormation(anyString())).thenReturn(false);
         when(tactics.isKnownFormation("442")).thenReturn(true);
+        when(tactics.getAllExistingTactics()).thenReturn(java.util.List.of("442"));
         when(tactics.getFormationGridIndicesExact("442")).thenReturn(new int[]{1, 3, 5});
         GameCalendar calendar = new GameCalendar();
         calendar.setSeason(2); calendar.setCurrentDay(12);
@@ -137,7 +138,7 @@ class ChairmanTacticalMandateServiceTest {
                 new ChairmanTacticalMandateDtos.UpdateRequest(null,
                         java.util.List.of(new ChairmanTacticalMandateDtos.LockedSlot(5, 100L),
                                 new ChairmanTacticalMandateDtos.LockedSlot(7, 101L)), 0)))
-                .hasFieldOrPropertyWithValue("code", "MANDATE_SLOT_NOT_IN_FORMATION");
+                .hasFieldOrPropertyWithValue("code", "TACTICAL_MANDATE_INVALID");
     }
 
     private static PersonProfile profile(long id) {
