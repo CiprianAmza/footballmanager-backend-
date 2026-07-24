@@ -17,6 +17,7 @@ public class EconomyApiExceptionHandler {
     public ResponseEntity<EconomyDtos.ApiError> conflict(EconomyConflictException exception) {
         HttpStatus status;
         if (exception.getCode().endsWith("NOT_FOUND")) status = HttpStatus.NOT_FOUND;
+        else if (exception.getCode().endsWith("DISABLED")) status = HttpStatus.FORBIDDEN;
         else if (exception.getCode().endsWith("FORBIDDEN")
                 || exception.getCode().endsWith("_REQUIRED")) status = HttpStatus.FORBIDDEN;
         else status = HttpStatus.CONFLICT;

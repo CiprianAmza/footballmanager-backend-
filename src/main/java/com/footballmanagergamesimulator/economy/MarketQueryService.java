@@ -1,5 +1,7 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.model.GameCalendar;
+import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,10 @@ public class MarketQueryService {
     private final PersonalAccountRepository accountRepository;
     private final RegentEconomyProperties properties;
     private final ClubValuationService clubValuationService;
+    private final TraderAdviserService traderAdviserService;
+    private final TraderAdviserContractRepository contractRepository;
+    private final TraderAdviceRecommendationRepository adviceRepository;
+    private final GameCalendarRepository calendarRepository;
 
     public MarketQueryService(MarketInstrumentRepository instrumentRepository,
                               MarketPriceSnapshotRepository snapshotRepository,
@@ -25,7 +31,11 @@ public class MarketQueryService {
                               MarketTradeRepository tradeRepository,
                               PersonalAccountRepository accountRepository,
                               RegentEconomyProperties properties,
-                              ClubValuationService clubValuationService) {
+                              ClubValuationService clubValuationService,
+                              TraderAdviserService traderAdviserService,
+                              TraderAdviserContractRepository contractRepository,
+                              TraderAdviceRecommendationRepository adviceRepository,
+                              GameCalendarRepository calendarRepository) {
         this.instrumentRepository = instrumentRepository;
         this.snapshotRepository = snapshotRepository;
         this.positionRepository = positionRepository;
@@ -33,6 +43,10 @@ public class MarketQueryService {
         this.accountRepository = accountRepository;
         this.properties = properties;
         this.clubValuationService = clubValuationService;
+        this.traderAdviserService = traderAdviserService;
+        this.contractRepository = contractRepository;
+        this.adviceRepository = adviceRepository;
+        this.calendarRepository = calendarRepository;
     }
 
     @Transactional(readOnly = true)
@@ -67,6 +81,7 @@ public class MarketQueryService {
             totalMarket = add(totalMarket, marketValue);
             views.add(new MarketDtos.PositionView(instrument.getId(), instrument.getCode(),
                     instrument.getInstrumentType(), instrument.getTeamId(), instrument.getName(),
+                    instrument.getRiskClass(),
                     position.getQuantity(), money(position.getTotalCostBasis()), money(marketValue), money(unrealized)));
         }
         return new MarketDtos.PortfolioView(List.copyOf(views), money(totalBasis), money(totalMarket),
@@ -98,7 +113,7 @@ public class MarketQueryService {
                 ? clubValuationService.value(value.getTeamId()) : null;
         return new MarketDtos.InstrumentView(value.getId(), value.getCode(), value.getInstrumentType(),
                 value.getTeamId(), value.getName(), money(value.getCurrentPrice()), value.getTotalSupply(),
-                value.getAvailableSupply(), value.getDailyLimitBps(), value.getWeeklyLimitBps(),
+                value.getAvailableSupply(), value.getRiskClass(), value.getDailyLimitBps(), value.getWeeklyLimitBps(),
                 value.getPriceAlgorithmVersion(), valuation == null ? null : money(valuation.totalValue()),
                 valuation == null ? null : valuation.formulaVersion());
     }
@@ -127,6 +142,94 @@ public class MarketQueryService {
     private PersonalAccount requireAccount(long profileId) {
         return accountRepository.findByProfileId(profileId)
                 .orElseThrow(() -> new EconomyConflictException("ACCOUNT_NOT_FOUND", "Personal account is missing"));
+    }
+
+    @Transactional(readOnly = true)
+    public MarketDtos.AdviserDashboardView adviserDashboard(long profileId) {
+        GameCalendar calendar = currentCalendar();
+        TraderAdviserContract contract = traderAdviserService.latestContract(profileId);
+        return new MarketDtos.AdviserDashboardView(gameDateView(calendar), contractView(contract, false),
+                traderAdviserService.catalogueOptions().stream().map(this::optionView).toList());
+    }
+
+    @Transactional(readOnly = true)
+    public MarketDtos.AdviserContractView contractView(TraderAdviserService.HireResult result) {
+        return contractView(result.contract(), result.replay());
+    }
+
+    @Transactional(readOnly = true)
+    public MarketDtos.AdviceView adviceView(TraderAdviserService.AdviceResult result) {
+        TraderAdviceRecommendation recommendation = result.recommendation();
+        MarketInstrument instrument = instrumentRepository.findById(recommendation.getInstrumentId())
+                .orElseThrow(() -> new EconomyConflictException("INSTRUMENT_NOT_FOUND", "Market instrument is missing"));
+        return new MarketDtos.AdviceView(recommendation.getId(), recommendation.getInstrumentId(),
+                instrument.getCode(), instrument.getName(), recommendation.getAction(), recommendation.getRiskClass(),
+                recommendation.getSeasonNumber(), recommendation.getGameDay(), recommendation.getHorizonDays(),
+                recommendation.getConfidence(), recommendation.getRisk(), recommendation.getTrailingReturn(),
+                recommendation.getObservedVolatility(), recommendation.getExplanation(),
+                recommendation.getModelVersion(), result.replay());
+    }
+
+    @Transactional(readOnly = true)
+    public MarketDtos.AdviceView latestAdvice(long profileId, long instrumentId) {
+        TraderAdviserContract contract = contractRepository.findTopByProfileIdOrderByIdDesc(profileId)
+                .orElseThrow(() -> new EconomyConflictException("ACTIVE_ADVISER_REQUIRED",
+                        "An active trader adviser is required"));
+        TraderAdviceRecommendation recommendation = adviceRepository
+                .findByContractIdAndInstrumentIdAndSeasonNumberAndGameDay(contract.getId(), instrumentId,
+                        currentCalendar().getSeason(), Math.max(1, currentCalendar().getCurrentDay()))
+                .orElseThrow(() -> new EconomyConflictException("ADVICE_NOT_FOUND",
+                        "No trader advice exists for this instrument on the current day"));
+        return adviceView(new TraderAdviserService.AdviceResult(recommendation, true));
+    }
+
+    private MarketDtos.AdviserContractView contractView(TraderAdviserContract contract, boolean replayed) {
+        if (contract == null) return null;
+        return new MarketDtos.AdviserContractView(contract.getId(), contract.getAdviserCode(),
+                adviserName(contract.getAdviserCode()), contract.getSkill(), contract.getReputation(),
+                money(contract.getSalaryPerDay()), gameDateView(contract.getContractStartAbsoluteDay()),
+                gameDateView(contract.getContractEndAbsoluteDay()), contractStatus(contract),
+                contract.getTerminationReason(), contract.getModelVersion(), replayed);
+    }
+
+    private MarketDtos.AdviserHireOptionView optionView(TraderAdviserService.AdviserTerms terms) {
+        return new MarketDtos.AdviserHireOptionView(terms.adviserCode(), adviserName(terms.adviserCode()),
+                terms.skill(), terms.reputation(), money(terms.salaryPerDay()), terms.durationDays(),
+                TraderAdviserService.ADVICE_V1);
+    }
+
+    private GameCalendar currentCalendar() {
+        return calendarRepository.findTopByOrderBySeasonDesc().orElseGet(() -> {
+            GameCalendar fallback = new GameCalendar();
+            fallback.setSeason(1);
+            fallback.setCurrentDay(1);
+            return fallback;
+        });
+    }
+
+    private MarketDtos.GameDateView gameDateView(GameCalendar calendar) {
+        return new MarketDtos.GameDateView(calendar.getSeason(), Math.max(1, calendar.getCurrentDay()));
+    }
+
+    private MarketDtos.GameDateView gameDateView(long absoluteDay) {
+        long zeroBased = absoluteDay - 1L;
+        return new MarketDtos.GameDateView(Math.toIntExact(zeroBased / 366L + 1L),
+                Math.toIntExact(zeroBased % 366L + 1L));
+    }
+
+    private static String adviserName(String code) {
+        return switch (code) {
+            case "ANALYST" -> "Market Analyst";
+            case "STRATEGIST" -> "Market Strategist";
+            case "VETERAN" -> "Veteran Trader";
+            default -> code;
+        };
+    }
+
+    private static String contractStatus(TraderAdviserContract contract) {
+        if (contract.isActive()) return "ACTIVE";
+        return contract.getTerminationReason() == null || contract.getTerminationReason().isBlank()
+                ? "INACTIVE" : contract.getTerminationReason();
     }
 
     private EconomyDtos.Money money(long amount) {

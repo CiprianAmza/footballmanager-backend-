@@ -48,26 +48,28 @@ public class TraderAdviserService {
 
     /** Terms are selected from an immutable server-side catalog; callers never supply skill or salary. */
     @Transactional
-    public HireResult hire(PersonProfile profile, int authenticatedUserId, String adviserCode,
-                           int durationDays, int season, int day, String idempotencyKey) {
+    public HireResult hire(PersonProfile profile, int authenticatedUserId, String optionCode,
+                           int season, int day, String idempotencyKey) {
         requireOwnedChairman(profile, authenticatedUserId);
         validateDate(season, day);
         validateKey(idempotencyKey);
-        if (durationDays < 1 || durationDays > 3_660) {
-            throw new IllegalArgumentException("durationDays must be in [1, 3660]");
-        }
-        AdviserTerms terms = CATALOG.get(adviserCode);
+        AdviserTerms terms = CATALOG.get(optionCode);
         if (terms == null) throw new EconomyConflictException("ADVISER_NOT_FOUND", "Trader adviser is unavailable");
         long start = absoluteDay(season, day);
         PersonalAccount account = accountRepository.findByProfileIdForUpdate(profile.getId())
                 .orElseThrow(() -> new EconomyConflictException("ACCOUNT_NOT_FOUND", "Personal account is missing"));
         requireAccountOwner(account, authenticatedUserId);
+        if (account.getCashBalance() < terms.salaryPerDay()) {
+            throw new EconomyConflictException("INSUFFICIENT_FUNDS",
+                    "Personal cash is too low for the adviser's daily salary");
+        }
         TraderAdviserContract replay = contractRepository
                 .findByAccountIdAndHireIdempotencyKey(account.getId(), idempotencyKey).orElse(null);
         if (replay != null) {
-            if (!replay.getAdviserCode().equals(adviserCode)
+            if (!replay.getAdviserCode().equals(terms.adviserCode())
                     || replay.getContractStartAbsoluteDay() != start
-                    || replay.getContractEndAbsoluteDay() - replay.getContractStartAbsoluteDay() + 1 != durationDays) {
+                    || replay.getContractEndAbsoluteDay() - replay.getContractStartAbsoluteDay() + 1
+                    != terms.durationDays()) {
                 throw new EconomyConflictException("IDEMPOTENCY_KEY_REUSED",
                         "Idempotency key was already used for different adviser terms");
             }
@@ -79,14 +81,15 @@ public class TraderAdviserService {
         TraderAdviserContract contract = new TraderAdviserContract();
         contract.setAccountId(account.getId());
         contract.setProfileId(profile.getId());
-        contract.setAdviserCode(adviserCode);
+        contract.setAdviserCode(terms.adviserCode());
         contract.setSkill(terms.skill());
         contract.setReputation(terms.reputation());
         contract.setSalaryPerDay(terms.salaryPerDay());
         contract.setContractStartAbsoluteDay(start);
-        contract.setContractEndAbsoluteDay(Math.addExact(start, durationDays - 1L));
+        contract.setContractEndAbsoluteDay(Math.addExact(start, terms.durationDays() - 1L));
         contract.setLastPaidAbsoluteDay(start - 1L);
-        contract.setAdviceSeed(MarketBootstrapService.stableSeed(adviserCode + ':' + profile.getId() + ':' + start));
+        contract.setAdviceSeed(MarketBootstrapService.stableSeed(
+                terms.adviserCode() + ':' + profile.getId() + ':' + start));
         contract.setModelVersion(ADVICE_V1);
         contract.setHireIdempotencyKey(idempotencyKey);
         contract.setActive(true);
@@ -233,15 +236,25 @@ public class TraderAdviserService {
 
     private static Map<String, AdviserTerms> catalog() {
         Map<String, AdviserTerms> result = new LinkedHashMap<>();
-        result.put("ANALYST", new AdviserTerms(45, 35, 2_500L));
-        result.put("STRATEGIST", new AdviserTerms(70, 65, 7_500L));
-        result.put("VETERAN", new AdviserTerms(90, 92, 20_000L));
+        result.put("ANALYST", new AdviserTerms("ANALYST", 45, 35, 2_500L, 90));
+        result.put("STRATEGIST", new AdviserTerms("STRATEGIST", 70, 65, 7_500L, 180));
+        result.put("VETERAN", new AdviserTerms("VETERAN", 90, 92, 20_000L, 365));
         return Map.copyOf(result);
+    }
+
+    public List<AdviserTerms> catalogueOptions() {
+        return List.copyOf(CATALOG.values());
+    }
+
+    @Transactional(readOnly = true)
+    public TraderAdviserContract latestContract(long profileId) {
+        return contractRepository.findTopByProfileIdOrderByIdDesc(profileId).orElse(null);
     }
 
     public record HireResult(TraderAdviserContract contract, boolean replay) { }
     public record AdviceResult(TraderAdviceRecommendation recommendation, boolean replay) { }
-    record AdviserTerms(int skill, int reputation, long salaryPerDay) { }
+    public record AdviserTerms(String adviserCode, int skill, int reputation,
+                               long salaryPerDay, int durationDays) { }
     private record Observation(BigDecimal trailingReturn, BigDecimal volatility) { }
     private record GameDate(int season, int day) { }
 }
