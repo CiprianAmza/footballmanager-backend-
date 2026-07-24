@@ -190,17 +190,25 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
                 .isEqualTo(92_500L);
         accountingService.assertReconciled(payrollAccount.getId());
 
-        User poorUser = register("adviser-poor-payroll", CareerRole.CHAIRMAN, 5_000L);
+        User poorUser = register("adviser-poor-payroll", CareerRole.CHAIRMAN, 7_500L);
         PersonProfile poorProfile = profileService.requireForUser(poorUser);
         TraderAdviserContract poorContract = adviserService.hire(
                 poorProfile, poorUser.getId(), "STRATEGIST", 1, 4, "poor-hire").contract();
         PersonalAccount poorAccount = accountRepository.findByProfileId(poorProfile.getId()).orElseThrow();
+        accountingService.post(poorProfile.getId(), LedgerEntryType.ADMIN_ADJUSTMENT,
+                -2_500L, 0, 1, 4, "poor-cash-drop", "poor-cash-drop",
+                null, null, "Reduce cash before payroll");
+        assertThat(ledgerRepository.sumSignedAmount(poorAccount.getId())).isEqualTo(5_000L);
+        assertThat(ledgerRepository.sumCareerEarnings(poorAccount.getId())).isZero();
+        accountingService.assertReconciled(poorAccount.getId());
         adviserService.processDailyPayroll(1, 4);
         poorContract = contractRepository.findById(poorContract.getId()).orElseThrow();
         assertThat(poorContract.isActive()).isFalse();
         assertThat(poorContract.getTerminationReason()).isEqualTo("INSUFFICIENT_FUNDS");
         assertThat(poorContract.getLastPaidAbsoluteDay()).isEqualTo(3L);
         assertThat(accountRepository.findById(poorAccount.getId()).orElseThrow().getCashBalance()).isEqualTo(5_000L);
+        assertThat(ledgerRepository.sumSignedAmount(poorAccount.getId())).isEqualTo(5_000L);
+        assertThat(ledgerRepository.sumCareerEarnings(poorAccount.getId())).isZero();
         assertThat(ledgerRepository.findAllByAccountIdOrderByCreatedAtAscIdAsc(poorAccount.getId()))
                 .filteredOn(value -> value.getEntryType() == LedgerEntryType.TRADER_ADVISER_SALARY)
                 .isEmpty();

@@ -39,6 +39,7 @@ class RegentPhase4CApiIT {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private MarketInstrumentRepository instrumentRepository;
     @Autowired private PersonalAccountRepository accountRepository;
+    @Autowired private PersonalAccountingService accountingService;
 
     @Test
     void apiUsesAuthenticatedPrincipalForAdviserDataAndEmitsTypedDtos() throws Exception {
@@ -87,7 +88,8 @@ class RegentPhase4CApiIT {
     @Test
     void adviserHireEnforcesIdempotencyAndCashCodes() throws Exception {
         registerChairman("phase4c-rich", 2_000_000L);
-        registerChairman("phase4c-poor", 1_000L);
+        User poorUser = registerChairman("phase4c-poor", 1_000_000L);
+        reduceCashTo(poorUser, 1_000L, "phase4c-poor-balance");
         MockHttpSession rich = login("phase4c-rich");
         MockHttpSession poor = login("phase4c-poor");
 
@@ -122,9 +124,7 @@ class RegentPhase4CApiIT {
                 .andExpect(jsonPath("$.replayed").value(false));
 
         PersonProfile profile = profileService.requireForUser(user);
-        PersonalAccount account = accountRepository.findByProfileId(profile.getId()).orElseThrow();
-        account.setCashBalance(1L);
-        accountRepository.saveAndFlush(account);
+        reduceCashTo(user, 1L, "phase4c-replay-balance");
 
         mockMvc.perform(post("/api/me/market-adviser/hire").session(session).with(csrf())
                         .contentType("application/json")
@@ -143,6 +143,15 @@ class RegentPhase4CApiIT {
     private User registerChairman(String username, long wealth) {
         return userService.register(new RegisterRequest(username, username + "@example.com",
                 "correct-password", username, CareerRole.CHAIRMAN, wealth));
+    }
+
+    private void reduceCashTo(User user, long targetBalance, String key) {
+        PersonProfile profile = profileService.requireForUser(user);
+        PersonalAccount account = accountRepository.findByProfileId(profile.getId()).orElseThrow();
+        long delta = targetBalance - account.getCashBalance();
+        if (delta == 0) return;
+        accountingService.post(profile.getId(), LedgerEntryType.ADMIN_ADJUSTMENT,
+                delta, 0, 1, 1, key, key, null, null, "Fixture cash adjustment");
     }
 
     private MockHttpSession login(String username) throws Exception {
