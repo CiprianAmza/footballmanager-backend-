@@ -2,6 +2,8 @@ package com.footballmanagergamesimulator.compartment.adapter;
 
 import com.footballmanagergamesimulator.compartment.ContextualPlayerRating;
 import com.footballmanagergamesimulator.compartment.ContextualPlayerRatingCalculator;
+import com.footballmanagergamesimulator.compartment.ContextCoefficientMapper;
+import com.footballmanagergamesimulator.compartment.TacticalContextInput;
 import com.footballmanagergamesimulator.compartment.Duty;
 import com.footballmanagergamesimulator.compartment.PlayerAttribute;
 import com.footballmanagergamesimulator.compartment.PlayerRatingInput;
@@ -51,15 +53,22 @@ public final class CompartmentDomainAdapter {
 
     private final CompartmentEngineConfig config;
     private final ContextualPlayerRatingCalculator calculator;
+    private final ContextCoefficientMapper contextMapper;
 
     public CompartmentDomainAdapter(CompartmentEngineConfig config) {
         this.config = Objects.requireNonNull(config, "config");
         this.calculator = new ContextualPlayerRatingCalculator(config);
+        this.contextMapper = new ContextCoefficientMapper(config);
     }
 
     /** Map + evaluate in one step: immutable snapshot ⇒ explainable A/M/D breakdown. */
     public ContextualPlayerRating rate(DomainPlayerSnapshot snapshot) {
         return calculator.rate(toRatingInput(snapshot));
+    }
+
+    /** Pure/test-only Phase 3 entry point. The Phase 2 overload above retains K=0. */
+    public ContextualPlayerRating rate(DomainPlayerSnapshot snapshot, TacticalContextInput context) {
+        return calculator.rate(toRatingInput(snapshot, context));
     }
 
     /**
@@ -68,6 +77,11 @@ public final class CompartmentDomainAdapter {
      * inputs the maths runs on.
      */
     public PlayerRatingInput toRatingInput(DomainPlayerSnapshot snapshot) {
+        return toRatingInput(snapshot, null);
+    }
+
+    /** Pure/test-only context overload; a null context preserves the Phase 2 K=0 contract. */
+    public PlayerRatingInput toRatingInput(DomainPlayerSnapshot snapshot, TacticalContextInput context) {
         Objects.requireNonNull(snapshot, "snapshot");
         Rating rating = config.getRating();
 
@@ -86,8 +100,9 @@ public final class CompartmentDomainAdapter {
         double suitability = snapshot.roleSuitability() == null
                 ? DEFAULT_ROLE_SUITABILITY : snapshot.roleSuitability();
 
-        // Context coefficients stay empty on purpose: tactic/instruction → K mapping is roadmap item 3.
-        return new PlayerRatingInput(position, role, duty, attributes, Map.of(),
+        Map<PlayerAttribute, Double> coefficients = context == null
+                ? Map.of() : contextMapper.map(context).coefficients();
+        return new PlayerRatingInput(position, role, duty, attributes, coefficients,
                 familiarity, snapshot.fitness(), snapshot.morale(), suitability);
     }
 
