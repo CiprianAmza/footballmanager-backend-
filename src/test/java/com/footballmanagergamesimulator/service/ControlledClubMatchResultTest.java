@@ -9,7 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ControlledClubMatchResultTest {
     @Test
     void contractCarriesFixtureAndBothClubIdsAndDescribesOnlyThatMatch() {
-        ControlledClubMatchResult result = ControlledClubMatchResult.from(Map.of(
+        MatchdayBatchProcessor.ControlledClubMatchResult result =
+                MatchdayBatchProcessor.ControlledClubMatchResult.from(Map.of(
                 "fixtureId", 901L,
                 "team1Id", 11L,
                 "team2Id", 22L,

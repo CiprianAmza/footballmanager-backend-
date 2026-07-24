@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.ManagerInbox;
+import com.footballmanagergamesimulator.model.InboxAudience;
 import com.footballmanagergamesimulator.economy.ClubCapTableService;
 import com.footballmanagergamesimulator.person.CareerType;
 import com.footballmanagergamesimulator.person.PersonProfile;
@@ -451,9 +452,13 @@ public class MatchdayBatchProcessor {
                 rows.add(mr);
                 addLong(matchTeamIds, mr.get("team1Id"));
                 addLong(matchTeamIds, mr.get("team2Id"));
-                sb.append(mr.get("team1Name")).append(" ")
-                        .append(mr.get("score")).append(" ")
-                        .append(mr.get("team2Name")).append("\n");
+                Long team1 = asLong(mr.get("team1Id"));
+                Long team2 = asLong(mr.get("team2Id"));
+                if (!humanTeamIds.contains(team1) && !humanTeamIds.contains(team2)) {
+                    sb.append(mr.get("team1Name")).append(" ")
+                            .append(mr.get("score")).append(" ")
+                            .append(mr.get("team2Name")).append("\n");
+                }
             }
         }
 
@@ -470,19 +475,20 @@ public class MatchdayBatchProcessor {
         Map<Long, ClubCapTableService.CapTable> matchTables = matchTeamIds.isEmpty() ? Map.of() : clubCapTableService.viewBatch(matchTeamIds);
         for (Map.Entry<String, StringBuilder> entry : resultsByCompetition.entrySet()) {
             String content = entry.getValue().toString().trim();
-            if (content.isEmpty()) continue;
-
-            for (long htId : humanTeamIds) {
-                ManagerInbox inbox = new ManagerInbox();
-                inbox.setTeamId(htId);
-                inbox.setSeasonNumber(calendar.getSeason());
-                inbox.setRoundNumber(calendar.getCurrentDay());
-                inbox.setTitle("Match Day Results - " + entry.getKey());
-                inbox.setContent(content);
-                inbox.setCategory("league_news");
-                inbox.setRead(false);
-                inbox.setCreatedAt(System.currentTimeMillis());
-                managerInboxRepository.save(inbox);
+            if (!content.isEmpty()) {
+                for (long htId : humanTeamIds) {
+                    ManagerInbox inbox = new ManagerInbox();
+                    inbox.setTeamId(htId);
+                    inbox.setSeasonNumber(calendar.getSeason());
+                    inbox.setRoundNumber(calendar.getCurrentDay());
+                    inbox.setTitle("Match Day Results - " + entry.getKey());
+                    inbox.setContent(content);
+                    inbox.setCategory("league_news");
+                    inbox.setRead(false);
+                    inbox.setCreatedAt(System.currentTimeMillis());
+                    inbox.setAudience(InboxAudience.MANAGER);
+                    managerInboxRepository.save(inbox);
+                }
             }
             for (Map<String, Object> row : rowsByCompetition.getOrDefault(entry.getKey(), List.of())) {
                 Long home = asLong(row.get("team1Id"));
@@ -492,7 +498,8 @@ public class MatchdayBatchProcessor {
                     Long profileId = table == null ? null : table.holdings().stream().filter(ClubCapTableService.Holding::controlling)
                             .map(ClubCapTableService.Holding::profileId).findFirst().orElse(null);
                     if (profileId == null || !chairmanProfiles.containsKey(profileId)) continue;
-                    ControlledClubMatchResult result = ControlledClubMatchResult.from(row);
+                    MatchdayBatchProcessor.ControlledClubMatchResult result =
+                            MatchdayBatchProcessor.ControlledClubMatchResult.from(row);
                     long competitionId = competitionIdsByName.getOrDefault(entry.getKey(), 0L);
                     chairmanInbox.notify(profileId, teamId, calendar.getSeason(), calendar.getCurrentDay(),
                             "CONTROLLED_CLUB_MATCH_RESULT", "Controlled club match result", result.description(),
@@ -513,7 +520,7 @@ public class MatchdayBatchProcessor {
         try { return Long.valueOf(value.toString()); } catch (NumberFormatException ignored) { return null; }
     }
 
-    record ControlledClubMatchResult(long fixtureId, long team1Id, long team2Id,
+    static record ControlledClubMatchResult(long fixtureId, long team1Id, long team2Id,
                                      String team1Name, String team2Name, String score) {
         static ControlledClubMatchResult from(Map<String, Object> row) {
             Long suppliedFixture = asLong(row.get("fixtureId"));

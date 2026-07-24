@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import com.footballmanagergamesimulator.Main;
@@ -12,12 +13,6 @@ import static org.mockito.Mockito.mock;
 
 class PrebuiltDataServiceConstructorTest {
     @Test
-    @SpringBootTest(classes = Main.class)
-    void springContextUsesTheAutowiredProductionConstructor() {
-        // Context creation is the production injection assertion.
-    }
-
-    @Test
     void productionConstructorAcceptsBothSpringCollaborators() {
         DataSource dataSource = mock(DataSource.class);
         Flyway flyway = mock(Flyway.class);
@@ -27,5 +22,14 @@ class PrebuiltDataServiceConstructorTest {
     @Test
     void testConstructorRemainsUnambiguousForSnapshotTransformations() {
         assertThat(new PrebuiltDataService(mock(DataSource.class))).isNotNull();
+    }
+
+    @Nested
+    @SpringBootTest(classes = Main.class)
+    class SpringContextInjectionTest {
+        @Test
+        void contextUsesTheAutowiredProductionConstructor() {
+            // Starting the real context verifies the (DataSource, Flyway) bean path.
+        }
     }
 }

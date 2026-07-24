@@ -78,7 +78,8 @@ public class InboxController {
                     java.util.Objects.equals(profile.getId(), message.get().getRecipientProfileId())
                             && List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH).contains(message.get().getAudience())).orElse(false);
             if (!allowed) return ResponseEntity.status(403).body(Map.of("success", false));
-        } else if (!teamAccessGuard.canAccessInboxMessage(request, message.get())) {
+        } else if (!List.of(InboxAudience.MANAGER, InboxAudience.BOTH).contains(message.get().getAudience())
+                || !teamAccessGuard.canAccessInboxMessage(request, message.get())) {
             return ResponseEntity.status(403).body(Map.of("success", false));
         }
         message.get().setRead(true);
@@ -97,7 +98,9 @@ public class InboxController {
                     .orElse(List.of()).stream().filter(m -> !m.isRead()).toList();
         } else {
             Long teamId = resolveTeamId(0, request);
-            unread = teamId == null ? List.of() : managerInboxRepository.findAllByTeamIdAndIsReadFalse(teamId);
+            unread = teamId == null ? List.of() : managerInboxRepository
+                    .findAllByTeamIdAndAudienceInAndIsReadFalse(teamId,
+                            List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
         }
         unread.forEach(message -> message.setRead(true));
         managerInboxRepository.saveAll(unread);

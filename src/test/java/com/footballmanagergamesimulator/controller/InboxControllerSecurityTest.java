@@ -32,8 +32,11 @@ class InboxControllerSecurityTest {
         InboxController controller = controller(messages, guard, current, profiles);
 
         controller.me(mock(HttpServletRequest.class));
+        controller.meUnreadCount(mock(HttpServletRequest.class));
 
         verify(messages).findAllByTeamIdAndAudienceInOrderByIdDesc(9L,
+                List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
+        verify(messages).countByTeamIdAndAudienceInAndIsReadFalse(9L,
                 List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
         verify(messages, never()).findAllByTeamIdOrderByIdDesc(9L);
     }
@@ -54,6 +57,89 @@ class InboxControllerSecurityTest {
 
         assertThat(controller.meRead(42L, mock(HttpServletRequest.class)).getStatusCode().value()).isEqualTo(403);
         verify(messages, never()).save(any());
+    }
+
+    @Test
+    void managerReadMatrixAllowsOnlyManagerAndBoth() {
+        for (InboxAudience audience : InboxAudience.values()) {
+            ManagerInboxRepository messages = mock(ManagerInboxRepository.class);
+            CurrentUserService current = mock(CurrentUserService.class);
+            TeamAccessGuard guard = mock(TeamAccessGuard.class);
+            PersonProfileRepository profiles = mock(PersonProfileRepository.class);
+            when(current.getUserOrNull(any(HttpServletRequest.class))).thenReturn(user(3, CareerRole.MANAGER, 9L));
+            when(messages.findById(42L)).thenReturn(Optional.of(message(42L, 0L, audience)));
+            when(guard.canAccessInboxMessage(any(), any())).thenReturn(true);
+            InboxController controller = controller(messages, guard, current, profiles);
+
+            int status = controller.meRead(42L, mock(HttpServletRequest.class)).getStatusCode().value();
+            if (audience == InboxAudience.MANAGER || audience == InboxAudience.BOTH) {
+                assertThat(status).isEqualTo(200);
+                verify(messages).save(any());
+            } else {
+                assertThat(status).isEqualTo(403);
+                verify(messages, never()).save(any());
+            }
+        }
+    }
+
+    @Test
+    void managerMarkAllReadUsesTheSameAudienceMatrix() {
+        ManagerInboxRepository messages = mock(ManagerInboxRepository.class);
+        CurrentUserService current = mock(CurrentUserService.class);
+        TeamAccessGuard guard = mock(TeamAccessGuard.class);
+        PersonProfileRepository profiles = mock(PersonProfileRepository.class);
+        when(current.getUserOrNull(any(HttpServletRequest.class))).thenReturn(user(3, CareerRole.MANAGER, 9L));
+        when(guard.resolveInboxTeamId(any(), eq(0L))).thenReturn(9L);
+        when(messages.findAllByTeamIdAndAudienceInAndIsReadFalse(eq(9L), any())).thenReturn(List.of());
+
+        InboxController controller = controller(messages, guard, current, profiles);
+        controller.meMarkAllRead(mock(HttpServletRequest.class));
+
+        verify(messages).findAllByTeamIdAndAudienceInAndIsReadFalse(9L,
+                List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
+        verify(messages, never()).findAllByTeamIdAndIsReadFalse(anyLong());
+    }
+
+    @Test
+    void chairmanReadMatrixAllowsOnlyChairmanAndBothForOwnProfile() {
+        for (InboxAudience audience : InboxAudience.values()) {
+            ManagerInboxRepository messages = mock(ManagerInboxRepository.class);
+            CurrentUserService current = mock(CurrentUserService.class);
+            TeamAccessGuard guard = mock(TeamAccessGuard.class);
+            PersonProfileRepository profiles = mock(PersonProfileRepository.class);
+            when(current.getUserOrNull(any(HttpServletRequest.class))).thenReturn(user(3, CareerRole.CHAIRMAN, null));
+            when(profiles.findByUserId(3)).thenReturn(Optional.of(profile(11L, 3)));
+            when(messages.findById(42L)).thenReturn(Optional.of(message(42L, 11L, audience)));
+            InboxController controller = controller(messages, guard, current, profiles);
+
+            int status = controller.meRead(42L, mock(HttpServletRequest.class)).getStatusCode().value();
+            if (audience == InboxAudience.CHAIRMAN || audience == InboxAudience.BOTH) {
+                assertThat(status).isEqualTo(200);
+                verify(messages).save(any());
+            } else {
+                assertThat(status).isEqualTo(403);
+                verify(messages, never()).save(any());
+            }
+        }
+    }
+
+    @Test
+    void chairmanListAndCountUseChairmanAndBothForOwnProfile() {
+        ManagerInboxRepository messages = mock(ManagerInboxRepository.class);
+        CurrentUserService current = mock(CurrentUserService.class);
+        TeamAccessGuard guard = mock(TeamAccessGuard.class);
+        PersonProfileRepository profiles = mock(PersonProfileRepository.class);
+        when(current.getUserOrNull(any(HttpServletRequest.class))).thenReturn(user(3, CareerRole.CHAIRMAN, null));
+        when(profiles.findByUserId(3)).thenReturn(Optional.of(profile(11L, 3)));
+        InboxController controller = controller(messages, guard, current, profiles);
+
+        controller.me(mock(HttpServletRequest.class));
+        controller.meUnreadCount(mock(HttpServletRequest.class));
+        controller.meMarkAllRead(mock(HttpServletRequest.class));
+
+        List<InboxAudience> expected = List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH);
+        verify(messages).findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(11L, expected);
+        verify(messages).countByRecipientProfileIdAndAudienceInAndIsReadFalse(11L, expected);
     }
 
     private static InboxController controller(ManagerInboxRepository messages, TeamAccessGuard guard,
