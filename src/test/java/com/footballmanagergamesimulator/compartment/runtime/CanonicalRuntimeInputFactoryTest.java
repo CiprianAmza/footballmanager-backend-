@@ -66,7 +66,8 @@ class CanonicalRuntimeInputFactoryTest {
         slots.set(10, new RuntimeLineupSlot(slots.get(10).player(), slots.get(10).skills(), striker,
                 PlayerPosition.ST, 1));
         when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
-        when(roles.computeRoleSuitability(any(PlayerSkills.class), eq("Poacher"))).thenReturn(77.0);
+        when(roles.computeRoleSuitability(any(PlayerSkills.class), eq("ST"), eq("Poacher"))).thenReturn(77.0);
+        when(roles.isDutyAllowed(eq("ST"), eq("Poacher"), eq("ATTACK"))).thenReturn(true);
         slots.get(10).player().setStayForward(true);
 
         CanonicalRuntimeTeamInput result = factory.build(tactic("Balanced"), slots);
@@ -79,7 +80,7 @@ class CanonicalRuntimeInputFactoryTest {
         assertThat(player.forwardInstruction()).isEqualTo(ForwardInstruction.STAY_FORWARD);
         assertThat(result.tacticalContexts().get(11L).playerInstructions())
                 .containsExactly("Stay Forward");
-        verify(roles).computeRoleSuitability(any(PlayerSkills.class), eq("Poacher"));
+        verify(roles).computeRoleSuitability(any(PlayerSkills.class), eq("ST"), eq("Poacher"));
     }
 
     @Test
@@ -158,6 +159,75 @@ class CanonicalRuntimeInputFactoryTest {
         assertThatThrownBy(() -> factory.build(tactic("Balanced"), incompatible))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not available");
+    }
+
+    @Test
+    void roleAndDutyValidationUsesCanonicalDefinitions() {
+        assertInvalidRoleDuty(PlayerPosition.ST, "Poacher", "Defend");
+        assertInvalidRoleDuty(PlayerPosition.GK, "Goalkeeper", "Attack");
+        assertInvalidRoleDuty(PlayerPosition.DC, "No-Nonsense Defender", "Attack");
+
+        assertValidRoleDuty(PlayerPosition.ST, "Poacher", "Attack");
+        assertValidRoleDuty(PlayerPosition.GK, "Goalkeeper", "Defend");
+        assertValidRoleDuty(PlayerPosition.MC, "Central Midfielder", "Support");
+    }
+
+    @Test
+    void tacticalAxesAreCanonicalizedAndUnknownValuesRejected() {
+        PersonalizedTactic canonical = tactic("  vErY aTtAcKiNg ");
+        canonical.setTempo(" hIgHeR ");
+        canonical.setPassingType(" sHoRt ");
+        canonical.setDefensiveLine(" hIgH ");
+        canonical.setPressing(" hIgH ");
+        canonical.setWidth(" wIdE ");
+        List<RuntimeLineupSlot> slots = validSlots();
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+        TacticalContextInput context = factory.build(canonical, slots).tacticalContexts().get(1L);
+        assertThat(context.mentality()).isEqualTo("Very Attacking");
+        assertThat(context.tempo()).isEqualTo("Higher");
+        assertThat(context.passingType()).isEqualTo("Short");
+        assertThat(context.defensiveLine()).isEqualTo("High");
+        assertThat(context.pressing()).isEqualTo("High");
+        assertThat(context.width()).isEqualTo("Wide");
+
+        Map<String, java.util.function.Consumer<PersonalizedTactic>> invalid = Map.of(
+                "mentality", value -> value.setMentality("invalid"),
+                "tempo", value -> value.setTempo("invalid"),
+                "passingType", value -> value.setPassingType("invalid"),
+                "defensiveLine", value -> value.setDefensiveLine("invalid"),
+                "pressing", value -> value.setPressing("invalid"),
+                "width", value -> value.setWidth("invalid"));
+        for (Map.Entry<String, java.util.function.Consumer<PersonalizedTactic>> entry : invalid.entrySet()) {
+            PersonalizedTactic bad = tactic("Balanced");
+            entry.getValue().accept(bad);
+            assertThatThrownBy(() -> factory.build(bad, validSlots()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining(entry.getKey())
+                    .hasMessageContaining("invalid");
+        }
+    }
+
+    private void assertInvalidRoleDuty(PlayerPosition position, String role, String duty) {
+        List<RuntimeLineupSlot> slots = validSlots();
+        int index = slots.indexOf(slots.stream().filter(slot -> slot.usedPosition() == position).findFirst().orElseThrow());
+        RuntimeLineupSlot original = slots.get(index);
+        slots.set(index, replaceFormation(original, formation(original.player().getId(), role, duty, List.of())));
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+        when(roles.isDutyAllowed(eq(position.code()), eq(role), eq(duty.toUpperCase()))).thenReturn(false);
+        assertThatThrownBy(() -> factory.build(tactic("Balanced"), slots))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(role).hasMessageContaining(duty.toUpperCase()).hasMessageContaining(position.code());
+    }
+
+    private void assertValidRoleDuty(PlayerPosition position, String role, String duty) {
+        List<RuntimeLineupSlot> slots = validSlots();
+        int index = slots.indexOf(slots.stream().filter(slot -> slot.usedPosition() == position).findFirst().orElseThrow());
+        RuntimeLineupSlot original = slots.get(index);
+        slots.set(index, replaceFormation(original, formation(original.player().getId(), role, duty, List.of())));
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+        when(roles.isDutyAllowed(eq(position.code()), eq(role), eq(duty.toUpperCase()))).thenReturn(true);
+        when(roles.computeRoleSuitability(any(PlayerSkills.class), eq(position.code()), eq(role))).thenReturn(60.0);
+        assertThat(factory.build(tactic("Balanced"), slots).lineup()).isNotEmpty();
     }
 
     @Test

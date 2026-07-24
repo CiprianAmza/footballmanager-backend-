@@ -11,6 +11,7 @@ import com.footballmanagergamesimulator.compartment.adapter.CanonicalLineupPlaye
 import com.footballmanagergamesimulator.compartment.adapter.PlayerAttributeMapping;
 import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
 import com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey;
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
@@ -68,14 +69,16 @@ public final class CanonicalRuntimeInputFactory {
 
         List<Long> orderedIds = orderedSlots.stream().map(slot -> slot.player().getId()).toList();
         Map<Long, PlayerCapabilitySnapshot> capabilities = capabilityService.loadAll(orderedIds);
+        CanonicalAxes axes = canonicalAxes(tactic);
         List<CanonicalLineupPlayer> lineup = new ArrayList<>();
         Map<Long, TacticalContextInput> contexts = new LinkedHashMap<>();
         for (RuntimeLineupSlot slot : orderedSlots) {
             FormationData formation = slot.formationData();
             PlayerRole role = resolveRole(slot.usedPosition(), formation);
             Duty duty = resolveDuty(formation == null ? null : formation.getDuty());
+            validateDuty(slot, role, duty);
             double suitability = role == null ? 50.0
-                    : roleService.computeRoleSuitability(slot.skills(), role.displayName());
+                    : roleService.computeRoleSuitability(slot.skills(), slot.usedPosition().code(), role.displayName());
             Set<PlayerTrait> traits = slot.player().isStayForward()
                     ? EnumSet.of(PlayerTrait.REFUSES_DEFENSIVE_WORK) : EnumSet.noneOf(PlayerTrait.class);
             ForwardInstruction instruction = resolveInstruction(formation == null ? null : formation.getInstructions());
@@ -87,9 +90,16 @@ public final class CanonicalRuntimeInputFactory {
                     PlayerAttributeMapping.rawAttributeMap(slot.skills()), slot.player().getFitness(),
                     slot.player().getMorale(), capability, suitability, traits, instruction);
             lineup.add(canonical);
-            contexts.put(canonical.playerId(), tacticalContext(tactic, formation));
+            contexts.put(canonical.playerId(), tacticalContext(axes, formation));
         }
-        return new CanonicalRuntimeTeamInput(resolveMentality(tactic.getMentality()), lineup, contexts);
+        return new CanonicalRuntimeTeamInput(axes.mentality(), lineup, contexts);
+    }
+
+    private void validateDuty(RuntimeLineupSlot slot, PlayerRole role, Duty duty) {
+        if (role != null && !roleService.isDutyAllowed(slot.usedPosition().code(), role.displayName(), duty.name())) {
+            throw new IllegalArgumentException("duty " + duty.name() + " is not allowed for role "
+                    + role.displayName() + " at " + slot.usedPosition().code());
+        }
     }
 
     private static PlayerRole resolveRole(com.footballmanagergamesimulator.compartment.PlayerPosition position,
@@ -130,31 +140,44 @@ public final class CanonicalRuntimeInputFactory {
         return ForwardInstruction.DEFAULT;
     }
 
-    private static TacticalContextInput tacticalContext(PersonalizedTactic tactic, FormationData formation) {
+    private static TacticalContextInput tacticalContext(CanonicalAxes axes, FormationData formation) {
         return new TacticalContextInput(
-                defaultValue(tactic.getMentality(), "Balanced"),
-                defaultValue(tactic.getTempo(), "Standard"),
-                defaultValue(tactic.getPassingType(), "Normal"),
-                defaultValue(tactic.getDefensiveLine(), "Standard"),
-                defaultValue(tactic.getPressing(), "Standard"),
-                defaultValue(tactic.getWidth(), "Balanced"),
+                axes.mentalityText(), axes.tempo(), axes.passingType(), axes.defensiveLine(), axes.pressing(), axes.width(),
                 formation == null || formation.getInstructions() == null
                         ? List.of() : List.copyOf(formation.getInstructions()));
     }
 
+    private static CanonicalAxes canonicalAxes(PersonalizedTactic tactic) {
+        String mentality = canonicalAxis("mentality", tactic.getMentality(), "Balanced",
+                MatchEngineConfig.TacticalModel.MENTALITY_OPTIONS);
+        return new CanonicalAxes(
+                resolveMentality(mentality), mentality,
+                canonicalAxis("tempo", tactic.getTempo(), "Standard", MatchEngineConfig.TacticalModel.TEMPO_OPTIONS),
+                canonicalAxis("passingType", tactic.getPassingType(), "Normal", MatchEngineConfig.TacticalModel.PASSING_OPTIONS),
+                canonicalAxis("defensiveLine", tactic.getDefensiveLine(), "Standard", MatchEngineConfig.TacticalModel.DEFENSIVE_LINE_OPTIONS),
+                canonicalAxis("pressing", tactic.getPressing(), "Standard", MatchEngineConfig.TacticalModel.PRESSING_OPTIONS),
+                canonicalAxis("width", tactic.getWidth(), "Balanced", MatchEngineConfig.TacticalModel.WIDTH_OPTIONS));
+    }
+
+    private static String canonicalAxis(String axis, String raw, String fallback, List<String> options) {
+        if (raw == null || raw.isBlank()) return fallback;
+        String value = raw.trim();
+        return options.stream().filter(option -> option.equalsIgnoreCase(value)).findFirst().orElseThrow(
+                () -> new IllegalArgumentException("unknown " + axis + " value: " + raw));
+    }
+
     private static Mentality resolveMentality(String raw) {
-        if (raw == null || raw.isBlank()) return Mentality.BALANCED;
-        return switch (raw.trim().toLowerCase(Locale.ROOT)) {
-            case "very attacking" -> Mentality.VERY_ATTACKING;
-            case "attacking" -> Mentality.ATTACKING;
-            case "balanced" -> Mentality.BALANCED;
-            case "defensive" -> Mentality.DEFENSIVE;
-            case "very defensive" -> Mentality.VERY_DEFENSIVE;
+        return switch (raw) {
+            case "Very Attacking" -> Mentality.VERY_ATTACKING;
+            case "Attacking" -> Mentality.ATTACKING;
+            case "Balanced" -> Mentality.BALANCED;
+            case "Defensive" -> Mentality.DEFENSIVE;
+            case "Very Defensive" -> Mentality.VERY_DEFENSIVE;
             default -> throw new IllegalArgumentException("unknown mentality: " + raw);
         };
     }
 
-    private static String defaultValue(String raw, String fallback) {
-        return raw == null || raw.isBlank() ? fallback : raw.trim();
+    private record CanonicalAxes(Mentality mentality, String mentalityText, String tempo, String passingType,
+                                 String defensiveLine, String pressing, String width) {
     }
 }

@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.compartment.PlayerPosition;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,42 @@ public class PlayerRoleService {
             return PlayerSkillsService.computeOverallRating(skills);
         }
 
+        return weightedRoleSuitability(skills, role);
+    }
+
+    /** Computes suitability using the position the player is actually filling. */
+    public double computeRoleSuitability(PlayerSkills skills, String usedPosition, String roleName) {
+        Objects.requireNonNull(skills, "skills");
+        String family = roleFamily(usedPosition);
+        if (roleName == null || roleName.isBlank()) {
+            throw new IllegalArgumentException("roleName must not be blank");
+        }
+        RoleDef role = findRole(family, roleName.trim());
+        if (role == null) {
+            throw new IllegalArgumentException("role " + roleName + " is not available for " + usedPosition);
+        }
+        return weightedRoleSuitability(skills, role);
+    }
+
+    /** Returns whether a canonical role definition permits the supplied duty. */
+    public boolean isDutyAllowed(String usedPosition, String roleName, String dutyLabel) {
+        String family = roleFamily(usedPosition);
+        if (roleName == null || roleName.isBlank()) {
+            throw new IllegalArgumentException("roleName must not be blank");
+        }
+        if (dutyLabel == null || dutyLabel.isBlank()) {
+            throw new IllegalArgumentException("dutyLabel must not be blank");
+        }
+        RoleDef role = findRole(family, roleName.trim());
+        if (role == null) {
+            throw new IllegalArgumentException("role " + roleName + " is not available for " + usedPosition);
+        }
+        String duty = dutyLabel.trim();
+        return role.duties.stream().anyMatch(allowed -> allowed.equalsIgnoreCase(duty));
+    }
+
+    private double weightedRoleSuitability(PlayerSkills skills, RoleDef role) {
+
         double weighted = 0;
         for (Map.Entry<String, Double> entry : effectiveKeyAttributes(role).entrySet()) {
             String attr = entry.getKey();
@@ -60,6 +97,20 @@ public class PlayerRoleService {
 
         // Scale from 1-20 weighted average to 0-100 (scale factor is config-tunable).
         return Math.max(1, Math.min(100, weighted * engineConfig.getRoleWeights().getSuitabilityScale()));
+    }
+
+    private static String roleFamily(String usedPosition) {
+        PlayerPosition position = PlayerPosition.require(usedPosition);
+        return switch (position) {
+            case GK -> "GK";
+            case DC -> "DC";
+            case DL, WBL -> "DL";
+            case DR, WBR -> "DR";
+            case DM, MC, AMC -> "MC";
+            case ML, AML -> "ML";
+            case MR, AMR -> "MR";
+            case ST -> "ST";
+        };
     }
 
     /**
