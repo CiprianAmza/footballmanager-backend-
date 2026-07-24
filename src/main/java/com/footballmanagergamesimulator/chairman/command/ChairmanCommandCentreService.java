@@ -182,6 +182,7 @@ public class ChairmanCommandCentreService {
                 String.valueOf(calendar.getSeason()), teamId);
         return matchService.getCalendarEntries(matches, teamId, calendar.getSeason()).stream()
                 .filter(value -> "upcoming".equalsIgnoreCase(value.getStatus()))
+                .filter(value -> value.getDay() >= calendar.getCurrentDay())
                 .sorted(Comparator.comparingInt(com.footballmanagergamesimulator.frontend.CalendarEntryView::getDay)
                         .thenComparingLong(com.footballmanagergamesimulator.frontend.CalendarEntryView::getCompetitionId)
                         .thenComparingInt(com.footballmanagergamesimulator.frontend.CalendarEntryView::getRoundNumber)
@@ -225,13 +226,14 @@ public class ChairmanCommandCentreService {
 
     private ChairmanCommandCentreDtos.OwnershipSummary ownership(PersonProfile principal,
                                                                   ClubDtos.Dashboard dashboard) {
-        ClubDtos.HoldingView holding = dashboard.capTable().holdings().stream()
-                .filter(value -> value.profileId() == principal.getId()).findFirst().orElse(null);
-        if (holding == null) {
-            return new ChairmanCommandCentreDtos.OwnershipSummary(principal.getId(), 0, 0,
-                    new com.footballmanagergamesimulator.economy.EconomyDtos.Money(0, "EUR", 0), true);
+        List<ClubDtos.HoldingView> controllingHoldings = dashboard.capTable().holdings().stream()
+                .filter(ClubDtos.HoldingView::controlling).toList();
+        if (controllingHoldings.size() != 1) {
+            throw new EconomyConflictException("CAP_TABLE_INVALID",
+                    "Controlled holding is missing or ambiguous");
         }
-        return new ChairmanCommandCentreDtos.OwnershipSummary(holding.profileId(), holding.quantity(),
+        ClubDtos.HoldingView holding = controllingHoldings.get(0);
+        return new ChairmanCommandCentreDtos.OwnershipSummary(principal.getId(), holding.quantity(),
                 holding.stakeBps(), holding.equityValue(), true);
     }
 

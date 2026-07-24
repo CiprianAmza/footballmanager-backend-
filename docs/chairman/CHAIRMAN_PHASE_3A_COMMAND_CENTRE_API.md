@@ -21,6 +21,15 @@ DataHub form, calendar fixtures, squad availability, dashboard finance and
 ownership, and the current-season financial-record window. It does not
 recompute standings, fixtures, valuations, treasury, or ownership formulas.
 
+`nextFixtures` includes only fixtures whose status is `upcoming` and whose day
+is the current game day or later. A fixture without a result from a past day
+is therefore excluded; a fixture on the current day remains eligible.
+
+Ownership is read from the canonical dashboard cap table's single controlling
+holding. The service does not match that holding by profile ID and does not
+invent a zero-share or zero-money fallback. Missing or ambiguous controlling
+holdings produce the typed `CAP_TABLE_INVALID` conflict.
+
 The response contains the current season/day/phase from the global game
 calendar. If the calendar is unavailable, the service returns the typed
 `GAME_STATE_UNAVAILABLE` economy conflict.

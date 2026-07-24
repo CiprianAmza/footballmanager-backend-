@@ -129,7 +129,7 @@ class ChairmanCommandCentreServiceTest {
         when(stats.getTeamDataHubStats(10L, 3)).thenReturn(statsValue);
         when(matches.findAllBySeasonNumberAndTeamId("3", 10L)).thenReturn(List.of());
         when(matchService.getCalendarEntries(anyList(), eq(10L), eq(3L)))
-                .thenReturn(upcomingFixtures(6));
+                .thenReturn(upcomingFixtures(6, 41));
         when(injuries.findAllByTeamIdAndDaysRemainingGreaterThan(10L, 0))
                 .thenReturn(List.of(injury(100L), injury(100L), injury(101L)));
         when(suspensions.findAllByTeamIdAndActive(10L, true))
@@ -161,6 +161,72 @@ class ChairmanCommandCentreServiceTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> result.nextFixtures().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void filtersPastUpcomingFixturesIncludesCurrentDayExcludesPlayedAndLimitsDeterministically() {
+        GameCalendar calendar = calendar(3, 10, "MORNING");
+        stubMinimalWorld(calendar);
+        CalendarEntryView past = fixture(23L, 9, 1, "upcoming");
+        CalendarEntryView current = fixture(22L, 10, 2, "upcoming");
+        CalendarEntryView firstFuture = fixture(23L, 11, 3, "upcoming");
+        CalendarEntryView secondFuture = fixture(22L, 12, 4, "upcoming");
+        CalendarEntryView thirdFuture = fixture(23L, 13, 5, "upcoming");
+        CalendarEntryView fourthFuture = fixture(22L, 14, 6, "upcoming");
+        CalendarEntryView fifthFuture = fixture(23L, 15, 7, "upcoming");
+        CalendarEntryView playedFuture = fixture(22L, 16, 8, "played");
+        when(matchService.getCalendarEntries(anyList(), eq(10L), eq(3L))).thenReturn(List.of(
+                fifthFuture, playedFuture, past, thirdFuture, current, fourthFuture,
+                firstFuture, secondFuture));
+
+        ChairmanCommandCentreDtos.CommandCentreView result = service.commandCentre(10L, chairman);
+
+        assertThat(result.nextFixtures()).extracting(ChairmanCommandCentreDtos.FixtureView::day)
+                .containsExactly(10, 11, 12, 13, 14);
+        assertThat(result.nextFixtures()).allMatch(value -> "upcoming".equals(value.status()));
+    }
+
+    @Test
+    void ownershipUsesControllingHoldingEvenWhenItsProfileDiffersFromPrincipal() {
+        stubMinimalWorld(calendar(3, 40, "MORNING"));
+        EconomyDtos.Money equity = new EconomyDtos.Money(777, "GBP", 2);
+        ClubDtos.HoldingView controlling = new ClubDtos.HoldingView(99L, "Other Chairman", false,
+                8_000, 8_000, equity, true);
+        when(clubQuery.dashboard(10L, chairman)).thenReturn(dashboardWithHoldings(List.of(controlling)));
+
+        ChairmanCommandCentreDtos.OwnershipSummary ownership = service.commandCentre(10L, chairman).ownership();
+
+        assertThat(ownership.principalProfileId()).isEqualTo(chairman.getId());
+        assertThat(ownership.shares()).isEqualTo(8_000);
+        assertThat(ownership.stakeBps()).isEqualTo(8_000);
+        assertThat(ownership.equityValue()).isEqualTo(equity);
+        assertThat(ownership.controlled()).isTrue();
+    }
+
+    @Test
+    void ownershipRejectsMissingControllingHolding() {
+        stubMinimalWorld(calendar(3, 40, "MORNING"));
+        when(clubQuery.dashboard(10L, chairman)).thenReturn(dashboardWithHoldings(List.of()));
+
+        assertThatThrownBy(() -> service.commandCentre(10L, chairman))
+                .isInstanceOf(EconomyConflictException.class)
+                .hasFieldOrPropertyWithValue("code", "CAP_TABLE_INVALID")
+                .hasMessage("Controlled holding is missing or ambiguous");
+    }
+
+    @Test
+    void ownershipRejectsAmbiguousControllingHoldings() {
+        stubMinimalWorld(calendar(3, 40, "MORNING"));
+        ClubDtos.HoldingView first = new ClubDtos.HoldingView(44L, "Chairman", true,
+                6_000, 6_000, new EconomyDtos.Money(100, "EUR", 0), true);
+        ClubDtos.HoldingView second = new ClubDtos.HoldingView(99L, "Other Chairman", false,
+                4_000, 4_000, new EconomyDtos.Money(200, "EUR", 0), true);
+        when(clubQuery.dashboard(10L, chairman)).thenReturn(dashboardWithHoldings(List.of(first, second)));
+
+        assertThatThrownBy(() -> service.commandCentre(10L, chairman))
+                .isInstanceOf(EconomyConflictException.class)
+                .hasFieldOrPropertyWithValue("code", "CAP_TABLE_INVALID")
+                .hasMessage("Controlled holding is missing or ambiguous");
     }
 
     @Test
@@ -207,6 +273,34 @@ class ChairmanCommandCentreServiceTest {
                 List.of(new ClubDtos.HoldingView(44L, "Chairman", true, 6_000, 6_000, money, true)));
         ClubDtos.TreasuryView treasury = new ClubDtos.TreasuryView(money, money, money, money, money, money, false);
         return new ClubDtos.Dashboard(10L, "Command FC", valuation, capTable, treasury, true);
+    }
+
+    private ClubDtos.Dashboard dashboardWithHoldings(List<ClubDtos.HoldingView> holdings) {
+        ClubDtos.Dashboard base = dashboard();
+        ClubDtos.CapTableView capTable = new ClubDtos.CapTableView(10_000, 4_000, 5_001,
+                44L, "Chairman", 1, holdings);
+        return new ClubDtos.Dashboard(base.teamId(), base.name(), base.valuation(), capTable,
+                base.treasury(), true);
+    }
+
+    private void stubMinimalWorld(GameCalendar calendar) {
+        Team team = team();
+        when(calendars.findTopByOrderBySeasonDesc()).thenReturn(Optional.of(calendar));
+        when(teams.findById(10L)).thenReturn(Optional.of(team));
+        when(humans.findAllByTeamId(10L)).thenReturn(List.of());
+        when(scouts.findAllByTeamId(10L)).thenReturn(List.of());
+        when(stadiums.findByTeamId(10L)).thenReturn(Optional.empty());
+        when(competitions.findById(22L)).thenReturn(Optional.empty());
+        when(competitionDisplay.getTeamCompetitions(10L)).thenReturn(List.of());
+        when(stats.getTeamDataHubStats(10L, calendar.getSeason())).thenReturn(new TeamDataHubStats());
+        when(matches.findAllBySeasonNumberAndTeamId(String.valueOf(calendar.getSeason()), 10L))
+                .thenReturn(List.of());
+        when(matchService.getCalendarEntries(anyList(), eq(10L), eq((long) calendar.getSeason())))
+                .thenReturn(List.of());
+        when(injuries.findAllByTeamIdAndDaysRemainingGreaterThan(10L, 0)).thenReturn(List.of());
+        when(suspensions.findAllByTeamIdAndActive(10L, true)).thenReturn(List.of());
+        when(financialRecords.findAllByTeamIdAndSeasonNumber(10L, calendar.getSeason()))
+                .thenReturn(List.of());
     }
 
     private static Team team() {
@@ -261,25 +355,29 @@ class ChairmanCommandCentreServiceTest {
         return calendar;
     }
 
-    private static List<CalendarEntryView> upcomingFixtures(int count) {
+    private static List<CalendarEntryView> upcomingFixtures(int count, int firstDay) {
         List<CalendarEntryView> result = new ArrayList<>();
         for (int i = count; i >= 1; i--) {
-            CalendarEntryView entry = new CalendarEntryView();
-            entry.setCompetitionId(i % 2 == 0 ? 22L : 23L);
-            entry.setCompetitionName(i % 2 == 0 ? "Real League" : "Cup");
-            entry.setSeasonNumber(3);
-            entry.setRoundNumber(i);
-            entry.setTeamId1(10L);
-            entry.setTeamId2(100L + i);
-            entry.setOpponentTeamId(100L + i);
-            entry.setOpponentTeamName("Opponent " + i);
-            entry.setHomeOrAway("H");
-            entry.setDay(i);
-            entry.setDateDisplay("Day " + i);
-            entry.setStatus("upcoming");
-            result.add(entry);
+            result.add(fixture(i % 2 == 0 ? 22L : 23L, firstDay + i - 1, i, "upcoming"));
         }
         return result;
+    }
+
+    private static CalendarEntryView fixture(long competitionId, int day, int round, String status) {
+        CalendarEntryView entry = new CalendarEntryView();
+        entry.setCompetitionId(competitionId);
+        entry.setCompetitionName(competitionId == 22L ? "Real League" : "Cup");
+        entry.setSeasonNumber(3);
+        entry.setRoundNumber(round);
+        entry.setTeamId1(10L);
+        entry.setTeamId2(100L + round);
+        entry.setOpponentTeamId(100L + round);
+        entry.setOpponentTeamName("Opponent " + round);
+        entry.setHomeOrAway("H");
+        entry.setDay(day);
+        entry.setDateDisplay("Day " + day);
+        entry.setStatus(status);
+        return entry;
     }
 
     private static Injury injury(long playerId) {
