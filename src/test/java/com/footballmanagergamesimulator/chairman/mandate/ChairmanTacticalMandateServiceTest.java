@@ -124,6 +124,22 @@ class ChairmanTacticalMandateServiceTest {
         assertThat(existing.getVersion()).isZero();
     }
 
+    @Test
+    void requiredFormationNullRejectsLocksWithNoCommonFormation() {
+        when(tactics.getAllExactFormationGridNames()).thenReturn(java.util.List.of("442", "433"));
+        when(tactics.getFormationGridIndicesExact("433")).thenReturn(new int[]{1, 3, 7});
+        when(tactics.getFormationGridIndicesExact("442")).thenReturn(new int[]{1, 3, 5});
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.empty());
+        when(players.findById(100L)).thenReturn(Optional.of(human(100L, 10L, 1L, false)));
+        when(players.findById(101L)).thenReturn(Optional.of(human(101L, 10L, 1L, false)));
+
+        assertThatThrownBy(() -> service.update(10L, chairman,
+                new ChairmanTacticalMandateDtos.UpdateRequest(null,
+                        java.util.List.of(new ChairmanTacticalMandateDtos.LockedSlot(5, 100L),
+                                new ChairmanTacticalMandateDtos.LockedSlot(7, 101L)), 0)))
+                .hasFieldOrPropertyWithValue("code", "MANDATE_SLOT_NOT_IN_FORMATION");
+    }
+
     private static PersonProfile profile(long id) {
         PersonProfile profile = new PersonProfile(); profile.setId(id); profile.setCareerType(CareerType.CHAIRMAN); return profile;
     }

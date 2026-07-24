@@ -112,6 +112,32 @@ class ChairmanTacticalMandateEnforcementServiceTest {
         assertThat(submitted).extracting(FormationData::getPositionIndex).containsExactly(2, 2, 1, 3);
     }
 
+    @Test
+    void chairmanLockOutsideEffectiveFormationIsRejectedWithoutRelocation() {
+        squad.put(100L, player(100L));
+        ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
+        mandate.setTeamId(10L);
+        mandate.setRequiredFormation("433");
+        mandate.replaceSlots(List.of(new MandateSlot(5, 100L)));
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.of(mandate));
+
+        assertThatThrownBy(() -> service.enforceFormation(10L, "433", List.of(), List.of(), Set.of(), false))
+                .hasFieldOrPropertyWithValue("code", "MANDATE_SLOT_NOT_IN_FORMATION");
+    }
+
+    @Test
+    void limitsStartersAndBenchBySlotRangeEvenWhenBenchArrivesFirst() {
+        List<FormationData> submitted = new ArrayList<>();
+        for (int slot = 30; slot <= 38; slot++) submitted.add(data(slot, 1000L + slot));
+        for (int slot = 0; slot < 15; slot++) submitted.add(data(slot, 2000L + slot));
+
+        List<FormationData> result = service.enforceFormation(10L, "442", submitted, List.of(), Set.of(), true);
+
+        assertThat(result).filteredOn(value -> value.getPositionIndex() < 30).hasSize(11);
+        assertThat(result).filteredOn(value -> value.getPositionIndex() >= 30 && value.getPositionIndex() <= 36).hasSize(7);
+        assertThat(result).allMatch(value -> value.getPositionIndex() <= 36);
+    }
+
     private static FormationData data(int position, long playerId) {
         FormationData value = new FormationData();
         value.setPositionIndex(position);

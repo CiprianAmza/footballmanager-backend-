@@ -46,8 +46,8 @@ public class ChairmanTacticalMandateEnforcementService {
             long teamId, String proposedFormation,
             List<CoachPermissionService.LockedSlot> legacyLocks,
             Set<Long> unavailableIds) {
-        return placedLocks(teamId, proposedFormation, legacyLocks, unavailableIds).stream()
-                .map(PlacedLock::placed).toList();
+        return resolvedLocks(teamId, proposedFormation, legacyLocks, unavailableIds).stream()
+                .map(ResolvedLock::slot).toList();
     }
 
     /** Runtime/edit enforcement over a defensive copy of submitted formation data. */
@@ -67,17 +67,15 @@ public class ChairmanTacticalMandateEnforcementService {
                 }
             }
         }
-        List<PlacedLock> locks = placedLocks(teamId, proposedFormation, legacyLocks, unavailable);
-        Map<Long, PlacedLock> lockByPlayer = locks.stream().collect(Collectors.toMap(
-                lock -> lock.raw().playerId(), lock -> lock, (left, right) -> left, LinkedHashMap::new));
-        Map<Integer, PlacedLock> lockByRawPosition = locks.stream().collect(Collectors.toMap(
-                lock -> lock.raw().positionIndex(), lock -> lock, (left, right) -> left, LinkedHashMap::new));
-        Map<Integer, PlacedLock> lockByPlacedPosition = locks.stream().collect(Collectors.toMap(
-                lock -> lock.placed().positionIndex(), lock -> lock, (left, right) -> left, LinkedHashMap::new));
+        List<ResolvedLock> locks = resolvedLocks(teamId, proposedFormation, legacyLocks, unavailable);
+        Map<Long, ResolvedLock> lockByPlayer = locks.stream().collect(Collectors.toMap(
+                lock -> lock.slot().playerId(), lock -> lock, (left, right) -> left, LinkedHashMap::new));
+        Map<Integer, ResolvedLock> lockByPosition = locks.stream().collect(Collectors.toMap(
+                lock -> lock.slot().positionIndex(), lock -> lock, (left, right) -> left, LinkedHashMap::new));
 
         List<FormationData> submittedCopy = submitted == null ? List.of() : submitted.stream()
                 .map(value -> value == null ? null : copy(value)).toList();
-        Map<PlacedLock, FormationData> exactContexts = new HashMap<>();
+        Map<ResolvedLock, FormationData> exactContexts = new HashMap<>();
         List<FormationData> managerEntries = new ArrayList<>();
         Set<Integer> seenPositions = new HashSet<>();
         Set<Long> seenPlayers = new HashSet<>();
@@ -88,19 +86,13 @@ public class ChairmanTacticalMandateEnforcementService {
             }
             if (runtime && unavailable.contains(value.getPlayerId())) continue;
 
-            PlacedLock byPlayer = lockByPlayer.get(value.getPlayerId());
-            PlacedLock byRawPosition = lockByRawPosition.get(value.getPositionIndex());
-            PlacedLock byPlacedPosition = lockByPlacedPosition.get(value.getPositionIndex());
+            ResolvedLock byPlayer = lockByPlayer.get(value.getPlayerId());
+            ResolvedLock byPosition = lockByPosition.get(value.getPositionIndex());
             if (byPlayer != null) {
-                boolean exact = value.getPositionIndex() == byPlayer.raw().positionIndex()
-                        || value.getPositionIndex() == byPlayer.placed().positionIndex();
-                if (exact) {
-                    value.setPositionIndex(byPlayer.placed().positionIndex());
-                    exactContexts.putIfAbsent(byPlayer, value);
-                }
+                if (value.getPositionIndex() == byPlayer.slot().positionIndex()) exactContexts.putIfAbsent(byPlayer, value);
                 continue;
             }
-            if (byRawPosition != null || byPlacedPosition != null) continue;
+            if (byPosition != null) continue;
             if (value.getPositionIndex() < 0 || value.getPositionIndex() > 36) {
                 if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation slot is outside pitch and bench bounds");
                 continue;
@@ -119,18 +111,16 @@ public class ChairmanTacticalMandateEnforcementService {
         List<FormationData> result = new ArrayList<>();
         Set<Integer> resultPositions = new HashSet<>();
         Set<Long> resultPlayers = new HashSet<>();
-        for (PlacedLock lock : locks) {
+        for (ResolvedLock lock : locks) {
             FormationData value = exactContexts.get(lock);
             if (value == null) {
                 value = new FormationData();
-                value.setPositionIndex(lock.placed().positionIndex());
-                value.setPlayerId(lock.placed().playerId());
+                value.setPositionIndex(lock.slot().positionIndex());
+                value.setPlayerId(lock.slot().playerId());
             }
             if (addWithinBounds(value, result, resultPositions, resultPlayers)) continue;
         }
         for (FormationData value : managerEntries) {
-            if (value.getPositionIndex() < 30 && result.size() >= 11) continue;
-            if (value.getPositionIndex() >= 30 && result.stream().filter(v -> v.getPositionIndex() >= 30).count() >= 7) continue;
             addWithinBounds(value, result, resultPositions, resultPlayers);
         }
         result.sort(Comparator.comparingInt(FormationData::getPositionIndex).thenComparingLong(FormationData::getPlayerId));
@@ -141,60 +131,38 @@ public class ChairmanTacticalMandateEnforcementService {
         return resolvedLockedSlots(teamId, mandate(teamId).requiredFormation(), List.of(), unavailableIds);
     }
 
-    private List<PlacedLock> placedLocks(long teamId, String proposedFormation,
-                                         List<CoachPermissionService.LockedSlot> legacyLocks,
-                                         Set<Long> unavailableIds) {
+    private List<ResolvedLock> resolvedLocks(long teamId, String proposedFormation,
+                                             List<CoachPermissionService.LockedSlot> legacyLocks,
+                                             Set<Long> unavailableIds) {
         EffectiveChairmanMandate current = mandate(teamId);
         Set<Integer> grid = validGrid(current.requiredFormation() != null
                 ? current.requiredFormation() : proposedFormation, current.requiredFormation() != null);
-        List<PlacedLock> result = new ArrayList<>();
+        List<ResolvedLock> result = new ArrayList<>();
         for (EffectiveChairmanMandate.Slot lock : current.lockedSlots()) {
             if (eligiblePlayer(teamId, lock.playerId(), unavailableIds) == null) continue;
-            PlacedLock placed = place(new PlacedLock(lock, lock, true), grid, result);
-            if (placed != null) result.add(placed);
+            if (!grid.contains(lock.positionIndex())) {
+                throw invalid("MANDATE_SLOT_NOT_IN_FORMATION", "Mandated slot is not in formation");
+            }
+            if (result.stream().anyMatch(existing -> conflicts(existing.slot(), lock))) {
+                throw invalid("DUPLICATE_MANDATE_SLOT", "Mandated lock conflicts with another lock");
+            }
+            result.add(new ResolvedLock(lock, true));
         }
         for (CoachPermissionService.LockedSlot legacy : legacyLocks == null
                 ? List.<CoachPermissionService.LockedSlot>of() : legacyLocks) {
             if (legacy == null) continue;
             EffectiveChairmanMandate.Slot raw = new EffectiveChairmanMandate.Slot(legacy.positionIndex(), legacy.playerId());
-            if (conflictsWithChairman(raw, result)
+            if (result.stream().anyMatch(existing -> conflicts(existing.slot(), raw))
                     || eligiblePlayer(teamId, raw.playerId(), unavailableIds) == null) continue;
-            PlacedLock placed = place(new PlacedLock(raw, raw, false), grid, result);
-            if (placed != null) result.add(placed);
+            if (!grid.contains(raw.positionIndex())) continue;
+            if (result.stream().anyMatch(existing -> conflicts(existing.slot(), raw))) continue;
+            result.add(new ResolvedLock(raw, false));
         }
         return result;
     }
 
-    private PlacedLock place(PlacedLock candidate, Set<Integer> grid, List<PlacedLock> occupied) {
-        int rawPosition = candidate.raw().positionIndex();
-        Set<Integer> taken = occupied.stream().map(lock -> lock.placed().positionIndex()).collect(Collectors.toSet());
-        if (grid.contains(rawPosition) && !taken.contains(rawPosition)) return candidate;
-
-        String rawBase = baseAt(rawPosition);
-        List<Integer> candidates = grid.stream().filter(index -> !taken.contains(index))
-                .sorted().toList();
-        if ("GK".equals(rawBase)) {
-            candidates = candidates.stream().filter(index -> "GK".equals(baseAt(index))).toList();
-        }
-        Integer replacement = candidates.stream().filter(index -> baseAt(index).equals(rawBase)).findFirst().orElse(null);
-        if (replacement == null && !"GK".equals(rawBase)) {
-            String compartment = compartment(rawBase);
-            replacement = candidates.stream().filter(index -> compartment(baseAt(index)).equals(compartment)).findFirst().orElse(null);
-        }
-        if (replacement == null && !candidates.isEmpty() && !"GK".equals(rawBase)) {
-            replacement = candidates.get(candidates.size() - 1);
-        }
-        if (replacement == null) return null;
-        return new PlacedLock(candidate.raw(), new EffectiveChairmanMandate.Slot(
-                replacement, candidate.placed().playerId()), candidate.chairman());
-    }
-
-    private boolean conflictsWithChairman(EffectiveChairmanMandate.Slot legacy, List<PlacedLock> chairman) {
-        return chairman.stream().anyMatch(lock -> lock.chairman()
-                && (lock.raw().positionIndex() == legacy.positionIndex()
-                || lock.raw().playerId() == legacy.playerId()
-                || lock.placed().positionIndex() == legacy.positionIndex()
-                || lock.placed().playerId() == legacy.playerId()));
+    private boolean conflicts(EffectiveChairmanMandate.Slot left, EffectiveChairmanMandate.Slot right) {
+        return left.positionIndex() == right.positionIndex() || left.playerId() == right.playerId();
     }
 
     private Human eligiblePlayer(long teamId, long playerId, Set<Long> unavailable) {
@@ -221,23 +189,13 @@ public class ChairmanTacticalMandateEnforcementService {
         }
     }
 
-    private String baseAt(int index) {
-        if (index < 0 || index >= 30) return "UNKNOWN";
-        return TacticService.getBasePosition(tacticService.getPositionFromIndex(index));
-    }
-
-    private String compartment(String base) {
-        if ("GK".equals(base)) return "GK";
-        if (Set.of("DL", "DC", "DR").contains(base)) return "DEF";
-        if (Set.of("DM", "ML", "MC", "MR").contains(base)) return "MID";
-        return "ATT";
-    }
-
     private static boolean addWithinBounds(FormationData value, List<FormationData> result,
                                            Set<Integer> positions, Set<Long> players) {
         int position = value.getPositionIndex();
-        if (position < 0 || position > 36 || position < 30 && result.stream().filter(v -> v.getPositionIndex() < 30).count() >= 11
-                || position >= 30 && result.stream().filter(v -> v.getPositionIndex() >= 30).count() >= 7
+        long starters = result.stream().filter(v -> v.getPositionIndex() < 30).count();
+        long bench = result.stream().filter(v -> v.getPositionIndex() >= 30 && v.getPositionIndex() <= 36).count();
+        if (position < 0 || position > 36 || position < 30 && starters >= 11
+                || position >= 30 && position <= 36 && bench >= 7
                 || !positions.add(position) || !players.add(value.getPlayerId())) return false;
         result.add(copy(value));
         return true;
@@ -253,9 +211,7 @@ public class ChairmanTacticalMandateEnforcementService {
         return copy;
     }
 
-    private record PlacedLock(EffectiveChairmanMandate.Slot raw,
-                              EffectiveChairmanMandate.Slot placed,
-                              boolean chairman) { }
+    private record ResolvedLock(EffectiveChairmanMandate.Slot slot, boolean chairman) { }
 
     private static ChairmanTacticalMandateException invalid(String code, String message) {
         return new ChairmanTacticalMandateException(code, message);

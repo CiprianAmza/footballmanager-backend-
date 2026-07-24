@@ -84,7 +84,13 @@ public class TacticController {
         Optional<PersonalizedTactic> tacticOpt = personalizedTacticRepository.findPersonalizedTacticByTeamId(_teamId);
 
         if (tacticOpt.isEmpty()) {
-            return null; // Frontend-ul va primi null și va folosi tactica default
+            if (mandateEnforcement.mandate(_teamId).requiredFormation() == null) {
+                return null; // no saved tactic and no active Chairman mandate
+            }
+            String effective = mandateEnforcement.effectiveFormation(_teamId, "442");
+            PersonalizedTacticView view = defaultTacticView(_teamId, effective);
+            view.setFormationDataList(askAssistant(_teamId, effective));
+            return view;
         }
 
         return effectiveTacticView(_teamId, toView(tacticOpt.get()));
@@ -166,7 +172,8 @@ public class TacticController {
         if (managerView.getFormationDataList() == null || managerView.getFormationDataList().isEmpty()) {
             managerView.setFormationDataList(askAssistant(teamId, effectiveManagerFormation));
         } else {
-            ensureSevenSubstitutes(teamId, managerView.getFormationDataList());
+            ensureSevenSubstitutes(teamId, managerView.getFormationDataList(),
+                    matchSimulationOrchestrator.roundUnavailableIds(teamId));
         }
 
         PersonalizedTacticView bestView = defaultTacticView(teamId, effectiveBestTactic);
@@ -226,7 +233,7 @@ public class TacticController {
         return view;
     }
 
-    private void ensureSevenSubstitutes(long teamId, List<FormationData> formation) {
+    private void ensureSevenSubstitutes(long teamId, List<FormationData> formation, Set<Long> unavailableIds) {
         Set<Long> usedPlayers = formation.stream().map(FormationData::getPlayerId).collect(Collectors.toSet());
         Set<Integer> occupiedBenchSlots = formation.stream()
                 .map(FormationData::getPositionIndex)
@@ -235,6 +242,7 @@ public class TacticController {
         Iterator<Human> candidates = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
                 .stream()
                 .filter(player -> !player.isRetired() && !usedPlayers.contains(player.getId()))
+                .filter(player -> unavailableIds == null || !unavailableIds.contains(player.getId()))
                 .sorted((left, right) -> Double.compare(right.getRating(), left.getRating()))
                 .iterator();
         for (int index = 30; index <= 36 && candidates.hasNext(); index++) {
@@ -267,6 +275,12 @@ public class TacticController {
         CoachPermissions perms = coachPermissionService.getOrDefault(teamId);
         PersonalizedTactic existing = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId).orElse(null);
 
+        // Resolve the manager permission first, then overlay the Chairman mandate. The
+        // persisted tactic is always this effective value; the request must never win later.
+        String managerFormationAllowed = adminOverride || perms.isCanChangeFormationTactics() || existing == null
+                ? personalizedTacticView.getTactic() : existing.getTactic();
+        String effectiveTactic = mandateEnforcement.effectiveFormation(teamId, managerFormationAllowed);
+
         PersonalizedTactic personalizedTactic = new PersonalizedTactic();
         personalizedTactic.setTeamId(teamId);
 
@@ -282,12 +296,8 @@ public class TacticController {
                     ? new ArrayList<>(personalizedTacticView.getFormationDataList())
                     : new ArrayList<>();
         }
-        String effectiveTactic = personalizedTacticView.getTactic();
-        if (!adminOverride) {
-            effectiveTactic = mandateEnforcement.effectiveFormation(teamId, effectiveTactic);
-            xi = mandateEnforcement.enforceFormation(teamId, effectiveTactic, xi,
-                    coachPermissionService.parseLockedSlots(perms.getLockedSlots()), Set.of(), false);
-        }
+        xi = mandateEnforcement.enforceFormation(teamId, effectiveTactic, xi,
+                adminOverride ? List.of() : coachPermissionService.parseLockedSlots(perms.getLockedSlots()), Set.of(), false);
         try {
             personalizedTactic.setFirst11(objectMapper.writeValueAsString(xi));
         } catch (JsonProcessingException e) {
@@ -296,7 +306,7 @@ public class TacticController {
 
         // ---- Formation + instructions ----
         if (adminOverride || perms.isCanChangeFormationTactics() || existing == null) {
-            personalizedTactic.setTactic(personalizedTacticView.getTactic());
+            personalizedTactic.setTactic(effectiveTactic);
             personalizedTactic.setMentality(personalizedTacticView.getMentality());
             personalizedTactic.setTimeWasting(personalizedTacticView.getTimeWasting());
             personalizedTactic.setInPossession(personalizedTacticView.getInPossession());
@@ -313,7 +323,7 @@ public class TacticController {
             personalizedTactic.setTransition(personalizedTacticView.getTransition());
         } else {
             // Owner fixed the formation/instructions → keep the existing ones, ignore the coach's.
-            personalizedTactic.setTactic(existing.getTactic());
+            personalizedTactic.setTactic(effectiveTactic);
             personalizedTactic.setMentality(existing.getMentality());
             personalizedTactic.setTimeWasting(existing.getTimeWasting());
             personalizedTactic.setInPossession(existing.getInPossession());
@@ -346,7 +356,7 @@ public class TacticController {
         if (existing != null) {
             personalizedTactic.setId(existing.getId());
         }
-        if (!adminOverride) personalizedTactic.setTactic(effectiveTactic);
+        personalizedTactic.setTactic(effectiveTactic);
         personalizedTacticRepository.save(personalizedTactic);
         return ResponseEntity.ok().build();
     }

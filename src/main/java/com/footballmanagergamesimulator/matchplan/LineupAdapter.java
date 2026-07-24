@@ -17,6 +17,7 @@ import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.SuspensionRepository;
 import com.footballmanagergamesimulator.service.TacticService;
+import com.footballmanagergamesimulator.service.CoachPermissionService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -73,6 +74,7 @@ public class LineupAdapter {
     @Autowired private MatchEngineConfig engineConfig;
     @Autowired private TacticService tacticService;
     @Autowired private ChairmanTacticalMandateEnforcementService mandateEnforcement;
+    @Autowired private CoachPermissionService coachPermissionService;
     @Autowired private InjuryRepository injuryRepository;
     @Autowired private SuspensionRepository suspensionRepository;
     @Autowired(required = false) private GameplayFeatureConfig gameplayFeatures;
@@ -145,7 +147,10 @@ public class LineupAdapter {
             if (!playerIdsSeen.add(d.getPlayerId())) return null;             // duplicate across XI + bench
         }
 
-        formation = mandateEnforcement.enforceFormation(teamId, pt.getTactic(), formation, List.of(),
+        List<CoachPermissionService.LockedSlot> legacyLocks = coachPermissionService == null
+                ? List.of() : coachPermissionService.lockedSlots(teamId);
+        formation = mandateEnforcement.enforceFormation(teamId, pt.getTactic(), formation,
+                legacyLocks,
                 unavailableIds(teamId), true).stream().map(LineupAdapter::copyFormationData).collect(Collectors.toCollection(ArrayList::new));
 
         // Sort by slot to preserve canonical order; split starters / bench.

@@ -100,7 +100,16 @@ public class ChairmanTacticalMandateService {
             if (!tacticService.isKnownFormation(formation)) throw error("FORMATION_NOT_FOUND", "Formation is not known: " + formation);
             for (int index : tacticService.getFormationGridIndicesExact(formation)) valid.add(index);
         } else {
-            for (String known : tacticService.getAllExactFormationGridNames()) {
+            Set<String> compatible = tacticService.getAllExactFormationGridNames().stream()
+                    .filter(known -> slots.stream().allMatch(slot ->
+                            contains(tacticService.getFormationGridIndicesExact(known), slot.positionIndex())))
+                    .collect(java.util.stream.Collectors.toSet());
+            if (!slots.isEmpty() && compatible.isEmpty()) {
+                throw error("MANDATE_SLOT_NOT_IN_FORMATION", "No formation contains all mandated slots");
+            }
+            // This set is only used for the empty-slot case; compatibility above is
+            // deliberately evaluated per complete formation, never as a union.
+            for (String known : compatible) {
                 for (int index : tacticService.getFormationGridIndicesExact(known)) valid.add(index);
             }
         }
@@ -113,6 +122,11 @@ public class ChairmanTacticalMandateService {
             if (!positions.add(slot.positionIndex())) throw error("DUPLICATE_MANDATE_SLOT", "Mandate slot is duplicated");
             if (!players.add(slot.playerId())) throw error("DUPLICATE_MANDATE_PLAYER", "Mandate player is duplicated");
         }
+    }
+
+    private static boolean contains(int[] values, int expected) {
+        for (int value : values) if (value == expected) return true;
+        return false;
     }
 
     private void validatePlayers(long teamId, List<ChairmanTacticalMandateDtos.LockedSlot> slots) {
