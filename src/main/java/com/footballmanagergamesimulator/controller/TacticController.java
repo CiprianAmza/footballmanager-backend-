@@ -87,7 +87,7 @@ public class TacticController {
             return null; // Frontend-ul va primi null și va folosi tactica default
         }
 
-        return toView(tacticOpt.get());
+        return effectiveTacticView(_teamId, toView(tacticOpt.get()));
     }
 
     private PersonalizedTacticView toView(PersonalizedTactic savedTactic) {
@@ -162,6 +162,7 @@ public class TacticController {
         PersonalizedTacticView managerView = saved.map(this::toView)
                 .orElseGet(() -> defaultTacticView(teamId, effectiveManagerFormation));
         managerView.setTactic(effectiveManagerFormation);
+        managerView = effectiveTacticView(teamId, managerView);
         if (managerView.getFormationDataList() == null || managerView.getFormationDataList().isEmpty()) {
             managerView.setFormationDataList(askAssistant(teamId, effectiveManagerFormation));
         } else {
@@ -180,6 +181,18 @@ public class TacticController {
         response.put("managerTactic", managerView);
         response.put("bestPossibleTactic", bestView);
         return ResponseEntity.ok(response);
+    }
+
+    private PersonalizedTacticView effectiveTacticView(long teamId, PersonalizedTacticView source) {
+        String effectiveFormation = mandateEnforcement.effectiveFormation(teamId, source.getTactic());
+        source.setTactic(effectiveFormation);
+        if (source.getFormationDataList() != null) {
+            Set<Long> unavailable = matchSimulationOrchestrator.roundUnavailableIds(teamId);
+            List<FormationData> effective = mandateEnforcement.enforceFormation(teamId, effectiveFormation,
+                    source.getFormationDataList(), coachPermissionService.lockedSlots(teamId), unavailable, true);
+            source.setFormationDataList(new ArrayList<>(effective));
+        }
+        return source;
     }
 
     private boolean isKnownFormation(String tactic) {
@@ -398,7 +411,7 @@ public class TacticController {
         List<TacticView> tacticViews = new ArrayList<>();
         List<String> allTactics = tacticService.getAllExistingTactics();
         for (String tactic: allTactics) {
-            List<PlayerView> bestEleven = getBestElevenPlayers(team, tacticService.getRoomInTeamByTactic(tactic));
+            List<PlayerView> bestEleven = getBestElevenPlayers(team, tacticService.getRoomInTeamByTactic(tactic), tactic);
 
             TacticView tacticView = new TacticView();
             tacticView.setTacticName(tactic);
@@ -439,10 +452,7 @@ public class TacticController {
         if (team == null)
             throw new RuntimeException("Team not found.");
 
-        String effectiveTactic = mandateEnforcement.effectiveFormation(_teamId, tactic);
-        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(effectiveTactic);
-
-        return getBestElevenPlayers(team, tacticFormat);
+        return getAutomaticSelection(_teamId, tactic).startingXI();
     }
 
     @GetMapping("/getSubstitutions/{teamId}/{tactic}")
@@ -454,15 +464,7 @@ public class TacticController {
         if (team == null)
             throw new RuntimeException("Team not found.");
 
-        String effectiveTactic = mandateEnforcement.effectiveFormation(_teamId, tactic);
-        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(effectiveTactic);
-
-        Map<String, Integer> substitutionFormat = tacticService.getSubstitutionsInTeamByTactic(effectiveTactic);
-
-        List<PlayerView> firstEleven = getBestElevenPlayers(team, tacticFormat);
-        List<PlayerView> substitutions = getBestSubstitutions(team, substitutionFormat, firstEleven);
-
-        return substitutions;
+        return getAutomaticSelection(_teamId, tactic).bench();
     }
 
     /**
@@ -813,6 +815,27 @@ public class TacticController {
      */
     public record StarterSlot(PlayerView player, String usedPosition) {}
 
+    /** One Chairman-aware automatic selection shared by XI and bench consumers. */
+    public record AutomaticSelection(List<PlayerView> startingXI, List<PlayerView> bench) {
+        public AutomaticSelection {
+            startingXI = List.copyOf(startingXI == null ? List.of() : startingXI);
+            bench = List.copyOf(bench == null ? List.of() : bench);
+        }
+    }
+
+    public AutomaticSelection getAutomaticSelection(long teamId, String tactic) {
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team == null) throw new RuntimeException("Team not found.");
+        String effectiveTactic = mandateEnforcement.effectiveFormation(teamId, tactic);
+        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(effectiveTactic);
+        List<PlayerView> startingXI = getBestElevenPlayers(team, tacticFormat, effectiveTactic);
+        Map<String, Integer> substitutionFormat = tacticService.getSubstitutionsInTeamByTactic(effectiveTactic);
+        List<PlayerView> bench = getBestSubstitutions(team, substitutionFormat, startingXI);
+        Set<Long> starterIds = startingXI.stream().map(PlayerView::getId).collect(Collectors.toSet());
+        bench = bench.stream().filter(player -> !starterIds.contains(player.getId())).distinct().limit(7).toList();
+        return new AutomaticSelection(startingXI, bench);
+    }
+
     /**
      * Same selection as {@link #getBestEleven}, but preserves which base-position slot each
      * starter occupies (so the match-value engine can apply position familiarity).
@@ -825,15 +848,15 @@ public class TacticController {
         // Display order (by the player's natural position) matches the legacy getBestEleven
         // ordering, so consumers that map slots → players keep a stable, deterministic sequence.
         String effectiveTactic = mandateEnforcement.effectiveFormation(_teamId, tactic);
-        return selectStarterSlots(team, tacticService.getRoomInTeamByTactic(effectiveTactic))
+        return selectStarterSlots(team, tacticService.getRoomInTeamByTactic(effectiveTactic), effectiveTactic)
                 .stream()
                 .sorted(Comparator.comparingInt(s ->
                         tacticService.getValueForTacticDisplay(s.player().getPosition())))
                 .toList();
     }
 
-    private List<PlayerView> getBestElevenPlayers(Team team, Map<String, Integer> tacticFormat) {
-        return selectStarterSlots(team, tacticFormat)
+    private List<PlayerView> getBestElevenPlayers(Team team, Map<String, Integer> tacticFormat, String formation) {
+        return selectStarterSlots(team, tacticFormat, formation)
                 .stream()
                 .map(StarterSlot::player)
                 .sorted((p1, p2) ->
@@ -849,29 +872,18 @@ public class TacticController {
      * player is preferred when ratings are close. Per position the best apt players fill the
      * required slots; remaining slots are filled by the best apt leftovers (out of position).
      */
-    private List<StarterSlot> selectStarterSlots(Team team, Map<String, Integer> tacticFormat) {
+    private List<StarterSlot> selectStarterSlots(Team team, Map<String, Integer> tacticFormat, String formation) {
 
         Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(team.getId());
 
-        // Chairman locks have precedence over legacy CoachPermission locks.
+        // The enforcement service owns Chairman -> legacy precedence and exact conflict rules.
         List<StarterSlot> slots = new ArrayList<>();
         Set<Long> lockedPlayerIds = new HashSet<>();
         Map<String, Integer> lockedCountByPos = new HashMap<>();
-        Set<Integer> chairmanLockedIndices = new HashSet<>();
-        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.eligibleSlots(team.getId(), unavailableIds)) {
+        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.resolvedLockedSlots(team.getId(), formation,
+                coachPermissionService.lockedSlots(team.getId()), unavailableIds)) {
             Human locked = humanRepository.findById(lock.playerId()).orElse(null);
             if (locked == null || lockedPlayerIds.contains(locked.getId())) continue;
-            String slotPos = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
-            slots.add(new StarterSlot(adaptPlayer(locked, team), slotPos));
-            lockedPlayerIds.add(locked.getId());
-            chairmanLockedIndices.add(lock.positionIndex());
-            lockedCountByPos.merge(slotPos, 1, Integer::sum);
-        }
-        for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(team.getId())) {
-            if (lockedPlayerIds.contains(lock.playerId()) || chairmanLockedIndices.contains(lock.positionIndex())) continue;
-            Human locked = humanRepository.findById(lock.playerId()).orElse(null);
-            if (locked == null || locked.getTeamId() == null || locked.getTeamId() != team.getId()
-                    || unavailableIds.contains(locked.getId())) continue;
             String slotPos = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
             slots.add(new StarterSlot(adaptPlayer(locked, team), slotPos));
             lockedPlayerIds.add(locked.getId());
@@ -1196,18 +1208,8 @@ public class TacticController {
 
         // Chairman locks first; legacy locks follow only when they do not conflict.
         Set<Integer> lockedIndices = new HashSet<>();
-        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.eligibleSlots(teamId, unavailableIds)) {
-            FormationData fd = new FormationData();
-            fd.setPositionIndex(lock.positionIndex());
-            fd.setPlayerId(lock.playerId());
-            result.add(fd);
-            usedPlayerIds.add(lock.playerId());
-            lockedIndices.add(lock.positionIndex());
-        }
-        for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(teamId)) {
-            if (usedPlayerIds.contains(lock.playerId()) || lockedIndices.contains(lock.positionIndex())) continue;
-            Human lockedPlayer = availablePlayers.stream().filter(p -> p.getId() == lock.playerId()).findFirst().orElse(null);
-            if (lockedPlayer == null) continue;
+        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.resolvedLockedSlots(teamId, effectiveTactic,
+                coachPermissionService.lockedSlots(teamId), unavailableIds)) {
             FormationData fd = new FormationData();
             fd.setPositionIndex(lock.positionIndex());
             fd.setPlayerId(lock.playerId());

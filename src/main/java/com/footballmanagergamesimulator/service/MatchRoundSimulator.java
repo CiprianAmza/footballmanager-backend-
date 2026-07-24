@@ -1572,7 +1572,8 @@ public class MatchRoundSimulator {
         profileCache.remove(teamId);
         formationSquadCache.remove(teamId);
         formationValueCache.remove(teamId);
-        // Deliberately KEEP tacticVectorCache + wideShareCache: the AI manager's tactic choice is
+        wideShareCache.remove(teamId);
+        // Deliberately KEEP tacticVectorCache: the AI manager's tactic choice is
         // stable across a season — it
         // does not need re-deriving after every training session (~88×/season). These are cleared only
         // at season transition via invalidateAllRatingCaches(). Match strength still refreshes because
@@ -1737,7 +1738,8 @@ public class MatchRoundSimulator {
 
         // Chairman locks have priority over legacy owner/board XI locks.
         Set<Long> chairmanLockedIds = new HashSet<>();
-        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.eligibleSlots(squad.teamId(), unavailableIds)) {
+        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.resolvedLockedSlots(
+                squad.teamId(), formation, squad.legacyLockedSlots(), unavailableIds)) {
             Human lockedPlayer = remaining.stream().filter(player -> player.getId() == lock.playerId()).findFirst().orElse(null);
             if (lockedPlayer == null) continue;
             remaining.remove(lockedPlayer);
@@ -1745,20 +1747,6 @@ public class MatchRoundSimulator {
             selected.add(new FormationEvaluationStarter(lockedPlayer, usedPosition));
             requiredSlots.remove(usedPosition);
             chairmanLockedIds.add(lock.playerId());
-        }
-
-        // Preserve non-conflicting owner/board XI locks. The UI controller applies the same locks;
-        // keeping them here avoids a performance regression changing the team that takes field.
-        for (Map.Entry<Long, String> lock : squad.lockedPositionByPlayerId().entrySet()) {
-            if (chairmanLockedIds.contains(lock.getKey())) continue;
-            Human lockedPlayer = remaining.stream()
-                    .filter(player -> player.getId() == lock.getKey())
-                    .findFirst()
-                    .orElse(null);
-            if (lockedPlayer == null) continue;
-            remaining.remove(lockedPlayer);
-            selected.add(new FormationEvaluationStarter(lockedPlayer, lock.getValue()));
-            requiredSlots.remove(lock.getValue());
         }
 
         for (String slot : requiredSlots) {
@@ -1853,14 +1841,9 @@ public class MatchRoundSimulator {
         List<Long> playerIds = squad.stream().map(Human::getId).toList();
         Map<Long, PlayerSkills> skillsByPlayerId = playerSkillsRepository.findAllByPlayerIdIn(playerIds)
                 .stream().collect(Collectors.toMap(PlayerSkills::getPlayerId, skills -> skills));
-        Map<Long, String> lockedPositionByPlayerId = new HashMap<>();
-        for (CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(teamId)) {
-            String position = TacticService.getBasePosition(
-                    tacticService.getPositionFromIndex(lock.positionIndex()));
-            lockedPositionByPlayerId.putIfAbsent(lock.playerId(), position);
-        }
+        List<CoachPermissionService.LockedSlot> legacyLockedSlots = List.copyOf(coachPermissionService.lockedSlots(teamId));
         return new FormationEvaluationSquad(
-                teamId, squad, skillsByPlayerId, lockedPositionByPlayerId);
+                teamId, squad, skillsByPlayerId, legacyLockedSlots);
     }
 
     private double formationAptness(Human player) {
@@ -1871,7 +1854,7 @@ public class MatchRoundSimulator {
             long teamId,
             List<Human> players,
             Map<Long, PlayerSkills> skillsByPlayerId,
-            Map<Long, String> lockedPositionByPlayerId) {}
+            List<CoachPermissionService.LockedSlot> legacyLockedSlots) {}
 
     private record FormationEvaluationStarter(Human player, String usedPosition) {}
 

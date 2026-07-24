@@ -9,9 +9,8 @@ import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.TacticService;
-import com.footballmanagergamesimulator.service.MatchRoundSimulator;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.context.ApplicationEventPublisher;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,8 +25,8 @@ public class ChairmanTacticalMandateService {
     private final GameCalendarRepository calendarRepository;
     private final ClubQueryService clubQueryService;
     private final TacticService tacticService;
-    @Autowired(required = false) @Lazy
-    private MatchRoundSimulator matchRoundSimulator;
+    @Autowired(required = false)
+    private ApplicationEventPublisher eventPublisher;
 
     public ChairmanTacticalMandateService(ChairmanTacticalMandateRepository mandateRepository,
                                           TeamRepository teamRepository,
@@ -85,9 +84,7 @@ public class ChairmanTacticalMandateService {
                 .map(slot -> new MandateSlot(slot.positionIndex(), slot.playerId())).toList();
         mandate.replaceSlots(slots);
         ChairmanTacticalMandateDtos.MandateView result = view(mandateRepository.saveAndFlush(mandate));
-        if (matchRoundSimulator != null) {
-            matchRoundSimulator.invalidateChairmanMandateCaches(teamId);
-        }
+        if (eventPublisher != null) eventPublisher.publishEvent(new ChairmanTacticalMandateChangedEvent(teamId));
         return result;
     }
 

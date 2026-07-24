@@ -50,6 +50,7 @@ class ChairmanTacticalMandateEnforcementServiceTest {
         squad.put(100L, player(100L));
         squad.put(101L, player(101L));
         squad.put(102L, player(102L));
+        squad.put(103L, player(103L));
         ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
         mandate.setTeamId(10L);
         mandate.setRequiredFormation("433");
@@ -78,6 +79,37 @@ class ChairmanTacticalMandateEnforcementServiceTest {
         squad.clear();
         assertThatThrownBy(() -> service.enforceFormation(10L, "433", List.of(), List.of(), Set.of(), false))
                 .hasFieldOrPropertyWithValue("code", "MANDATED_PLAYER_NOT_IN_TEAM");
+    }
+
+    @Test
+    void chairmanLegacyAndManagerPrecedencePreservesExactLockMetadata() {
+        squad.put(100L, player(100L));
+        squad.put(101L, player(101L));
+        squad.put(102L, player(102L));
+        squad.put(103L, player(103L));
+        ChairmanTacticalMandate mandate = new ChairmanTacticalMandate();
+        mandate.setTeamId(10L);
+        mandate.setRequiredFormation("433");
+        mandate.replaceSlots(List.of(new MandateSlot(2, 100L)));
+        when(mandates.findByTeamId(10L)).thenReturn(Optional.of(mandate));
+
+        FormationData chairman = data(2, 100L);
+        chairman.setRole("Advanced Playmaker");
+        chairman.setDuty("Attack");
+        chairman.setInstructions(List.of("Shoot More Often"));
+        List<FormationData> submitted = new ArrayList<>(List.of(
+                chairman, data(2, 101L), data(1, 102L), data(3, 103L)));
+        List<FormationData> result = service.enforceFormation(10L, "433", submitted,
+                List.of(new CoachPermissionService.LockedSlot(2, 102L)), Set.of(), false);
+
+        assertThat(result).filteredOn(value -> value.getPlayerId() == 100L).singleElement()
+                .satisfies(value -> {
+                    assertThat(value.getRole()).isEqualTo("Advanced Playmaker");
+                    assertThat(value.getDuty()).isEqualTo("Attack");
+                    assertThat(value.getInstructions()).containsExactly("Shoot More Often");
+                });
+        assertThat(result).extracting(FormationData::getPlayerId).contains(100L, 102L, 103L).doesNotContain(101L);
+        assertThat(submitted).extracting(FormationData::getPositionIndex).containsExactly(2, 2, 1, 3);
     }
 
     private static FormationData data(int position, long playerId) {

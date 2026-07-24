@@ -223,8 +223,11 @@ public class LineupAdapter {
     // ---------------- automatic (AI + fallback) ----------------
 
     private Lineup buildAutomatic(long teamId, String tactic, long seed, boolean withSubs) {
-        List<PlayerView> xiViews = safe(tacticController.getBestEleven(String.valueOf(teamId), tactic));
-        List<PlayerView> benchViews = safe(tacticController.getSubstitutions(String.valueOf(teamId), tactic));
+        TacticController.AutomaticSelection selection = tacticController.getAutomaticSelection(teamId, tactic);
+        List<PlayerView> xiViews = safe(selection == null ? tacticController.getBestEleven(String.valueOf(teamId), tactic)
+                : selection.startingXI());
+        List<PlayerView> benchViews = safe(selection == null ? tacticController.getSubstitutions(String.valueOf(teamId), tactic)
+                : selection.bench());
 
         List<Long> ids = new ArrayList<>();
         xiViews.forEach(v -> ids.add(v.getId()));

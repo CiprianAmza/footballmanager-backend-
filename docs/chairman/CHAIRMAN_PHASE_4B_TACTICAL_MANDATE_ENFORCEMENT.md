@@ -1,27 +1,22 @@
-# Chairman Phase 4B — Tactical Mandate Runtime Enforcement
+# Chairman Phase 4B tactical mandate enforcement
 
-Phase 4B consumes the normalized Phase 4A mandate at every backend formation
-and XI boundary. `ChairmanTacticalMandateEnforcementService` is the canonical
-runtime policy point: it reads an immutable `EffectiveChairmanMandate`, forces
-the required formation, inserts eligible Chairman slots first, applies only
-non-conflicting legacy `CoachPermission` locks, and leaves the remaining
-selection to the existing deterministic algorithm.
+Chairman tactical locks are resolved through one policy shared by the tactic
+controller, automatic lineup selection and match simulation. Precedence is:
+Chairman locks, non-conflicting legacy `CoachPermission` locks, then manager
+entries. Conflicts are checked by both grid slot and player identity, and all
+returned formation data is defensive-copy immutable.
 
-The policy is used by `TacticController` for saved formation writes, best-XI,
-substitutions, and Ask Assistant; by `MatchRoundSimulator` for human/AI
-formation choice and automatic selection; and by `LineupAdapter` when reading
-saved user tactics. Saved inputs are copied, duplicate/corrupt snapshots keep
-their legacy atomic fallback, and the current mandate is evaluated at runtime
-so an old saved tactic cannot bypass a new mandate.
+The effective formation and XI shown by `getFormation` and `teamView` are
+copies. A saved tactic is never mutated merely because a Chairman mandate is
+active; reads expose the enforced formation and lineup instead.
 
-Unavailable players are never inserted into a runtime lineup. An unavailable
-mandated player remains stored and is omitted temporarily, allowing the normal
-selection algorithm to fill the slot. Once eligible again, the mandate applies
-automatically. Manual enforcement reports typed `MANDATED_PLAYER_NOT_IN_TEAM`,
-`MANDATED_POSITION_INVALID`, `MANAGER_XI_INVALID`, or
-`TACTICAL_MANDATE_INVALID` errors as appropriate.
+Automatic selection produces the starting XI and bench together, so a locked
+player cannot be selected independently into both collections. Availability
+(injury or suspension) is applied only at runtime; an unavailable mandated
+player is omitted from the runtime lineup, while edit-time enforcement still
+validates the mandate.
 
-Successful Phase 4A mandate updates invalidate the per-team MatchRoundSimulator
-formation, XI, rating, and manager-tactic caches. No global cache reset, schema
-change, save/import change, feature flag, frontend change, or Phase 4C runtime is
-introduced here.
+Mandate changes publish a domain event after persistence. Cache invalidation is
+bound to `AFTER_COMMIT` and is per-team, including ratings, best XI, starters,
+substitutions, profile/formation caches, manager tactic/vector state and wide
+share. Rollbacks do not invalidate these caches.
