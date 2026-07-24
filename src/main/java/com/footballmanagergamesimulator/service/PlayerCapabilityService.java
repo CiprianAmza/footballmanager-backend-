@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.compartment.PlayerPosition;
 import com.footballmanagergamesimulator.compartment.PlayerRole;
 import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
+import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilityResolver;
 import com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.Human;
@@ -33,7 +34,7 @@ public class PlayerCapabilityService {
     private final PlayerPositionFamiliarityRepository positionRepository;
     private final PlayerRoleFamiliarityRepository roleRepository;
     private final PlayerFootProfileRepository footRepository;
-    private final MatchEngineConfig matchEngineConfig;
+    private final PlayerCapabilityResolver capabilityResolver;
 
     public PlayerCapabilityService(HumanRepository humanRepository,
                                    PlayerPositionFamiliarityRepository positionRepository,
@@ -44,7 +45,7 @@ public class PlayerCapabilityService {
         this.positionRepository = positionRepository;
         this.roleRepository = roleRepository;
         this.footRepository = footRepository;
-        this.matchEngineConfig = matchEngineConfig;
+        this.capabilityResolver = new PlayerCapabilityResolver(matchEngineConfig);
     }
 
     @Transactional(readOnly = true)
@@ -93,31 +94,15 @@ public class PlayerCapabilityService {
     }
 
     public int fallbackPositionFamiliarity(String naturalPosition, PlayerPosition usedPosition) {
-        PlayerPosition natural = PlayerPosition.parse(naturalPosition).orElse(null);
-        if (natural == usedPosition) {
-            return 20;
-        }
-        double factor = matchEngineConfig.getPlayerValue().familiarity(
-                natural == null ? null : natural.code(), usedPosition.code());
-        return clampToFamiliarity((int) Math.round(factor * 20.0));
+        return capabilityResolver.fallbackPositionFamiliarity(naturalPosition, usedPosition);
     }
 
     public int positionFamiliarityOrFallback(PlayerCapabilitySnapshot snapshot, PlayerPosition usedPosition) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        Objects.requireNonNull(usedPosition, "usedPosition");
-        Integer persistent = snapshot.positionFamiliarity().get(usedPosition);
-        if (persistent != null) return persistent;
-        PlayerPosition natural = snapshot.primaryPosition();
-        if (natural != null) {
-            Integer primary = snapshot.positionFamiliarity().get(natural);
-            if (natural == usedPosition && primary != null) return primary;
-        }
-        return fallbackPositionFamiliarity(natural == null ? null : natural.code(), usedPosition);
+        return capabilityResolver.positionFamiliarityOrFallback(snapshot, usedPosition);
     }
 
     public int roleFamiliarityOrFallback(PlayerCapabilitySnapshot snapshot, PlayerPosition position, PlayerRole role) {
-        PositionRoleKey key = new PositionRoleKey(position, role);
-        return snapshot.roleFamiliarity().getOrDefault(key, 10);
+        return capabilityResolver.roleFamiliarityOrFallback(snapshot, position, role);
     }
 
     private PlayerCapabilitySnapshot snapshot(long playerId, Human human,
@@ -208,10 +193,6 @@ public class PlayerCapabilityService {
             return new FootRatings(16, 16);
         }
         return new FootRatings(8, 20);
-    }
-
-    private static int clampToFamiliarity(int value) {
-        return Math.max(1, Math.min(20, value));
     }
 
     private static void requireFamiliarity(int value, String field) {
