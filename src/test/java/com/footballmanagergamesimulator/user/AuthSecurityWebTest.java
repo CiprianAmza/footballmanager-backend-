@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.user;
 
 import com.footballmanagergamesimulator.config.WebSecurityConfig;
+import com.footballmanagergamesimulator.economy.EconomyApiExceptionHandler;
+import com.footballmanagergamesimulator.economy.EconomyConflictException;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.model.Team;
@@ -44,11 +46,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = {AuthController.class, CareerOnboardingController.class,
-        AuthSecurityWebTest.SaveEndpointStub.class},
+        AuthSecurityWebTest.SaveEndpointStub.class, AuthSecurityWebTest.MarketEndpointStub.class},
         properties = {"regent.enabled=false", "cors.allowed-origins=http://localhost:4200"})
 @ContextConfiguration(classes = {AuthController.class, CareerOnboardingController.class,
-        CareerOnboardingService.class, AuthSecurityWebTest.SaveEndpointStub.class, WebSecurityConfig.class,
-        CurrentUserService.class, UserDetailsServiceImpl.class})
+        CareerOnboardingService.class, AuthSecurityWebTest.SaveEndpointStub.class,
+        AuthSecurityWebTest.MarketEndpointStub.class, WebSecurityConfig.class,
+        CurrentUserService.class, UserDetailsServiceImpl.class, EconomyApiExceptionHandler.class})
 class AuthSecurityWebTest {
 
     @Autowired private MockMvc mockMvc;
@@ -156,7 +159,9 @@ class AuthSecurityWebTest {
         MockHttpSession session = login();
         mockMvc.perform(get("/boardroom/humans").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/me/wealth").session(session)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/market/instruments").session(session)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/market/instruments").session(session))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("REGENT_FEATURE_DISABLED"));
         mockMvc.perform(get("/api/clubs").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(post("/api/club-cash-transfers").session(session).with(csrf())
                         .contentType("application/json").content("{}"))
@@ -266,6 +271,16 @@ class AuthSecurityWebTest {
         @PostMapping("/import")
         Map<String, Object> importSave() {
             return Map.of("success", true);
+        }
+    }
+
+    @RestController
+    @RequestMapping("/api/market")
+    static class MarketEndpointStub {
+        @GetMapping("/instruments")
+        Map<String, Object> instruments() {
+            throw new EconomyConflictException("REGENT_FEATURE_DISABLED",
+                    "Regent market is disabled until the feature flag is enabled");
         }
     }
 }
