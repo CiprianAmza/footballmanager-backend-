@@ -672,17 +672,23 @@ public class MatchRoundSimulator {
                 }
 
                 if (compartmentEngineConfig.isShadowEnabled()) {
-                    boolean shadowEligibleInputs = adminScoreAi == null && engineConfig.getTacticalModel().isEnabled();
-                    compartmentShadowEvaluationService.evaluateSafely(
+                    final String shadowFixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                            .competitionFixtureKey(match.getId());
+                    final long shadowHomeTeamId = teamId1;
+                    final long shadowAwayTeamId = teamId2;
+                    final int shadowHomeScore = teamScore1;
+                    final int shadowAwayScore = teamScore2;
+                    final boolean shadowAdminForced = adminScoreAi != null;
+                    final boolean shadowTacticalEnabled = engineConfig.getTacticalModel().isEnabled();
+                    compartmentShadowEvaluationService.evaluateSafely(() ->
                             CompartmentShadowEvaluationService.ShadowEvaluationRequest.home(
-                                    com.footballmanagergamesimulator.matchplan.MatchPlanService
-                                            .competitionFixtureKey(match.getId()),
-                                    teamId1, teamId2, teamScore1, teamScore2,
-                                    true, adminScoreAi != null, engineConfig.getTacticalModel().isEnabled(),
-                                    shadowEligibleInputs ? shadowTactic(teamId1) : null,
-                                    shadowEligibleInputs ? shadowTactic(teamId2) : null,
-                                    shadowEligibleInputs ? shadowLineupSlots(teamId1) : List.of(),
-                                    shadowEligibleInputs ? shadowLineupSlots(teamId2) : List.of()));
+                                    shadowFixtureKey, shadowHomeTeamId, shadowAwayTeamId,
+                                    shadowHomeScore, shadowAwayScore, true, shadowAdminForced,
+                                    shadowTacticalEnabled,
+                                    shadowAdminForced || !shadowTacticalEnabled ? null : shadowTactic(shadowHomeTeamId),
+                                    shadowAdminForced || !shadowTacticalEnabled ? null : shadowTactic(shadowAwayTeamId),
+                                    shadowAdminForced || !shadowTacticalEnabled ? List.of() : shadowLineupSlots(shadowHomeTeamId),
+                                    shadowAdminForced || !shadowTacticalEnabled ? List.of() : shadowLineupSlots(shadowAwayTeamId)));
                 }
 
                 // The regular-time (90') score, captured before resolveKnockoutMatch folds in

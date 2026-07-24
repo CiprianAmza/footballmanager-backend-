@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,6 +43,33 @@ class CompartmentShadowEvaluationServiceTest {
         assertThat(capabilities.loadCalls).isZero();
         assertThat(service.telemetrySnapshot().skippedByReason())
                 .containsEntry(CompartmentShadowSkipReason.FLAG_DISABLED, 1L);
+    }
+
+    @Test
+    void flagOffDoesNotInvokeLazySupplier() {
+        CompartmentEngineConfig config = new CompartmentEngineConfig();
+        CompartmentShadowEvaluationService service = service(config, factory(new CountingCapabilityService()), adapter(config));
+        AtomicBoolean invoked = new AtomicBoolean();
+
+        assertThat(service.evaluateSafely(() -> {
+            invoked.set(true);
+            return request(1, 0, true, false, true, MatchVenue.HOME);
+        })).isEmpty();
+
+        assertThat(invoked).isFalse();
+    }
+
+    @Test
+    void supplierRuntimeExceptionIsAbsorbedAndCountedAsFailure() {
+        CompartmentEngineConfig config = enabledConfig();
+        CompartmentShadowEvaluationService service = service(config, factory(new CountingCapabilityService()), adapter(config));
+
+        assertThat(service.evaluateSafely(() -> {
+            throw new IllegalStateException("supplier failed");
+        })).isEmpty();
+
+        assertThat(service.telemetrySnapshot().attempted()).isEqualTo(1);
+        assertThat(service.telemetrySnapshot().failed()).isEqualTo(1);
     }
 
     @Test
@@ -63,6 +91,13 @@ class CompartmentShadowEvaluationServiceTest {
         assertThat(service.telemetrySnapshot().succeeded()).isEqualTo(1);
         assertThat(service.telemetrySnapshot().failed()).isZero();
         assertThat(capabilities.loadCalls).isEqualTo(2);
+        assertThat(observation.orElseThrow().totalDurationNanos()).isGreaterThanOrEqualTo(0);
+        assertThat(observation.orElseThrow().canonicalEvaluation().probability().homeXg()).isFinite();
+        assertThat(observation.orElseThrow().canonicalEvaluation().probability().awayXg()).isFinite();
+        assertThat(observation.orElseThrow().canonicalEvaluation().outcome().homeWin()
+                + observation.orElseThrow().canonicalEvaluation().outcome().draw()
+                + observation.orElseThrow().canonicalEvaluation().outcome().awayWin()).isCloseTo(1.0,
+                org.assertj.core.data.Offset.offset(1e-9));
     }
 
     @Test
@@ -76,6 +111,17 @@ class CompartmentShadowEvaluationServiceTest {
         assertThat(service.evaluateSafely(request(0, 0, true, false, true, MatchVenue.HOME))).isEmpty();
         assertThat(service.telemetrySnapshot().failed()).isEqualTo(1);
         assertThat(service.telemetrySnapshot().succeeded()).isZero();
+    }
+
+    @Test
+    void capabilityPipelineFailureIsFailOpen() {
+        CompartmentEngineConfig config = enabledConfig();
+        CountingCapabilityService capabilities = new CountingCapabilityService();
+        capabilities.fail = true;
+        CompartmentShadowEvaluationService service = service(config, factory(capabilities), adapter(config));
+
+        assertThat(service.evaluateSafely(request(1, 0, true, false, true, MatchVenue.HOME))).isEmpty();
+        assertThat(service.telemetrySnapshot().failed()).isEqualTo(1);
     }
 
     @Test
@@ -237,6 +283,7 @@ class CompartmentShadowEvaluationServiceTest {
 
     private static final class CountingCapabilityService extends PlayerCapabilityService {
         private int loadCalls;
+        private boolean fail;
 
         private CountingCapabilityService() {
             super(null, null, null, null, new MatchEngineConfig());
@@ -245,6 +292,7 @@ class CompartmentShadowEvaluationServiceTest {
         @Override
         public java.util.Map<Long, PlayerCapabilitySnapshot> loadAll(java.util.Collection<Long> ids) {
             loadCalls++;
+            if (fail) throw new IllegalStateException("capability pipeline failed");
             java.util.Map<Long, PlayerCapabilitySnapshot> result = new java.util.LinkedHashMap<>();
             for (Long id : ids) {
                 int index = id >= 100 ? (int) (id - 100) : (int) (id - 1);

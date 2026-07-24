@@ -101,7 +101,8 @@ class CompartmentAdapterRuntimeIsolationTest {
     void phaseNineAllowsOnlyTheShadowServiceFrontier() {
         Path root = Path.of("src", "main", "java");
         Path simulator = root.resolve("com/footballmanagergamesimulator/service/MatchRoundSimulator.java");
-        assertThat(read(simulator)).contains("CompartmentShadowEvaluationService");
+        assertThat(read(simulator)).contains("CompartmentShadowEvaluationService")
+                .contains("evaluateSafely(() ->");
         Map<String, List<String>> offenders = new TreeMap<>();
         try (Stream<Path> files = Files.walk(root)) {
             files.filter(Files::isRegularFile)

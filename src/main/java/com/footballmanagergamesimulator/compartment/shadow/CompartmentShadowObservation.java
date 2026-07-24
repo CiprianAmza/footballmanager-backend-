@@ -12,14 +12,14 @@ public record CompartmentShadowObservation(
         int legacyAwayScore,
         LegacyResult legacyResult,
         CanonicalMatchEvaluation canonicalEvaluation,
-        long canonicalDurationNanos) {
+        long totalDurationNanos) {
     public CompartmentShadowObservation {
         if (fixtureKey == null || fixtureKey.isBlank()) throw new IllegalArgumentException("fixtureKey must not be blank");
         if (homeTeamId <= 0 || awayTeamId <= 0) throw new IllegalArgumentException("team ids must be positive");
         if (legacyHomeScore < 0 || legacyAwayScore < 0) throw new IllegalArgumentException("legacy scores must be non-negative");
         legacyResult = Objects.requireNonNull(legacyResult, "legacyResult");
         canonicalEvaluation = Objects.requireNonNull(canonicalEvaluation, "canonicalEvaluation");
-        if (canonicalDurationNanos < 0) throw new IllegalArgumentException("duration must be non-negative");
+        if (totalDurationNanos < 0) throw new IllegalArgumentException("duration must be non-negative");
     }
 
     public enum LegacyResult {

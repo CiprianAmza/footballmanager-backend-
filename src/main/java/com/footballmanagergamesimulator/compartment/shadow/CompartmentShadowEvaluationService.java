@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 @Service
 public final class CompartmentShadowEvaluationService {
@@ -49,35 +50,47 @@ public final class CompartmentShadowEvaluationService {
     }
 
     public Optional<CompartmentShadowObservation> evaluateSafely(ShadowEvaluationRequest request) {
+        return evaluateSafely(() -> request);
+    }
+
+    public Optional<CompartmentShadowObservation> evaluateSafely(
+            Supplier<ShadowEvaluationRequest> requestFactory) {
         if (!compartmentConfig.isShadowEnabled()) {
             telemetry.markSkipped(CompartmentShadowSkipReason.FLAG_DISABLED);
             return Optional.empty();
         }
         telemetry.markAttempted();
-        CompartmentShadowSkipReason eligibility = eligibility(request);
-        if (eligibility != null) {
-            telemetry.markSkipped(eligibility);
-            return Optional.empty();
-        }
+        long started = System.nanoTime();
         try {
+            ShadowEvaluationRequest request = Objects.requireNonNull(requestFactory, "requestFactory").get();
+            CompartmentShadowSkipReason eligibility = eligibility(request);
+            if (eligibility != null) {
+                telemetry.markSkipped(eligibility);
+                return Optional.empty();
+            }
             List<com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot> homeSlots = toRuntimeSlots(request.homeSlots());
             List<com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot> awaySlots = toRuntimeSlots(request.awaySlots());
             CanonicalRuntimeTeamInput home = runtimeFactory.build(request.homeTactic(), homeSlots);
             CanonicalRuntimeTeamInput away = runtimeFactory.build(request.awayTactic(), awaySlots);
-            long started = System.nanoTime();
             CanonicalMatchEvaluation evaluation = matchAdapter.evaluate(home, away, MatchVenue.HOME);
-            long duration = System.nanoTime() - started;
+            long totalDurationNanos = System.nanoTime() - started;
             CompartmentShadowObservation observation = new CompartmentShadowObservation(
                     request.fixtureKey(), request.homeTeamId(), request.awayTeamId(),
-                    request.legacyHomeScore(), request.legacyAwayScore(), legacyResult(request), evaluation, duration);
+                    request.legacyHomeScore(), request.legacyAwayScore(), legacyResult(request), evaluation,
+                    totalDurationNanos);
             telemetry.markSucceeded();
-            LOG.debug("compartment shadow evaluation fixture={} homeTeam={} awayTeam={} durationNanos={}",
-                    request.fixtureKey(), request.homeTeamId(), request.awayTeamId(), duration);
+            LOG.debug("compartment shadow evaluation fixtureKey={} homeTeamId={} awayTeamId={} "
+                            + "legacyHomeScore={} legacyAwayScore={} legacyResult={} homeXg={} awayXg={} "
+                            + "homeWin={} draw={} awayWin={} totalDurationNanos={}",
+                    request.fixtureKey(), request.homeTeamId(), request.awayTeamId(),
+                    request.legacyHomeScore(), request.legacyAwayScore(), observation.legacyResult(),
+                    evaluation.probability().homeXg(), evaluation.probability().awayXg(),
+                    evaluation.outcome().homeWin(), evaluation.outcome().draw(), evaluation.outcome().awayWin(),
+                    totalDurationNanos);
             return Optional.of(observation);
         } catch (RuntimeException ex) {
             telemetry.markFailed();
-            LOG.warn("compartment shadow evaluation failed fixture={} reason={}",
-                    request == null ? "<null>" : request.fixtureKey(), ex.getMessage());
+            LOG.warn("compartment shadow evaluation failed reason={}", ex.getMessage());
             return Optional.empty();
         }
     }
