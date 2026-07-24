@@ -63,10 +63,10 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
         PersonalAccount account = accountRepository.findByProfileId(profile.getId()).orElseThrow();
 
         TraderAdviserService.HireResult hire = adviserService.hire(
-                profile, owner.getId(), "STRATEGIST", 30, 1, 1, "hire-strategist");
-        assertThat(adviserService.hire(profile, owner.getId(), "STRATEGIST", 30, 1, 1,
+                profile, owner.getId(), "STRATEGIST", 1, 1, "hire-strategist");
+        assertThat(adviserService.hire(profile, owner.getId(), "STRATEGIST", 1, 1,
                 "hire-strategist").replay()).isTrue();
-        assertThatThrownBy(() -> adviserService.hire(profile, owner.getId(), "STRATEGIST", 30, 1, 2,
+        assertThatThrownBy(() -> adviserService.hire(profile, owner.getId(), "STRATEGIST", 1, 2,
                 "hire-strategist"))
                 .isInstanceOf(EconomyConflictException.class)
                 .satisfies(error -> assertThat(((EconomyConflictException) error).getCode())
@@ -75,7 +75,7 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
         assertThat(hire.contract().getReputation()).isEqualTo(65);
         assertThat(hire.contract().getSalaryPerDay()).isEqualTo(7_500L);
         assertThatThrownBy(() -> adviserService.hire(
-                profile, attacker.getId(), "VETERAN", 30, 1, 1, "forbidden"))
+                profile, attacker.getId(), "VETERAN", 1, 1, "forbidden"))
                 .isInstanceOf(EconomyConflictException.class)
                 .satisfies(error -> assertThat(((EconomyConflictException) error).getCode())
                         .isEqualTo("PROFILE_OWNERSHIP_REQUIRED"));
@@ -170,7 +170,7 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
         User payrollUser = register("adviser-race-payroll", CareerRole.CHAIRMAN, 100_000L);
         PersonProfile payrollProfile = profileService.requireForUser(payrollUser);
         TraderAdviserContract payrollContract = adviserService.hire(
-                payrollProfile, payrollUser.getId(), "STRATEGIST", 30, 1, 4, "payroll-hire").contract();
+                payrollProfile, payrollUser.getId(), "STRATEGIST", 1, 4, "payroll-hire").contract();
         PersonalAccount payrollAccount = accountRepository.findByProfileId(payrollProfile.getId()).orElseThrow();
         CountDownLatch payrollStart = new CountDownLatch(1);
         try (var pool = Executors.newFixedThreadPool(2)) {
@@ -193,7 +193,7 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
         User poorUser = register("adviser-poor-payroll", CareerRole.CHAIRMAN, 5_000L);
         PersonProfile poorProfile = profileService.requireForUser(poorUser);
         TraderAdviserContract poorContract = adviserService.hire(
-                poorProfile, poorUser.getId(), "STRATEGIST", 30, 1, 4, "poor-hire").contract();
+                poorProfile, poorUser.getId(), "STRATEGIST", 1, 4, "poor-hire").contract();
         PersonalAccount poorAccount = accountRepository.findByProfileId(poorProfile.getId()).orElseThrow();
         adviserService.processDailyPayroll(1, 4);
         poorContract = contractRepository.findById(poorContract.getId()).orElseThrow();
@@ -211,7 +211,7 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
             throws InterruptedException {
         start.await();
         try {
-            adviserService.hire(profile, userId, "STRATEGIST", 30, 1, 1, key);
+            adviserService.hire(profile, userId, "STRATEGIST", 1, 1, key);
             return "OK";
         } catch (EconomyConflictException exception) {
             return exception.getCode();
