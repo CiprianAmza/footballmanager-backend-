@@ -9,9 +9,19 @@ locks outside the effective grid are omitted rather than moved. The result is
 defensive-copy immutable, sorted, and bounded to at most 11 starters (slots
 0..29) and 7 substitutes (slots 30..36).
 
+Human-team ratings and `MatchPlayerRating` snapshots consume the same canonical
+runtime formation. A saved `first11` is parsed defensively, overlaid with the
+current Chairman and legacy locks, and filtered for match availability. If the
+effective saved XI is incomplete, the Chairman-aware assistant selection is
+used for the complete XI; no tactic re-save is required after a mandate change.
+
 The effective formation and XI shown by `getFormation` and `teamView` are
 copies. A saved tactic is never mutated merely because a Chairman mandate is
 active; reads expose the enforced formation and lineup instead.
+
+`getFormation` is an edit view: it uses no runtime-unavailable set, so a locked
+injured or suspended player remains visible and editable. `teamView` and match
+selection remain runtime views and exclude unavailable players.
 
 Automatic selection produces the starting XI and bench together, so a locked
 player cannot be selected independently into both collections. Saved user

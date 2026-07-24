@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.controller.TacticController;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -9,7 +10,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 
 @RestControllerAdvice(assignableTypes = {PersonalEconomyController.class, MarketController.class,
-        ClubController.class, ClubCashTransferController.class})
+        ClubController.class, ClubCashTransferController.class, TacticController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class EconomyApiExceptionHandler {
 

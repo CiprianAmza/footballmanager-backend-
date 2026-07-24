@@ -34,8 +34,24 @@ public class ChairmanTacticalMandateEnforcementService {
     }
 
     public String effectiveFormation(long teamId, String proposedFormation) {
-        String required = mandate(teamId).requiredFormation();
-        return required != null ? required : proposedFormation;
+        EffectiveChairmanMandate current = mandate(teamId);
+        if (current.requiredFormation() != null) return current.requiredFormation();
+        if (current.lockedSlots().isEmpty()) return proposedFormation;
+        if (containsAllLocks(proposedFormation, current)) return proposedFormation;
+        return tacticService.getAllExistingTactics().stream()
+                .filter(formation -> containsAllLocks(formation, current))
+                .findFirst().orElse(proposedFormation);
+    }
+
+    private boolean containsAllLocks(String formation, EffectiveChairmanMandate current) {
+        if (formation == null) return false;
+        try {
+            Set<Integer> grid = Arrays.stream(tacticService.getFormationGridIndicesExact(formation))
+                    .boxed().collect(Collectors.toSet());
+            return current.lockedSlots().stream().allMatch(lock -> grid.contains(lock.positionIndex()));
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     /**

@@ -84,16 +84,26 @@ public class TacticController {
         Optional<PersonalizedTactic> tacticOpt = personalizedTacticRepository.findPersonalizedTacticByTeamId(_teamId);
 
         if (tacticOpt.isEmpty()) {
-            if (mandateEnforcement.mandate(_teamId).requiredFormation() == null) {
+            EffectiveChairmanMandate mandate = mandateEnforcement.mandate(_teamId);
+            if (mandate.requiredFormation() == null && mandate.lockedSlots().isEmpty()) {
                 return null; // no saved tactic and no active Chairman mandate
             }
-            String effective = mandateEnforcement.effectiveFormation(_teamId, "442");
+            String effective = chooseEditFormation(_teamId, mandate);
             PersonalizedTacticView view = defaultTacticView(_teamId, effective);
-            view.setFormationDataList(askAssistant(_teamId, effective));
-            return view;
+            view.setFormationDataList(assistantSelection(_teamId, effective, Set.of(), false));
+            return effectiveTacticView(_teamId, view, Set.of(), false);
         }
 
-        return effectiveTacticView(_teamId, toView(tacticOpt.get()));
+        PersonalizedTacticView view = effectiveTacticView(_teamId, toView(tacticOpt.get()), Set.of(), false);
+        EffectiveChairmanMandate mandate = mandateEnforcement.mandate(_teamId);
+        if ((view.getFormationDataList() == null || view.getFormationDataList().isEmpty())
+                && (mandate.requiredFormation() != null || !mandate.lockedSlots().isEmpty())) {
+            String effective = chooseEditFormation(_teamId, mandate);
+            view.setTactic(effective);
+            view.setFormationDataList(assistantSelection(_teamId, effective, Set.of(), false));
+            view = effectiveTacticView(_teamId, view, Set.of(), false);
+        }
+        return view;
     }
 
     private PersonalizedTacticView toView(PersonalizedTactic savedTactic) {
@@ -168,16 +178,16 @@ public class TacticController {
         PersonalizedTacticView managerView = saved.map(this::toView)
                 .orElseGet(() -> defaultTacticView(teamId, effectiveManagerFormation));
         managerView.setTactic(effectiveManagerFormation);
-        managerView = effectiveTacticView(teamId, managerView);
+        Set<Long> unavailable = matchSimulationOrchestrator.roundUnavailableIds(teamId);
+        managerView = effectiveTacticView(teamId, managerView, unavailable, true);
         if (managerView.getFormationDataList() == null || managerView.getFormationDataList().isEmpty()) {
-            managerView.setFormationDataList(askAssistant(teamId, effectiveManagerFormation));
+            managerView.setFormationDataList(assistantSelection(teamId, effectiveManagerFormation, unavailable, true));
         } else {
-            ensureSevenSubstitutes(teamId, managerView.getFormationDataList(),
-                    matchSimulationOrchestrator.roundUnavailableIds(teamId));
+            ensureSevenSubstitutes(teamId, managerView.getFormationDataList(), unavailable);
         }
 
         PersonalizedTacticView bestView = defaultTacticView(teamId, effectiveBestTactic);
-        bestView.setFormationDataList(askAssistant(teamId, effectiveBestTactic));
+        bestView.setFormationDataList(assistantSelection(teamId, effectiveBestTactic, unavailable, true));
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("teamId", teamId);
@@ -190,13 +200,13 @@ public class TacticController {
         return ResponseEntity.ok(response);
     }
 
-    private PersonalizedTacticView effectiveTacticView(long teamId, PersonalizedTacticView source) {
+    private PersonalizedTacticView effectiveTacticView(long teamId, PersonalizedTacticView source,
+                                                        Set<Long> unavailable, boolean runtime) {
         String effectiveFormation = mandateEnforcement.effectiveFormation(teamId, source.getTactic());
         source.setTactic(effectiveFormation);
         if (source.getFormationDataList() != null) {
-            Set<Long> unavailable = matchSimulationOrchestrator.roundUnavailableIds(teamId);
             List<FormationData> effective = mandateEnforcement.enforceFormation(teamId, effectiveFormation,
-                    source.getFormationDataList(), coachPermissionService.lockedSlots(teamId), unavailable, true);
+                    source.getFormationDataList(), coachPermissionService.lockedSlots(teamId), unavailable, runtime);
             source.setFormationDataList(new ArrayList<>(effective));
         }
         return source;
@@ -206,6 +216,24 @@ public class TacticController {
         if (tactic == null || tactic.isBlank()) return false;
         try {
             return tacticService.getFormationGridIndices(tactic).length == 11;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private String chooseEditFormation(long teamId, EffectiveChairmanMandate mandate) {
+        if (mandate.requiredFormation() != null) return mandate.requiredFormation();
+        if (containsAllLocks("442", mandate)) return "442";
+        return tacticService.getAllExistingTactics().stream()
+                .filter(formation -> containsAllLocks(formation, mandate))
+                .findFirst().orElse("442");
+    }
+
+    private boolean containsAllLocks(String formation, EffectiveChairmanMandate mandate) {
+        try {
+            Set<Integer> grid = Arrays.stream(tacticService.getFormationGridIndicesExact(formation))
+                    .boxed().collect(Collectors.toSet());
+            return mandate.lockedSlots().stream().allMatch(lock -> grid.contains(lock.positionIndex()));
         } catch (RuntimeException ignored) {
             return false;
         }
@@ -1194,14 +1222,18 @@ public class TacticController {
         if (team == null) throw new RuntimeException("Team not found.");
 
         String effectiveTactic = mandateEnforcement.effectiveFormation(teamId, tactic);
+        return assistantSelection(teamId, effectiveTactic,
+                matchSimulationOrchestrator.roundUnavailableIds(teamId), true);
+    }
+
+    private List<FormationData> assistantSelection(long teamId, String effectiveTactic,
+                                                   Set<Long> unavailableIds, boolean runtime) {
         // Get grid indices for the effective formation
         int[] gridIndices = tacticService.getFormationGridIndices(effectiveTactic);
 
-        // Get all available (non-injured) players
-        Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(teamId);
         List<Human> availablePlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
                 .stream()
-                .filter(p -> !p.isRetired() && !unavailableIds.contains(p.getId()))
+                .filter(p -> !p.isRetired() && (!runtime || unavailableIds == null || !unavailableIds.contains(p.getId())))
                 .sorted((a, b) -> Double.compare(b.getRating(), a.getRating()))
                 .collect(Collectors.toList());
 
