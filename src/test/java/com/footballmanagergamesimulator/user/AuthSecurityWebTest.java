@@ -2,15 +2,20 @@ package com.footballmanagergamesimulator.user;
 
 import com.footballmanagergamesimulator.config.WebSecurityConfig;
 import com.footballmanagergamesimulator.economy.EconomyApiExceptionHandler;
-import com.footballmanagergamesimulator.economy.EconomyConflictException;
+import com.footballmanagergamesimulator.economy.MarketController;
+import com.footballmanagergamesimulator.economy.MarketQueryService;
+import com.footballmanagergamesimulator.economy.MarketTradingService;
+import com.footballmanagergamesimulator.economy.PersonalAccountingService;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.JobOfferService;
 import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
+import com.footballmanagergamesimulator.economy.TraderAdviserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,11 +51,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = {AuthController.class, CareerOnboardingController.class,
-        AuthSecurityWebTest.SaveEndpointStub.class, AuthSecurityWebTest.MarketEndpointStub.class},
+        AuthSecurityWebTest.SaveEndpointStub.class, MarketController.class},
         properties = {"regent.enabled=false", "cors.allowed-origins=http://localhost:4200"})
 @ContextConfiguration(classes = {AuthController.class, CareerOnboardingController.class,
         CareerOnboardingService.class, AuthSecurityWebTest.SaveEndpointStub.class,
-        AuthSecurityWebTest.MarketEndpointStub.class, WebSecurityConfig.class,
+        MarketController.class, WebSecurityConfig.class,
         CurrentUserService.class, UserDetailsServiceImpl.class, EconomyApiExceptionHandler.class})
 class AuthSecurityWebTest {
 
@@ -64,6 +69,11 @@ class AuthSecurityWebTest {
     @MockBean private RoundRepository roundRepository;
     @MockBean private JobOfferService jobOfferService;
     @MockBean private RegentEconomyProperties regentEconomyProperties;
+    @MockBean private PersonalAccountingService personalAccountingService;
+    @MockBean private MarketTradingService marketTradingService;
+    @MockBean private MarketQueryService marketQueryService;
+    @MockBean private TraderAdviserService traderAdviserService;
+    @MockBean private GameCalendarRepository gameCalendarRepository;
     @SpyBean private CareerOnboardingService onboardingService;
 
     private User user;
@@ -271,16 +281,6 @@ class AuthSecurityWebTest {
         @PostMapping("/import")
         Map<String, Object> importSave() {
             return Map.of("success", true);
-        }
-    }
-
-    @RestController
-    @RequestMapping("/api/market")
-    static class MarketEndpointStub {
-        @GetMapping("/instruments")
-        Map<String, Object> instruments() {
-            throw new EconomyConflictException("REGENT_FEATURE_DISABLED",
-                    "Regent market is disabled until the feature flag is enabled");
         }
     }
 }
