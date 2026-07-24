@@ -26,14 +26,14 @@ import java.util.List;
 public class WebSecurityConfig {
 
     private final UserDetailsServiceImpl userDetailsService;
-    private final boolean regentEnabled;
+    private final boolean chairmanEnabled;
     private final List<String> allowedOrigins;
 
     public WebSecurityConfig(UserDetailsServiceImpl userDetailsService,
-                             @Value("${regent.enabled:false}") boolean regentEnabled,
+                             ChairmanModeProperties chairmanModeProperties,
                              @Value("${cors.allowed-origins:http://localhost:4200}") List<String> allowedOrigins) {
         this.userDetailsService = userDetailsService;
-        this.regentEnabled = regentEnabled;
+        this.chairmanEnabled = chairmanModeProperties.isEnabled();
         this.allowedOrigins = allowedOrigins;
     }
 
@@ -104,7 +104,7 @@ public class WebSecurityConfig {
                     // The legacy Boardroom accepts caller-supplied owner IDs and
                     // client prices. It is never a Phase-1 compatibility API.
                     requests.requestMatchers("/boardroom/**").denyAll();
-                    if (!regentEnabled) {
+                    if (!chairmanEnabled) {
                         requests.requestMatchers(HttpMethod.GET, "/api/market/instruments",
                                 "/api/market/instruments/*/history").authenticated();
                         requests.requestMatchers(HttpMethod.POST, "/api/market/instruments/*/advice",

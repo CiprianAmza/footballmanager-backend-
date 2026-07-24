@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.jpa.hibernate.ddl-auto=update",
         "simulation.matchday.parallel.enabled=false",
         "regent.economy.chairman-starting-wealth-min=0",
-        "regent.enabled=true"
+        "chairman.enabled=true"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class RegentPhase4BTraderAdviserSaveLoadIT {

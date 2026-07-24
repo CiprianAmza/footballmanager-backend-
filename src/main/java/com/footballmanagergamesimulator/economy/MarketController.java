@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.repository.GameCalendarRepository;
@@ -24,7 +25,7 @@ public class MarketController {
     private final MarketTradingService tradingService;
     private final MarketQueryService queryService;
     private final TraderAdviserService traderAdviserService;
-    private final RegentEconomyProperties properties;
+    private final ChairmanModeProperties chairmanModeProperties;
     private final GameCalendarRepository calendarRepository;
 
     public MarketController(CurrentUserService currentUserService,
@@ -33,7 +34,7 @@ public class MarketController {
                             MarketTradingService tradingService,
                             MarketQueryService queryService,
                             TraderAdviserService traderAdviserService,
-                            RegentEconomyProperties properties,
+                            ChairmanModeProperties chairmanModeProperties,
                             GameCalendarRepository calendarRepository) {
         this.currentUserService = currentUserService;
         this.profileService = profileService;
@@ -41,7 +42,7 @@ public class MarketController {
         this.tradingService = tradingService;
         this.queryService = queryService;
         this.traderAdviserService = traderAdviserService;
-        this.properties = properties;
+        this.chairmanModeProperties = chairmanModeProperties;
         this.calendarRepository = calendarRepository;
     }
 
@@ -117,9 +118,9 @@ public class MarketController {
     }
 
     private void ensureRegentEnabled() {
-        if (!properties.isEnabled()) {
-            throw new EconomyConflictException("REGENT_FEATURE_DISABLED",
-                    "Regent market is disabled until the feature flag is enabled");
+        if (!chairmanModeProperties.isEnabled()) {
+            throw new EconomyConflictException("CHAIRMAN_FEATURE_DISABLED",
+                    "Chairman mode is disabled until the feature flag is enabled");
         }
     }
 

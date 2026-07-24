@@ -33,7 +33,7 @@ import static org.mockito.Mockito.mock;
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "simulation.matchday.parallel.enabled=false",
-        "regent.enabled=false"
+        "chairman.enabled=false"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class GameSaveCrossInstanceIT {

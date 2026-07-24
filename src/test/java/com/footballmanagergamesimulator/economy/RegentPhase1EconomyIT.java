@@ -49,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=update",
         "simulation.matchday.parallel.enabled=false",
-        "regent.enabled=true"
+        "chairman.enabled=true"
 })
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -320,7 +320,7 @@ class RegentPhase1EconomyIT {
                         .contentType("application/json")
                         .content("{\"username\":\"" + username + "\",\"password\":\"correct-password\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.regentEnabled").value(true))
+                .andExpect(jsonPath("$.chairmanEnabled").value(true))
                 .andReturn();
         return (MockHttpSession) result.getRequest().getSession(false);
     }

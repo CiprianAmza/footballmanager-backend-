@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=update",
         "simulation.matchday.parallel.enabled=false",
-        "regent.enabled=true"
+        "chairman.enabled=true"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class RegentPhase4BMarketPricingIT {

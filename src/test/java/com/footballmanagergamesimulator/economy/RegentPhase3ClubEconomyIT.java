@@ -48,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=update",
         "simulation.matchday.parallel.enabled=false",
-        "regent.enabled=true",
+        "chairman.enabled=true",
         "regent.economy.chairman-starting-wealth-max=900000000000000000",
         "regent.club.minimum-protected-reserve=1000",
         "regent.club.protected-wage-months=0"

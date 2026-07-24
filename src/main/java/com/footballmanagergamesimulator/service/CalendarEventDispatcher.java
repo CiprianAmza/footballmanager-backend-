@@ -26,7 +26,7 @@ import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import com.footballmanagergamesimulator.economy.PersonalPayrollService;
 import com.footballmanagergamesimulator.economy.DeterministicMarketPriceService;
-import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -87,7 +87,7 @@ public class CalendarEventDispatcher {
     @Autowired private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired @Lazy private FinanceService financeService;
     @Autowired private PersonalPayrollService personalPayrollService;
-    @Autowired private RegentEconomyProperties regentEconomyProperties;
+    @Autowired private ChairmanModeProperties chairmanModeProperties;
     @Autowired private DeterministicMarketPriceService deterministicMarketPriceService;
     @Autowired @Lazy private FriendlyMatchService friendlyMatchService;
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
@@ -384,7 +384,7 @@ public class CalendarEventDispatcher {
         List<Team> allTeams = teamRepository.findAll();
         for (Team team : allTeams) {
             // Process wages through finance service (records transaction + updates totalFinances)
-            long wagesPaid = regentEconomyProperties.isEnabled()
+            long wagesPaid = chairmanModeProperties.isEnabled()
                     ? personalPayrollService.processTeam(team, season, currentDay)
                     : financeService.processTeamMonthlyWages(team, season, currentDay);
 
@@ -398,7 +398,7 @@ public class CalendarEventDispatcher {
             financeService.checkAndCreateDebt(team.getId());
 
             // Credit the team's manager their monthly salary into career earnings.
-            if (!regentEconomyProperties.isEnabled()) accrueManagerSalary(team);
+            if (!chairmanModeProperties.isEnabled()) accrueManagerSalary(team);
 
             // Send financial report to human managers
             if (userContext.isHumanTeam(team.getId())) {

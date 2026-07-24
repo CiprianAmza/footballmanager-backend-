@@ -15,6 +15,7 @@ import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.JobOfferService;
 import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import com.footballmanagergamesimulator.economy.TraderAdviserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = {AuthController.class, CareerOnboardingController.class,
         AuthSecurityWebTest.SaveEndpointStub.class, MarketController.class},
-        properties = {"regent.enabled=false", "cors.allowed-origins=http://localhost:4200"})
+        properties = {"chairman.enabled=false", "cors.allowed-origins=http://localhost:4200"})
 @ContextConfiguration(classes = {AuthController.class, CareerOnboardingController.class,
         CareerOnboardingService.class, AuthSecurityWebTest.SaveEndpointStub.class,
         MarketController.class, WebSecurityConfig.class,
@@ -69,6 +70,7 @@ class AuthSecurityWebTest {
     @MockBean private RoundRepository roundRepository;
     @MockBean private JobOfferService jobOfferService;
     @MockBean private RegentEconomyProperties regentEconomyProperties;
+    @MockBean private ChairmanModeProperties chairmanModeProperties;
     @MockBean private PersonalAccountingService personalAccountingService;
     @MockBean private MarketTradingService marketTradingService;
     @MockBean private MarketQueryService marketQueryService;
@@ -171,7 +173,7 @@ class AuthSecurityWebTest {
         mockMvc.perform(get("/api/me/wealth").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/market/instruments").session(session))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("REGENT_FEATURE_DISABLED"));
+                .andExpect(jsonPath("$.code").value("CHAIRMAN_FEATURE_DISABLED"));
         mockMvc.perform(get("/api/clubs").session(session)).andExpect(status().isForbidden());
         mockMvc.perform(post("/api/club-cash-transfers").session(session).with(csrf())
                         .contentType("application/json").content("{}"))

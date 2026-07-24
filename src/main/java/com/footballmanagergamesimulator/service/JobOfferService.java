@@ -8,7 +8,7 @@ import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import com.footballmanagergamesimulator.economy.PersonalPayrollService;
-import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -42,7 +42,7 @@ public class JobOfferService {
     @Autowired private GameStateService gameStateService;
     @Autowired private OwnershipService ownershipService;
     @Autowired private PersonalPayrollService personalPayrollService;
-    @Autowired private RegentEconomyProperties regentEconomyProperties;
+    @Autowired private ChairmanModeProperties chairmanModeProperties;
 
     private static final int OFFER_VALIDITY_DAYS = 7;
 
@@ -287,7 +287,7 @@ public class JobOfferService {
 
         // Phase 1: a signing bonus is one correlated club debit and personal
         // career-income credit. The feature-off path keeps legacy behaviour.
-        if (regentEconomyProperties.isEnabled() && user.getManagerId() != null
+        if (chairmanModeProperties.isEnabled() && user.getManagerId() != null
                 && offer.getSigningBonus() > 0) {
             Team payingTeam = teamRepository.findById(newTeamId)
                     .orElseThrow(() -> new IllegalStateException("Offering team disappeared"));

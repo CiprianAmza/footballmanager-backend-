@@ -15,19 +15,19 @@ public record AuthResponse(
         CareerRole careerRole,
         Long profileId,
         List<String> roles,
-        boolean regentEnabled,
+        boolean chairmanEnabled,
         String error
 ) {
     public static AuthResponse success(User user, PersonProfile profile) {
         return success(user, profile, false);
     }
 
-    public static AuthResponse success(User user, PersonProfile profile, boolean regentEnabled) {
+    public static AuthResponse success(User user, PersonProfile profile, boolean chairmanEnabled) {
         List<String> roles = user.getRoles() == null ? List.of() : Arrays.stream(user.getRoles().split(","))
                 .map(String::trim).filter(role -> !role.isBlank()).toList();
         return new AuthResponse(true, user.getId(), user.getUsername(), user.getEmail(), user.getTeamId(),
                 user.getManagerId(), user.getCareerRole(), profile == null ? null : profile.getId(), roles,
-                regentEnabled, null);
+                chairmanEnabled, null);
     }
 
     public static AuthResponse failure(String error) {

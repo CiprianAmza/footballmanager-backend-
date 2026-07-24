@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import com.footballmanagergamesimulator.regent.market.core.ClubEquityProfile;
 import com.footballmanagergamesimulator.regent.market.core.ClubEquityQuote;
 import com.footballmanagergamesimulator.regent.market.core.ClubEquityQuoteModel;
@@ -33,7 +34,7 @@ public class DeterministicMarketPriceService {
     private final MarketBootstrapService bootstrapService;
     private final MarketInstrumentRepository instrumentRepository;
     private final MarketPriceSnapshotRepository snapshotRepository;
-    private final RegentEconomyProperties properties;
+    private final ChairmanModeProperties chairmanModeProperties;
     private final ClubValuationService clubValuationService;
     private final TraderAdviserService traderAdviserService;
     private final EntityManager entityManager;
@@ -41,14 +42,14 @@ public class DeterministicMarketPriceService {
     public DeterministicMarketPriceService(MarketBootstrapService bootstrapService,
                                            MarketInstrumentRepository instrumentRepository,
                                            MarketPriceSnapshotRepository snapshotRepository,
-                                           RegentEconomyProperties properties,
+                                           ChairmanModeProperties chairmanModeProperties,
                                            ClubValuationService clubValuationService,
                                            TraderAdviserService traderAdviserService,
                                            EntityManager entityManager) {
         this.bootstrapService = bootstrapService;
         this.instrumentRepository = instrumentRepository;
         this.snapshotRepository = snapshotRepository;
-        this.properties = properties;
+        this.chairmanModeProperties = chairmanModeProperties;
         this.clubValuationService = clubValuationService;
         this.traderAdviserService = traderAdviserService;
         this.entityManager = entityManager;
@@ -56,7 +57,7 @@ public class DeterministicMarketPriceService {
 
     @Transactional
     public void processDay(int season, int day) {
-        if (!properties.isEnabled()) return;
+        if (!chairmanModeProperties.isEnabled()) return;
         if (season < 1 || day < 1 || day > 366) {
             throw new IllegalArgumentException("Market date is outside supported bounds");
         }

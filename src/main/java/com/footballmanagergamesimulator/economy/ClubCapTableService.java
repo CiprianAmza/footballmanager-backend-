@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import com.footballmanagergamesimulator.model.ClubShareholding;
 import com.footballmanagergamesimulator.model.Ownership;
 import com.footballmanagergamesimulator.person.PersonProfile;
@@ -34,6 +35,7 @@ public class ClubCapTableService {
     private final OwnershipRepository legacyOwnershipRepository;
     private final ClubCapTableStateRepository stateRepository;
     private final RegentEconomyProperties properties;
+    private final ChairmanModeProperties chairmanModeProperties;
 
     public ClubCapTableService(MarketBootstrapService marketBootstrapService,
                                MarketInstrumentRepository instrumentRepository,
@@ -43,7 +45,8 @@ public class ClubCapTableService {
                                ClubShareholdingRepository legacyShareRepository,
                                OwnershipRepository legacyOwnershipRepository,
                                ClubCapTableStateRepository stateRepository,
-                               RegentEconomyProperties properties) {
+                               RegentEconomyProperties properties,
+                               ChairmanModeProperties chairmanModeProperties) {
         this.marketBootstrapService = marketBootstrapService;
         this.instrumentRepository = instrumentRepository;
         this.positionRepository = positionRepository;
@@ -53,13 +56,14 @@ public class ClubCapTableService {
         this.legacyOwnershipRepository = legacyOwnershipRepository;
         this.stateRepository = stateRepository;
         this.properties = properties;
+        this.chairmanModeProperties = chairmanModeProperties;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     @Order(40)
     @Transactional
     public void initializeOnStartup() {
-        if (properties.isEnabled()) ensureAllMigrated();
+        if (chairmanModeProperties.isEnabled()) ensureAllMigrated();
     }
 
     @Transactional

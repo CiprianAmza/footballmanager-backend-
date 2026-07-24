@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(properties = {
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "simulation.matchday.parallel.enabled=false",
-        "regent.enabled=false"
+        "chairman.enabled=false"
 })
 abstract class CrossDatabaseGameSaveContract {
 

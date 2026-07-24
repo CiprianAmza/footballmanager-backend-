@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.regent.market.core.MarketRiskClass;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -19,16 +20,16 @@ public class MarketBootstrapService {
 
     private final MarketInstrumentRepository instrumentRepository;
     private final TeamRepository teamRepository;
-    private final RegentEconomyProperties properties;
+    private final ChairmanModeProperties chairmanModeProperties;
     private final ClubValuationService clubValuationService;
 
     public MarketBootstrapService(MarketInstrumentRepository instrumentRepository,
                                   TeamRepository teamRepository,
-                                  RegentEconomyProperties properties,
+                                  ChairmanModeProperties chairmanModeProperties,
                                   ClubValuationService clubValuationService) {
         this.instrumentRepository = instrumentRepository;
         this.teamRepository = teamRepository;
-        this.properties = properties;
+        this.chairmanModeProperties = chairmanModeProperties;
         this.clubValuationService = clubValuationService;
     }
 
@@ -36,7 +37,7 @@ public class MarketBootstrapService {
     @Order(30)
     @Transactional
     public void initializeOnStartup() {
-        if (properties.isEnabled()) ensureAllInstruments();
+        if (chairmanModeProperties.isEnabled()) ensureAllInstruments();
     }
 
     @Transactional

@@ -41,7 +41,7 @@ The calculated floor is the greater of the pre-import and imported row maxima. G
 
 ## Boundaries
 
-- `regent.enabled` remains `false` by default.
+- The public rollout flag is `chairman.enabled`; it is enabled by default after qualification and can be rolled back with `CHAIRMAN_ENABLED=false`.
 - This work does not add or change REGENT Phase 1 domain behavior.
 - Compatibility means the tested Phase 0 Flyway and save/import contract above; it is not a production rollout or an assertion about untested database versions/configurations.
 

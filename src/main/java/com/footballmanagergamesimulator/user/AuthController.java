@@ -2,7 +2,7 @@ package com.footballmanagergamesimulator.user;
 
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
-import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
+import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -32,7 +32,7 @@ public class AuthController {
     private final UserService userService;
     private final CurrentUserService currentUserService;
     private final PersonProfileService personProfileService;
-    private final RegentEconomyProperties regentProperties;
+    private final ChairmanModeProperties chairmanModeProperties;
     private final HttpSessionSecurityContextRepository securityContextRepository =
             new HttpSessionSecurityContextRepository();
 
@@ -40,12 +40,12 @@ public class AuthController {
                           UserService userService,
                           CurrentUserService currentUserService,
                           PersonProfileService personProfileService,
-                          RegentEconomyProperties regentProperties) {
+                          ChairmanModeProperties chairmanModeProperties) {
         this.authenticationManager = authenticationManager;
         this.userService = userService;
         this.currentUserService = currentUserService;
         this.personProfileService = personProfileService;
-        this.regentProperties = regentProperties;
+        this.chairmanModeProperties = chairmanModeProperties;
     }
 
     @GetMapping("/csrf")
@@ -59,7 +59,7 @@ public class AuthController {
             User user = userService.register(request);
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(AuthResponse.success(user, personProfileService.requireForUser(user),
-                            regentProperties.isEnabled()));
+                            chairmanModeProperties.isEnabled()));
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.badRequest().body(AuthResponse.failure(exception.getMessage()));
         }
@@ -83,7 +83,7 @@ public class AuthController {
 
             User user = currentUserService.requireUser();
             PersonProfile profile = personProfileService.requireForUser(user);
-            return ResponseEntity.ok(AuthResponse.success(user, profile, regentProperties.isEnabled()));
+            return ResponseEntity.ok(AuthResponse.success(user, profile, chairmanModeProperties.isEnabled()));
         } catch (AuthenticationException exception) {
             SecurityContextHolder.clearContext();
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -98,6 +98,6 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthResponse.failure("Not authenticated"));
         }
         return ResponseEntity.ok(AuthResponse.success(user, personProfileService.requireForUser(user),
-                regentProperties.isEnabled()));
+                chairmanModeProperties.isEnabled()));
     }
 }

@@ -7,17 +7,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "regent")
 public class RegentEconomyProperties {
 
-    private boolean enabled;
     private final Economy economy = new Economy();
     private final Club club = new Club();
-
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
 
     public Economy getEconomy() {
         return economy;

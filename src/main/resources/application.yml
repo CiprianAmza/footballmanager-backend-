@@ -34,8 +34,10 @@ server:
 cors:
   allowed-origins: http://localhost:4200
 
+chairman:
+  enabled: true
+
 regent:
-  enabled: false
   economy:
     currency: EUR
     manager-starting-wealth: 0

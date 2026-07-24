@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=update",
         "simulation.matchday.parallel.enabled=false",
-        "regent.enabled=false"
+        "chairman.enabled=false"
 })
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -41,21 +41,21 @@ class RegentPhase4CFlagOffSecurityIT {
 
         mockMvc.perform(get("/api/market/instruments").session(session))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("REGENT_FEATURE_DISABLED"));
+                .andExpect(jsonPath("$.code").value("CHAIRMAN_FEATURE_DISABLED"));
 
         mockMvc.perform(get("/api/me/portfolio").session(session))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("REGENT_FEATURE_DISABLED"));
+                .andExpect(jsonPath("$.code").value("CHAIRMAN_FEATURE_DISABLED"));
 
         mockMvc.perform(post("/api/market/instruments/1/advice").session(session).with(csrf()))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("REGENT_FEATURE_DISABLED"));
+                .andExpect(jsonPath("$.code").value("CHAIRMAN_FEATURE_DISABLED"));
 
         mockMvc.perform(post("/api/me/market-adviser/hire").session(session).with(csrf())
                         .contentType("application/json")
                         .content("{\"optionCode\":\"ANALYST\",\"idempotencyKey\":\"flag-off-hire\"}"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("REGENT_FEATURE_DISABLED"));
+                .andExpect(jsonPath("$.code").value("CHAIRMAN_FEATURE_DISABLED"));
     }
 
     @Test
