@@ -3,6 +3,8 @@ package com.footballmanagergamesimulator.economy;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.person.CareerType;
+import com.footballmanagergamesimulator.chairman.command.ChairmanCommandCentreDtos;
+import com.footballmanagergamesimulator.chairman.command.ChairmanCommandCentreService;
 import com.footballmanagergamesimulator.user.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,19 +26,22 @@ public class ClubController {
     private final ClubQueryService queryService;
     private final TakeoverService takeoverService;
     private final ClubTreasuryService treasuryService;
+    private final ChairmanCommandCentreService commandCentreService;
 
     public ClubController(CurrentUserService currentUserService,
                           PersonProfileService profileService,
                           PersonalAccountingService accountingService,
                           ClubQueryService queryService,
                           TakeoverService takeoverService,
-                          ClubTreasuryService treasuryService) {
+                          ClubTreasuryService treasuryService,
+                          ChairmanCommandCentreService commandCentreService) {
         this.currentUserService = currentUserService;
         this.profileService = profileService;
         this.accountingService = accountingService;
         this.queryService = queryService;
         this.takeoverService = takeoverService;
         this.treasuryService = treasuryService;
+        this.commandCentreService = commandCentreService;
     }
 
     @GetMapping
@@ -55,6 +60,11 @@ public class ClubController {
         }
         accountingService.ensureAccount(profile);
         return queryService.dashboard(teamId, profile);
+    }
+
+    @GetMapping("/{teamId}/chairman-command-centre")
+    public ChairmanCommandCentreDtos.CommandCentreView commandCentre(@PathVariable long teamId) {
+        return commandCentreService.commandCentre(teamId, currentProfile());
     }
 
     @GetMapping("/{teamId}/ownership")

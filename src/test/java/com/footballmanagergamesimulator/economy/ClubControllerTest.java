@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.economy;
 
+import com.footballmanagergamesimulator.chairman.command.ChairmanCommandCentreService;
 import com.footballmanagergamesimulator.person.CareerType;
 import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.person.PersonProfileService;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
@@ -19,8 +21,9 @@ class ClubControllerTest {
     private final ClubQueryService query = mock(ClubQueryService.class);
     private final TakeoverService takeovers = mock(TakeoverService.class);
     private final ClubTreasuryService treasury = mock(ClubTreasuryService.class);
+    private final ChairmanCommandCentreService commandCentre = mock(ChairmanCommandCentreService.class);
     private final ClubController controller = new ClubController(currentUsers, profiles, accounting,
-            query, takeovers, treasury);
+            query, takeovers, treasury, commandCentre);
 
     @Test
     void catalogUsesAuthenticatedProfileAndForwardsScopeWithoutActorIds() {
@@ -61,6 +64,18 @@ class ClubControllerTest {
         controller.dashboard(9L);
 
         verify(query).dashboard(9L, chairman);
+    }
+
+    @Test
+    void commandCentreUsesAuthenticatedProfileAndRouteTeamIdOnly() {
+        User user = new User();
+        PersonProfile chairman = profile(55L, CareerType.CHAIRMAN);
+        when(currentUsers.requireUser()).thenReturn(user);
+        when(profiles.requireForUser(user)).thenReturn(chairman);
+
+        assertThat(controller.commandCentre(9L)).isNull();
+        verify(commandCentre).commandCentre(9L, chairman);
+        verifyNoMoreInteractions(commandCentre);
     }
 
     private static PersonProfile profile(long id, CareerType type) {
