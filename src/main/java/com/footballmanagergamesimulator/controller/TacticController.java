@@ -3,6 +3,8 @@ package com.footballmanagergamesimulator.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.frontend.*;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
+import com.footballmanagergamesimulator.chairman.mandate.EffectiveChairmanMandate;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.repository.*;
@@ -65,6 +67,8 @@ public class TacticController {
     com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
     @Autowired
     CurrentUserService currentUserService;
+    @Autowired
+    ChairmanTacticalMandateEnforcementService mandateEnforcement;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -152,18 +156,20 @@ public class TacticController {
                 .filter(this::isKnownFormation)
                 .orElseGet(() -> manager != null && isKnownFormation(manager.getTacticStyle())
                         ? manager.getTacticStyle() : bestTactic);
+        String effectiveManagerFormation = mandateEnforcement.effectiveFormation(teamId, managerFormation);
+        String effectiveBestTactic = mandateEnforcement.effectiveFormation(teamId, bestTactic);
 
         PersonalizedTacticView managerView = saved.map(this::toView)
-                .orElseGet(() -> defaultTacticView(teamId, managerFormation));
-        managerView.setTactic(managerFormation);
+                .orElseGet(() -> defaultTacticView(teamId, effectiveManagerFormation));
+        managerView.setTactic(effectiveManagerFormation);
         if (managerView.getFormationDataList() == null || managerView.getFormationDataList().isEmpty()) {
-            managerView.setFormationDataList(askAssistant(teamId, managerFormation));
+            managerView.setFormationDataList(askAssistant(teamId, effectiveManagerFormation));
         } else {
             ensureSevenSubstitutes(teamId, managerView.getFormationDataList());
         }
 
-        PersonalizedTacticView bestView = defaultTacticView(teamId, bestTactic);
-        bestView.setFormationDataList(askAssistant(teamId, bestTactic));
+        PersonalizedTacticView bestView = defaultTacticView(teamId, effectiveBestTactic);
+        bestView.setFormationDataList(askAssistant(teamId, effectiveBestTactic));
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("teamId", teamId);
@@ -263,8 +269,11 @@ public class TacticController {
                     ? new ArrayList<>(personalizedTacticView.getFormationDataList())
                     : new ArrayList<>();
         }
+        String effectiveTactic = personalizedTacticView.getTactic();
         if (!adminOverride) {
-            applyOwnerLocks(xi, coachPermissionService.parseLockedSlots(perms.getLockedSlots()));
+            effectiveTactic = mandateEnforcement.effectiveFormation(teamId, effectiveTactic);
+            xi = mandateEnforcement.enforceFormation(teamId, effectiveTactic, xi,
+                    coachPermissionService.parseLockedSlots(perms.getLockedSlots()), Set.of(), false);
         }
         try {
             personalizedTactic.setFirst11(objectMapper.writeValueAsString(xi));
@@ -324,6 +333,7 @@ public class TacticController {
         if (existing != null) {
             personalizedTactic.setId(existing.getId());
         }
+        if (!adminOverride) personalizedTactic.setTactic(effectiveTactic);
         personalizedTacticRepository.save(personalizedTactic);
         return ResponseEntity.ok().build();
     }
@@ -429,7 +439,8 @@ public class TacticController {
         if (team == null)
             throw new RuntimeException("Team not found.");
 
-        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(tactic);
+        String effectiveTactic = mandateEnforcement.effectiveFormation(_teamId, tactic);
+        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(effectiveTactic);
 
         return getBestElevenPlayers(team, tacticFormat);
     }
@@ -443,9 +454,10 @@ public class TacticController {
         if (team == null)
             throw new RuntimeException("Team not found.");
 
-        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(tactic);
+        String effectiveTactic = mandateEnforcement.effectiveFormation(_teamId, tactic);
+        Map<String, Integer> tacticFormat = tacticService.getRoomInTeamByTactic(effectiveTactic);
 
-        Map<String, Integer> substitutionFormat = tacticService.getSubstitutionsInTeamByTactic(tactic);
+        Map<String, Integer> substitutionFormat = tacticService.getSubstitutionsInTeamByTactic(effectiveTactic);
 
         List<PlayerView> firstEleven = getBestElevenPlayers(team, tacticFormat);
         List<PlayerView> substitutions = getBestSubstitutions(team, substitutionFormat, firstEleven);
@@ -812,7 +824,8 @@ public class TacticController {
             throw new RuntimeException("Team not found.");
         // Display order (by the player's natural position) matches the legacy getBestEleven
         // ordering, so consumers that map slots → players keep a stable, deterministic sequence.
-        return selectStarterSlots(team, tacticService.getRoomInTeamByTactic(tactic))
+        String effectiveTactic = mandateEnforcement.effectiveFormation(_teamId, tactic);
+        return selectStarterSlots(team, tacticService.getRoomInTeamByTactic(effectiveTactic))
                 .stream()
                 .sorted(Comparator.comparingInt(s ->
                         tacticService.getValueForTacticDisplay(s.player().getPosition())))
@@ -840,14 +853,22 @@ public class TacticController {
 
         Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(team.getId());
 
-        // Owner XI-locking: pin players to their slots before the aptness fill, so the locked XI
-        // propagates to the match engine (this method is the canonical starter source) as well as
-        // the UI — and AI teams honour it too, with no scoring code change.
+        // Chairman locks have precedence over legacy CoachPermission locks.
         List<StarterSlot> slots = new ArrayList<>();
         Set<Long> lockedPlayerIds = new HashSet<>();
         Map<String, Integer> lockedCountByPos = new HashMap<>();
+        Set<Integer> chairmanLockedIndices = new HashSet<>();
+        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.eligibleSlots(team.getId(), unavailableIds)) {
+            Human locked = humanRepository.findById(lock.playerId()).orElse(null);
+            if (locked == null || lockedPlayerIds.contains(locked.getId())) continue;
+            String slotPos = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
+            slots.add(new StarterSlot(adaptPlayer(locked, team), slotPos));
+            lockedPlayerIds.add(locked.getId());
+            chairmanLockedIndices.add(lock.positionIndex());
+            lockedCountByPos.merge(slotPos, 1, Integer::sum);
+        }
         for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(team.getId())) {
-            if (lockedPlayerIds.contains(lock.playerId())) continue;
+            if (lockedPlayerIds.contains(lock.playerId()) || chairmanLockedIndices.contains(lock.positionIndex())) continue;
             Human locked = humanRepository.findById(lock.playerId()).orElse(null);
             if (locked == null || locked.getTeamId() == null || locked.getTeamId() != team.getId()
                     || unavailableIds.contains(locked.getId())) continue;
@@ -1150,8 +1171,9 @@ public class TacticController {
         Team team = teamRepository.findById(teamId).orElse(null);
         if (team == null) throw new RuntimeException("Team not found.");
 
-        // Get grid indices for this formation
-        int[] gridIndices = tacticService.getFormationGridIndices(tactic);
+        String effectiveTactic = mandateEnforcement.effectiveFormation(teamId, tactic);
+        // Get grid indices for the effective formation
+        int[] gridIndices = tacticService.getFormationGridIndices(effectiveTactic);
 
         // Get all available (non-injured) players
         Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(teamId);
@@ -1172,11 +1194,20 @@ public class TacticController {
         Set<Long> usedPlayerIds = new HashSet<>();
         List<FormationData> result = new ArrayList<>();
 
-        // Owner XI-locks: pin locked players to their slots first; ask-assistant then works STRICTLY
-        // on the free slots only (never overrides an owner lock).
+        // Chairman locks first; legacy locks follow only when they do not conflict.
         Set<Integer> lockedIndices = new HashSet<>();
+        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.eligibleSlots(teamId, unavailableIds)) {
+            FormationData fd = new FormationData();
+            fd.setPositionIndex(lock.positionIndex());
+            fd.setPlayerId(lock.playerId());
+            result.add(fd);
+            usedPlayerIds.add(lock.playerId());
+            lockedIndices.add(lock.positionIndex());
+        }
         for (com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot lock : coachPermissionService.lockedSlots(teamId)) {
-            if (usedPlayerIds.contains(lock.playerId())) continue;
+            if (usedPlayerIds.contains(lock.playerId()) || lockedIndices.contains(lock.positionIndex())) continue;
+            Human lockedPlayer = availablePlayers.stream().filter(p -> p.getId() == lock.playerId()).findFirst().orElse(null);
+            if (lockedPlayer == null) continue;
             FormationData fd = new FormationData();
             fd.setPositionIndex(lock.positionIndex());
             fd.setPlayerId(lock.playerId());

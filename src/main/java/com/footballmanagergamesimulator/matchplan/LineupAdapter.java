@@ -3,6 +3,8 @@ package com.footballmanagergamesimulator.matchplan;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
+import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.frontend.PlayerView;
@@ -10,8 +12,10 @@ import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
+import com.footballmanagergamesimulator.repository.SuspensionRepository;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,9 +72,14 @@ public class LineupAdapter {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private MatchEngineConfig engineConfig;
     @Autowired private TacticService tacticService;
+    @Autowired private ChairmanTacticalMandateEnforcementService mandateEnforcement;
+    @Autowired private InjuryRepository injuryRepository;
+    @Autowired private SuspensionRepository suspensionRepository;
+    @Autowired(required = false) private GameplayFeatureConfig gameplayFeatures;
 
     /** Build a lineup for {@code teamId} in the given mode. */
     public Result build(long teamId, String tactic, long seed, Mode mode) {
+        tactic = mandateEnforcement.effectiveFormation(teamId, tactic);
         if (mode == Mode.USER_SAVED) {
             Lineup saved = tryBuildFromSavedXi(teamId);
             if (saved != null) {
@@ -126,13 +135,18 @@ public class LineupAdapter {
         // A null entry, non-positive player id, out-of-range slot, or duplicate slot
         // index is a corrupt snapshot: fall back as a whole, never throw or partial-build.
         Set<Integer> slotsSeen = new HashSet<>();
+        Set<Long> playerIdsSeen = new HashSet<>();
         for (FormationData d : formation) {
             if (d == null) return null;
             if (d.getPlayerId() <= 0) return null;
             int slot = d.getPositionIndex();
             if (slot < PITCH_SLOT_MIN || slot > BENCH_SLOT_MAX) return null; // negative / above bench
             if (!slotsSeen.add(slot)) return null;                           // duplicate slot index
+            if (!playerIdsSeen.add(d.getPlayerId())) return null;             // duplicate across XI + bench
         }
+
+        formation = mandateEnforcement.enforceFormation(teamId, pt.getTactic(), formation, List.of(),
+                unavailableIds(teamId), true).stream().map(LineupAdapter::copyFormationData).collect(Collectors.toCollection(ArrayList::new));
 
         // Sort by slot to preserve canonical order; split starters / bench.
         formation.sort((a, b) -> Integer.compare(a.getPositionIndex(), b.getPositionIndex()));
@@ -229,6 +243,24 @@ public class LineupAdapter {
 
         List<Lineup.SubMove> subs = withSubs ? simulateSubs(xi, bench, seed * 31 + teamId) : List.of();
         return new Lineup(xi, bench, subs);
+    }
+
+    private Set<Long> unavailableIds(long teamId) {
+        if (gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled()) return Set.of();
+        Set<Long> unavailable = new HashSet<>();
+        injuryRepository.findAllByTeamIdAndDaysRemainingGreaterThan(teamId, 0).forEach(i -> unavailable.add(i.getPlayerId()));
+        suspensionRepository.findAllByTeamIdAndActive(teamId, true).forEach(s -> unavailable.add(s.getPlayerId()));
+        return Set.copyOf(unavailable);
+    }
+
+    private static FormationData copyFormationData(FormationData source) {
+        FormationData copy = new FormationData();
+        copy.setPositionIndex(source.getPositionIndex());
+        copy.setPlayerId(source.getPlayerId());
+        copy.setRole(source.getRole());
+        copy.setDuty(source.getDuty());
+        copy.setInstructions(source.getInstructions() == null ? null : List.copyOf(source.getInstructions()));
+        return copy;
     }
 
     private Contributor toContributor(PlayerView v, Map<Long, PlayerSkills> skills,

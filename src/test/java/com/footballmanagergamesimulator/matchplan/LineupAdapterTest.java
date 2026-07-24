@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.matchplan;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateRepository;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
@@ -9,8 +11,10 @@ import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.InjuryRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
+import com.footballmanagergamesimulator.repository.SuspensionRepository;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.Test;
@@ -35,12 +39,16 @@ class LineupAdapterTest {
     private final PlayerSkillsRepository skillsRepo = mock(PlayerSkillsRepository.class);
     private final PersonalizedTacticRepository ptRepo = mock(PersonalizedTacticRepository.class);
     private final HumanRepository humanRepo = mock(HumanRepository.class);
+    private final ChairmanTacticalMandateRepository mandateRepo = mock(ChairmanTacticalMandateRepository.class);
+    private final InjuryRepository injuryRepo = mock(InjuryRepository.class);
+    private final SuspensionRepository suspensionRepo = mock(SuspensionRepository.class);
     private final Map<Long, Human> humans = new HashMap<>();
 
     private LineupAdapter adapter() {
         when(humanRepo.findById(anyLong()))
                 .thenAnswer(inv -> Optional.ofNullable(humans.get((Long) inv.getArgument(0))));
         LineupAdapter adapter = new LineupAdapter();
+        when(mandateRepo.findByTeamId(anyLong())).thenReturn(Optional.empty());
         ReflectionTestUtils.setField(adapter, "tacticController", tc);
         ReflectionTestUtils.setField(adapter, "playerSkillsRepository", skillsRepo);
         ReflectionTestUtils.setField(adapter, "personalizedTacticRepository", ptRepo);
@@ -48,6 +56,10 @@ class LineupAdapterTest {
         ReflectionTestUtils.setField(adapter, "objectMapper", mapper);
         ReflectionTestUtils.setField(adapter, "engineConfig", new MatchEngineConfig());
         ReflectionTestUtils.setField(adapter, "tacticService", new TacticService());
+        ReflectionTestUtils.setField(adapter, "mandateEnforcement",
+                new ChairmanTacticalMandateEnforcementService(mandateRepo, humanRepo, new TacticService()));
+        ReflectionTestUtils.setField(adapter, "injuryRepository", injuryRepo);
+        ReflectionTestUtils.setField(adapter, "suspensionRepository", suspensionRepo);
         return adapter;
     }
 

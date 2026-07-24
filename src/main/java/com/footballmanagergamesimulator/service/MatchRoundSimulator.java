@@ -2,6 +2,8 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
+import com.footballmanagergamesimulator.chairman.mandate.EffectiveChairmanMandate;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.FormationData;
@@ -104,6 +106,7 @@ public class MatchRoundSimulator {
     @Autowired private CupBracketService cupBracketService;
     @Autowired private TacticController tacticController;
     @Autowired private TacticService tacticService;
+    @Autowired private ChairmanTacticalMandateEnforcementService mandateEnforcement;
     @Autowired private PlayerValueService playerValueService;
     @Autowired private PlayerRoleService playerRoleService;
     @Autowired private PlayerInstructionService playerInstructionService;
@@ -1586,6 +1589,12 @@ public class MatchRoundSimulator {
         tacticVectorCache.remove(teamId);
     }
 
+    /** Single per-team invalidation seam used by Chairman mandate updates. */
+    public void invalidateChairmanMandateCaches(long teamId) {
+        invalidateRatingCache(teamId);
+        invalidateManagerTacticPolicy(teamId);
+    }
+
     private void invalidateMatchdayLineupCaches(long teamId) {
         simpleRatingCache.remove(teamId);
         bestElevenCache.remove(teamId);
@@ -1642,6 +1651,8 @@ public class MatchRoundSimulator {
      * the two-axis model.
      */
     private String chooseFormation(long teamId) {
+        String mandatedFormation = mandateEnforcement.mandate(teamId).requiredFormation();
+        if (mandatedFormation != null) return mandatedFormation;
         Human manager = tacticalManager(teamId);
         String preferred = manager != null && manager.getTacticStyle() != null
                 ? manager.getTacticStyle() : "442";
@@ -1724,9 +1735,22 @@ public class MatchRoundSimulator {
         List<FormationEvaluationStarter> selected = new ArrayList<>();
         List<String> unfilledSlots = new ArrayList<>();
 
-        // Preserve owner/board XI locks. The UI controller applies the same locks; keeping them in
-        // this compact selector avoids a performance regression changing the team that takes field.
+        // Chairman locks have priority over legacy owner/board XI locks.
+        Set<Long> chairmanLockedIds = new HashSet<>();
+        for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.eligibleSlots(squad.teamId(), unavailableIds)) {
+            Human lockedPlayer = remaining.stream().filter(player -> player.getId() == lock.playerId()).findFirst().orElse(null);
+            if (lockedPlayer == null) continue;
+            remaining.remove(lockedPlayer);
+            String usedPosition = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
+            selected.add(new FormationEvaluationStarter(lockedPlayer, usedPosition));
+            requiredSlots.remove(usedPosition);
+            chairmanLockedIds.add(lock.playerId());
+        }
+
+        // Preserve non-conflicting owner/board XI locks. The UI controller applies the same locks;
+        // keeping them here avoids a performance regression changing the team that takes field.
         for (Map.Entry<Long, String> lock : squad.lockedPositionByPlayerId().entrySet()) {
+            if (chairmanLockedIds.contains(lock.getKey())) continue;
             Human lockedPlayer = remaining.stream()
                     .filter(player -> player.getId() == lock.getKey())
                     .findFirst()
