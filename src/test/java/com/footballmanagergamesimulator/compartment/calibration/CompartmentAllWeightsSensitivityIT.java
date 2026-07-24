@@ -15,16 +15,18 @@ class CompartmentAllWeightsSensitivityIT {
         var harness = new ScoringSensitivityHarness(c, m, new CanonicalScoreSampler());
         var scenario = CalibrationScenarioFixtures.allWeights();
         var results = new java.util.ArrayList<ScoringSensitivityResult>();
-        for (var leaf : catalog.leafWeights()) {
+        var shard = CalibrationShard.fromSystemProperties();
+        var leaves = CalibrationShard.select(catalog.leafWeights(), shard);
+        for (var leaf : leaves) {
             if (leaf.type() == CanonicalScoringWeightKey.Type.DISCRETE) continue;
-            double baseline = ((Number) leaf.baselineValue()).doubleValue();
-            double tested = leaf.type() == CanonicalScoringWeightKey.Type.INTEGER ? baseline + 1 : baseline * 1.10;
+            double tested = CanonicalWeightPerturbation.validAlternative(leaf);
             var result = harness.run(scenario, catalog, new CanonicalScoringWeightOverride(leaf.path(), tested));
             results.add(result);
             org.assertj.core.api.Assertions.assertThat(result.baselineFingerprint())
                     .as("weight %s", leaf.path()).isNotEqualTo(result.testedFingerprint());
             org.assertj.core.api.Assertions.assertThat(result.sampleCount()).isEqualTo(7600);
-            try { new ScoringSensitivityReportWriter().write(java.nio.file.Path.of("target", "compartment-calibration"), results); }
+            try { new ScoringSensitivityReportWriter().write(java.nio.file.Path.of("target", "compartment-calibration", "all-weights"),
+                    "shard-" + shard.index() + "-of-" + shard.count(), results); }
             catch (java.io.IOException exception) { throw new IllegalStateException(exception); }
         }
     }

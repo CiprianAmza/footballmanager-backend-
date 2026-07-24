@@ -110,9 +110,15 @@ public final class CanonicalScoringWeightSet {
             String[] parts = key.split("\\.", 4);
             if (parts.length != 4) throw new IllegalArgumentException("unsupported override: " + key);
             String source = parts[2];
+            String normalizedSource = source.replace(" ", "").replace(":", "");
             com.footballmanagergamesimulator.compartment.PlayerAttribute attribute =
                     com.footballmanagergamesimulator.compartment.PlayerAttribute.valueOf(parts[3]);
             Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double> row = compartment.getContextRules().get(source);
+            if (row == null) {
+                var match = compartment.getContextRules().entrySet().stream()
+                        .filter(entry -> entry.getKey().replace(" ", "").replace(":", "").equals(normalizedSource)).findFirst();
+                row = match.map(Map.Entry::getValue).orElse(null);
+            }
             if (row == null) throw new IllegalArgumentException("unknown context rule: " + source);
             row.put(attribute, override.value());
         } else if (key.startsWith("compartment.compartments.")) {
@@ -128,13 +134,13 @@ public final class CanonicalScoringWeightSet {
             var multipliers = compartment.getPositions().get(parts[2]);
             if (multipliers == null) throw new IllegalArgumentException("unknown position: " + parts[2]);
             setMultiplier(multipliers, parts[3], override.value());
-        } else if (key.startsWith("compartment.position-overrides.")) {
+        } else if (key.startsWith("compartment.position-compartment-overrides.")) {
             String[] parts = key.split("\\.");
-            if (parts.length != 5) throw new IllegalArgumentException("unsupported override: " + key);
+            if (parts.length != 6 || !parts[4].equals("attributes")) throw new IllegalArgumentException("unsupported override: " + key);
             var row = compartment.getPositionCompartmentOverrides().get(parts[2]);
             var weights = row == null ? null : row.get(Compartment.valueOf(parts[3]));
             if (weights == null) throw new IllegalArgumentException("unknown position override: " + key);
-            weights.getAttributes().put(com.footballmanagergamesimulator.compartment.PlayerAttribute.valueOf(parts[4]), override.value());
+            weights.getAttributes().put(com.footballmanagergamesimulator.compartment.PlayerAttribute.valueOf(parts[5]), override.value());
         } else if (key.startsWith("compartment.roles.")) {
             String[] parts = key.split("\\.");
             if (parts.length != 4) throw new IllegalArgumentException("unsupported override: " + key);
@@ -240,6 +246,13 @@ public final class CanonicalScoringWeightSet {
         target.getRating().setTotalContextMax(source.getRating().getTotalContextMax());
         target.getRating().setContextCoefficientMin(source.getRating().getContextCoefficientMin());
         target.getRating().setContextCoefficientMax(source.getRating().getContextCoefficientMax());
+        target.getRating().setRoleFitBase(source.getRating().getRoleFitBase());
+        target.getRating().setRoleFitRange(source.getRating().getRoleFitRange());
+        target.getRating().setFitnessFloor(source.getRating().getFitnessFloor());
+        target.getRating().setMoraleNeutral(source.getRating().getMoraleNeutral());
+        target.getRating().setMoraleSlope(source.getRating().getMoraleSlope());
+        target.getRating().setDefaultPositionMultiplier(source.getRating().getDefaultPositionMultiplier());
+        target.getRating().setDefaultRoleMultiplier(source.getRating().getDefaultRoleMultiplier());
         target.setContextRules(copyNested(source.getContextRules()));
         Map<Compartment, CompartmentEngineConfig.CompartmentWeights> compartments = new LinkedHashMap<>();
         source.getCompartments().forEach((key, value) -> {

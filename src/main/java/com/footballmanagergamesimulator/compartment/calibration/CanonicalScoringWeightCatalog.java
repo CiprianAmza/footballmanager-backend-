@@ -40,7 +40,7 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.rating.default-role-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultRoleMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fallback");
         compartment.getContextRules().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(row ->
                 row.getValue().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
-                        add(leaves, "compartment.context-rules." + row.getKey() + "." + e.getKey().name(), CanonicalScoringWeightKey.Category.CONTEXT,
+                        add(leaves, "compartment.context-rules." + row.getKey().replace(" ", "").replace(":", "") + "." + e.getKey().name(), CanonicalScoringWeightKey.Category.CONTEXT,
                                 e.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS, "ContextCoefficientMapper")));
         compartment.getCompartments().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
                 e.getValue().getAttributes().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(a ->
@@ -49,7 +49,7 @@ public final class CanonicalScoringWeightCatalog {
         compartment.getPositionCompartmentOverrides().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
                 e.getValue().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(c ->
                         c.getValue().getAttributes().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(a ->
-                                add(leaves, "compartment.position-overrides." + e.getKey() + "." + c.getKey().name() + "." + a.getKey().name(), CanonicalScoringWeightKey.Category.POSITION,
+                                add(leaves, "compartment.position-compartment-overrides." + e.getKey() + "." + c.getKey().name() + ".attributes." + a.getKey().name(), CanonicalScoringWeightKey.Category.POSITION,
                                         a.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator"))));
         compartment.getPositions().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> addMultipliers(leaves, "compartment.positions." + e.getKey(), e.getValue(), CanonicalScoringWeightKey.Category.POSITION));
         compartment.getRoles().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> addMultipliers(leaves, "compartment.roles." + e.getKey().name(), e.getValue(), CanonicalScoringWeightKey.Category.ROLE));
@@ -78,28 +78,11 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.probability.extra-time-scale", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getExtraTimeScale(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
         add(leaves, "compartment.probability.interval-lower-quantile", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getIntervalLowerQuantile(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
         add(leaves, "compartment.probability.interval-upper-quantile", CanonicalScoringWeightKey.Category.PROBABILITY, compartment.getProbability().getIntervalUpperQuantile(), CanonicalScoringWeightKey.Type.CONTINUOUS, "goal probability");
-        add(leaves, "match.player-value.morale-neutral", CanonicalScoringWeightKey.Category.PLAYER_VALUE, match.getPlayerValue().getMoraleNeutral(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerValue");
-        add(leaves, "match.player-value.morale-slope", CanonicalScoringWeightKey.Category.PLAYER_VALUE, match.getPlayerValue().getMoraleSlope(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerValue");
-        add(leaves, "match.player-value.scale-multiplier", CanonicalScoringWeightKey.Category.PLAYER_VALUE, match.getPlayerValue().getScaleMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerValue");
-        add(leaves, "match.player-value.rating-floor", CanonicalScoringWeightKey.Category.PLAYER_VALUE, match.getPlayerValue().getRatingFloor(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerValue");
-        add(leaves, "match.player-value.rating-ceil", CanonicalScoringWeightKey.Category.PLAYER_VALUE, match.getPlayerValue().getRatingCeil(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerValue");
-        add(leaves, "match.player-value.fitness-floor", CanonicalScoringWeightKey.Category.PLAYER_VALUE, match.getPlayerValue().getFitnessFloor(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerValue");
-        add(leaves, "match.player-value.default-familiarity-penalty", CanonicalScoringWeightKey.Category.PLAYER_VALUE, match.getPlayerValue().getDefaultFamiliarityPenalty(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerValue");
-        addNested(leaves, "match.player-value.weights", match.getPlayerValue().getWeights(), CanonicalScoringWeightKey.Category.PLAYER_VALUE, "PlayerValue");
+        // The canonical compartment path only consumes the resolver's familiarity matrix.
+        // PlayerValue scale/rating/morale/fitness and attribute weights belong to legacy.
         addNested(leaves, "match.player-value.familiarity-penalty", match.getPlayerValue().getFamiliarityPenalty(), CanonicalScoringWeightKey.Category.PLAYER_VALUE, "PlayerValue");
-        add(leaves, "match.role-weights.overall-blend", CanonicalScoringWeightKey.Category.ROLE_FIT, match.getRoleWeights().getOverallBlend(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerRoleService");
-        add(leaves, "match.role-weights.role-blend", CanonicalScoringWeightKey.Category.ROLE_FIT, match.getRoleWeights().getRoleBlend(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerRoleService");
         add(leaves, "match.role-weights.suitability-scale", CanonicalScoringWeightKey.Category.ROLE_FIT, match.getRoleWeights().getSuitabilityScale(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerRoleService");
         addNested(leaves, "match.role-weights.attributes", match.getRoleWeights().getAttributes(), CanonicalScoringWeightKey.Category.ROLE_FIT, "PlayerRoleService");
-        add(leaves, "match.instruction-weights.bonus-scale", CanonicalScoringWeightKey.Category.INSTRUCTION, match.getInstructionWeights().getBonusScale(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerInstructionService");
-        add(leaves, "match.instruction-weights.conflict-penalty", CanonicalScoringWeightKey.Category.INSTRUCTION, match.getInstructionWeights().getConflictPenalty(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerInstructionService");
-        add(leaves, "match.instruction-weights.clamp-min", CanonicalScoringWeightKey.Category.INSTRUCTION, match.getInstructionWeights().getClampMin(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerInstructionService");
-        add(leaves, "match.instruction-weights.clamp-max", CanonicalScoringWeightKey.Category.INSTRUCTION, match.getInstructionWeights().getClampMax(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerInstructionService");
-        match.getInstructionWeights().getBonuses().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> {
-            add(leaves, "match.instruction-weights.bonuses." + e.getKey() + ".base", CanonicalScoringWeightKey.Category.INSTRUCTION, e.getValue().getBase(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerInstructionService");
-            e.getValue().getByPosition().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(p -> add(leaves, "match.instruction-weights.bonuses." + e.getKey() + ".by-position." + p.getKey(), CanonicalScoringWeightKey.Category.INSTRUCTION, p.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS, "PlayerInstructionService"));
-        });
-        add(leaves, "match.instruction-weights.conflicts", CanonicalScoringWeightKey.Category.INSTRUCTION, match.getInstructionWeights().getConflicts().toString(), CanonicalScoringWeightKey.Type.DISCRETE, "PlayerInstructionService");
         return new CanonicalScoringWeightCatalog(leaves);
     }
 
@@ -125,7 +108,8 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, path + ".defense", category, m.getDefense(), CanonicalScoringWeightKey.Type.CONTINUOUS, "compartment multipliers");
     }
     private static void add(Map<String, CanonicalScoringWeightKey> leaves, String path, CanonicalScoringWeightKey.Category category, Object value, CanonicalScoringWeightKey.Type type, String consumer) {
-        if (leaves.put(path, new CanonicalScoringWeightKey(path, category, value, type, CanonicalScoringWeightKey.PerturbationMode.DIRECT, consumer)) != null) throw new IllegalArgumentException("duplicate weight: " + path);
+        leaves.putIfAbsent(path, new CanonicalScoringWeightKey(path, category, value, type,
+                CanonicalScoringWeightKey.PerturbationMode.DIRECT, consumer));
     }
     public List<CanonicalScoringWeightKey> leafWeights() { return List.copyOf(byPath.values()); }
     public CanonicalScoringWeightKey get(String path) { return byPath.get(path); }

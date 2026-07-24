@@ -14,10 +14,7 @@ class CanonicalScoringWeightOverrideCoverageTest {
         String original = service.configFingerprint(profile.compartment(), profile.match());
         for (CanonicalScoringWeightKey leaf : catalog.leafWeights()) {
             if (leaf.type() == CanonicalScoringWeightKey.Type.DISCRETE) continue;
-            double baseline = ((Number) leaf.baselineValue()).doubleValue();
-            double tested = leaf.type() == CanonicalScoringWeightKey.Type.INTEGER
-                    ? (baseline >= 20.0 ? baseline - 1.0 : baseline + 1.0)
-                    : baseline == 0.0 ? 0.01 : baseline * 1.01;
+            double tested = CanonicalWeightPerturbation.validAlternative(leaf);
             CanonicalScoringWeightSet set = CanonicalScoringWeightSet.baseline(profile.compartment(), profile.match())
                     .override(catalog, new CanonicalScoringWeightOverride(leaf.path(), tested));
             assertThat(service.configFingerprint(profile.compartment(), profile.match())).as(leaf.path()).isEqualTo(original);

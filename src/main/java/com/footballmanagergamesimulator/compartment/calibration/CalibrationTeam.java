@@ -25,8 +25,29 @@ public record CalibrationTeam(Mentality mentality, List<CalibrationPlayer> playe
                 : p).toList());
     }
 
+    /** Returns a measurement fixture with the AMC occupied by the hidden calibration role. */
+    public CalibrationTeam withShadowStriker() {
+        return new CalibrationTeam(mentality, players.stream().map(p -> {
+            if (p.position() != com.footballmanagergamesimulator.compartment.PlayerPosition.AMC) return p;
+            var key = new com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey(
+                    p.position(), com.footballmanagergamesimulator.compartment.PlayerRole.SHADOW_STRIKER);
+            return new CalibrationPlayer(p.playerId(), p.position(), p.occurrence(),
+                    com.footballmanagergamesimulator.compartment.PlayerRole.SHADOW_STRIKER,
+                    com.footballmanagergamesimulator.compartment.Duty.ATTACK, p.attributes(),
+                    p.roleAttributeWeights(), p.fitness(), p.morale(), p.positionFamiliarity(),
+                    java.util.Map.of(key, 20), p.leftFoot(), p.rightFoot(), p.traits(), p.instruction(), p.context());
+        }).toList());
+    }
+
     public CalibrationTeam withMentality(Mentality value) {
         return new CalibrationTeam(value, players);
+    }
+
+    public CalibrationTeam withoutPersistentFamiliarity() {
+        return new CalibrationTeam(mentality, players.stream().map(p -> new CalibrationPlayer(
+                p.playerId(), p.position(), p.occurrence(), p.role(), p.duty(), p.attributes(),
+                p.roleAttributeWeights(), p.fitness(), p.morale(), java.util.Map.of(), java.util.Map.of(),
+                p.leftFoot(), p.rightFoot(), p.traits(), p.instruction(), p.context())).toList());
     }
 
     public CalibrationTeam withDefensiveLine(String line) {

@@ -15,7 +15,8 @@ class CompartmentEngineConfigTest {
         assertThat(config.isEnabled()).isFalse();
         assertThat(config.getCompartments()).containsOnlyKeys(Compartment.values());
         assertThat(config.getPositions()).hasSize(14).containsKeys("GK", "DM", "ST");
-        assertThat(config.getRoles()).hasSize(24).containsKeys(PlayerRole.POACHER, PlayerRole.PRESSING_FORWARD);
+        assertThat(config.getRoles()).hasSize(PlayerRole.values().length)
+                .containsKeys(PlayerRole.POACHER, PlayerRole.PRESSING_FORWARD, PlayerRole.SHADOW_STRIKER);
         assertThat(config.getDuties()).containsOnlyKeys(Duty.values());
         assertThat(config.getMentalities()).containsOnlyKeys(Mentality.values());
         assertThat(config.getPositionCompartmentOverrides().get("GK"))

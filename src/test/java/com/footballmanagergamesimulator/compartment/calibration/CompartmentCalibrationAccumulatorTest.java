@@ -212,6 +212,8 @@ class CompartmentCalibrationAccumulatorTest {
     private static CompartmentEngineConfig loadConfig() {
         try {
             var sources = new org.springframework.core.env.MutablePropertySources();
+            for (var source : new org.springframework.boot.env.YamlPropertySourceLoader().load("phase13-weights",
+                    new org.springframework.core.io.ClassPathResource("compartment-scoring-weights-v1.yml"))) sources.addLast(source);
             for (var source : new org.springframework.boot.env.YamlPropertySourceLoader().load("application",
                     new org.springframework.core.io.ClassPathResource("application.yml"))) sources.addLast(source);
             return new org.springframework.boot.context.properties.bind.Binder(

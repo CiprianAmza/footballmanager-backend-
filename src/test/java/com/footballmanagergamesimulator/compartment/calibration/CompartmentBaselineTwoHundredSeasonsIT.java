@@ -16,5 +16,11 @@ class CompartmentBaselineTwoHundredSeasonsIT {
         var result = harness.run(scenario, catalog, new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 5.0));
         org.assertj.core.api.Assertions.assertThat(result.testedAveragePoints()).isBetween(58.0, 62.0);
         org.assertj.core.api.Assertions.assertThat(result.matches()).isEqualTo(7600);
+        try {
+            new ScoringSensitivityReportWriter().write(java.nio.file.Path.of("target", "compartment-calibration", "baseline"),
+                    "baseline", java.util.List.of(result));
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 }
