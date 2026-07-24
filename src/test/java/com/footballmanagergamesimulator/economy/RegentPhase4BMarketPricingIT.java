@@ -13,14 +13,14 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
-        "spring.datasource.url=jdbc:h2:mem:regent-phase4b-pricing;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
+        "spring.datasource.url=jdbc:h2:mem:regent-phase4b-pricing",
         "spring.datasource.username=sa",
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=update",
         "simulation.matchday.parallel.enabled=false",
         "regent.enabled=true"
 })
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class RegentPhase4BMarketPricingIT {
     @Autowired private DeterministicMarketPriceService priceService;
     @Autowired private MarketInstrumentRepository instrumentRepository;

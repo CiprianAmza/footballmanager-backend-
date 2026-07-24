@@ -98,8 +98,7 @@ public class TraderAdviserService {
     public void processDailyPayroll(int season, int day) {
         if (season < 1 || day < 1 || day > 366) return;
         long through = absoluteDay(season, day);
-        List<Long> ids = contractRepository.findAllByActiveTrueOrderByIdAsc().stream()
-                .map(TraderAdviserContract::getId).toList();
+        List<Long> ids = contractRepository.findAllActiveIdsOrderByIdAsc();
         for (long id : ids) {
             TraderAdviserContract contract = contractRepository.findByIdForUpdate(id).orElse(null);
             if (contract == null || !contract.isActive()) continue;

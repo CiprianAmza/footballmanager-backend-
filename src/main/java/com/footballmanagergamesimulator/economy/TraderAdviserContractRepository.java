@@ -11,7 +11,9 @@ import java.util.Optional;
 
 public interface TraderAdviserContractRepository extends JpaRepository<TraderAdviserContract, Long> {
     Optional<TraderAdviserContract> findByAccountIdAndHireIdempotencyKey(long accountId, String key);
-    List<TraderAdviserContract> findAllByActiveTrueOrderByIdAsc();
+
+    @Query("select contract.id from TraderAdviserContract contract where contract.active = true order by contract.id")
+    List<Long> findAllActiveIdsOrderByIdAsc();
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select contract from TraderAdviserContract contract where contract.id = :id")
