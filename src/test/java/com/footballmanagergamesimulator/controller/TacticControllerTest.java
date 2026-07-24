@@ -172,9 +172,14 @@ class TacticControllerTest {
         assertThat(starters).hasSize(11);
         assertThat(starters).extracting(FormationData::getPlayerId).doesNotContain(11L)
                 .contains(99L).doesNotHaveDuplicates();
-        assertThat(effective.stream().filter(value -> value.getPositionIndex() >= 30).count()).isEqualTo(7);
+        List<Long> benchIds = effective.stream()
+                .filter(value -> value.getPositionIndex() >= 30)
+                .map(FormationData::getPlayerId)
+                .toList();
+        assertThat(benchIds).containsExactlyInAnyOrder(
+                100L, 101L, 102L, 103L, 104L, 105L, 106L);
         assertThat(effective).extracting(FormationData::getPlayerId)
-                .contains(100L).doesNotHaveDuplicates();
+                .doesNotContain(11L).doesNotHaveDuplicates();
         assertThat(effective).extracting(FormationData::getPositionIndex).doesNotHaveDuplicates();
         assertThat(starters).allMatch(value -> Arrays.stream(grid).anyMatch(index -> index == value.getPositionIndex()));
         verify(enforcement).completeFormation(any(), any());
