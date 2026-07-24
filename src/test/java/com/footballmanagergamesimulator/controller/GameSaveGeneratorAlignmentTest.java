@@ -38,9 +38,10 @@ class GameSaveGeneratorAlignmentTest {
             "SCORER", "SCORER_SEQ",
             "PLAYER_SKILLS", "PLAYER_SKILLS_SEQ",
             "TEAM_PLAYER_HISTORICAL_RELATION", "TPHR_SEQ");
-    private static final Set<String> PHASE_3_TABLES = Set.of(
+    private static final Set<String> POST_V8_IDENTITY_TABLES = Set.of(
             "CLUB_FINANCIAL_OBLIGATION", "CLUB_CAP_TABLE_STATE", "TAKEOVER_QUOTE",
-            "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER");
+            "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER", "TRADER_ADVISER_CONTRACT",
+            "TRADER_ADVICE_RECOMMENDATION");
 
     @jakarta.annotation.Resource private GameSaveImportService service;
     @jakarta.annotation.Resource private JdbcTemplate jdbc;
@@ -56,7 +57,7 @@ class GameSaveGeneratorAlignmentTest {
             jdbc.update("INSERT INTO \"" + table + "\" DEFAULT VALUES");
             long generated = jdbc.queryForObject(
                     "SELECT MAX(\"ID\") FROM \"" + table + "\"", Long.class);
-            if (PHASE_3_TABLES.contains(table)) {
+            if (POST_V8_IDENTITY_TABLES.contains(table)) {
                 assertThat(generated).as(table + " remains absent from a v8 save").isGreaterThan(1L);
             } else {
                 assertThat(generated).as(table + " next generated id").isGreaterThan(1000L);
@@ -67,6 +68,20 @@ class GameSaveGeneratorAlignmentTest {
                 .filter(reset -> reset.kind() == GameSaveImportService.GeneratorKind.SEQUENCE)
                 .map(GameSaveImportService.GeneratorReset::generatorName))
                 .containsExactlyInAnyOrder("CTI_SEQ", "SCORER_SEQ", "PLAYER_SKILLS_SEQ", "TPHR_SEQ");
+    }
+
+    @Test
+    void v11AdviserIdentitiesAdvancePastTheirImportedMaximum() {
+        GameSaveImportService.ImportPlan plan = service.prepare(highIdV11Save());
+        service.alignGeneratorsBeforeApply(plan);
+        service.apply(plan, false);
+
+        for (String table : List.of("TRADER_ADVISER_CONTRACT", "TRADER_ADVICE_RECOMMENDATION")) {
+            jdbc.update("INSERT INTO \"" + table + "\" DEFAULT VALUES");
+            assertThat(jdbc.queryForObject("SELECT MAX(\"ID\") FROM \"" + table + "\"", Long.class))
+                    .as(table + " next generated id after a v11 import")
+                    .isGreaterThan(1000L);
+        }
     }
 
     @Test
@@ -170,6 +185,56 @@ class GameSaveGeneratorAlignmentTest {
         return save;
     }
 
+    private Map<String, Object> highIdV11Save() {
+        Map<String, Object> save = highIdSave();
+        save.put("saveVersion", 11);
+        save.put("marketInstruments", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("CODE", "GENERATOR_CLUB"),
+                Map.entry("INSTRUMENT_TYPE", "CLUB"), Map.entry("TEAM_ID", 1000L),
+                Map.entry("NAME", "Generator club"), Map.entry("TOTAL_SUPPLY", 10L),
+                Map.entry("AVAILABLE_SUPPLY", 9L), Map.entry("CURRENT_PRICE", 100L),
+                Map.entry("PRICE_SEED", 42L), Map.entry("PRICE_ALGORITHM_VERSION", "market-v1"),
+                Map.entry("RISK_CLASS", "CLUB_EQUITY"), Map.entry("RISK_CONFIG_VERSION", "risk-v1"),
+                Map.entry("DAILY_LIMIT_BPS", 500), Map.entry("WEEKLY_LIMIT_BPS", 1500),
+                Map.entry("ACTIVE", true), Map.entry("VERSION", 0L))));
+        save.put("clubCapTableStates", List.of(Map.of(
+                "ID", 1000L, "INSTRUMENT_ID", 1000L, "TEAM_ID", 1000L,
+                "CONTROL_THRESHOLD_BPS", 5001, "VERSION", 0L)));
+        save.put("takeoverQuotes", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("BUYER_ACCOUNT_ID", 1000L),
+                Map.entry("BUYER_PROFILE_ID", 1000L), Map.entry("INSTRUMENT_ID", 1000L),
+                Map.entry("TEAM_ID", 1000L), Map.entry("SHARES_TO_ACQUIRE", 1L),
+                Map.entry("UNIT_PRICE", 100L), Map.entry("TOTAL_CONSIDERATION", 100L),
+                Map.entry("STATUS", "EXECUTED"))));
+        save.put("takeoverExecutions", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("QUOTE_ID", 1000L),
+                Map.entry("BUYER_ACCOUNT_ID", 1000L), Map.entry("BUYER_PROFILE_ID", 1000L),
+                Map.entry("INSTRUMENT_ID", 1000L), Map.entry("TEAM_ID", 1000L),
+                Map.entry("SHARES_ACQUIRED", 1L), Map.entry("UNIT_PRICE", 100L),
+                Map.entry("TOTAL_CONSIDERATION", 100L))));
+        save.put("clubCashTransfers", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("ACCOUNT_ID", 1000L),
+                Map.entry("PROFILE_ID", 1000L), Map.entry("TEAM_ID", 1000L),
+                Map.entry("AMOUNT", 1L), Map.entry("PERSONAL_BALANCE_AFTER", 0L),
+                Map.entry("CLUB_BALANCE_AFTER", 0L), Map.entry("CORRELATION_ID", "generator-test"))));
+        save.put("financialRecords", List.of(Map.of(
+                "ID", 1000L, "TEAM_ID", 1000L, "DESCRIPTION", "generator-test")));
+        save.put("traderAdviserContracts", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("ACCOUNT_ID", 1000L),
+                Map.entry("PROFILE_ID", 1000L), Map.entry("SKILL", 70),
+                Map.entry("REPUTATION", 65), Map.entry("SALARY_PER_DAY", 7500L),
+                Map.entry("CONTRACT_START_ABSOLUTE_DAY", 1L),
+                Map.entry("CONTRACT_END_ABSOLUTE_DAY", 30L),
+                Map.entry("LAST_PAID_ABSOLUTE_DAY", 0L))));
+        save.put("traderAdviceRecommendations", List.of(Map.ofEntries(
+                Map.entry("ID", 1000L), Map.entry("CONTRACT_ID", 1000L),
+                Map.entry("INSTRUMENT_ID", 1000L), Map.entry("SEASON_NUMBER", 1),
+                Map.entry("GAME_DAY", 1), Map.entry("ACTION", "HOLD"),
+                Map.entry("RISK_CLASS", "CLUB_EQUITY"), Map.entry("CONFIDENCE", 0.5),
+                Map.entry("RISK", 0.5), Map.entry("OBSERVED_VOLATILITY", 0.1))));
+        return save;
+    }
+
     @Configuration
     @EnableTransactionManagement
     @EnableAspectJAutoProxy(proxyTargetClass = true)
@@ -218,6 +283,8 @@ class GameSaveGeneratorAlignmentTest {
                                 + "NAME VARCHAR(160) DEFAULT 'Test', TOTAL_SUPPLY BIGINT DEFAULT 1, "
                                 + "AVAILABLE_SUPPLY BIGINT DEFAULT 1, CURRENT_PRICE BIGINT DEFAULT 1, "
                                 + "PRICE_SEED BIGINT DEFAULT 1, PRICE_ALGORITHM_VERSION VARCHAR(32) DEFAULT 'market-v1', "
+                                + "RISK_CLASS VARCHAR(24) DEFAULT 'SAFE_COMPANY', "
+                                + "RISK_CONFIG_VERSION VARCHAR(32) DEFAULT 'risk-v1', "
                                 + "DAILY_LIMIT_BPS INTEGER DEFAULT 500, "
                                 + "WEEKLY_LIMIT_BPS INTEGER DEFAULT 1500, ACTIVE BOOLEAN DEFAULT TRUE, "
                                 + "VERSION BIGINT DEFAULT 0";
@@ -237,6 +304,36 @@ class GameSaveGeneratorAlignmentTest {
                                 + "GAME_DAY INTEGER DEFAULT 0, IDEMPOTENCY_KEY VARCHAR(160) DEFAULT 'test', "
                                 + "CORRELATION_ID VARCHAR(160) DEFAULT 'test', CASH_BALANCE_AFTER BIGINT DEFAULT 0, "
                                 + "QUANTITY_AFTER BIGINT DEFAULT 1, COST_BASIS_AFTER BIGINT DEFAULT 1";
+                        case "CLUB_CAP_TABLE_STATE" -> ", INSTRUMENT_ID BIGINT DEFAULT 1, "
+                                + "TEAM_ID BIGINT DEFAULT 1, CONTROLLING_ACCOUNT_ID BIGINT, "
+                                + "CONTROL_THRESHOLD_BPS INTEGER DEFAULT 5001, VERSION BIGINT DEFAULT 0";
+                        case "TAKEOVER_QUOTE" -> ", BUYER_ACCOUNT_ID BIGINT DEFAULT 1, "
+                                + "BUYER_PROFILE_ID BIGINT DEFAULT 0, INSTRUMENT_ID BIGINT DEFAULT 1, "
+                                + "TEAM_ID BIGINT DEFAULT 1, SHARES_TO_ACQUIRE BIGINT DEFAULT 1, "
+                                + "UNIT_PRICE BIGINT DEFAULT 1, TOTAL_CONSIDERATION BIGINT DEFAULT 1, "
+                                + "STATUS VARCHAR(16) DEFAULT 'EXECUTED'";
+                        case "TAKEOVER_EXECUTION" -> ", QUOTE_ID BIGINT DEFAULT 1, "
+                                + "BUYER_ACCOUNT_ID BIGINT DEFAULT 1, BUYER_PROFILE_ID BIGINT DEFAULT 0, "
+                                + "INSTRUMENT_ID BIGINT DEFAULT 1, TEAM_ID BIGINT DEFAULT 1, "
+                                + "SHARES_ACQUIRED BIGINT DEFAULT 1, UNIT_PRICE BIGINT DEFAULT 1, "
+                                + "TOTAL_CONSIDERATION BIGINT DEFAULT 1";
+                        case "CLUB_CASH_TRANSFER" -> ", ACCOUNT_ID BIGINT DEFAULT 1, "
+                                + "PROFILE_ID BIGINT DEFAULT 0, TEAM_ID BIGINT DEFAULT 1, AMOUNT BIGINT DEFAULT 1, "
+                                + "PERSONAL_BALANCE_AFTER BIGINT DEFAULT 0, CLUB_BALANCE_AFTER BIGINT DEFAULT 0, "
+                                + "CORRELATION_ID VARCHAR(120) DEFAULT 'test'";
+                        case "FINANCIAL_RECORD" -> ", TEAM_ID BIGINT DEFAULT 1, "
+                                + "DESCRIPTION VARCHAR(300) DEFAULT 'test'";
+                        case "TRADER_ADVISER_CONTRACT" -> ", ACCOUNT_ID BIGINT DEFAULT 1, "
+                                + "PROFILE_ID BIGINT DEFAULT 0, SKILL INTEGER DEFAULT 50, "
+                                + "REPUTATION INTEGER DEFAULT 50, SALARY_PER_DAY BIGINT DEFAULT 0, "
+                                + "CONTRACT_START_ABSOLUTE_DAY BIGINT DEFAULT 1, "
+                                + "CONTRACT_END_ABSOLUTE_DAY BIGINT DEFAULT 1, "
+                                + "LAST_PAID_ABSOLUTE_DAY BIGINT DEFAULT 0";
+                        case "TRADER_ADVICE_RECOMMENDATION" -> ", CONTRACT_ID BIGINT DEFAULT 1, "
+                                + "INSTRUMENT_ID BIGINT DEFAULT 1, SEASON_NUMBER INTEGER DEFAULT 1, "
+                                + "GAME_DAY INTEGER DEFAULT 1, ACTION VARCHAR(8) DEFAULT 'HOLD', "
+                                + "RISK_CLASS VARCHAR(24) DEFAULT 'SAFE_COMPANY', CONFIDENCE DECIMAL(8,4) DEFAULT 0.5, "
+                                + "RISK DECIMAL(8,4) DEFAULT 0.5, OBSERVED_VOLATILITY DECIMAL(20,8) DEFAULT 0";
                         default -> "";
                     };
                     statement.execute("CREATE TABLE \"" + table + "\" (ID BIGINT" + defaultValue
