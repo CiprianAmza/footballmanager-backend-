@@ -10,6 +10,7 @@ import com.footballmanagergamesimulator.regent.market.core.SafeCompanyReturnMode
 import com.footballmanagergamesimulator.regent.market.core.SpeculativeProfile;
 import com.footballmanagergamesimulator.regent.market.core.SpeculativeQuote;
 import com.footballmanagergamesimulator.regent.market.core.SpeculativeQuoteModel;
+import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ import java.math.RoundingMode;
 public class DeterministicMarketPriceService {
     public static final String MARKET_V1 = "market-v1";
     public static final String RISK_V1 = "risk-v1";
+    static final int SNAPSHOT_BATCH_SIZE = 32;
     private static final BigInteger BPS = BigInteger.valueOf(10_000L);
     private static final SafeCompanyProfile SAFE_V1 = new SafeCompanyProfile(
             new BigDecimal("0.01"), new BigDecimal("0.60"), RISK_V1);
@@ -34,19 +36,22 @@ public class DeterministicMarketPriceService {
     private final RegentEconomyProperties properties;
     private final ClubValuationService clubValuationService;
     private final TraderAdviserService traderAdviserService;
+    private final EntityManager entityManager;
 
     public DeterministicMarketPriceService(MarketBootstrapService bootstrapService,
                                            MarketInstrumentRepository instrumentRepository,
                                            MarketPriceSnapshotRepository snapshotRepository,
                                            RegentEconomyProperties properties,
                                            ClubValuationService clubValuationService,
-                                           TraderAdviserService traderAdviserService) {
+                                           TraderAdviserService traderAdviserService,
+                                           EntityManager entityManager) {
         this.bootstrapService = bootstrapService;
         this.instrumentRepository = instrumentRepository;
         this.snapshotRepository = snapshotRepository;
         this.properties = properties;
         this.clubValuationService = clubValuationService;
         this.traderAdviserService = traderAdviserService;
+        this.entityManager = entityManager;
     }
 
     @Transactional
@@ -74,15 +79,11 @@ public class DeterministicMarketPriceService {
         }
         int firstDay = latest != null && latest.getSeasonNumber() == season ? latest.getGameDay() + 1 : 1;
         long previous = instrument.getCurrentPrice();
+        long weeklyAnchor = latest != null && latest.getSeasonNumber() == season
+                ? latest.getWeeklyAnchorPrice() : previous;
+        int pendingSnapshots = 0;
         for (int day = firstDay; day <= targetDay; day++) {
-            MarketPriceSnapshot existing = snapshotRepository
-                    .findByInstrumentIdAndSeasonNumberAndGameDay(instrumentId, season, day).orElse(null);
-            if (existing != null) {
-                previous = existing.getClosePrice();
-                continue;
-            }
-            long weeklyAnchor = ((day - 1) % 7 == 0 || latest == null || latest.getSeasonNumber() != season)
-                    ? previous : latest.getWeeklyAnchorPrice();
+            if ((day - 1) % 7 == 0) weeklyAnchor = previous;
             long deterministicHash = deterministicHash(instrument, season, day);
             long close = riskClose(instrument, previous, season, day);
 
@@ -96,11 +97,24 @@ public class DeterministicMarketPriceService {
             snapshot.setDailyChangeBps(actualBps(previous, close));
             snapshot.setAlgorithmVersion(instrument.getPriceAlgorithmVersion());
             snapshot.setDeterministicHash(deterministicHash);
-            latest = snapshotRepository.save(snapshot);
+            snapshotRepository.save(snapshot);
             previous = close;
+            pendingSnapshots++;
+            if (shouldFlushAndClear(pendingSnapshots)) {
+                // Flush/clear does not commit: the outer transaction still rolls back atomically on any failure.
+                entityManager.flush();
+                entityManager.clear();
+                pendingSnapshots = 0;
+            }
         }
         instrument.setCurrentPrice(previous);
         instrumentRepository.save(instrument);
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    static boolean shouldFlushAndClear(int pendingSnapshots) {
+        return pendingSnapshots >= SNAPSHOT_BATCH_SIZE;
     }
 
     private long riskClose(MarketInstrument instrument, long previous, int season, int day) {

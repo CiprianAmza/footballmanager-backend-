@@ -76,6 +76,24 @@ class RegentPhase4BMarketPricingIT {
         assertThat(club.getTotalSupply()).isPositive();
     }
 
+    @Test
+    void annualCatchUpFlushPolicyKeepsPendingSnapshotsBounded() {
+        int pending = 0;
+        int maximumPending = 0;
+        int flushes = 0;
+        for (int day = 1; day <= 366; day++) {
+            pending++;
+            maximumPending = Math.max(maximumPending, pending);
+            if (DeterministicMarketPriceService.shouldFlushAndClear(pending)) {
+                pending = 0;
+                flushes++;
+            }
+        }
+        assertThat(maximumPending).isEqualTo(DeterministicMarketPriceService.SNAPSHOT_BATCH_SIZE);
+        assertThat(flushes).isEqualTo(366 / DeterministicMarketPriceService.SNAPSHOT_BATCH_SIZE);
+        assertThat(pending).isLessThan(DeterministicMarketPriceService.SNAPSHOT_BATCH_SIZE);
+    }
+
     private List<MarketPriceSnapshot> history(long instrumentId) {
         return snapshotRepository.findAllByInstrumentIdOrderBySeasonNumberDescGameDayDesc(
                 instrumentId, Pageable.unpaged());
