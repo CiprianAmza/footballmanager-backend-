@@ -7,7 +7,7 @@
 # config is harmless and helps UPDATE batching.
 spring:
   config:
-    import: optional:classpath:compartment-scoring-weights-v1.yml
+    import: classpath:compartment-scoring-weights-v1.yml
   flyway:
     enabled: true
     locations: classpath:db/migration/h2

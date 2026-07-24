@@ -25,7 +25,8 @@ class CanonicalScoringWeightCatalogTest {
         var baseline = CompartmentConfigFixture.load();
         var match = new MatchEngineConfig();
         var set = CanonicalScoringWeightSet.baseline(baseline, match)
-                .override(new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 6.0));
+                .override(CanonicalScoringWeightCatalog.from(baseline, match),
+                        new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 6.0));
         assertThat(set.match().getRoleWeights().getSuitabilityScale()).isEqualTo(6.0);
         assertThat(match.getRoleWeights().getSuitabilityScale()).isEqualTo(5.0);
     }

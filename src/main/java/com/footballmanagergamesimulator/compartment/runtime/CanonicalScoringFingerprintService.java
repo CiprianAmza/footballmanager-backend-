@@ -32,6 +32,7 @@ public final class CanonicalScoringFingerprintService {
                 + ',' + compartment.getRating().getDefaultRoleMultiplier()
                 + "|contextRules=" + ordered(compartment.getContextRules())
                 + "|roleWeights=" + roleWeights(match.getRoleWeights())
+                + "|instructionWeights=" + instructionWeights(match.getInstructionWeights())
                 + "|compartments=" + ordered(compartment.getCompartments())
                 + "|positionOverrides=" + ordered(compartment.getPositionCompartmentOverrides())
                 + "|positions=" + ordered(compartment.getPositions())
