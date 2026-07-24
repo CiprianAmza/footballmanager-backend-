@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.user.CareerRole;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +56,24 @@ class GameAdvanceServiceTest {
     @Test
     void alwaysContinueRequiresAConfiguredHumanManager() {
         when(userRepository.findAll()).thenReturn(List.of());
+
+        assertFalse(service.isAlwaysContinueActive());
+    }
+
+    @Test
+    void chairmanCareerCanAdvanceWithoutInventingAHumanManager() {
+        User chairman = activeUser(1, null, null);
+        chairman.setCareerRole(CareerRole.CHAIRMAN);
+        when(userRepository.findAll()).thenReturn(List.of(chairman));
+
+        assertTrue(service.isAlwaysContinueActive());
+    }
+
+    @Test
+    void incompleteManagerOnboardingDoesNotBecomeUnattendedMode() {
+        User manager = activeUser(1, null, null);
+        manager.setCareerRole(CareerRole.MANAGER);
+        when(userRepository.findAll()).thenReturn(List.of(manager));
 
         assertFalse(service.isAlwaysContinueActive());
     }
@@ -131,7 +150,7 @@ class GameAdvanceServiceTest {
         verify(calendarService).markEventCompleted(55L);
     }
 
-    private User activeUser(int id, Long teamId, long managerId) {
+    private User activeUser(int id, Long teamId, Long managerId) {
         User user = new User();
         user.setId(id);
         user.setTeamId(teamId);

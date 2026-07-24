@@ -74,6 +74,18 @@ class FastForwardServiceTest {
                 .hasMessageContaining("Always Continue");
     }
 
+    @Test
+    void reportsIdleWhileTheInitialGameCalendarIsStillBeingCreated() {
+        when(calendarRepository.findTopByOrderBySeasonDesc()).thenReturn(Optional.empty());
+
+        FastForwardService.FastForwardStatus status = service.getStatus();
+
+        assertThat(status.status()).isEqualTo("IDLE");
+        assertThat(status.currentSeason()).isEqualTo(1);
+        assertThat(status.currentDay()).isEqualTo(1);
+        assertThat(status.message()).isEqualTo("Game initialization is still in progress");
+    }
+
     private FastForwardService.FastForwardStatus waitForTerminalStatus() throws InterruptedException {
         for (int attempt = 0; attempt < 100; attempt++) {
             FastForwardService.FastForwardStatus status = service.getStatus();

@@ -11,7 +11,10 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -36,6 +39,7 @@ public class ClubCapTableService {
     private final ClubCapTableStateRepository stateRepository;
     private final RegentEconomyProperties properties;
     private final ChairmanModeProperties chairmanModeProperties;
+    private final TransactionTemplate isolatedTransaction;
 
     public ClubCapTableService(MarketBootstrapService marketBootstrapService,
                                MarketInstrumentRepository instrumentRepository,
@@ -46,7 +50,8 @@ public class ClubCapTableService {
                                OwnershipRepository legacyOwnershipRepository,
                                ClubCapTableStateRepository stateRepository,
                                RegentEconomyProperties properties,
-                               ChairmanModeProperties chairmanModeProperties) {
+                               ChairmanModeProperties chairmanModeProperties,
+                               PlatformTransactionManager transactionManager) {
         this.marketBootstrapService = marketBootstrapService;
         this.instrumentRepository = instrumentRepository;
         this.positionRepository = positionRepository;
@@ -57,25 +62,33 @@ public class ClubCapTableService {
         this.stateRepository = stateRepository;
         this.properties = properties;
         this.chairmanModeProperties = chairmanModeProperties;
+        this.isolatedTransaction = new TransactionTemplate(transactionManager);
+        this.isolatedTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @EventListener(ApplicationReadyEvent.class)
     @Order(40)
-    @Transactional
     public void initializeOnStartup() {
         if (chairmanModeProperties.isEnabled()) ensureAllMigrated();
     }
 
-    @Transactional
-    public void ensureAllMigrated() {
-        marketBootstrapService.ensureAllInstruments();
-        for (MarketInstrument instrument : instrumentRepository.findAllByActiveTrueOrderByCodeAsc()) {
-            if (instrument.getInstrumentType() == MarketInstrumentType.CLUB) ensureMigrated(instrument.getTeamId());
-        }
+    /** Serialize the complete transaction, including commit, against lazy HTTP initialization. */
+    public synchronized void ensureAllMigrated() {
+        isolatedTransaction.executeWithoutResult(status -> {
+            marketBootstrapService.ensureAllInstruments();
+            for (MarketInstrument instrument : instrumentRepository.findAllByActiveTrueOrderByCodeAsc()) {
+                if (instrument.getInstrumentType() == MarketInstrumentType.CLUB) {
+                    ensureMigratedInTransaction(instrument.getTeamId());
+                }
+            }
+        });
     }
 
-    @Transactional
-    public CapTable ensureMigrated(long teamId) {
+    public synchronized CapTable ensureMigrated(long teamId) {
+        return isolatedTransaction.execute(status -> ensureMigratedInTransaction(teamId));
+    }
+
+    private CapTable ensureMigratedInTransaction(long teamId) {
         MarketInstrument listed = instrumentRepository.findByTeamId(teamId)
                 .orElseThrow(() -> new EconomyConflictException("CLUB_INSTRUMENT_NOT_FOUND", "Club instrument is missing"));
         MarketInstrument instrument = instrumentRepository.findByIdForUpdate(listed.getId()).orElseThrow();

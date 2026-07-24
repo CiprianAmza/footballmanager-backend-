@@ -8,7 +8,9 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 
@@ -22,26 +24,37 @@ public class MarketBootstrapService {
     private final TeamRepository teamRepository;
     private final ChairmanModeProperties chairmanModeProperties;
     private final ClubValuationService clubValuationService;
+    private final TransactionTemplate isolatedTransaction;
 
     public MarketBootstrapService(MarketInstrumentRepository instrumentRepository,
                                   TeamRepository teamRepository,
                                   ChairmanModeProperties chairmanModeProperties,
-                                  ClubValuationService clubValuationService) {
+                                  ClubValuationService clubValuationService,
+                                  PlatformTransactionManager transactionManager) {
         this.instrumentRepository = instrumentRepository;
         this.teamRepository = teamRepository;
         this.chairmanModeProperties = chairmanModeProperties;
         this.clubValuationService = clubValuationService;
+        this.isolatedTransaction = new TransactionTemplate(transactionManager);
+        this.isolatedTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @EventListener(ApplicationReadyEvent.class)
     @Order(30)
-    @Transactional
     public void initializeOnStartup() {
         if (chairmanModeProperties.isEnabled()) ensureAllInstruments();
     }
 
-    @Transactional
-    public void ensureAllInstruments() {
+    /**
+     * Keep the Java monitor until the transaction has committed. With a synchronized
+     * {@code @Transactional} target method Spring commits after the monitor is released, which
+     * allowed an HTTP request to race the ApplicationReady bootstrap on H2.
+     */
+    public synchronized void ensureAllInstruments() {
+        isolatedTransaction.executeWithoutResult(status -> ensureAllInstrumentsInTransaction());
+    }
+
+    private void ensureAllInstrumentsInTransaction() {
         ensureCompany("FMX", "Football Markets Exchange", 1_250, 772360782L, MarketRiskClass.SAFE_COMPANY);
         ensureCompany("SPORTTECH", "Sport Technology Group", 850, 1297702381L, MarketRiskClass.SAFE_COMPANY);
         ensureCompany("MEDIA11", "Eleven Sports Media", 640, 214013921L, MarketRiskClass.SPECULATIVE);

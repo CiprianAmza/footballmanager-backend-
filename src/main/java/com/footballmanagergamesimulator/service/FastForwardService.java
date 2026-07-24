@@ -87,7 +87,12 @@ public class FastForwardService {
         FastForwardStatus status = latest.get();
         if (status != null) return status;
 
-        GameCalendar calendar = currentCalendar();
+        GameCalendar calendar = gameCalendarRepository.findTopByOrderBySeasonDesc().orElse(null);
+        if (calendar == null) {
+            return new FastForwardStatus(
+                    null, "IDLE", 0, 1, 1, 1, 1, "PRE_SEASON",
+                    0, 0, 0, 0, "Game initialization is still in progress", false);
+        }
         return new FastForwardStatus(
                 null, "IDLE", 0, calendar.getSeason(), calendar.getSeason(),
                 calendar.getSeason(), calendar.getCurrentDay(), calendar.getCurrentPhase(),

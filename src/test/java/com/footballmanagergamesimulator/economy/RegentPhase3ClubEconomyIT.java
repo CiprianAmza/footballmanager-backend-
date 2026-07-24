@@ -86,6 +86,36 @@ class RegentPhase3ClubEconomyIT {
     @SpyBean private Phase3TransactionProbe probe;
 
     @Test
+    void concurrentCapTableBootstrapSerializesThroughTransactionCommit() throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> first = pool.submit(() -> {
+                start.await();
+                capTableService.ensureAllMigrated();
+                return null;
+            });
+            Future<Void> second = pool.submit(() -> {
+                start.await();
+                capTableService.ensureAllMigrated();
+                return null;
+            });
+            start.countDown();
+
+            first.get(30, TimeUnit.SECONDS);
+            second.get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        for (MarketInstrument instrument : instrumentRepository.findAllByActiveTrueOrderByCodeAsc()) {
+            if (instrument.getInstrumentType() == MarketInstrumentType.CLUB) {
+                assertThat(stateRepository.findByInstrumentId(instrument.getId())).isPresent();
+            }
+        }
+    }
+
+    @Test
     void legacyMigrationIsDeterministicIdempotentAndRejectsGlobalOverAllocation() {
         Team team = freshTeam(10);
         MarketInstrument instrument = instrumentRepository.findByTeamId(team.getId()).orElseThrow();

@@ -7,6 +7,8 @@ import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.repository.CalendarEventRepository;
 import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.user.CareerRole;
+import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -436,11 +438,24 @@ public class GameAdvanceService {
      * otherwise a dismissal would silently turn an unattended simulation off.
      */
     public boolean isAlwaysContinueActive() {
-        Set<Long> managerIds = userRepository.findAll().stream()
-                .filter(user -> user.getManagerId() != null)
+        List<User> users = userRepository.findAll();
+        List<User> managerCareers = users.stream()
+                .filter(user -> user.getCareerRole() != CareerRole.CHAIRMAN)
+                .toList();
+
+        // Chairmen have no human manager and therefore no live-match, dismissal or job-offer
+        // pause to acknowledge. A chairman-only career can advance unattended. Keep the empty
+        // bootstrap state false so a server with no registered player is not treated as opted in.
+        if (managerCareers.isEmpty()) {
+            return users.stream().anyMatch(user -> user.getCareerRole() == CareerRole.CHAIRMAN);
+        }
+        if (managerCareers.stream().anyMatch(user -> user.getManagerId() == null)) {
+            return false;
+        }
+
+        Set<Long> managerIds = managerCareers.stream()
                 .map(user -> user.getManagerId())
                 .collect(java.util.stream.Collectors.toSet());
-        if (managerIds.isEmpty()) return false;
 
         List<com.footballmanagergamesimulator.model.Human> managers = new ArrayList<>();
         humanRepository.findAllById(managerIds).forEach(managers::add);
