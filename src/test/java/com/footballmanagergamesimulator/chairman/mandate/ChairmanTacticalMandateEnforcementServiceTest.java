@@ -155,6 +155,39 @@ class ChairmanTacticalMandateEnforcementServiceTest {
                 .hasFieldOrPropertyWithValue("code", "MANAGER_XI_INVALID");
     }
 
+    @Test
+    void completionPromotesBenchPlayerBeforePreservedBenchAndFillsBenchWithoutDuplicates() {
+        List<FormationData> preserved = new ArrayList<>();
+        for (int slot = 0; slot < 10; slot++) preserved.add(data(slot, 100L + slot));
+        preserved.add(data(30, 999L));
+        List<FormationData> assistant = new ArrayList<>();
+        for (int slot = 0; slot < 10; slot++) assistant.add(data(slot, 300L + slot));
+        assistant.add(data(10, 999L));
+        for (int slot = 30; slot <= 36; slot++) assistant.add(data(slot, 400L + slot));
+
+        List<FormationData> result = service.completeFormation(preserved, assistant);
+
+        assertThat(result).filteredOn(value -> value.getPositionIndex() < 30).hasSize(11);
+        assertThat(result).filteredOn(value -> value.getPlayerId() == 999L)
+                .singleElement().extracting(FormationData::getPositionIndex).isEqualTo(10);
+        assertThat(result).filteredOn(value -> value.getPositionIndex() >= 30).hasSize(7);
+        assertThat(result).extracting(FormationData::getPositionIndex).doesNotHaveDuplicates();
+        assertThat(result).extracting(FormationData::getPlayerId).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void duplicateManagerPlayerDoesNotPoisonLaterAssistantCompletion() {
+        List<FormationData> preserved = List.of(data(0, 500L), data(1, 500L));
+        List<FormationData> assistant = new ArrayList<>();
+        for (int slot = 0; slot < 11; slot++) assistant.add(data(slot, 600L + slot));
+
+        List<FormationData> result = service.completeFormation(preserved, assistant);
+
+        assertThat(result).extracting(FormationData::getPlayerId).doesNotHaveDuplicates();
+        assertThat(result).extracting(FormationData::getPositionIndex).doesNotHaveDuplicates();
+        assertThat(result).filteredOn(value -> value.getPositionIndex() < 30).hasSize(11);
+    }
+
     private static FormationData data(int position, long playerId) {
         FormationData value = new FormationData();
         value.setPositionIndex(position);

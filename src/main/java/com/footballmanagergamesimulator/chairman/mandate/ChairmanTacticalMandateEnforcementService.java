@@ -110,10 +110,10 @@ public class ChairmanTacticalMandateEnforcementService {
                 if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation contains an invalid player");
                 continue;
             }
-            if (!runtime && active && eligiblePlayer(teamId, value.getPlayerId(), Set.of()) == null) {
-                throw invalid("MANAGER_XI_INVALID", "Formation player is not eligible for this team");
+            if (active && eligiblePlayer(teamId, value.getPlayerId(), runtime ? unavailable : Set.of()) == null) {
+                if (!runtime) throw invalid("MANAGER_XI_INVALID", "Formation player is not eligible for this team");
+                continue;
             }
-            if (runtime && unavailable.contains(value.getPlayerId())) continue;
 
             ResolvedLock byPlayer = lockByPlayer.get(value.getPlayerId());
             ResolvedLock byPosition = lockByPosition.get(value.getPositionIndex());
@@ -128,12 +128,14 @@ public class ChairmanTacticalMandateEnforcementService {
             }
             if (value.getPositionIndex() < 30 && active
                     && !grid.contains(value.getPositionIndex())) continue;
-            if (!seenPositions.add(value.getPositionIndex()) || !seenPlayers.add(value.getPlayerId())) {
+            if (seenPositions.contains(value.getPositionIndex()) || seenPlayers.contains(value.getPlayerId())) {
                 if (!runtime && active) {
                     throw invalid("MANAGER_XI_INVALID", "Formation contains duplicate slots or players");
                 }
                 continue;
             }
+            seenPositions.add(value.getPositionIndex());
+            seenPlayers.add(value.getPlayerId());
             managerEntries.add(value);
         }
 
@@ -147,7 +149,7 @@ public class ChairmanTacticalMandateEnforcementService {
                 value.setPositionIndex(lock.slot().positionIndex());
                 value.setPlayerId(lock.slot().playerId());
             }
-            if (addWithinBounds(value, result, resultPositions, resultPlayers)) continue;
+            addWithinBounds(value, result, resultPositions, resultPlayers);
         }
         for (FormationData value : managerEntries) {
             addWithinBounds(value, result, resultPositions, resultPlayers);
@@ -166,8 +168,10 @@ public class ChairmanTacticalMandateEnforcementService {
         List<FormationData> result = new ArrayList<>();
         Set<Integer> positions = new HashSet<>();
         Set<Long> players = new HashSet<>();
-        addUniqueBounded(preserved, result, positions, players);
-        addUniqueBounded(assistant, result, positions, players);
+        addUniqueBounded(starters(preserved), result, positions, players);
+        addUniqueBounded(starters(assistant), result, positions, players);
+        addUniqueBounded(bench(preserved), result, positions, players);
+        addUniqueBounded(bench(assistant), result, positions, players);
         result.sort(Comparator.comparingInt(FormationData::getPositionIndex)
                 .thenComparingLong(FormationData::getPlayerId));
         return List.copyOf(result);
@@ -181,11 +185,23 @@ public class ChairmanTacticalMandateEnforcementService {
             int position = value.getPositionIndex();
             long starters = result.stream().filter(item -> item.getPositionIndex() < 30).count();
             long bench = result.stream().filter(item -> item.getPositionIndex() >= 30).count();
-            if (position < 0 || position > 36 || position < 30 && starters >= 11
-                    || position >= 30 && bench >= 7 || !positions.add(position)
-                    || !players.add(value.getPlayerId())) continue;
+            if (position < 0 || position > 36 || value.getPlayerId() <= 0) continue;
+            if (positions.contains(position) || players.contains(value.getPlayerId())) continue;
+            if (position < 30 && starters >= 11 || position >= 30 && bench >= 7) continue;
+            positions.add(position);
+            players.add(value.getPlayerId());
             result.add(copy(value));
         }
+    }
+
+    private static List<FormationData> starters(List<FormationData> source) {
+        return source == null ? List.of() : source.stream()
+                .filter(Objects::nonNull).filter(value -> value.getPositionIndex() < 30).toList();
+    }
+
+    private static List<FormationData> bench(List<FormationData> source) {
+        return source == null ? List.of() : source.stream()
+                .filter(Objects::nonNull).filter(value -> value.getPositionIndex() >= 30).toList();
     }
 
     public List<EffectiveChairmanMandate.Slot> eligibleSlots(long teamId, Set<Long> unavailableIds) {
@@ -253,12 +269,15 @@ public class ChairmanTacticalMandateEnforcementService {
 
     private static boolean addWithinBounds(FormationData value, List<FormationData> result,
                                            Set<Integer> positions, Set<Long> players) {
+        if (value == null || value.getPlayerId() <= 0) return false;
         int position = value.getPositionIndex();
         long starters = result.stream().filter(v -> v.getPositionIndex() < 30).count();
         long bench = result.stream().filter(v -> v.getPositionIndex() >= 30 && v.getPositionIndex() <= 36).count();
         if (position < 0 || position > 36 || position < 30 && starters >= 11
                 || position >= 30 && position <= 36 && bench >= 7
-                || !positions.add(position) || !players.add(value.getPlayerId())) return false;
+                || positions.contains(position) || players.contains(value.getPlayerId())) return false;
+        positions.add(position);
+        players.add(value.getPlayerId());
         result.add(copy(value));
         return true;
     }
