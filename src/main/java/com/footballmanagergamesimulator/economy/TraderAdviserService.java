@@ -15,15 +15,22 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class TraderAdviserService {
     static final String ADVICE_V1 = "advice-v1";
     private static final LocalDate DATE_EPOCH = LocalDate.of(2000, 1, 1);
-    private static final Map<String, AdviserTerms> CATALOG = catalog();
+    private static final List<AdviserTerms> CATALOGUE = List.of(
+            new AdviserTerms("ANALYST", 45, 35, 2_500L, 90),
+            new AdviserTerms("STRATEGIST", 70, 65, 7_500L, 180),
+            new AdviserTerms("VETERAN", 90, 92, 20_000L, 365)
+    );
+    private static final Map<String, AdviserTerms> CATALOG =
+            CATALOGUE.stream().collect(Collectors.toUnmodifiableMap(AdviserTerms::adviserCode, Function.identity()));
 
     private final TraderAdviserContractRepository contractRepository;
     private final TraderAdviceRecommendationRepository adviceRepository;
@@ -59,10 +66,6 @@ public class TraderAdviserService {
         PersonalAccount account = accountRepository.findByProfileIdForUpdate(profile.getId())
                 .orElseThrow(() -> new EconomyConflictException("ACCOUNT_NOT_FOUND", "Personal account is missing"));
         requireAccountOwner(account, authenticatedUserId);
-        if (account.getCashBalance() < terms.salaryPerDay()) {
-            throw new EconomyConflictException("INSUFFICIENT_FUNDS",
-                    "Personal cash is too low for the adviser's daily salary");
-        }
         TraderAdviserContract replay = contractRepository
                 .findByAccountIdAndHireIdempotencyKey(account.getId(), idempotencyKey).orElse(null);
         if (replay != null) {
@@ -74,6 +77,10 @@ public class TraderAdviserService {
                         "Idempotency key was already used for different adviser terms");
             }
             return new HireResult(replay, true);
+        }
+        if (account.getCashBalance() < terms.salaryPerDay()) {
+            throw new EconomyConflictException("INSUFFICIENT_FUNDS",
+                    "Personal cash is too low for the adviser's daily salary");
         }
         if (contractRepository.findActiveForUpdate(profile.getId(), start).isPresent()) {
             throw new EconomyConflictException("ADVISER_ALREADY_HIRED", "An active trader adviser contract already exists");
@@ -234,16 +241,8 @@ public class TraderAdviserService {
         }
     }
 
-    private static Map<String, AdviserTerms> catalog() {
-        Map<String, AdviserTerms> result = new LinkedHashMap<>();
-        result.put("ANALYST", new AdviserTerms("ANALYST", 45, 35, 2_500L, 90));
-        result.put("STRATEGIST", new AdviserTerms("STRATEGIST", 70, 65, 7_500L, 180));
-        result.put("VETERAN", new AdviserTerms("VETERAN", 90, 92, 20_000L, 365));
-        return Map.copyOf(result);
-    }
-
     public List<AdviserTerms> catalogueOptions() {
-        return List.copyOf(CATALOG.values());
+        return CATALOGUE;
     }
 
     @Transactional(readOnly = true)
