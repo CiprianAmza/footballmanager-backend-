@@ -17,9 +17,12 @@ The canonical projection has three boundaries:
    the same statistics without consuming the legacy RNG stream.
 
 For `COMPARTMENT_V1`, persisted xG values are copied exactly into match stats
-after conversion to hundredths. Fallback engines retain the existing stats
-generator and receive only the deterministic local seed. The legacy stats
-method remains the path for non-durable matches.
+after conversion to hundredths. The canonical generator consumes only the
+decision powers and the immutable, versioned `CanonicalMatchStatsProfileV1`;
+it never reads live `MatchEngineConfig.Stats` or current tactics. Fallback
+engines use the same fixed profile with deterministic local randomness. The
+legacy stats method remains the path for non-durable matches and retains the
+live configuration and legacy RNG seam.
 
 The AI durable path persists canonical events and scorer projections, then
 persists canonical match stats, and only afterward marks the MatchPlan

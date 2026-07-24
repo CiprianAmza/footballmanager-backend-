@@ -170,6 +170,14 @@ class CompartmentAdapterRuntimeIsolationTest {
                 .contains("if (durablePlan)")
                 .contains("else {");
         assertThat(count(simulator, "generateAndSaveCanonicalMatchStats")).isEqualTo(1);
+        String statsService = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchStatsService.java"));
+        int canonicalApi = statsService.indexOf("generateAndSaveCanonicalMatchStats");
+        int canonicalBodyEnd = statsService.indexOf("private MatchStats generateCanonicalMatchStats", canonicalApi);
+        String canonicalApiSource = statsService.substring(canonicalApi, canonicalBodyEnd);
+        assertThat(statsService).contains("CanonicalMatchEffectsInput input,")
+                .contains("CanonicalMatchStatsProfileV1.v1()");
+        assertThat(canonicalApiSource).doesNotContain("homePower", "awayPower", "PersonalizedTactic");
     }
 
     @Test

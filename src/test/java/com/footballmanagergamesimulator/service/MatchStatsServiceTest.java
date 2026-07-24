@@ -138,10 +138,12 @@ class MatchStatsServiceTest {
                 KnockoutPlanSplit.regularOnly(2, 1), 10, 20,
                 List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201), goal(2, 30, 10, 102)));
 
-        MatchStats first = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
-                5_000, 4_000, null, null);
-        MatchStats second = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
-                5_000, 4_000, null, null);
+        MatchStats first = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1);
+        MatchEngineConfig changedConfig = new MatchEngineConfig();
+        changedConfig.getStats().setShotsBase(100.0);
+        changedConfig.getStats().setPossessionBase(25.0);
+        ReflectionTestUtils.setField(service, "engineConfig", changedConfig);
+        MatchStats second = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1);
 
         assertEquals(first, second);
         assertEquals(2, first.getHomeGoals());
@@ -160,8 +162,7 @@ class MatchStatsServiceTest {
         CanonicalMatchEffectsInput extraTime = new CanonicalMatchEffectsInput(extraTimeDecision,
                 KnockoutPlanSplit.knockout(1, 1, 1, 0, null, null), 10, 20,
                 List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201), goal(2, 100, 10, 102)));
-        MatchStats extraTimeStats = service.generateAndSaveCanonicalMatchStats(extraTime, 1, 1, 1,
-                5_000, 4_000, null, null);
+        MatchStats extraTimeStats = service.generateAndSaveCanonicalMatchStats(extraTime, 1, 1, 1);
         assertEquals(2, extraTimeStats.getHomeGoals());
         assertEquals(1, extraTimeStats.getAwayGoals());
 
@@ -169,8 +170,7 @@ class MatchStatsServiceTest {
         CanonicalMatchEffectsInput shootout = new CanonicalMatchEffectsInput(shootoutDecision,
                 KnockoutPlanSplit.knockout(1, 1, 0, 0, 5, 4), 10, 20,
                 List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201)));
-        MatchStats shootoutStats = service.generateAndSaveCanonicalMatchStats(shootout, 1, 1, 1,
-                5_000, 4_000, null, null);
+        MatchStats shootoutStats = service.generateAndSaveCanonicalMatchStats(shootout, 1, 1, 1);
         assertEquals(1, shootoutStats.getHomeGoals());
         assertEquals(1, shootoutStats.getAwayGoals());
         assertTrue(shootoutStats.getHomeShots() >= shootoutStats.getHomeShotsOnTarget());
@@ -183,12 +183,46 @@ class MatchStatsServiceTest {
         CanonicalMatchEffectsInput input = new CanonicalMatchEffectsInput(decision,
                 KnockoutPlanSplit.regularOnly(0, 0), 10, 20, List.of());
 
-        MatchStats first = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
-                5_000, 4_000, null, null);
-        MatchStats second = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1,
-                5_000, 4_000, null, null);
+        MatchStats first = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1);
+        MatchStats second = service.generateAndSaveCanonicalMatchStats(input, 1, 1, 1);
         assertEquals(first, second);
         assertTrue(first.getHomeXg() >= 0 && first.getAwayXg() >= 0);
+    }
+
+    @Test
+    void canonicalPowersComeFromTheDecisionAndChangeTheProjection() {
+        KnockoutPlanSplit split = KnockoutPlanSplit.regularOnly(0, 0);
+        CanonicalMatchEffectsInput favoriteHome = new CanonicalMatchEffectsInput(
+                decision(0, 0, ScoreEngineKind.SCALAR_FALLBACK, null, null, 9_000, 1_000),
+                split, 10, 20, List.of());
+        CanonicalMatchEffectsInput favoriteAway = new CanonicalMatchEffectsInput(
+                decision(0, 0, ScoreEngineKind.SCALAR_FALLBACK, null, null, 1_000, 9_000),
+                split, 10, 20, List.of());
+
+        MatchStats homeFavorite = service.generateAndSaveCanonicalMatchStats(favoriteHome, 1, 1, 1);
+        MatchStats awayFavorite = service.generateAndSaveCanonicalMatchStats(favoriteAway, 1, 1, 1);
+
+        assertTrue(homeFavorite.getHomePossession() != awayFavorite.getHomePossession()
+                        || homeFavorite.getHomeShots() != awayFavorite.getHomeShots(),
+                "canonical projection must consume decision powers");
+    }
+
+    @Test
+    void legacyGeneratorStillUsesItsLiveConfigAndRandomSeam() {
+        service.setRandomForTesting(new Random(17L));
+        MatchStats baseline = service.generateMatchStats(
+                1, 1, 1, 1, 2, 0, 0, 5_000, 4_000, null, null);
+
+        MatchEngineConfig changedConfig = new MatchEngineConfig();
+        changedConfig.getStats().setShotsBase(30.0);
+        ReflectionTestUtils.setField(service, "engineConfig", changedConfig);
+        service.setRandomForTesting(new Random(17L));
+        MatchStats changed = service.generateMatchStats(
+                1, 1, 1, 1, 2, 0, 0, 5_000, 4_000, null, null);
+
+        assertTrue(baseline.getHomeShots() != changed.getHomeShots()
+                        || baseline.getAwayShots() != changed.getAwayShots(),
+                "legacy generation must continue to consume live Stats configuration");
     }
 
     private MatchStats simulate(long seed, int homeGoals, int awayGoals,
@@ -200,8 +234,14 @@ class MatchStatsServiceTest {
 
     private MatchScoringDecision decision(int home, int away, ScoreEngineKind engine,
                                           Double homeXg, Double awayXg) {
+        return decision(home, away, engine, homeXg, awayXg, 5_000, 4_000);
+    }
+
+    private MatchScoringDecision decision(int home, int away, ScoreEngineKind engine,
+                                          Double homeXg, Double awayXg,
+                                          double homePower, double awayPower) {
         return new MatchScoringDecision("CTIM:canonical", 7L, engine, engine.algorithmVersion(),
-                "a".repeat(64), "b".repeat(64), home, away, 5_000, 4_000, homeXg, awayXg);
+                "a".repeat(64), "b".repeat(64), home, away, homePower, awayPower, homeXg, awayXg);
     }
 
     private CanonicalMatchEffectEvent goal(int slot, int minute, long team, long player) {

@@ -949,8 +949,7 @@ public class MatchRoundSimulator {
                 if (durablePlan) {
                     matchStatsService.generateAndSaveCanonicalMatchStats(
                             canonicalEffectsInput,
-                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            teamPower1, teamPower2, team1Tactic, team2Tactic);
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId);
                 } else {
                     matchStatsService.generateAndSaveMatchStats(
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
