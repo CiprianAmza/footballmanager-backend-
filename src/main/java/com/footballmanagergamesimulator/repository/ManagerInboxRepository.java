@@ -15,4 +15,10 @@ public interface ManagerInboxRepository extends JpaRepository<ManagerInbox, Long
 
     long countByTeamIdAndIsReadFalse(long teamId);
 
+    List<ManagerInbox> findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(long profileId, List<String> audiences);
+
+    long countByRecipientProfileIdAndAudienceInAndIsReadFalse(long profileId, List<String> audiences);
+
+    boolean existsByRecipientProfileIdAndDeduplicationKey(Long recipientProfileId, String deduplicationKey);
+
 }

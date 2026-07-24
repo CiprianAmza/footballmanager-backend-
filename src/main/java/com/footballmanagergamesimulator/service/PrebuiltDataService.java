@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.flywaydb.core.Flyway;
 
 import javax.sql.DataSource;
 import java.io.File;
@@ -28,9 +29,18 @@ public class PrebuiltDataService {
     private String snapshotPath;
 
     private final DataSource dataSource;
+    private final Flyway flyway;
 
-    public PrebuiltDataService(DataSource dataSource) {
+    private final Object restoreLock = new Object();
+
+    public PrebuiltDataService(DataSource dataSource, Flyway flyway) {
         this.dataSource = dataSource;
+        this.flyway = flyway;
+    }
+
+    /** Lightweight constructor retained for pure snapshot transformation tests. */
+    public PrebuiltDataService(DataSource dataSource) {
+        this(dataSource, null);
     }
 
     /** Absolute snapshot file location (resolved against the working dir). */
@@ -54,13 +64,38 @@ public class PrebuiltDataService {
 
     /** Wipe the (empty, Hibernate-created) schema and rebuild it + its data from the snapshot file. */
     public void restore() {
-        String path = sqlLiteral(snapshotFile().getPath());
-        try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
-            st.execute("DROP ALL OBJECTS");
-            st.execute("RUNSCRIPT FROM " + path);
-            migrateSnapshotSchema(st);
-        } catch (SQLException e) {
-            throw new IllegalStateException("Failed to restore pre-built data snapshot from " + snapshotPath, e);
+        synchronized (restoreLock) {
+            String path = sqlLiteral(snapshotFile().getPath());
+            String snapshotVersion;
+            try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
+                st.execute("DROP ALL OBJECTS");
+                st.execute("RUNSCRIPT FROM " + path);
+                migrateSnapshotSchema(st);
+                snapshotVersion = snapshotFlywayVersion(c);
+            } catch (SQLException e) {
+                throw new IllegalStateException("Failed to restore pre-built data snapshot from " + snapshotPath, e);
+            }
+
+            if (flyway == null) return;
+            try {
+                flyway.migrate();
+                var current = flyway.info().current();
+                if (current == null || current.getVersion() == null) {
+                    throw new IllegalStateException("Flyway did not establish a current schema version");
+                }
+            } catch (RuntimeException e) {
+                throw new IllegalStateException("Post-restore Flyway migration failed (snapshot version "
+                        + snapshotVersion + ")", e);
+            }
+        }
+    }
+
+    private static String snapshotFlywayVersion(Connection connection) {
+        try (Statement statement = connection.createStatement();
+             var result = statement.executeQuery("SELECT MAX(VERSION) FROM flyway_schema_history")) {
+            return result.next() && result.getString(1) != null ? result.getString(1) : "unknown";
+        } catch (SQLException ignored) {
+            return "unknown";
         }
     }
 

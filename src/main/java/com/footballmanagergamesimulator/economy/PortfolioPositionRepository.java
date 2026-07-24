@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 public interface PortfolioPositionRepository extends JpaRepository<PortfolioPosition, Long> {
@@ -14,6 +15,7 @@ public interface PortfolioPositionRepository extends JpaRepository<PortfolioPosi
     List<PortfolioPosition> findAllByQuantityGreaterThan(long minimum);
     Optional<PortfolioPosition> findByAccountIdAndInstrumentId(long accountId, long instrumentId);
     List<PortfolioPosition> findAllByInstrumentIdAndQuantityGreaterThanOrderByAccountIdAsc(long instrumentId, long minimum);
+    List<PortfolioPosition> findAllByInstrumentIdInAndQuantityGreaterThanOrderByInstrumentIdAscAccountIdAsc(Collection<Long> instrumentIds, long minimum);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select position from PortfolioPosition position where position.accountId = :accountId "

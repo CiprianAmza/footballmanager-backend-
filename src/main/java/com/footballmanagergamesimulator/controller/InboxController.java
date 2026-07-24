@@ -3,6 +3,9 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.user.TeamAccessGuard;
+import com.footballmanagergamesimulator.user.CurrentUserService;
+import com.footballmanagergamesimulator.user.CareerRole;
+import com.footballmanagergamesimulator.person.PersonProfileRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +26,8 @@ public class InboxController {
 
     @Autowired
     TeamAccessGuard teamAccessGuard;
+    @Autowired CurrentUserService currentUserService;
+    @Autowired PersonProfileRepository profileRepository;
 
     /**
      * Resolve the effective teamId for inbox queries.
@@ -30,6 +35,70 @@ public class InboxController {
      */
     private Long resolveTeamId(long teamId, HttpServletRequest request) {
         return teamAccessGuard.resolveInboxTeamId(request, teamId);
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<List<ManagerInbox>> me(HttpServletRequest request) {
+        var user = currentUserService.getUserOrNull(request);
+        if (user == null) return ResponseEntity.status(401).build();
+        if (user.getCareerRole() == CareerRole.CHAIRMAN) {
+            return profileRepository.findByUserId(user.getId())
+                    .map(profile -> ResponseEntity.ok(managerInboxRepository
+                            .findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(profile.getId(), List.of("CHAIRMAN", "BOTH"))))
+                    .orElseGet(() -> ResponseEntity.ok(List.of()));
+        }
+        Long teamId = resolveTeamId(0, request);
+        return ResponseEntity.ok(teamId == null ? List.of() : managerInboxRepository.findAllByTeamIdOrderByIdDesc(teamId));
+    }
+
+    @GetMapping("/me/unreadCount")
+    public ResponseEntity<Long> meUnreadCount(HttpServletRequest request) {
+        var user = currentUserService.getUserOrNull(request);
+        if (user == null) return ResponseEntity.status(401).build();
+        if (user.getCareerRole() == CareerRole.CHAIRMAN) {
+            return ResponseEntity.ok(profileRepository.findByUserId(user.getId())
+                    .map(profile -> managerInboxRepository.countByRecipientProfileIdAndAudienceInAndIsReadFalse(
+                            profile.getId(), List.of("CHAIRMAN", "BOTH"))).orElse(0L));
+        }
+        Long teamId = resolveTeamId(0, request);
+        return ResponseEntity.ok(teamId == null ? 0L : managerInboxRepository.countByTeamIdAndIsReadFalse(teamId));
+    }
+
+    @PostMapping("/me/{messageId}/read")
+    public ResponseEntity<Map<String, Object>> meRead(@PathVariable long messageId, HttpServletRequest request) {
+        var user = currentUserService.getUserOrNull(request);
+        if (user == null) return ResponseEntity.status(401).build();
+        var message = managerInboxRepository.findById(messageId);
+        if (message.isEmpty()) return ResponseEntity.notFound().build();
+        if (user.getCareerRole() == CareerRole.CHAIRMAN) {
+            boolean allowed = profileRepository.findByUserId(user.getId()).map(profile ->
+                    java.util.Objects.equals(profile.getId(), message.get().getRecipientProfileId())
+                            && List.of("CHAIRMAN", "BOTH").contains(message.get().getAudience())).orElse(false);
+            if (!allowed) return ResponseEntity.status(403).body(Map.of("success", false));
+        } else if (!teamAccessGuard.canAccessInboxMessage(request, message.get())) {
+            return ResponseEntity.status(403).body(Map.of("success", false));
+        }
+        message.get().setRead(true);
+        managerInboxRepository.save(message.get());
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    @PostMapping("/me/markAllRead")
+    public ResponseEntity<Map<String, Object>> meMarkAllRead(HttpServletRequest request) {
+        var user = currentUserService.getUserOrNull(request);
+        if (user == null) return ResponseEntity.status(401).build();
+        List<ManagerInbox> unread;
+        if (user.getCareerRole() == CareerRole.CHAIRMAN) {
+            unread = profileRepository.findByUserId(user.getId()).map(profile -> managerInboxRepository
+                    .findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(profile.getId(), List.of("CHAIRMAN", "BOTH")))
+                    .orElse(List.of()).stream().filter(m -> !m.isRead()).toList();
+        } else {
+            Long teamId = resolveTeamId(0, request);
+            unread = teamId == null ? List.of() : managerInboxRepository.findAllByTeamIdAndIsReadFalse(teamId);
+        }
+        unread.forEach(message -> message.setRead(true));
+        managerInboxRepository.saveAll(unread);
+        return ResponseEntity.ok(Map.of("success", true, "marked", unread.size()));
     }
 
     @GetMapping("/messages/{teamId}")

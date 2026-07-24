@@ -25,6 +25,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 @Service
 public class ClubCapTableService {
@@ -104,6 +107,35 @@ public class ClubCapTableService {
 
     public synchronized CapTable ensureMigrated(long teamId) {
         return isolatedTransaction.execute(status -> ensureMigratedInTransaction(teamId));
+    }
+
+    /** Read-only catalog path: all cap-table rows are fetched in bounded batches. */
+    @Transactional(readOnly = true)
+    public Map<Long, CapTable> viewBatch(Collection<Long> teamIds) {
+        if (teamIds.isEmpty()) return Map.of();
+        Map<Long, MarketInstrument> instruments = new HashMap<>();
+        instrumentRepository.findAllByTeamIdInAndInstrumentTypeAndActiveTrue(teamIds, MarketInstrumentType.CLUB)
+                .forEach(value -> instruments.put(value.getTeamId(), value));
+        Map<Long, ClubCapTableState> states = new HashMap<>();
+        stateRepository.findAllByTeamIdIn(teamIds).forEach(value -> states.put(value.getTeamId(), value));
+        Map<Long, List<PortfolioPosition>> positions = new HashMap<>();
+        List<Long> instrumentIds = instruments.values().stream().map(MarketInstrument::getId).toList();
+        if (!instrumentIds.isEmpty()) positionRepository
+                .findAllByInstrumentIdInAndQuantityGreaterThanOrderByInstrumentIdAscAccountIdAsc(instrumentIds, 0)
+                .forEach(value -> positions.computeIfAbsent(value.getInstrumentId(), ignored -> new ArrayList<>()).add(value));
+        Set<Long> accountIds = new HashSet<>();
+        positions.values().forEach(values -> values.forEach(value -> accountIds.add(value.getAccountId())));
+        Map<Long, PersonalAccount> accounts = new HashMap<>();
+        accountRepository.findAllById(accountIds).forEach(value -> accounts.put(value.getId(), value));
+        Map<Long, PersonProfile> profiles = new HashMap<>();
+        profileRepository.findAllById(accounts.values().stream().map(PersonalAccount::getProfileId).toList())
+                .forEach(value -> profiles.put(value.getId(), value));
+        Map<Long, CapTable> result = new HashMap<>();
+        instruments.forEach((teamId, instrument) -> {
+            ClubCapTableState state = states.get(teamId);
+            if (state != null) result.put(teamId, view(instrument, state, positions.getOrDefault(instrument.getId(), List.of()), accounts, profiles));
+        });
+        return result;
     }
 
     private CapTable ensureMigratedInTransaction(long teamId) {
@@ -294,6 +326,20 @@ public class ClubCapTableService {
         if (add(held, instrument.getAvailableSupply()) != instrument.getTotalSupply()) {
             throw new EconomyConflictException("SUPPLY_CONSERVATION_FAILED", "Club cap table does not reconcile");
         }
+        return view(instrument, state, positions, accounts, profiles);
+    }
+
+    private CapTable view(MarketInstrument instrument, ClubCapTableState state,
+                          List<PortfolioPosition> positions, Map<Long, PersonalAccount> accounts,
+                          Map<Long, PersonProfile> profiles) {
+        long held = positions.stream().mapToLong(PortfolioPosition::getQuantity).sum();
+        List<Holding> holdings = positions.stream().sorted(Comparator.comparingLong(PortfolioPosition::getAccountId)).map(position -> {
+            PersonalAccount account = accounts.get(position.getAccountId());
+            PersonProfile profile = account == null ? null : profiles.get(account.getProfileId());
+            return new Holding(position.getAccountId(), position.getProfileId(), profile == null ? "Unknown" : profile.getDisplayName(),
+                    account != null && account.getOwnerUserId() != null, position.getQuantity(), position.getTotalCostBasis(),
+                    state.getControllingAccountId() != null && state.getControllingAccountId() == position.getAccountId());
+        }).toList();
         return new CapTable(state.getTeamId(), instrument.getId(), instrument.getTotalSupply(),
                 instrument.getAvailableSupply(), controlThreshold(), state.getControllingAccountId(),
                 state.getVersion(), List.copyOf(holdings));

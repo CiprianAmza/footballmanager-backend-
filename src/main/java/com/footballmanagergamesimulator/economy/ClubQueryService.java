@@ -48,14 +48,16 @@ public class ClubQueryService {
 
     @Transactional
     public List<ClubDtos.ClubSummary> clubs(ClubCatalogScope scope, long principalProfileId) {
-        capTableService.ensureAllMigrated();
         Long principalAccount = accountRepository.findByProfileId(principalProfileId)
                 .map(PersonalAccount::getId).orElse(null);
+        List<Team> teams = teamRepository.findAll().stream().sorted(java.util.Comparator.comparingLong(Team::getId)).toList();
         java.util.Map<Long, String> competitionNames = competitionRepository.findAll().stream()
                 .collect(java.util.stream.Collectors.toMap(Competition::getId, Competition::getName));
-        return teamRepository.findAll().stream().sorted(java.util.Comparator.comparingLong(Team::getId))
+        java.util.Map<Long, ClubCapTableService.CapTable> capTables = capTableService.viewBatch(teams.stream().map(Team::getId).toList());
+        return teams.stream()
                 .map(team -> {
-                    ClubCapTableService.CapTable cap = capTableService.view(team.getId());
+                    ClubCapTableService.CapTable cap = capTables.get(team.getId());
+                    if (cap == null) return null;
                     ClubCapTableService.Holding controller = controller(cap);
                     ClubCapTableService.Holding principal = principal(cap, principalAccount);
                     long principalShares = principal == null ? 0 : principal.quantity();

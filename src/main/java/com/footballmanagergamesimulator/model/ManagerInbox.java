@@ -29,4 +29,11 @@ public class ManagerInbox {
 
     private long createdAt;
 
+    private Long recipientProfileId;
+
+    @Column(nullable = false, length = 16)
+    private String audience = "MANAGER";
+
+    private String deduplicationKey;
+
 }

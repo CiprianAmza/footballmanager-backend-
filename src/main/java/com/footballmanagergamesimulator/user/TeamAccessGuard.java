@@ -4,12 +4,16 @@ import com.footballmanagergamesimulator.model.ManagerInbox;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.footballmanagergamesimulator.person.PersonProfileRepository;
+import java.util.Objects;
 
 @Service
 public class TeamAccessGuard {
 
     @Autowired
     private CurrentUserService currentUserService;
+    @Autowired
+    private PersonProfileRepository profileRepository;
 
     public boolean canAccessTeam(HttpServletRequest request, long requestedTeamId) {
         return canAccessTeam(currentUserService.getUserOrNull(request), requestedTeamId);
@@ -58,6 +62,12 @@ public class TeamAccessGuard {
     boolean canAccessInboxMessage(User user, ManagerInbox message) {
         if (message == null) {
             return false;
+        }
+        if (user != null && user.getCareerRole() == CareerRole.CHAIRMAN) {
+            return profileRepository.findByUserId(user.getId()).map(profile ->
+                    Objects.equals(profile.getId(), message.getRecipientProfileId())
+                            && ("CHAIRMAN".equals(message.getAudience()) || "BOTH".equals(message.getAudience())))
+                    .orElse(false);
         }
         Long accessibleTeamId = resolveInboxTeamId(user, message.getTeamId());
         return accessibleTeamId != null && accessibleTeamId == message.getTeamId();
