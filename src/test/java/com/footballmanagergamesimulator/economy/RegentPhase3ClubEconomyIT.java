@@ -239,13 +239,16 @@ class RegentPhase3ClubEconomyIT {
         TakeoverQuote firstQuote = takeoverService.quote(first, raceTeam.getId(), "race-quote-a").quote();
         TakeoverQuote secondQuote = takeoverService.quote(second, raceTeam.getId(), "race-quote-b").quote();
         CountDownLatch start = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        var pool = Executors.newFixedThreadPool(2);
+        try {
             Future<String> left = pool.submit(() -> executeAfter(start, first, raceTeam, firstQuote, "race-a"));
             Future<String> right = pool.submit(() -> executeAfter(start, second, raceTeam, secondQuote, "race-b"));
             start.countDown();
             List<String> outcomes = List.of(left.get(30, TimeUnit.SECONDS), right.get(30, TimeUnit.SECONDS));
             assertThat(outcomes).contains("OK");
             assertThat(outcomes.stream().filter("OK"::equals).count()).isOne();
+        } finally {
+            pool.shutdownNow();
         }
         ClubCapTableService.CapTable raced = capTableService.ensureMigrated(raceTeam.getId());
         assertThat(raced.holdings()).singleElement().satisfies(value -> {
@@ -350,12 +353,15 @@ class RegentPhase3ClubEconomyIT {
         locked.setTotalFinances(1_500);
         teamRepository.saveAndFlush(locked);
         CountDownLatch start = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        var pool = Executors.newFixedThreadPool(2);
+        try {
             Future<String> first = pool.submit(() -> withdrawAfter(start, owner, team, "concurrent-a"));
             Future<String> second = pool.submit(() -> withdrawAfter(start, owner, team, "concurrent-b"));
             start.countDown();
             assertThat(List.of(first.get(30, TimeUnit.SECONDS), second.get(30, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder("OK", "INSUFFICIENT_DISTRIBUTABLE_CASH");
+        } finally {
+            pool.shutdownNow();
         }
         accountingService.assertReconciled(account.getId());
     }

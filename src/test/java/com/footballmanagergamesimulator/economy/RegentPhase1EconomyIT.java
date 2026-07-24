@@ -158,12 +158,15 @@ class RegentPhase1EconomyIT {
                 .filter(item -> item.getCode().equals("APARTMENT_1_ROOM")).findFirst().orElseThrow();
 
         CountDownLatch start = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        var pool = Executors.newFixedThreadPool(2);
+        try {
             Future<Boolean> first = pool.submit(() -> purchaseAfter(start, profile, luxuryCar.getId(), "race-a"));
             Future<Boolean> second = pool.submit(() -> purchaseAfter(start, profile, luxuryCar.getId(), "race-b"));
             start.countDown();
             assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder(true, false);
+        } finally {
+            pool.shutdownNow();
         }
 
         PersonalAccount account = accountRepository.findByProfileId(profile.getId()).orElseThrow();

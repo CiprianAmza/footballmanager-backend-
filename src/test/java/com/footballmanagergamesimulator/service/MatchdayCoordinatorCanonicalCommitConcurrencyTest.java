@@ -131,7 +131,8 @@ class MatchdayCoordinatorCanonicalCommitConcurrencyTest {
         TestTransaction.end();
 
         CountDownLatch start = new CountDownLatch(1);
-        try (var executor = Executors.newFixedThreadPool(2)) {
+        var executor = Executors.newFixedThreadPool(2);
+        try {
             var one = executor.submit(() -> {
                 start.await();
                 return coordinator.finalizeInteractiveLiveMatch(LIVE_KEY);
@@ -147,6 +148,8 @@ class MatchdayCoordinatorCanonicalCommitConcurrencyTest {
             long already = List.of(first, second).stream()
                     .filter(result -> Boolean.TRUE.equals(result.get("alreadyCommitted"))).count();
             assertEquals(1, already, "exactly one transaction loses the race after durable commit");
+        } finally {
+            executor.shutdownNow();
         }
 
         assertEquals(MatchPlan.Status.COMMITTED,

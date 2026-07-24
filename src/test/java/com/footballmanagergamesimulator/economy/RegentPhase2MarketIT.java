@@ -145,12 +145,15 @@ class RegentPhase2MarketIT {
         MarketInstrument lastShare = instrument("RACE-SUPPLY", 100, 1);
 
         CountDownLatch shareStart = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        var pool = Executors.newFixedThreadPool(2);
+        try {
             Future<String> left = pool.submit(() -> tradeAfter(shareStart, first, lastShare, "share-a"));
             Future<String> right = pool.submit(() -> tradeAfter(shareStart, second, lastShare, "share-b"));
             shareStart.countDown();
             assertThat(List.of(left.get(20, TimeUnit.SECONDS), right.get(20, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder("OK", "INSUFFICIENT_SUPPLY");
+        } finally {
+            pool.shutdownNow();
         }
         assertSupplyConserved(lastShare.getId());
 
@@ -158,12 +161,15 @@ class RegentPhase2MarketIT {
         MarketInstrument cashA = instrument("RACE-CASH-A", 1_000_000L, 1);
         MarketInstrument cashB = instrument("RACE-CASH-B", 1_000_000L, 1);
         CountDownLatch cashStart = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        pool = Executors.newFixedThreadPool(2);
+        try {
             Future<String> left = pool.submit(() -> tradeAfter(cashStart, cashOwner, cashA, "cash-a"));
             Future<String> right = pool.submit(() -> tradeAfter(cashStart, cashOwner, cashB, "cash-b"));
             cashStart.countDown();
             assertThat(List.of(left.get(20, TimeUnit.SECONDS), right.get(20, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder("OK", "INSUFFICIENT_FUNDS");
+        } finally {
+            pool.shutdownNow();
         }
         PersonalAccount account = accountRepository.findByProfileId(cashOwner.getId()).orElseThrow();
         assertThat(account.getCashBalance()).isZero();

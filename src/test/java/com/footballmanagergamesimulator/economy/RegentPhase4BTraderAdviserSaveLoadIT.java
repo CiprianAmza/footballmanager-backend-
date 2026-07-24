@@ -134,7 +134,8 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
         User hireUser = register("adviser-race-hire", CareerRole.CHAIRMAN, 100_000L);
         PersonProfile hireProfile = profileService.requireForUser(hireUser);
         CountDownLatch hireStart = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        var pool = Executors.newFixedThreadPool(2);
+        try {
             Future<String> first = pool.submit(() -> hireAfter(
                     hireStart, hireProfile, hireUser.getId(), "race-hire-a"));
             Future<String> second = pool.submit(() -> hireAfter(
@@ -142,6 +143,8 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
             hireStart.countDown();
             assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder("OK", "ADVISER_ALREADY_HIRED");
+        } finally {
+            pool.shutdownNow();
         }
         List<TraderAdviserContract> hireContracts = contractRepository.findAll().stream()
                 .filter(value -> value.getProfileId() == hireProfile.getId()).toList();
@@ -152,7 +155,8 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
         CountDownLatch adviceStart = new CountDownLatch(1);
         TraderAdviserService.AdviceResult left;
         TraderAdviserService.AdviceResult right;
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        pool = Executors.newFixedThreadPool(2);
+        try {
             Future<TraderAdviserService.AdviceResult> first = pool.submit(() -> adviceAfter(
                     adviceStart, hireProfile, hireUser.getId(), instrument.getId()));
             Future<TraderAdviserService.AdviceResult> second = pool.submit(() -> adviceAfter(
@@ -160,6 +164,8 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
             adviceStart.countDown();
             left = first.get(20, TimeUnit.SECONDS);
             right = second.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
         }
         assertThat(List.of(left.replay(), right.replay())).containsExactlyInAnyOrder(false, true);
         assertThat(fingerprint(left.recommendation())).isEqualTo(fingerprint(right.recommendation()));
@@ -173,12 +179,15 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
                 payrollProfile, payrollUser.getId(), "STRATEGIST", 1, 4, "payroll-hire").contract();
         PersonalAccount payrollAccount = accountRepository.findByProfileId(payrollProfile.getId()).orElseThrow();
         CountDownLatch payrollStart = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        pool = Executors.newFixedThreadPool(2);
+        try {
             Future<Void> first = pool.submit(() -> payrollAfter(payrollStart));
             Future<Void> second = pool.submit(() -> payrollAfter(payrollStart));
             payrollStart.countDown();
             first.get(20, TimeUnit.SECONDS);
             second.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
         }
         List<PersonalLedgerEntry> payrollEntries = ledgerRepository
                 .findAllByAccountIdOrderByCreatedAtAscIdAsc(payrollAccount.getId()).stream()
