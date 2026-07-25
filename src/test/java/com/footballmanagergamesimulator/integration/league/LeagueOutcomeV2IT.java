@@ -1,90 +1,369 @@
 package com.footballmanagergamesimulator.integration.league;
 
-import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoringFingerprintService;
+import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScore;
+import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScoringService;
+import com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot;
+import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
-import com.footballmanagergamesimulator.config.MatchEngineConfig;
-import com.footballmanagergamesimulator.controller.CompetitionController;
-import com.footballmanagergamesimulator.matchplan.MatchPlan;
-import com.footballmanagergamesimulator.matchplan.MatchPlanService;
-import com.footballmanagergamesimulator.matchplan.ScoreEngineKind;
+import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.model.Competition;
-import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
+import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
-import com.footballmanagergamesimulator.repository.MatchPlanRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
+import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
+import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.testutil.MarkdownTable;
+import com.footballmanagergamesimulator.testutil.OutcomeTestSupport;
+import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Production-path league outcome proof for the canonical Compartment V1 scorer.
+ * Long-run league outcome report using the same presentation as LeagueOutcomeIT,
+ * but with every match scored by the production Compartment V1 runtime scorer.
  *
- * <p>Unlike {@code LeagueOutcomeIT}, this test does not call the scalar
- * {@code TournamentEngine} abstraction. It enters through the real production
- * round simulator, then verifies the persisted scoring decision, xG and
- * configuration fingerprint for every fixture.
+ * <p>This deliberately does not call TournamentEngine or MatchSimulationService.
+ * It builds the same deterministic round-robin campaign in the test harness and
+ * sends every fixture through CanonicalRuntimeScoringService, using the current
+ * player skills, fitness, morale, tactics and compartment configuration.</p>
  */
 @SpringBootTest
 @TestPropertySource(properties = {
         "match.engine.compartment.enabled=true",
-        "match.engine.match-plan.enabled=true",
         "bootstrap.seed=20260528"
 })
-@DisplayName("League outcome V2 — canonical Compartment V1 production scorer")
+@DisplayName("League outcome V2 — 200 seasons with canonical Compartment V1 scoring")
 class LeagueOutcomeV2IT {
 
-    @Autowired private CompetitionController competitionController;
+    private static final int SEASONS = 200;
+    private static final long BASE_SEED = 20260528L;
+    private static final List<PlayerPosition> FOUR_FOUR_TWO = List.of(
+            PlayerPosition.GK, PlayerPosition.DC, PlayerPosition.DC,
+            PlayerPosition.DL, PlayerPosition.DR, PlayerPosition.MC,
+            PlayerPosition.MC, PlayerPosition.AML, PlayerPosition.AMR,
+            PlayerPosition.ST, PlayerPosition.ST);
+
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoMatchRepository matchRepository;
-    @Autowired private MatchPlanRepository matchPlanRepository;
+    @Autowired private HumanRepository humanRepository;
+    @Autowired private PlayerSkillsRepository playerSkillsRepository;
+    @Autowired private PersonalizedTacticRepository tacticRepository;
+    @Autowired private CompetitionFormatConfig competitionFormat;
     @Autowired private CompartmentEngineConfig compartmentConfig;
-    @Autowired private MatchEngineConfig matchEngineConfig;
-    @Autowired private CanonicalScoringFingerprintService fingerprintService;
+    @Autowired private TeamRepository teamRepository;
+    @Autowired private CanonicalRuntimeScoringService scoringService;
+    @Autowired private OutcomeTestSupport support;
 
     @Test
-    @DisplayName("league round persists Compartment V1 decisions with current weights and xG")
-    void leagueRoundUsesCanonicalProductionScorer() {
+    @DisplayName("200-season report uses the canonical production scorer and current values")
+    void simulateLeagueAndReportWithCanonicalScorer() throws Exception {
         Competition league = firstLeague();
-        List<CompetitionTeamInfoMatch> fixtures = matchRepository
-                .findAllByCompetitionIdAndRoundAndSeasonNumber(league.getId(), 1L, "1");
-        assertThat(fixtures).as("round-1 fixtures should exist").isNotEmpty();
+        List<TeamSetupV2> teams = loadTeams(league.getId());
+        assertThat(teams).as("league must have teams").isNotEmpty();
         assertThat(compartmentConfig.isEnabled()).isTrue();
 
-        competitionController.simulateRound(String.valueOf(league.getId()), "1");
+        AggregatedSimulation aggregate = runAggregateSimulation(league.getId(), teams);
+        String report = buildReport(league, teams, aggregate);
+        Path reportPath = Path.of("target", "league-outcome-v2-" + league.getId() + ".md");
+        Files.writeString(reportPath, report);
 
-        String expectedConfigFingerprint = fingerprintService
-                .configFingerprint(compartmentConfig, matchEngineConfig);
-        int goalCap = compartmentConfig.getProbability().getGoalCap();
+        System.out.println();
+        System.out.println(report);
+        System.out.println("Report written to: " + reportPath.toAbsolutePath());
 
-        for (CompetitionTeamInfoMatch fixture : fixtures) {
-            String fixtureKey = MatchPlanService.competitionFixtureKey(fixture.getId());
-            MatchPlan plan = matchPlanRepository.findByFixtureKey(fixtureKey).orElseThrow(
-                    () -> new AssertionError("missing MatchPlan for " + fixtureKey));
-
-            assertThat(plan.getStatus()).isEqualTo(MatchPlan.Status.COMMITTED);
-            assertThat(plan.getScoreEngine()).isEqualTo(ScoreEngineKind.COMPARTMENT_V1);
-            assertThat(plan.getScoreAlgorithmVersion())
-                    .isEqualTo(ScoreEngineKind.COMPARTMENT_V1.algorithmVersion());
-            assertThat(plan.getScoreConfigFingerprint())
-                    .isEqualTo(expectedConfigFingerprint);
-            assertThat(plan.getScoreInputFingerprint()).matches("[0-9a-f]{64}");
-            assertThat(plan.getHomeXg()).isNotNull().isGreaterThanOrEqualTo(0.0);
-            assertThat(plan.getAwayXg()).isNotNull().isGreaterThanOrEqualTo(0.0);
-            assertThat(plan.getHomeScore90()).isBetween(0, goalCap);
-            assertThat(plan.getAwayScore90()).isBetween(0, goalCap);
-        }
+        assertThat(aggregate.matchesScored).isEqualTo(SEASONS * teams.size()
+                * (teams.size() - 1) * competitionFormat.get(1).encountersFor(teams.size()) / 2);
+        assertThat(aggregate.canonicalFailures).isZero();
     }
 
     private Competition firstLeague() {
         return competitionRepository.findAll().stream()
                 .filter(c -> c.getTypeId() == 1)
-                .min((a, b) -> Long.compare(a.getId(), b.getId()))
+                .min(Comparator.comparingLong(Competition::getId))
                 .orElseThrow(() -> new IllegalStateException("no league competition in bootstrap world"));
     }
+
+    private List<TeamSetupV2> loadTeams(long competitionId) {
+        List<Long> teamIds = matchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(competitionId, 1L, "1")
+                .stream()
+                .flatMap(match -> java.util.stream.Stream.of(match.getTeam1Id(), match.getTeam2Id()))
+                .filter(id -> id > 0)
+                .distinct()
+                .sorted()
+                .toList();
+        List<TeamSetupV2> result = new ArrayList<>();
+        for (long teamId : teamIds) {
+            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
+                    .stream()
+                    .filter(player -> !player.isRetired())
+                    .sorted(Comparator.comparingDouble(Human::getRating)
+                            .reversed().thenComparingLong(Human::getId))
+                    .toList();
+            assertThat(players).as("team %s should have a playable squad", teamId).hasSizeGreaterThanOrEqualTo(11);
+            List<Human> starters = players.subList(0, 11);
+            Map<Long, PlayerSkills> skills = playerSkillsRepository.findAllByPlayerIdIn(
+                            starters.stream().map(Human::getId).toList())
+                    .stream().collect(java.util.stream.Collectors.toMap(PlayerSkills::getPlayerId, value -> value));
+            assertThat(skills).as("team %s should have skills for every starter", teamId)
+                    .hasSize(11);
+
+            List<RuntimeLineupSlot> slots = new ArrayList<>();
+            Map<PlayerPosition, Integer> occurrences = new HashMap<>();
+            for (int index = 0; index < starters.size(); index++) {
+                Human player = starters.get(index);
+                PlayerPosition position = FOUR_FOUR_TWO.get(index);
+                int occurrence = occurrences.merge(position, 1, Integer::sum);
+                slots.add(new RuntimeLineupSlot(player, skills.get(player.getId()), formationData(index, player.getId()),
+                        position, occurrence));
+            }
+            PersonalizedTactic tactic = tacticRepository.findPersonalizedTacticByTeamId(teamId)
+                    .orElseGet(LeagueOutcomeV2IT::defaultTactic);
+            result.add(new TeamSetupV2(teamId, teamName(teamId),
+                    support.computeTeamPower(teamId), tactic, List.copyOf(slots)));
+        }
+        return result;
+    }
+
+    private String teamName(long teamId) {
+        String name = teamRepository.findNameById(teamId);
+        return name == null ? "Team#" + teamId : name;
+    }
+
+    private static FormationData formationData(int positionIndex, long playerId) {
+        FormationData data = new FormationData();
+        data.setPositionIndex(positionIndex);
+        data.setPlayerId(playerId);
+        return data;
+    }
+
+    private static PersonalizedTactic defaultTactic() {
+        PersonalizedTactic tactic = new PersonalizedTactic();
+        tactic.setMentality("Balanced");
+        tactic.setTempo("Standard");
+        tactic.setPassingType("Normal");
+        tactic.setDefensiveLine("Standard");
+        tactic.setPressing("Standard");
+        tactic.setWidth("Balanced");
+        return tactic;
+    }
+
+    private AggregatedSimulation runAggregateSimulation(long competitionId, List<TeamSetupV2> teams) {
+        int n = teams.size();
+        int encounters = competitionFormat.get(1).encountersFor(n);
+        long[][] positionCounts = new long[n][n];
+        long[] totalPoints = new long[n];
+        long[] totalGF = new long[n];
+        long[] totalGA = new long[n];
+        long[] totalWins = new long[n];
+        long[] totalDraws = new long[n];
+        long[] totalLosses = new long[n];
+        int[] championships = new int[n];
+        int matchesScored = 0;
+        int canonicalFailures = 0;
+
+        for (int season = 1; season <= SEASONS; season++) {
+            int[] points = new int[n];
+            int[] goalsFor = new int[n];
+            int[] goalsAgainst = new int[n];
+            int[] wins = new int[n];
+            int[] draws = new int[n];
+            int[] losses = new int[n];
+            int round = 0;
+            for (int meeting = 0; meeting < encounters; meeting++) {
+                for (int i = 0; i < n; i++) {
+                    for (int j = i + 1; j < n; j++) {
+                        TeamSetupV2 home = meeting % 2 == 0 ? teams.get(i) : teams.get(j);
+                        TeamSetupV2 away = meeting % 2 == 0 ? teams.get(j) : teams.get(i);
+                        String fixtureKey = "LEAGUE_V2:" + competitionId + ":" + season + ":" + round++
+                                + ":" + home.id + ":" + away.id;
+                        var request = CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
+                                fixtureKey, competitionId, season, round, home.id, away.id,
+                                home.tactic, away.tactic, home.slots, away.slots);
+                        var scored = scoringService.scoreSafely(() -> request);
+                        if (scored.isEmpty()) {
+                            canonicalFailures++;
+                            continue;
+                        }
+                        CanonicalRuntimeScore score = scored.orElseThrow();
+                        applyResult(homeIndex(home, teams), awayIndex(away, teams), score.homeGoals(),
+                                score.awayGoals(), points, goalsFor, goalsAgainst, wins, draws, losses);
+                        matchesScored++;
+                    }
+                }
+            }
+            Integer[] order = new Integer[n];
+            for (int i = 0; i < n; i++) order[i] = i;
+            java.util.Arrays.sort(order, (a, b) -> {
+                if (points[a] != points[b]) return Integer.compare(points[b], points[a]);
+                int gdA = goalsFor[a] - goalsAgainst[a];
+                int gdB = goalsFor[b] - goalsAgainst[b];
+                if (gdA != gdB) return Integer.compare(gdB, gdA);
+                if (goalsFor[a] != goalsFor[b]) return Integer.compare(goalsFor[b], goalsFor[a]);
+                return teams.get(a).name.compareTo(teams.get(b).name);
+            });
+            for (int position = 0; position < n; position++) {
+                int team = order[position];
+                positionCounts[team][position]++;
+                totalPoints[team] += points[team];
+                totalGF[team] += goalsFor[team];
+                totalGA[team] += goalsAgainst[team];
+                totalWins[team] += wins[team];
+                totalDraws[team] += draws[team];
+                totalLosses[team] += losses[team];
+            }
+            championships[order[0]]++;
+        }
+        return new AggregatedSimulation(positionCounts, totalPoints, totalGF, totalGA,
+                totalWins, totalDraws, totalLosses, championships, matchesScored, canonicalFailures);
+    }
+
+    private static int homeIndex(TeamSetupV2 team, List<TeamSetupV2> teams) {
+        return index(team, teams);
+    }
+
+    private static int awayIndex(TeamSetupV2 team, List<TeamSetupV2> teams) {
+        return index(team, teams);
+    }
+
+    private static int index(TeamSetupV2 team, List<TeamSetupV2> teams) {
+        for (int i = 0; i < teams.size(); i++) if (teams.get(i).id == team.id) return i;
+        throw new IllegalArgumentException("team not in league: " + team.id);
+    }
+
+    private static void applyResult(int home, int away, int homeGoals, int awayGoals,
+                                    int[] points, int[] goalsFor, int[] goalsAgainst,
+                                    int[] wins, int[] draws, int[] losses) {
+        goalsFor[home] += homeGoals;
+        goalsAgainst[home] += awayGoals;
+        goalsFor[away] += awayGoals;
+        goalsAgainst[away] += homeGoals;
+        if (homeGoals > awayGoals) { points[home] += 3; wins[home]++; losses[away]++; }
+        else if (homeGoals < awayGoals) { points[away] += 3; wins[away]++; losses[home]++; }
+        else { points[home]++; points[away]++; draws[home]++; draws[away]++; }
+    }
+
+    private String buildReport(Competition league, List<TeamSetupV2> teams,
+                               AggregatedSimulation aggregate) {
+        int n = teams.size();
+        StringBuilder report = new StringBuilder();
+        report.append("# League Outcome Simulation\n\n")
+                .append("Run on ").append(java.time.LocalDateTime.now()).append('\n')
+                .append("Competition: id=").append(league.getId()).append(", season=1\n")
+                .append("Seasons simulated: ").append(SEASONS).append('\n')
+                .append("Teams: ").append(n).append('\n')
+                .append("Engine: COMPARTMENT_V1 (compartment-score-1)\n")
+                .append("Config fingerprint: ").append("current Spring configuration\n")
+                .append("Seed: ").append(BASE_SEED).append(" (deterministic — same seed → same numbers)\n\n")
+                .append("## Available Leagues\n\n")
+                .append("Run with `-Dleague.id=X` to simulate a different one.\n\n")
+                .append("`canonical production scorer`\n\n")
+                .append("## Average Standings After ").append(SEASONS).append(" Seasons\n\n")
+                .append("Sorted by mean finishing position. Each team plays ")
+                .append((n - 1) * competitionFormatValue(n)).append(" matches per season.\n\n");
+
+        double[] meanPos = new double[n];
+        for (int team = 0; team < n; team++) {
+            for (int position = 0; position < n; position++) {
+                meanPos[team] += (position + 1) * aggregate.positionCounts[team][position];
+            }
+            meanPos[team] /= SEASONS;
+        }
+        Integer[] order = new Integer[n];
+        for (int i = 0; i < n; i++) order[i] = i;
+        java.util.Arrays.sort(order, Comparator.comparingDouble(i -> meanPos[i]));
+        MarkdownTable standings = new MarkdownTable(
+                List.of("Rank", "Team", "Power", "Mean Pos", "Mean Pts", "Avg GF", "Avg GA", "W/D/L", "Champion"),
+                List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
+        for (int rank = 0; rank < n; rank++) {
+            int team = order[rank];
+            standings.addRow(String.valueOf(rank + 1), teams.get(team).name,
+                    String.format("%.0f", teams.get(team).power), String.format("%.1f", meanPos[team]),
+                    String.format("%.1f", aggregate.totalPoints[team] / (double) SEASONS),
+                    String.format("%.1f", aggregate.totalGF[team] / (double) SEASONS),
+                    String.format("%.1f", aggregate.totalGA[team] / (double) SEASONS),
+                    String.format("%.1f / %.1f / %.1f", aggregate.totalWins[team] / (double) SEASONS,
+                            aggregate.totalDraws[team] / (double) SEASONS, aggregate.totalLosses[team] / (double) SEASONS),
+                    String.format("%.1f%%", aggregate.championships[team] * 100.0 / SEASONS));
+        }
+        report.append(standings.render()).append('\n');
+
+        report.append("## Finishing Bands (% of seasons each team finished within band)\n\n");
+        MarkdownTable bands = new MarkdownTable(List.of("Team", "1st (%)", "Top 4 (%)", "Top half (%)", "Bottom 4 (%)", "Last (%)"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
+        for (int team : order) {
+            bands.addRow(teams.get(team).name,
+                    percentage(aggregate.positionCounts[team][0]),
+                    percentage(sumPositions(aggregate.positionCounts[team], 0, Math.min(4, n))),
+                    percentage(sumPositions(aggregate.positionCounts[team], 0, n / 2)),
+                    percentage(sumPositions(aggregate.positionCounts[team], Math.max(0, n - 4), n)),
+                    percentage(aggregate.positionCounts[team][n - 1]));
+        }
+        report.append(bands.render()).append('\n');
+
+        report.append("## Position Heatmap (% of seasons at each finish position)\n\n")
+                .append("Rows = team (sorted by mean position). Columns = final position.\n\n");
+        List<String> headers = new ArrayList<>();
+        headers.add("Team \\ Pos");
+        for (int position = 1; position <= n; position++) headers.add(String.valueOf(position));
+        List<MarkdownTable.Align> aligns = new ArrayList<>();
+        aligns.add(MarkdownTable.Align.LEFT);
+        for (int i = 0; i < n; i++) aligns.add(MarkdownTable.Align.RIGHT);
+        MarkdownTable heatmap = new MarkdownTable(headers, aligns);
+        for (int team : order) {
+            List<String> row = new ArrayList<>();
+            row.add(teams.get(team).name);
+            for (int position = 0; position < n; position++) row.add(percentage(aggregate.positionCounts[team][position]));
+            heatmap.addRow(row.toArray(String[]::new));
+        }
+        report.append(heatmap.render()).append('\n')
+                .append("## How to read this report\n\n")
+                .append("- **Power** is the legacy display metric only; match scores use the canonical compartment inputs.\n")
+                .append("- **COMPARTMENT_V1** uses the current player skills, fitness, morale, tactic axes and configured weights.\n")
+                .append("- **Champion %** sums to 100% across the league.\n");
+        return report.toString();
+    }
+
+    private int competitionFormatValue(int teamCount) {
+        return competitionFormat.get(1).encountersFor(teamCount);
+    }
+
+    private static long sumPositions(long[] values, int from, int to) {
+        long total = 0;
+        for (int i = from; i < to; i++) total += values[i];
+        return total;
+    }
+
+    private static String percentage(long count) {
+        return String.format("%.1f%%", count * 100.0 / SEASONS);
+    }
+
+    private record TeamSetupV2(long id, String name, double power, PersonalizedTactic tactic,
+                               List<RuntimeLineupSlot> slots) {}
+
+    private record AggregatedSimulation(long[][] positionCounts, long[] totalPoints, long[] totalGF,
+                                        long[] totalGA, long[] totalWins, long[] totalDraws,
+                                        long[] totalLosses, int[] championships, int matchesScored,
+                                        int canonicalFailures) {}
 }
