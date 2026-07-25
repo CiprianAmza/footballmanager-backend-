@@ -118,15 +118,19 @@ awards:
 match:
   animation:
     v3:
-      enabled: false
+      enabled: true
       max-player-step: 0.9
       max-player-acceleration: 0.45
       max-ball-step: 4.0
   engine:
 
-    # Compartment Engine V1 contract. Both flags remain false until the rollout is enabled.
+    # Canonical MatchPlan is the durable boundary required by authoritative Compartment scoring.
+    match-plan:
+      enabled: true
+
+    # Authoritative Compartment Engine V1 rollout. Shadow stays mutually exclusive/off.
     compartment:
-      enabled: false
+      enabled: true
       shadow-enabled: false
     power:
       ratio-exponent: 2.0          # Math.pow(ratio, X). Higher = stronger dominates more.

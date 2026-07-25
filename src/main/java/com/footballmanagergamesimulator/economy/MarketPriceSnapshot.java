@@ -13,8 +13,12 @@ import jakarta.persistence.UniqueConstraint;
 @Table(name = "market_price_snapshot",
         uniqueConstraints = @UniqueConstraint(name = "uk_market_price_day",
                 columnNames = {"instrument_id", "season_number", "game_day"}),
-        indexes = @Index(name = "idx_market_price_history",
-                columnList = "instrument_id,season_number,game_day"))
+        indexes = {
+                @Index(name = "idx_market_price_history",
+                        columnList = "instrument_id,season_number,game_day"),
+                @Index(name = "idx_market_price_date",
+                        columnList = "season_number,game_day,instrument_id")
+        })
 public class MarketPriceSnapshot {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

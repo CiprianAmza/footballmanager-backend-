@@ -111,17 +111,15 @@ public class DeterministicMarketPriceService {
         }
         if (listed.isEmpty()) return;
 
+        Map<Long, MarketPriceSnapshot> latestByInstrument = latestMarketSnapshots();
+        if (alreadyProcessed(listed, latestByInstrument, season, targetDay)) return;
+
         Map<Long, ClubValuationService.Valuation> clubValuations = clubValuations(listed);
         // valueBatch deliberately loads all squads and club assets in bounded queries.
         // They are immutable inputs for this pricing pass; discard them before any
         // snapshot flush so Hibernate does not dirty-check thousands of entities.
         entityManager.clear();
         List<MarketInstrument> instruments = instrumentRepository.findAllActiveForUpdate();
-
-        List<Long> instrumentIds = instruments.stream().map(MarketInstrument::getId).toList();
-        Map<Long, MarketPriceSnapshot> latestByInstrument = new HashMap<>();
-        snapshotRepository.findLatestForInstruments(instrumentIds)
-                .forEach(snapshot -> latestByInstrument.put(snapshot.getInstrumentId(), snapshot));
         List<MarketPriceSnapshot> snapshotBatch = new ArrayList<>(SNAPSHOT_BATCH_SIZE);
         for (MarketInstrument instrument : instruments) {
             processInstrument(instrument, latestByInstrument.get(instrument.getId()),
@@ -130,6 +128,37 @@ public class DeterministicMarketPriceService {
         flushSnapshotBatch(snapshotBatch);
         instrumentRepository.saveAll(instruments);
         entityManager.flush();
+    }
+
+    /**
+     * A market day is atomic for every active instrument. Read the latest global
+     * market date through the calendar index, then fetch that date's rows. This
+     * stays O(instruments) as history grows; the previous correlated NOT EXISTS
+     * query became progressively slower on every Fast Forward day.
+     */
+    private Map<Long, MarketPriceSnapshot> latestMarketSnapshots() {
+        MarketPriceSnapshot latestDate = snapshotRepository
+                .findTopByOrderBySeasonNumberDescGameDayDescInstrumentIdAsc()
+                .orElse(null);
+        if (latestDate == null) return Map.of();
+        Map<Long, MarketPriceSnapshot> result = new HashMap<>();
+        snapshotRepository.findAllBySeasonNumberAndGameDayOrderByInstrumentIdAsc(
+                        latestDate.getSeasonNumber(), latestDate.getGameDay())
+                .forEach(snapshot -> result.put(snapshot.getInstrumentId(), snapshot));
+        return result;
+    }
+
+    private static boolean alreadyProcessed(Collection<MarketInstrument> instruments,
+                                            Map<Long, MarketPriceSnapshot> latestByInstrument,
+                                            int season, int day) {
+        for (MarketInstrument instrument : instruments) {
+            MarketPriceSnapshot latest = latestByInstrument.get(instrument.getId());
+            if (latest == null || latest.getSeasonNumber() < season
+                    || (latest.getSeasonNumber() == season && latest.getGameDay() < day)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Map<Long, ClubValuationService.Valuation> clubValuations(

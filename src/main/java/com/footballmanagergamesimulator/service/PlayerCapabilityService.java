@@ -35,6 +35,7 @@ public class PlayerCapabilityService {
     private final PlayerRoleFamiliarityRepository roleRepository;
     private final PlayerFootProfileRepository footRepository;
     private final PlayerCapabilityResolver capabilityResolver;
+    private final ThreadLocal<Map<Long, PlayerCapabilitySnapshot>> preloadedScope = new ThreadLocal<>();
 
     public PlayerCapabilityService(HumanRepository humanRepository,
                                    PlayerPositionFamiliarityRepository positionRepository,
@@ -63,6 +64,34 @@ public class PlayerCapabilityService {
         if (orderedIds.isEmpty()) {
             return Map.of();
         }
+
+        Map<Long, PlayerCapabilitySnapshot> preloaded = preloadedScope.get();
+        if (preloaded != null && orderedIds.stream().allMatch(preloaded::containsKey)) {
+            LinkedHashMap<Long, PlayerCapabilitySnapshot> result = new LinkedHashMap<>();
+            orderedIds.forEach(playerId -> result.put(playerId, preloaded.get(playerId)));
+            return java.util.Collections.unmodifiableMap(result);
+        }
+
+        return loadAllFromStore(orderedIds);
+    }
+
+    /** Preload immutable matchday capability snapshots once for the current simulation thread. */
+    @Transactional(readOnly = true)
+    public void preloadForCurrentThread(Collection<Long> playerIds) {
+        preloadedScope.remove();
+        List<Long> orderedIds = playerIds == null ? List.of() : playerIds.stream()
+                .peek(id -> { if (id == null || id <= 0) throw new IllegalArgumentException("player id must be positive"); })
+                .distinct()
+                .sorted()
+                .toList();
+        preloadedScope.set(orderedIds.isEmpty() ? Map.of() : loadAllFromStore(orderedIds));
+    }
+
+    public void clearPreloadedForCurrentThread() {
+        preloadedScope.remove();
+    }
+
+    private Map<Long, PlayerCapabilitySnapshot> loadAllFromStore(List<Long> orderedIds) {
 
         Map<Long, Human> humans = new HashMap<>();
         humanRepository.findAllById(orderedIds).forEach(human -> humans.put(human.getId(), human));

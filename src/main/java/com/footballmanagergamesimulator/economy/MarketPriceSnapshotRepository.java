@@ -6,7 +6,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Collection;
 import java.util.Optional;
 
 public interface MarketPriceSnapshotRepository extends JpaRepository<MarketPriceSnapshot, Long> {
@@ -23,17 +22,8 @@ public interface MarketPriceSnapshotRepository extends JpaRepository<MarketPrice
                                                   @Param("day") int day,
                                                   Pageable pageable);
 
-    @Query("""
-            select snapshot from MarketPriceSnapshot snapshot
-            where snapshot.instrumentId in :instrumentIds
-              and not exists (
-                  select newer.id from MarketPriceSnapshot newer
-                  where newer.instrumentId = snapshot.instrumentId
-                    and (newer.seasonNumber > snapshot.seasonNumber
-                      or (newer.seasonNumber = snapshot.seasonNumber
-                        and newer.gameDay > snapshot.gameDay))
-              )
-            """)
-    List<MarketPriceSnapshot> findLatestForInstruments(
-            @Param("instrumentIds") Collection<Long> instrumentIds);
+    Optional<MarketPriceSnapshot> findTopByOrderBySeasonNumberDescGameDayDescInstrumentIdAsc();
+
+    List<MarketPriceSnapshot> findAllBySeasonNumberAndGameDayOrderByInstrumentIdAsc(
+            int seasonNumber, int gameDay);
 }

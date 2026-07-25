@@ -31,7 +31,7 @@ public class PrebuiltDataService {
 
     private static final String[] REQUIRED_SNAPSHOT_SCHEMA = {
             "SCORE_ENGINE", "SCORE_CONFIG_FINGERPRINT", "SCORE_INPUT_FINGERPRINT",
-            "PLAYER_POSITION_FAMILIARITY", "CHAIRMAN_TACTICAL_MANDATE"
+            "PLAYER_POSITION_FAMILIARITY", "CHAIRMAN_TACTICAL_MANDATE", "IDX_MARKET_PRICE_DATE"
     };
 
     @Value("${bootstrap.snapshot-path:prebuilt-data.sql}")

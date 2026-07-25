@@ -119,6 +119,7 @@ public class MatchRoundSimulator {
     @Autowired private ChairmanTacticalMandateEnforcementService mandateEnforcement;
     @Autowired private PlayerValueService playerValueService;
     @Autowired private PlayerRoleService playerRoleService;
+    @Autowired private PlayerCapabilityService playerCapabilityService;
     @Autowired private PlayerInstructionService playerInstructionService;
     @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired private CoachPermissionService coachPermissionService;
@@ -284,6 +285,7 @@ public class MatchRoundSimulator {
         Map<Long, TeamCompetitionDetail> competitionDetailsByTeam;
         Map<Long, PersonalizedTactic> tacticsByTeam;
         Map<Long, ScorerLeaderboardEntry> leaderboardByPlayer;
+        List<Long> roundPlayerIds = List.of();
         if (!participatingTeamIds.isEmpty()) {
             playersByTeam = humanRepository
                     .findAllByTeamIdInAndTypeId(participatingTeamIds, TypeNames.PLAYER_TYPE)
@@ -321,7 +323,7 @@ public class MatchRoundSimulator {
                     .collect(Collectors.toMap(
                             PersonalizedTactic::getTeamId, tactic -> tactic,
                             (left, right) -> left));
-            List<Long> roundPlayerIds = playersByTeam.values().stream()
+            roundPlayerIds = playersByTeam.values().stream()
                     .flatMap(List::stream)
                     .map(Human::getId)
                     .toList();
@@ -364,6 +366,13 @@ public class MatchRoundSimulator {
         int humanMatches = 0, aiMatches = 0;
 
         try {
+
+        if (compartmentEngineConfig.isEnabled() || compartmentEngineConfig.isShadowEnabled()) {
+            // Canonical input for every match in this competition reuses one immutable
+            // four-query capability preload instead of querying positions/roles/feet
+            // separately for both teams of every fixture.
+            playerCapabilityService.preloadForCurrentThread(roundPlayerIds);
+        }
 
         for (CompetitionTeamInfoMatch match : matches) {
             long teamId1 = match.getTeam1Id();
@@ -1129,6 +1138,7 @@ public class MatchRoundSimulator {
 
         } finally {
             // Managed entities must never leak into the next task executed by this worker.
+            playerCapabilityService.clearPreloadedForCurrentThread();
             roundContext.remove();
         }
     }
