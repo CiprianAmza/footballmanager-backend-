@@ -708,8 +708,7 @@ public class MatchRoundSimulator {
                         TeamPostMatchService.PredeterminedScoreAttempt adminAttempt =
                                 consumeMatchingAdminOverride(_competitionId, (int) _roundId,
                                         teamScore1, teamScore2, teamId1, teamId2);
-                        if (adminAttempt.resolution()
-                                == TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT) {
+                        if (!mayProceedWithNewAdminOverride(adminAttempt.resolution())) {
                             continue;
                         }
                     }
@@ -1672,6 +1671,11 @@ public class MatchRoundSimulator {
         return teamPostMatchService.consumePredeterminedScoreIfMatches(
                 competitionId, season, roundId, homeTeamId, awayTeamId,
                 expectedHome, expectedAway);
+    }
+
+    static boolean mayProceedWithNewAdminOverride(
+            TeamPostMatchService.PredeterminedScoreResolution resolution) {
+        return resolution == TeamPostMatchService.PredeterminedScoreResolution.CONSUMED;
     }
 
     private KnockoutMatchResolution reconstructKnockoutResolution(

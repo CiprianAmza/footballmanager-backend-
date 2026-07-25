@@ -123,6 +123,18 @@ class TeamPostMatchServiceTest {
         verify(repository, never()).save(any());
     }
 
+    @Test
+    void newAdminOverridePolicyAllowsOnlyTheWinnerClaim() {
+        assertTrue(MatchRoundSimulator.mayProceedWithNewAdminOverride(
+                TeamPostMatchService.PredeterminedScoreResolution.CONSUMED));
+        assertFalse(MatchRoundSimulator.mayProceedWithNewAdminOverride(
+                TeamPostMatchService.PredeterminedScoreResolution.ABSENT));
+        assertFalse(MatchRoundSimulator.mayProceedWithNewAdminOverride(
+                TeamPostMatchService.PredeterminedScoreResolution.ALREADY_CONSUMED));
+        assertFalse(MatchRoundSimulator.mayProceedWithNewAdminOverride(
+                TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT));
+    }
+
     private static PredeterminedScore override(int home, int away) {
         PredeterminedScore row = new PredeterminedScore();
         row.setTeam1Score(home);
