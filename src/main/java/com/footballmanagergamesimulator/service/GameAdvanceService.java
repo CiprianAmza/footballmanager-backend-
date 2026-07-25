@@ -74,6 +74,19 @@ public class GameAdvanceService {
         return advance(season, false);
     }
 
+    /**
+     * Server-owned room advancement. The room coordinator has already made the
+     * continue decision; this method processes exactly one current game day.
+     * The scope is intentionally explicit so future pause checks cannot fall
+     * back to scanning unrelated users.
+     */
+    public Map<String, Object> advanceOneDayUnattended(int season, Set<Integer> roomUserIds) {
+        if (roomUserIds == null || roomUserIds.isEmpty()) {
+            throw new IllegalArgumentException("roomUserIds must not be empty");
+        }
+        return advance(season, true);
+    }
+
     /** Fast Forward validates unattended mode once when the job starts. */
     Map<String, Object> advanceFastForward(int season) {
         return advance(season, true);

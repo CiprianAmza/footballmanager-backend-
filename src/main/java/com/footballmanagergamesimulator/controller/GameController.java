@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.multiplayer.MultiplayerRoomService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -126,6 +127,7 @@ public class GameController {
     @Autowired GameLock gameLock;
     @Autowired FastForwardService fastForwardService;
     @Autowired GameSaveImportService gameSaveImportService;
+    @Autowired MultiplayerRoomService multiplayerRoomService;
 
     private static final int CURRENT_SAVE_VERSION = GameSaveImportService.CURRENT_SAVE_VERSION;
 
@@ -356,6 +358,9 @@ public class GameController {
 
     @PostMapping("/advance")
     public Map<String, Object> advance() {
+        if (multiplayerRoomService.currentUserInActiveRoom()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
+        }
         int season = getCurrentSeason();
         return gameAdvanceService.advance(season);
     }
@@ -368,12 +373,18 @@ public class GameController {
 
     @PostMapping("/advanceToDay/{day}")
     public Map<String, Object> advanceToDay(@PathVariable int day) {
+        if (multiplayerRoomService.currentUserInActiveRoom()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
+        }
         int season = getCurrentSeason();
         return gameAdvanceService.advanceToDay(season, day);
     }
 
     @PostMapping("/unpause")
     public Map<String, Object> unpause() {
+        if (multiplayerRoomService.currentUserInActiveRoom()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
+        }
         int season = getCurrentSeason();
         GameCalendar cal = calendarService.getOrCreateCalendar(season);
         cal.setPaused(false);

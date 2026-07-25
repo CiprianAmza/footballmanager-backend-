@@ -1,6 +1,9 @@
 package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.service.FastForwardService;
+import com.footballmanagergamesimulator.multiplayer.MultiplayerRoomService;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,9 +22,13 @@ public class FastForwardController {
     public record FastForwardRequest(int seasons, int chunkDays) {}
 
     @Autowired private FastForwardService fastForwardService;
+    @Autowired private MultiplayerRoomService multiplayerRoomService;
 
     @PostMapping
     public FastForwardService.FastForwardStatus start(@RequestBody FastForwardRequest request) {
+        if (multiplayerRoomService.currentUserInActiveRoom()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "USE_MULTIPLAYER_FAST_FORWARD");
+        }
         return fastForwardService.start(request.seasons(), request.chunkDays());
     }
 
