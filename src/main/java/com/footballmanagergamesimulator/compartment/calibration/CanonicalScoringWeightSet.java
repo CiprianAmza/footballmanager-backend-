@@ -55,21 +55,9 @@ public final class CanonicalScoringWeightSet {
                 case "attribute-min" -> compartment.getRating().setAttributeMin((int) override.value());
                 case "attribute-max" -> compartment.getRating().setAttributeMax((int) override.value());
                 case "score-scale" -> compartment.getRating().setScoreScale(override.value());
-                case "context-factor-min" -> {
-                    compartment.getRating().setContextFactorMin(override.value());
-                    compartment.getContextRules().entrySet().stream()
-                            .filter(entry -> entry.getKey().equals("instruction:close down less"))
-                            .findFirst().ifPresent(entry -> entry.getValue()
-                                    .put(com.footballmanagergamesimulator.compartment.PlayerAttribute.CONCENTRATION, -1.0));
-                }
+                case "context-factor-min" -> compartment.getRating().setContextFactorMin(override.value());
                 case "context-factor-max" -> compartment.getRating().setContextFactorMax(override.value());
-                case "total-context-min" -> {
-                    compartment.getRating().setTotalContextMin(override.value());
-                    compartment.getContextRules().entrySet().stream()
-                            .filter(entry -> entry.getKey().equals("instruction:close down less"))
-                            .findFirst().ifPresent(entry -> entry.getValue()
-                                    .put(com.footballmanagergamesimulator.compartment.PlayerAttribute.CONCENTRATION, -1.0));
-                }
+                case "total-context-min" -> compartment.getRating().setTotalContextMin(override.value());
                 case "total-context-max" -> compartment.getRating().setTotalContextMax(override.value());
                 case "context-coefficient-min" -> compartment.getRating().setContextCoefficientMin(override.value());
                 case "context-coefficient-max" -> compartment.getRating().setContextCoefficientMax(override.value());
@@ -132,7 +120,11 @@ public final class CanonicalScoringWeightSet {
             String roleKey = match.getRoleWeights().getAttributes().keySet().stream()
                     .filter(candidate -> normalize(candidate).equals(normalize(role.displayName())))
                     .findFirst().orElseThrow(() -> new IllegalArgumentException("missing role weights for " + role.displayName()));
-            match.getRoleWeights().getAttributes().get(roleKey).put(attribute, override.value());
+            Map<String, Double> roleAttributes = match.getRoleWeights().getAttributes().get(roleKey);
+            String attributeKey = roleAttributes.keySet().stream()
+                    .filter(candidate -> normalize(candidate).equals(normalize(attribute)))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("missing role attribute: " + attributeDisplay));
+            roleAttributes.put(attributeKey, override.value());
         } else if (key.startsWith("compartment.context-rules.")) {
             String[] parts = key.split("\\.", 4);
             if (parts.length != 4) throw new IllegalArgumentException("unsupported override: " + key);
@@ -185,7 +177,7 @@ public final class CanonicalScoringWeightSet {
             var rule = compartment.getMentalities().get(com.footballmanagergamesimulator.compartment.Mentality.valueOf(parts[2]));
             switch (parts[3]) {
                 case "midfield-to-attack" -> { rule.setMidfieldToAttack(override.value()); rule.setMidfieldToDefense(1.0 - override.value()); }
-                case "midfield-to-defense" -> { rule.setMidfieldToDefense(override.value()); rule.setMidfieldToAttack(1.0 - override.value()); }
+                case "midfield-to-defense" -> throw new IllegalArgumentException("derived mentality pair is canonicalized by midfield-to-attack: " + key);
                 case "transfer-share" -> rule.setTransferShare(override.value());
                 case "openness" -> rule.setOpenness(override.value());
                 default -> throw new IllegalArgumentException("unknown mentality leaf: " + key);

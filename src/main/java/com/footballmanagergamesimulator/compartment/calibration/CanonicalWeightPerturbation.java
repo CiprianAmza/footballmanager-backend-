@@ -28,15 +28,15 @@ public final class CanonicalWeightPerturbation {
         } else if (path.endsWith("context-coefficient-min")) {
             value = 0.95;
         } else if (path.endsWith("context-factor-max")) {
-            value = Math.max(0.10, baseline - 0.40);
+            value = Math.max(0.01, baseline - 0.39);
         } else if (path.endsWith("context-factor-min")) {
-            value = Math.min(1.30, baseline + 0.40);
+            value = 0.80;
         } else if (path.contains("work-rate.instructions.") && path.endsWith("engagement")) {
             value = baseline >= 1.0 ? 0.01 : baseline * 1.10;
         } else if (path.endsWith("total-context-max")) {
             value = Math.max(0.10, baseline - 0.50);
         } else if (path.endsWith("total-context-min")) {
-            value = Math.min(1.30, baseline + 0.29);
+            value = 0.90;
         } else if (path.contains("familiarity") || path.contains("probability")) {
             value = baseline >= 0.95 ? Math.max(0.01, baseline - 0.05) : Math.min(0.95, baseline + 0.05);
         } else if (baseline == 0.0) {

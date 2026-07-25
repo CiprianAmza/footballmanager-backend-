@@ -9,6 +9,7 @@ import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,10 +29,6 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.rating.attribute-min", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getAttributeMin(), CanonicalScoringWeightKey.Type.INTEGER, "rating normalization");
         add(leaves, "compartment.rating.attribute-max", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getAttributeMax(), CanonicalScoringWeightKey.Type.INTEGER, "rating normalization");
         add(leaves, "compartment.rating.score-scale", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getScoreScale(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
-        add(leaves, "compartment.rating.context-factor-min", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getContextFactorMin(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
-        add(leaves, "compartment.rating.context-factor-max", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getContextFactorMax(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
-        add(leaves, "compartment.rating.total-context-min", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getTotalContextMin(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
-        add(leaves, "compartment.rating.total-context-max", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getTotalContextMax(), CanonicalScoringWeightKey.Type.CONTINUOUS, "rating normalization");
         add(leaves, "compartment.rating.context-coefficient-min", CanonicalScoringWeightKey.Category.CONTEXT, compartment.getRating().getContextCoefficientMin(), CanonicalScoringWeightKey.Type.CONTINUOUS, "context coefficient clamp");
         add(leaves, "compartment.rating.context-coefficient-max", CanonicalScoringWeightKey.Category.CONTEXT, compartment.getRating().getContextCoefficientMax(), CanonicalScoringWeightKey.Type.CONTINUOUS, "context coefficient clamp");
         add(leaves, "compartment.rating.role-fit-base", CanonicalScoringWeightKey.Category.ROLE_FIT, compartment.getRating().getRoleFitBase(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fit");
@@ -41,9 +38,15 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.rating.morale-slope", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getMoraleSlope(), CanonicalScoringWeightKey.Type.CONTINUOUS, "morale");
         add(leaves, "compartment.rating.default-position-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultPositionMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "position fallback");
         add(leaves, "compartment.rating.default-role-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultRoleMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fallback");
-        compartment.getContextRules().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(row ->
-                row.getValue().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
-                        add(leaves, "compartment.context-rules." + row.getKey().replace(" ", "").replace(":", "") + "." + e.getKey().name(), CanonicalScoringWeightKey.Category.CONTEXT,
+        compartment.getContextRules().entrySet().stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        entry -> normalizeContextSource(entry.getKey()),
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.toList()))
+                .entrySet().stream().sorted(Map.Entry.comparingByKey())
+                .forEach(group -> preferredContextRule(group.getValue()).getValue().entrySet().stream()
+                        .sorted(Map.Entry.comparingByKey())
+                        .forEach(e -> add(leaves, "compartment.context-rules." + group.getKey() + "." + e.getKey().name(), CanonicalScoringWeightKey.Category.CONTEXT,
                                 e.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS, "ContextCoefficientMapper")));
         compartment.getCompartments().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
                 e.getValue().getAttributes().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(a ->
@@ -63,7 +66,6 @@ public final class CanonicalScoringWeightCatalog {
         compartment.getDuties().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> addMultipliers(leaves, "compartment.duties." + e.getKey().name(), e.getValue(), CanonicalScoringWeightKey.Category.DUTY));
         compartment.getMentalities().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> {
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".midfield-to-attack", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getMidfieldToAttack(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
-            add(leaves, "compartment.mentalities." + e.getKey().name() + ".midfield-to-defense", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getMidfieldToDefense(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".transfer-from", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getTransferFrom().name(), CanonicalScoringWeightKey.Type.DISCRETE, "MentalityRule");
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".transfer-to", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getTransferTo().name(), CanonicalScoringWeightKey.Type.DISCRETE, "MentalityRule");
             add(leaves, "compartment.mentalities." + e.getKey().name() + ".transfer-share", CanonicalScoringWeightKey.Category.MENTALITY, e.getValue().getTransferShare(), CanonicalScoringWeightKey.Type.CONTINUOUS, "MentalityRule");
@@ -134,13 +136,26 @@ public final class CanonicalScoringWeightCatalog {
         return value == null ? "" : value.replace(" ", "").replace("-", "").replace("_", "").toUpperCase();
     }
 
+    private static String normalizeContextSource(String value) {
+        return value == null ? "" : value.replace(" ", "").replace(":", "");
+    }
+
+    private static Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> preferredContextRule(
+            List<Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>>> candidates) {
+        return candidates.stream()
+                .sorted(Comparator.comparing((Map.Entry<String, ?> entry) -> entry.getKey().contains(":" ) ? 0 : 1)
+                        .thenComparing(Map.Entry::getKey))
+                .findFirst().orElseThrow();
+    }
+
     private static void addMultipliers(Map<String, CanonicalScoringWeightKey> leaves, String path, CompartmentEngineConfig.CompartmentMultipliers m, CanonicalScoringWeightKey.Category category) {
         add(leaves, path + ".attack", category, m.getAttack(), CanonicalScoringWeightKey.Type.CONTINUOUS, "compartment multipliers");
         add(leaves, path + ".midfield", category, m.getMidfield(), CanonicalScoringWeightKey.Type.CONTINUOUS, "compartment multipliers");
         add(leaves, path + ".defense", category, m.getDefense(), CanonicalScoringWeightKey.Type.CONTINUOUS, "compartment multipliers");
     }
     private static void add(Map<String, CanonicalScoringWeightKey> leaves, String path, CanonicalScoringWeightKey.Category category, Object value, CanonicalScoringWeightKey.Type type, String consumer) {
-        leaves.putIfAbsent(path, new CanonicalScoringWeightKey(path, category, value, type,
+        if (leaves.containsKey(path)) throw new IllegalArgumentException("duplicate canonical weight path: " + path);
+        leaves.put(path, new CanonicalScoringWeightKey(path, category, value, type,
                 CanonicalScoringWeightKey.PerturbationMode.DIRECT, consumer));
     }
     public List<CanonicalScoringWeightKey> leafWeights() {

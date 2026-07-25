@@ -46,7 +46,9 @@ public final class CalibrationScenarioFactory {
         } else if (path.contains("work-rate.instructions.")) {
             String instruction = path.substring(path.indexOf("work-rate.instructions.") + "work-rate.instructions.".length());
             instruction = instruction.substring(0, instruction.indexOf('.'));
-            team = team.withForwardInstruction(com.footballmanagergamesimulator.compartment.ForwardInstruction.valueOf(instruction));
+            var forwardInstruction = com.footballmanagergamesimulator.compartment.ForwardInstruction.valueOf(instruction);
+            team = forwardInstruction == com.footballmanagergamesimulator.compartment.ForwardInstruction.STAY_FORWARD
+                    ? team.withStayForward() : team.withForwardInstruction(forwardInstruction);
             team = team.withTacticalContext(context -> new TacticalContextInput(context.mentality(), context.tempo(),
                     context.passingType(), context.defensiveLine(), context.pressing(), context.width(), context.playerInstructions()));
         } else if (path.contains("work-rate.traits.")) {
@@ -60,9 +62,13 @@ public final class CalibrationScenarioFactory {
         } else if (path.endsWith("context-coefficient-min") || path.endsWith("context-coefficient-max")) {
             team = applyContextActivator(team, "compartment.context-rules.instructionclosedownless.CONCENTRATION");
         } else if (path.endsWith("context-factor-min") || path.endsWith("context-factor-max")) {
-            team = applyContextActivator(team, "compartment.context-rules.instructionclosedownless.CONCENTRATION");
+            team = applyContextActivator(team, "compartment.context-rules.mentalityveryattacking.OFF_THE_BALL")
+                    .withAttributeValue(PlayerAttribute.OFF_THE_BALL, 1)
+                    .withAttributeValue(PlayerAttribute.COMPOSURE, 1);
         } else if (path.endsWith("total-context-min") || path.endsWith("total-context-max")) {
-            team = applyContextActivator(team, "compartment.context-rules.instructionclosedownless.CONCENTRATION");
+            team = applyContextActivator(team, "compartment.context-rules.mentalityveryattacking.OFF_THE_BALL")
+                    .withAttributeValue(PlayerAttribute.OFF_THE_BALL, 1)
+                    .withAttributeValue(PlayerAttribute.COMPOSURE, 1);
         } else if (path.endsWith("fitness-floor")) {
             team = team.withFitness(75.0);
         } else if (path.endsWith("morale-neutral") || path.endsWith("morale-slope")) {

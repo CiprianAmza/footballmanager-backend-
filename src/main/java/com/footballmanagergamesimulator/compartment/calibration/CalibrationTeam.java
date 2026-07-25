@@ -30,7 +30,8 @@ public record CalibrationTeam(Mentality mentality, List<CalibrationPlayer> playe
 
     public CalibrationTeam withStayForward() {
         return new CalibrationTeam(mentality, players.stream().map(p -> p.position().code().equals("ST")
-                ? copy(p, p.morale(), java.util.Set.of(PlayerTrait.REFUSES_DEFENSIVE_WORK), ForwardInstruction.STAY_FORWARD)
+                || p.position().code().equals("DC")
+                ? copy(p, p.morale(), p.traits(), ForwardInstruction.STAY_FORWARD)
                 : p).toList());
     }
 
@@ -64,6 +65,20 @@ public record CalibrationTeam(Mentality mentality, List<CalibrationPlayer> playe
             copy.add(new CalibrationPlayer(p.playerId(), p.position(), p.occurrence(), p.role(), p.duty(), values,
                     p.roleAttributeWeights(), p.fitness(), p.morale(), p.positionFamiliarity(), p.roleFamiliarity(),
                     p.leftFoot(), p.rightFoot(), p.traits(), p.instruction(), p.context()));
+        }
+        return new CalibrationTeam(mentality, copy);
+    }
+
+    public CalibrationTeam withAttributeValue(com.footballmanagergamesimulator.compartment.PlayerAttribute attribute, int value) {
+        java.util.ArrayList<CalibrationPlayer> copy = new java.util.ArrayList<>();
+        for (CalibrationPlayer p : players) {
+            java.util.EnumMap<com.footballmanagergamesimulator.compartment.PlayerAttribute, Integer> values =
+                    new java.util.EnumMap<>(p.attributes());
+            values.put(attribute, value);
+            copy.add(new CalibrationPlayer(p.playerId(), p.position(), p.occurrence(), p.role(), p.duty(), values,
+                    p.roleAttributeWeights(), p.fitness(), p.morale(), p.positionFamiliarity(), p.roleFamiliarity(),
+                    p.leftFoot(), p.rightFoot(), p.traits(), p.instruction(), p.context(), p.primaryPosition(),
+                    p.namedAttributes()));
         }
         return new CalibrationTeam(mentality, copy);
     }

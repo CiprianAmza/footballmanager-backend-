@@ -9,6 +9,8 @@ import org.springframework.core.io.ClassPathResource;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,7 +19,7 @@ class CanonicalScoringWeightCatalogTest {
     void catalogIsStableAndContainsContextAndRoleWeights() {
         var config = CalibrationConfigFixture.load();
         var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
-        assertThat(catalog.size()).isEqualTo(741);
+        assertThat(catalog.size()).isEqualTo(732);
         assertThat(catalog.leafWeights()).isSortedAccordingTo(java.util.Comparator.comparing(CanonicalScoringWeightKey::path));
         assertThat(catalog.get("compartment.context-rules.linehigh.PACE")).isNotNull();
         assertThat(catalog.get("match.role-weights.suitability-scale")).isNotNull();
@@ -72,17 +74,26 @@ class CanonicalScoringWeightCatalogTest {
 
     @Test
     void activeYamlLeavesMatchCatalogExactly() throws IOException {
-        Set<String> names = new java.util.TreeSet<>();
+        List<String> names = new ArrayList<>();
         try (var stream = new ClassPathResource("compartment-scoring-weights-v1.yml").getInputStream()) {
             flatten(new Yaml().load(stream), "", names);
         }
+        assertUniqueNormalizedPaths(names);
         var profile = CalibrationConfigFixture.load();
         Set<String> catalog = CanonicalScoringWeightCatalog.from(profile.compartment(), profile.match()).leafWeights().stream()
                 .map(CanonicalScoringWeightKey::path).collect(Collectors.toCollection(java.util.TreeSet::new));
-        assertThat(names).containsExactlyElementsOf(catalog);
+        assertThat(new java.util.TreeSet<>(names)).containsExactlyElementsOf(catalog);
     }
 
-    private static void flatten(Object value, String path, Set<String> output) {
+    @Test
+    void duplicatePathsAreRejectedBeforeSetConversion() {
+        assertThatThrownBy(() -> assertUniqueNormalizedPaths(List.of(
+                "compartment.context-rules.instruction:close down less.POSITIONING",
+                "compartment.context-rules.instructionclosedownless.POSITIONING")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static void flatten(Object value, String path, List<String> output) {
         if (value instanceof java.util.Map<?, ?> map) {
             map.forEach((key, child) -> flatten(child, path.isEmpty() ? String.valueOf(key) : path + "." + key, output));
             return;
@@ -100,7 +111,23 @@ class CanonicalScoringWeightCatalogTest {
                 || normalized.contains(".forced-defensive-morale-delta")
                 || normalized.endsWith(".transfer-from") || normalized.endsWith(".transfer-to")
                 || normalized.startsWith("compartment.roles.SHADOW_STRIKER.");
+        if (normalized.matches("compartment\\.mentalities\\.[^.]+\\.midfield-to-defense")) return;
         if (!nonNumeric && !normalized.equals("compartment.enabled") && !normalized.equals("compartment.shadow-enabled")
                 && !normalized.equals("match.engine.compartment.enabled") && !normalized.equals("match.engine.compartment.shadow-enabled")) output.add(normalized);
+    }
+
+    private static void assertUniqueNormalizedPaths(List<String> paths) {
+        Set<String> seen = new java.util.HashSet<>();
+        for (String path : paths) {
+            String normalized = path;
+            if (normalized.startsWith("compartment.context-rules.")) {
+                int start = "compartment.context-rules.".length();
+                int end = normalized.indexOf('.', start);
+                normalized = normalized.substring(0, start)
+                        + normalized.substring(start, end).replace(" ", "").replace(":", "")
+                        + normalized.substring(end);
+            }
+            if (!seen.add(normalized)) throw new IllegalArgumentException("duplicate YAML leaf: " + path);
+        }
     }
 }

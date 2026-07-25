@@ -6,10 +6,6 @@ match:
         attribute-min: 1
         attribute-max: 20
         score-scale: 100.0
-        context-factor-min: 0.60
-        context-factor-max: 1.40
-        total-context-min: 0.70
-        total-context-max: 1.30
         context-coefficient-min: -1.0
         context-coefficient-max: 1.0
         role-fit-base: 0.85

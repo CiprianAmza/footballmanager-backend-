@@ -4,6 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoreSampler;
+import com.footballmanagergamesimulator.compartment.ForwardInstruction;
+import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.compartment.PlayerRole;
 import java.util.List;
 
 @EnabledIfSystemProperty(named = "compartment.calibration.long", matches = "true")
@@ -22,6 +25,13 @@ class CompartmentSelectedWeightsSensitivityIT {
                 new Experiment("defensive-mentality", base.baselineTeam().withMentality(com.footballmanagergamesimulator.compartment.Mentality.DEFENSIVE), "compartment.mentalities.DEFENSIVE.openness"));
         for (Experiment experiment : experiments) {
             var scenario = new ScoringSensitivityScenario(experiment.id(), experiment.team(), base.opponent(), base.seed(), 200);
+            if (experiment.id().equals("stay-forward")) {
+                var active = scenario.baselineTeam().players().stream()
+                        .filter(player -> player.instruction() == ForwardInstruction.STAY_FORWARD)
+                        .findFirst().orElseThrow();
+                org.assertj.core.api.Assertions.assertThat(active.position()).isEqualTo(PlayerPosition.ST);
+                org.assertj.core.api.Assertions.assertThat(active.role()).isEqualTo(PlayerRole.POACHER);
+            }
             var leaf = catalog.require(experiment.key()); double value = CanonicalWeightPerturbation.validAlternative(leaf);
             var result = harness.run(scenario, catalog, new CanonicalScoringWeightOverride(experiment.key(), value));
             results.add(result);
