@@ -9,9 +9,11 @@ import com.footballmanagergamesimulator.person.PersonProfile;
 import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.ChairmanInboxNotificationService;
 import com.footballmanagergamesimulator.service.TacticService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 
@@ -28,12 +30,14 @@ class ChairmanTacticalMandateServiceTest {
     private final GameCalendarRepository calendars = mock(GameCalendarRepository.class);
     private final ClubQueryService clubs = mock(ClubQueryService.class);
     private final TacticService tactics = mock(TacticService.class);
+    private final ChairmanInboxNotificationService chairmanInbox = mock(ChairmanInboxNotificationService.class);
     private final ChairmanTacticalMandateService service = new ChairmanTacticalMandateService(
             mandates, teams, players, calendars, clubs, tactics);
     private final PersonProfile chairman = profile(7L);
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(service, "chairmanInbox", chairmanInbox);
         when(teams.findByIdForUpdate(10L)).thenReturn(Optional.of(new Team()));
         when(mandates.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(tactics.isKnownFormation(anyString())).thenReturn(false);
