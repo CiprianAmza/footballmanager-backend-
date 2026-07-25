@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.compartment.PlayerPosition;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -48,8 +49,44 @@ public class PlayerRoleService {
             return PlayerSkillsService.computeOverallRating(skills);
         }
 
+        return weightedRoleSuitability(skills, role, false);
+    }
+
+    /** Computes suitability using the position the player is actually filling. */
+    public double computeRoleSuitability(PlayerSkills skills, String usedPosition, String roleName) {
+        Objects.requireNonNull(skills, "skills");
+        String family = roleFamily(usedPosition);
+        if (roleName == null || roleName.isBlank()) {
+            throw new IllegalArgumentException("roleName must not be blank");
+        }
+        RoleDef role = findRole(family, roleName.trim());
+        if (role == null) {
+            throw new IllegalArgumentException("role " + roleName + " is not available for " + usedPosition);
+        }
+        return weightedRoleSuitability(skills, role, true);
+    }
+
+    /** Returns whether a canonical role definition permits the supplied duty. */
+    public boolean isDutyAllowed(String usedPosition, String roleName, String dutyLabel) {
+        String family = roleFamily(usedPosition);
+        if (roleName == null || roleName.isBlank()) {
+            throw new IllegalArgumentException("roleName must not be blank");
+        }
+        if (dutyLabel == null || dutyLabel.isBlank()) {
+            throw new IllegalArgumentException("dutyLabel must not be blank");
+        }
+        RoleDef role = findRole(family, roleName.trim());
+        if (role == null) {
+            throw new IllegalArgumentException("role " + roleName + " is not available for " + usedPosition);
+        }
+        String duty = dutyLabel.trim();
+        return role.duties.stream().anyMatch(allowed -> allowed.equalsIgnoreCase(duty));
+    }
+
+    private double weightedRoleSuitability(PlayerSkills skills, RoleDef role, boolean requireExternalWeights) {
+
         double weighted = 0;
-        for (Map.Entry<String, Double> entry : effectiveKeyAttributes(role).entrySet()) {
+        for (Map.Entry<String, Double> entry : effectiveKeyAttributes(role, requireExternalWeights).entrySet()) {
             String attr = entry.getKey();
             double weight = entry.getValue();
             var getter = PlayerSkillsService.GETTER_MAP.get(attr);
@@ -62,20 +99,54 @@ public class PlayerRoleService {
         return Math.max(1, Math.min(100, weighted * engineConfig.getRoleWeights().getSuitabilityScale()));
     }
 
+    private static String roleFamily(String usedPosition) {
+        PlayerPosition position = PlayerPosition.require(usedPosition);
+        return switch (position) {
+            case GK -> "GK";
+            case DC -> "DC";
+            case DL, WBL -> "DL";
+            case DR, WBR -> "DR";
+            case DM, MC, AMC -> "MC";
+            case ML, AML -> "ML";
+            case MR, AMR -> "MR";
+            case ST -> "ST";
+        };
+    }
+
     /**
      * A role's key attributes after applying the config overrides
      * ({@code match.engine.role-weights.attributes.<RoleName>}): the shipped {@link RoleDef}
      * defaults merged with any per-attribute overrides (override wins; new attributes added).
      * Returns the defaults unchanged when no override exists for the role.
      */
-    private Map<String, Double> effectiveKeyAttributes(RoleDef role) {
+    private Map<String, Double> effectiveKeyAttributes(RoleDef role, boolean requireExternalWeights) {
         Map<String, Double> override = engineConfig.getRoleWeights().attributesFor(role.name);
+        if (requireExternalWeights) {
+            if (override == null || override.isEmpty()) {
+                throw new IllegalStateException("Missing or incomplete role attribute weights for " + role.name);
+            }
+            Map<String, Double> canonical = new LinkedHashMap<>();
+            for (String attribute : role.keyAttributes.keySet()) {
+                String normalized = normalizeAttribute(attribute);
+                Double configured = override.entrySet().stream()
+                        .filter(entry -> normalizeAttribute(entry.getKey()).equals(normalized))
+                        .map(Map.Entry::getValue).findFirst().orElse(null);
+                if (configured == null) throw new IllegalStateException(
+                        "Missing or incomplete role attribute weights for " + role.name + ": " + attribute);
+                canonical.put(attribute, configured);
+            }
+            return Map.copyOf(canonical);
+        }
         if (override == null || override.isEmpty()) {
             return role.keyAttributes;
         }
         Map<String, Double> merged = new HashMap<>(role.keyAttributes);
         merged.putAll(override);
         return merged;
+    }
+
+    private static String normalizeAttribute(String value) {
+        return value == null ? "" : value.replace(" ", "").replace("-", "");
     }
 
     /**
@@ -173,7 +244,6 @@ public class PlayerRoleService {
                         List.of("Defend", "Support", "Attack"),
                         Map.ofEntries(
                                 Map.entry("Reflexes", 0.14), Map.entry("Handling", 0.10),
-                                Map.entry("One On Ones", 0.12), Map.entry("Rushing Out", 0.0), // mapped to Command Of Area
                                 Map.entry("Command Of Area", 0.12), Map.entry("Kicking", 0.10),
                                 Map.entry("First Touch", 0.08), Map.entry("Passing", 0.08),
                                 Map.entry("Anticipation", 0.08), Map.entry("Composure", 0.08),

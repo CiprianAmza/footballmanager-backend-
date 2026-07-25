@@ -108,6 +108,102 @@ class MatchPlanConcurrencyTest {
         }
     }
 
+    @Test
+    void concurrentScoreDecisionPersistence_hasOneImmutableWinner() throws Exception {
+        CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
+        fixture.setCompetitionId(100L);
+        fixture.setSeasonNumber("1");
+        fixture.setRound(5L);
+        fixture.setTeam1Id(10L);
+        fixture.setTeam2Id(20L);
+        fixture = fixtureRepository.saveAndFlush(fixture);
+        long fixtureId = fixture.getId();
+        String fixtureKey = MatchPlanService.competitionFixtureKey(fixtureId);
+        MatchScoringDecision firstDecision = new MatchScoringDecision(fixtureKey, 99L,
+                ScoreEngineKind.COMPARTMENT_V1, MatchScoringDecision.ALGORITHM_VERSION,
+                "a".repeat(64), "b".repeat(64), 2, 1, 40, 34, 1.2, 0.8);
+        MatchScoringDecision secondDecision = new MatchScoringDecision(fixtureKey, 100L,
+                ScoreEngineKind.TWO_AXIS_FALLBACK, ScoreEngineKind.TWO_AXIS_FALLBACK.algorithmVersion(),
+                "c".repeat(64), "d".repeat(64), 0, 3, 31, 46, null, null);
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<PersistedScoringPlan> first = executor.submit(() -> {
+                start.await();
+                return service.persistOrLoadScoreDecision(firstDecision, 10L, 20L,
+                        KnockoutPlanSplit.regularOnly(firstDecision.homeScore90(), firstDecision.awayScore90()));
+            });
+            Future<PersistedScoringPlan> second = executor.submit(() -> {
+                start.await();
+                return service.persistOrLoadScoreDecision(secondDecision, 10L, 20L,
+                        KnockoutPlanSplit.knockout(secondDecision.homeScore90(), secondDecision.awayScore90(),
+                                1, 0, 4, 3));
+            });
+            start.countDown();
+            PersistedScoringPlan firstWinner = first.get(10, TimeUnit.SECONDS);
+            PersistedScoringPlan secondWinner = second.get(10, TimeUnit.SECONDS);
+            assertEquals(firstWinner.decision(), secondWinner.decision());
+            assertEquals(firstWinner.knockoutPlanSplit(), secondWinner.knockoutPlanSplit());
+            assertEquals(1, planRepository.findAll().stream()
+                    .filter(p -> fixtureKey.equals(p.getFixtureKey())).count());
+        } finally {
+            executor.shutdownNow();
+            new TransactionTemplate(txManager).executeWithoutResult(status -> {
+                planRepository.findByFixtureKey(fixtureKey).ifPresent(plan -> {
+                    appearanceRepository.findByMatchPlan(plan).forEach(appearanceRepository::delete);
+                    participantRepository.findByMatchPlanOrderByTeamIdAscParticipantIndexAsc(plan)
+                            .forEach(participantRepository::delete);
+                    substitutionRepository.findByMatchPlanOrderByTeamIdAscSubIndexAsc(plan)
+                            .forEach(substitutionRepository::delete);
+                    planRepository.delete(plan);
+                });
+                fixtureRepository.deleteById(fixtureId);
+            });
+        }
+    }
+
+    @Test
+    void retryReadsPlanThenFreshCommittedVisibilityPreventsSecondEffects() {
+        CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
+        fixture.setCompetitionId(100L);
+        fixture.setSeasonNumber("1");
+        fixture.setRound(5L);
+        fixture.setTeam1Id(10L);
+        fixture.setTeam2Id(20L);
+        fixture = fixtureRepository.saveAndFlush(fixture);
+        long fixtureId = fixture.getId();
+        String fixtureKey = MatchPlanService.competitionFixtureKey(fixtureId);
+        MatchScoringDecision decision = new MatchScoringDecision(fixtureKey, 101L,
+                ScoreEngineKind.COMPARTMENT_V1, MatchScoringDecision.ALGORITHM_VERSION,
+                "e".repeat(64), "f".repeat(64), 1, 0, 40, 30, 1.0, 0.5);
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        try {
+            service.persistOrLoadScoreDecision(decision, 10L, 20L,
+                    KnockoutPlanSplit.regularOnly(1, 0));
+            // Simulate the retry's stale pre-lock read, then publish COMMITTED in another
+            // transaction before the retry obtains its fixture lock.
+            assertEquals(decision, service.findPersistedScoringPlan(fixtureKey, 10L, 20L)
+                    .orElseThrow().decision());
+            new TransactionTemplate(txManager).executeWithoutResult(status -> {
+                MatchPlan plan = planRepository.findByFixtureKey(fixtureKey).orElseThrow();
+                plan.setStatus(MatchPlan.Status.COMMITTED);
+                planRepository.saveAndFlush(plan);
+            });
+            service.lockFixture(fixtureKey);
+            assertEquals(true, service.isPlanCommitted(fixtureKey));
+            // The simulator's committed branch exits before admin/scorer/stat/effect calls.
+        } finally {
+            new TransactionTemplate(txManager).executeWithoutResult(status -> {
+                planRepository.findByFixtureKey(fixtureKey).ifPresent(plan -> planRepository.delete(plan));
+                fixtureRepository.deleteById(fixtureId);
+            });
+        }
+    }
+
     private Lineup lineup(long base) {
         return new Lineup(List.of(
                 player(base, "GK"), player(base + 1, "DC"), player(base + 2, "DC"),

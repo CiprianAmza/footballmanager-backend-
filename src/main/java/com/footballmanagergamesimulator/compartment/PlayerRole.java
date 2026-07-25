@@ -18,6 +18,7 @@ public enum PlayerRole {
     BALL_WINNING_MIDFIELDER("Ball-Winning Midfielder"),
     BOX_TO_BOX_MIDFIELDER("Box-to-Box Midfielder"),
     ADVANCED_PLAYMAKER("Advanced Playmaker"),
+    SHADOW_STRIKER("Shadow Striker"),
     MEZZALA("Mezzala"),
     WINGER("Winger"),
     INSIDE_FORWARD("Inside Forward"),

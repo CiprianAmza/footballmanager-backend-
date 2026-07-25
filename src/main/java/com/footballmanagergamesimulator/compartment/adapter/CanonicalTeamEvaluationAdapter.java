@@ -1,0 +1,70 @@
+package com.footballmanagergamesimulator.compartment.adapter;
+
+import com.footballmanagergamesimulator.compartment.Mentality;
+import com.footballmanagergamesimulator.compartment.TacticalContextInput;
+import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator;
+import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+/** Pure deterministic bridge from canonical lineup players to team aggregation. */
+public final class CanonicalTeamEvaluationAdapter {
+    private final CanonicalPlayerContextAdapter playerAdapter;
+    private final TeamCompartmentAggregator aggregator;
+
+    public CanonicalTeamEvaluationAdapter(CompartmentEngineConfig compartmentConfig,
+                                          MatchEngineConfig matchEngineConfig) {
+        this.playerAdapter = new CanonicalPlayerContextAdapter(compartmentConfig, matchEngineConfig);
+        this.aggregator = new TeamCompartmentAggregator(Objects.requireNonNull(
+                compartmentConfig, "compartmentConfig"));
+    }
+
+    public CanonicalTeamEvaluation evaluate(Mentality mentality,
+                                             Collection<CanonicalLineupPlayer> lineup,
+                                             Map<Long, TacticalContextInput> tacticalContextByPlayerId) {
+        Objects.requireNonNull(mentality, "mentality");
+        Objects.requireNonNull(lineup, "lineup");
+        Objects.requireNonNull(tacticalContextByPlayerId, "tacticalContextByPlayerId");
+        if (lineup.isEmpty()) throw new IllegalArgumentException("lineup must not be empty");
+
+        List<CanonicalLineupPlayer> orderedLineup = new ArrayList<>(lineup);
+        if (orderedLineup.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("lineup cannot contain null values");
+        }
+        Set<Long> playerIds = new HashSet<>();
+        for (CanonicalLineupPlayer player : orderedLineup) {
+            if (!playerIds.add(player.playerId())) {
+                throw new IllegalArgumentException("duplicate player id: " + player.playerId());
+            }
+        }
+        if (!tacticalContextByPlayerId.keySet().equals(playerIds)) {
+            throw new IllegalArgumentException("tactical context must contain exactly one entry per player");
+        }
+
+        Map<Long, CanonicalPlayerEvaluation> evaluationsById = new LinkedHashMap<>();
+        List<TeamCompartmentAggregator.PlayerCompartmentInput> inputs = new ArrayList<>();
+        for (CanonicalLineupPlayer player : orderedLineup) {
+            TacticalContextInput context = tacticalContextByPlayerId.get(player.playerId());
+            if (context == null) throw new IllegalArgumentException("tactical context cannot be null");
+            CanonicalPlayerEvaluation evaluation = playerAdapter.evaluate(player, context);
+            evaluationsById.put(player.playerId(), evaluation);
+            inputs.add(new TeamCompartmentAggregator.PlayerCompartmentInput(
+                    player.playerId(),
+                    new TeamCompartmentAggregator.LineupSlot(player.usedPosition(), player.occurrence()),
+                    evaluation.rating(),
+                    new ArrayList<>(player.traits()),
+                    player.forwardInstruction()));
+        }
+
+        TeamCompartmentAggregator.TeamAggregationResult team = aggregator.aggregate(mentality, inputs);
+        return new CanonicalTeamEvaluation(new ArrayList<>(evaluationsById.values()), team);
+    }
+}

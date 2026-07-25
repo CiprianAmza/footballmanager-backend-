@@ -9,7 +9,7 @@ import java.util.Objects;
  * RNG-free probability preview for the future canonical scorer.
  *
  * <p>It computes matchup shares/xG and the exact Gamma-Poisson predictive PMF analytically. It
- * never samples a score and is not called by any runtime path in Phase 0/1.
+ * never samples a score; runtime scoring samples only the PMFs returned here.
  */
 public final class GoalProbabilityFormula {
 
@@ -22,6 +22,12 @@ public final class GoalProbabilityFormula {
     public MatchProbability expectedGoals(double homeAttack, double awayProtection,
                                           double awayAttack, double homeProtection,
                                           double openness) {
+        return expectedGoals(homeAttack, awayProtection, awayAttack, homeProtection, openness, true);
+    }
+
+    public MatchProbability expectedGoals(double homeAttack, double awayProtection,
+                                          double awayAttack, double homeProtection,
+                                          double openness, boolean applyHomeAdvantage) {
         requireNonNegative(homeAttack, "homeAttack");
         requireNonNegative(awayProtection, "awayProtection");
         requireNonNegative(awayAttack, "awayAttack");
@@ -29,7 +35,7 @@ public final class GoalProbabilityFormula {
         requireNonNegative(openness, "openness");
         double qHome = matchupShare(homeAttack, awayProtection, config.getMatchupExponent());
         double qAway = matchupShare(awayAttack, homeProtection, config.getMatchupExponent());
-        double homeXg = openness * qHome * config.getHomeAdvantage();
+        double homeXg = openness * qHome * (applyHomeAdvantage ? config.getHomeAdvantage() : 1.0);
         double awayXg = openness * qAway;
         return new MatchProbability(qHome, qAway, homeXg, awayXg,
                 predictiveGoals(homeXg), predictiveGoals(awayXg));

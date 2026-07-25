@@ -1,6 +1,10 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectsInput;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchStatsProfileV1;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchStatsSeed;
+import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchStatsValidator;
 import com.footballmanagergamesimulator.frontend.LiveMatchData;
 import com.footballmanagergamesimulator.model.MatchStats;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
@@ -60,10 +64,20 @@ public class MatchStatsService {
             int homeGoals, int awayGoals,
             double homePower, double awayPower,
             PersonalizedTactic homeTactic, PersonalizedTactic awayTactic) {
+        return generateMatchStats(competitionId, season, round, team1Id, team2Id,
+                homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic, this.random);
+    }
+
+    private MatchStats generateMatchStats(
+            long competitionId, int season, int round,
+            long team1Id, long team2Id,
+            int homeGoals, int awayGoals,
+            double homePower, double awayPower,
+            PersonalizedTactic homeTactic, PersonalizedTactic awayTactic,
+            Random rng) {
 
         // Team power drives the central tendency, while match-control, tempo and
         // team-specific noise create the long tails seen in real matches.
-        Random rng = this.random;
         MatchStats stats = new MatchStats();
         stats.setCompetitionId(competitionId);
         stats.setSeasonNumber(season);
@@ -248,6 +262,185 @@ public class MatchStatsService {
         MatchStats stats = generateMatchStats(competitionId, season, round,
                 team1Id, team2Id, homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic);
         return matchStatsRepository.save(stats);
+    }
+
+    /** Generate and persist a deterministic projection of a persisted canonical decision. */
+    public MatchStats generateAndSaveCanonicalMatchStats(
+            CanonicalMatchEffectsInput input,
+            long competitionId, int season, int round) {
+        CanonicalMatchStatsValidator.validate(input);
+        MatchStats stats = generateCanonicalMatchStats(input, competitionId, season, round,
+                CanonicalMatchStatsProfileV1.v1(), new Random(CanonicalMatchStatsSeed.derive(input)));
+        if (input.decision().scoreEngine() == com.footballmanagergamesimulator.matchplan.ScoreEngineKind.COMPARTMENT_V1
+                && input.decision().homeXg() != null) {
+            stats.setHomeXg(toHundredths(input.decision().homeXg()));
+            stats.setAwayXg(toHundredths(input.decision().awayXg()));
+        }
+        validateGeneratedCanonicalStats(stats);
+        return matchStatsRepository.save(stats);
+    }
+
+    private MatchStats generateCanonicalMatchStats(
+            CanonicalMatchEffectsInput input, long competitionId, int season, int round,
+            CanonicalMatchStatsProfileV1 profile, Random rng) {
+        int homeGoals = CanonicalMatchStatsValidator.footballGoals(
+                input.split().score90Home(), input.split().etHome());
+        int awayGoals = CanonicalMatchStatsValidator.footballGoals(
+                input.split().score90Away(), input.split().etAway());
+        double totalPower = input.decision().homePower() + input.decision().awayPower();
+        double homeShare = totalPower > 0 ? input.decision().homePower() / totalPower : 0.5;
+        double edge = homeShare - 0.5;
+
+        MatchStats stats = new MatchStats();
+        stats.setCompetitionId(competitionId);
+        stats.setSeasonNumber(season);
+        stats.setRoundNumber(round);
+        stats.setTeam1Id(input.homeTeamId());
+        stats.setTeam2Id(input.awayTeamId());
+        stats.setHomeGoals(homeGoals);
+        stats.setAwayGoals(awayGoals);
+
+        int homePossession = clamp((int) Math.round(profile.possessionBase()
+                + edge * profile.possessionPowerScale() + rng.nextGaussian() * profile.possessionNoise()), 25, 75);
+        int awayPossession = 100 - homePossession;
+        stats.setHomePossession(homePossession);
+        stats.setAwayPossession(awayPossession);
+
+        stats.setHomePasses(clamp((int) Math.round(profile.passesBase() * homePossession / 50.0
+                + rng.nextGaussian() * profile.passesNoise()), 200, 750));
+        stats.setAwayPasses(clamp((int) Math.round(profile.passesBase() * awayPossession / 50.0
+                + rng.nextGaussian() * profile.passesNoise()), 200, 750));
+        stats.setHomePassAccuracy(clamp((int) Math.round(profile.passAccuracyBase()
+                + edge * profile.passAccuracyPowerScale() + rng.nextGaussian() * profile.passAccuracyNoise()), 55, 96));
+        stats.setAwayPassAccuracy(clamp((int) Math.round(profile.passAccuracyBase()
+                - edge * profile.passAccuracyPowerScale() + rng.nextGaussian() * profile.passAccuracyNoise()), 55, 96));
+
+        double homeShotMean = Math.max(0.2, profile.shotsBase() + edge * profile.shotsPowerScale()
+                + rng.nextGaussian() * profile.shotsNoise());
+        double awayShotMean = Math.max(0.2, profile.shotsBase() - edge * profile.shotsPowerScale()
+                + rng.nextGaussian() * profile.shotsNoise());
+        int homeShots = Math.max(homeGoals, canonicalPoisson(rng, homeShotMean, profile.maxShots()));
+        int awayShots = Math.max(awayGoals, canonicalPoisson(rng, awayShotMean, profile.maxShots()));
+        stats.setHomeShots(homeShots);
+        stats.setAwayShots(awayShots);
+        int homeShotsOnTarget = homeGoals + randomBounded(rng, homeShots - homeGoals, 0.36);
+        int awayShotsOnTarget = awayGoals + randomBounded(rng, awayShots - awayGoals, 0.36);
+        stats.setHomeShotsOnTarget(homeShotsOnTarget);
+        stats.setAwayShotsOnTarget(awayShotsOnTarget);
+        stats.setHomeShotsBlocked(clamp((int) Math.round(homeShots
+                * (profile.blockedRate() + rng.nextDouble() * profile.blockedNoise())), 0,
+                homeShots - homeShotsOnTarget));
+        stats.setAwayShotsBlocked(clamp((int) Math.round(awayShots
+                * (profile.blockedRate() + rng.nextDouble() * profile.blockedNoise())), 0,
+                awayShots - awayShotsOnTarget));
+
+        stats.setHomeCorners(clamp((int) Math.round(profile.cornersBase()
+                + homeShots * profile.cornersPerShot() + rng.nextGaussian()), 0, 15));
+        stats.setAwayCorners(clamp((int) Math.round(profile.cornersBase()
+                + awayShots * profile.cornersPerShot() + rng.nextGaussian()), 0, 15));
+        int homeFouls = clamp((int) Math.round(profile.foulsBase() - edge * 2 + rng.nextGaussian() * profile.foulNoise()), 4, 22);
+        int awayFouls = clamp((int) Math.round(profile.foulsBase() + edge * 2 + rng.nextGaussian() * profile.foulNoise()), 4, 22);
+        stats.setHomeFouls(homeFouls);
+        stats.setAwayFouls(awayFouls);
+        stats.setHomeFreeKicks(awayFouls);
+        stats.setAwayFreeKicks(homeFouls);
+        stats.setHomeYellowCards(clamp((int) Math.round(homeFouls * 0.16 + rng.nextDouble()), 0, 6));
+        stats.setAwayYellowCards(clamp((int) Math.round(awayFouls * 0.16 + rng.nextDouble()), 0, 6));
+        stats.setHomeRedCards(rng.nextDouble() < 0.03 ? 1 : 0);
+        stats.setAwayRedCards(rng.nextDouble() < 0.03 ? 1 : 0);
+        stats.setHomeOffsides(clamp((int) Math.round(1.5 + edge * 2 + rng.nextGaussian() * 0.7), 0, 8));
+        stats.setAwayOffsides(clamp((int) Math.round(1.5 - edge * 2 + rng.nextGaussian() * 0.7), 0, 8));
+
+        stats.setHomeTackles(clamp((int) Math.round(profile.tacklesBase()
+                + (50 - homePossession) * 0.15 + rng.nextGaussian() * profile.tackleNoise()), 8, 35));
+        stats.setAwayTackles(clamp((int) Math.round(profile.tacklesBase()
+                + (homePossession - 50) * 0.15 + rng.nextGaussian() * profile.tackleNoise()), 8, 35));
+        stats.setHomeInterceptions(clamp((int) Math.round(profile.interceptionsBase()
+                + (50 - homePossession) * 0.1 + rng.nextGaussian() * profile.interceptionsNoise()), 3, 22));
+        stats.setAwayInterceptions(clamp((int) Math.round(profile.interceptionsBase()
+                + (homePossession - 50) * 0.1 + rng.nextGaussian() * profile.interceptionsNoise()), 3, 22));
+        stats.setHomeClearances(clamp((int) Math.round(profile.clearancesBase()
+                + awayShots * profile.clearancesPerShot() + rng.nextGaussian()), 5, 40));
+        stats.setAwayClearances(clamp((int) Math.round(profile.clearancesBase()
+                + homeShots * profile.clearancesPerShot() + rng.nextGaussian()), 5, 40));
+        stats.setHomeSaves(Math.max(0, awayShotsOnTarget - awayGoals));
+        stats.setAwaySaves(Math.max(0, homeShotsOnTarget - homeGoals));
+
+        int homeBigChances = clamp((int) Math.round(homeShots * profile.bigChanceRate()
+                + rng.nextGaussian()), 0, homeShots);
+        int awayBigChances = clamp((int) Math.round(awayShots * profile.bigChanceRate()
+                + rng.nextGaussian()), 0, awayShots);
+        stats.setHomeBigChances(homeBigChances);
+        stats.setAwayBigChances(awayBigChances);
+        stats.setHomeBigChancesMissed(Math.max(0, homeBigChances - homeGoals));
+        stats.setAwayBigChancesMissed(Math.max(0, awayBigChances - awayGoals));
+        stats.setHomeXg(canonicalXg(homeGoals, homeShots, profile));
+        stats.setAwayXg(canonicalXg(awayGoals, awayShots, profile));
+
+        int homeCrosses = clamp((int) Math.round(profile.crossesBase() + rng.nextGaussian() * profile.crossesNoise()), 5, 40);
+        int awayCrosses = clamp((int) Math.round(profile.crossesBase() + rng.nextGaussian() * profile.crossesNoise()), 5, 40);
+        stats.setHomeCrosses(homeCrosses);
+        stats.setAwayCrosses(awayCrosses);
+        stats.setHomeCrossesAccurate(clamp((int) Math.round(homeCrosses * 0.29), 0, homeCrosses));
+        stats.setAwayCrossesAccurate(clamp((int) Math.round(awayCrosses * 0.29), 0, awayCrosses));
+
+        int homeDuels = clamp((int) Math.round(profile.duelsBase() + rng.nextGaussian() * profile.duelsNoise()), 35, 85);
+        int awayDuels = clamp((int) Math.round(profile.duelsBase() + rng.nextGaussian() * profile.duelsNoise()), 35, 85);
+        stats.setHomeDuelsWon(clamp((int) Math.round(homeDuels * (0.5 + edge * 0.12)), 15, 60));
+        stats.setAwayDuelsWon(clamp((int) Math.round(awayDuels * (0.5 - edge * 0.12)), 15, 60));
+        stats.setHomeAerialDuelsWon(clamp((int) Math.round(profile.aerialDuelsBase()
+                + edge * 2 + rng.nextGaussian() * profile.aerialDuelsNoise()), 5, 25));
+        stats.setAwayAerialDuelsWon(clamp((int) Math.round(profile.aerialDuelsBase()
+                - edge * 2 + rng.nextGaussian() * profile.aerialDuelsNoise()), 5, 25));
+        return stats;
+    }
+
+    private int canonicalXg(int goals, int shots, CanonicalMatchStatsProfileV1 profile) {
+        double xg = goals * profile.xgPerGoal() + Math.max(0, shots - goals) * profile.xgPerOtherShot();
+        return clamp((int) Math.round(xg * 100.0), 0, Integer.MAX_VALUE);
+    }
+
+    private int randomBounded(Random rng, int available, double rate) {
+        if (available <= 0) return 0;
+        int result = 0;
+        for (int i = 0; i < available; i++) {
+            if (rng.nextDouble() < rate) result++;
+        }
+        return result;
+    }
+
+    private int canonicalPoisson(Random rng, double mean, int max) {
+        double limit = Math.exp(-mean);
+        double product = 1.0;
+        int count = 0;
+        do {
+            count++;
+            product *= rng.nextDouble();
+        } while (product > limit && count <= max);
+        return Math.min(count - 1, max);
+    }
+
+    private int toHundredths(double xg) {
+        double scaled = Math.round(xg * 100.0);
+        if (scaled <= 0) return 0;
+        if (scaled >= Integer.MAX_VALUE) return Integer.MAX_VALUE;
+        return (int) scaled;
+    }
+
+    private void validateGeneratedCanonicalStats(MatchStats stats) {
+        if (stats.getHomePossession() + stats.getAwayPossession() != 100
+                || stats.getHomeShots() < stats.getHomeShotsOnTarget()
+                || stats.getAwayShots() < stats.getAwayShotsOnTarget()
+                || stats.getHomeShotsOnTarget() < stats.getHomeGoals()
+                || stats.getAwayShotsOnTarget() < stats.getAwayGoals()
+                || stats.getHomeShotsBlocked() > stats.getHomeShots() - stats.getHomeShotsOnTarget()
+                || stats.getAwayShotsBlocked() > stats.getAwayShots() - stats.getAwayShotsOnTarget()
+                || stats.getHomeBigChancesMissed() > stats.getHomeBigChances()
+                || stats.getAwayBigChancesMissed() > stats.getAwayBigChances()
+                || stats.getHomeSaves() != Math.max(0, stats.getAwayShotsOnTarget() - stats.getAwayGoals())
+                || stats.getAwaySaves() != Math.max(0, stats.getHomeShotsOnTarget() - stats.getHomeGoals())) {
+            throw new IllegalStateException("canonical match stats violate football invariants");
+        }
     }
 
     /**

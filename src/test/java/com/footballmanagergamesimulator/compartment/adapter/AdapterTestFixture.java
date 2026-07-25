@@ -25,6 +25,10 @@ final class AdapterTestFixture {
         try {
             MutablePropertySources properties = new MutablePropertySources();
             for (PropertySource<?> source : new YamlPropertySourceLoader()
+                    .load("weights", new ClassPathResource("compartment-scoring-weights-v1.yml"))) {
+                properties.addLast(source);
+            }
+            for (PropertySource<?> source : new YamlPropertySourceLoader()
                     .load("application", new ClassPathResource("application.yml"))) {
                 properties.addLast(source);
             }

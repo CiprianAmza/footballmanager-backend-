@@ -24,6 +24,7 @@ class FlywayPhase0MigrationTest {
             assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '2' AND \"success\" = TRUE")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '5' AND \"success\" = TRUE")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '6' AND \"success\" = TRUE")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"version\" = '7' AND \"success\" = TRUE")).isEqualTo(1);
             assertThat(count(statement, "SELECT COUNT(*) FROM person_profile")).isZero();
             assertThat(count(statement, "SELECT COUNT(*) FROM asset_catalog_item")).isEqualTo(8);
             assertThat(count(statement, "SELECT COUNT(*) FROM asset_catalog_item WHERE asset_type='APARTMENT' AND apartment_rooms BETWEEN 1 AND 4")).isEqualTo(4);
@@ -31,6 +32,85 @@ class FlywayPhase0MigrationTest {
             assertThat(count(statement, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='MARKET_INSTRUMENT' AND COLUMN_NAME IN ('RISK_CLASS', 'RISK_CONFIG_VERSION')")).isEqualTo(2);
             assertThat(count(statement, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('TRADER_ADVISER_CONTRACT', 'TRADER_ADVICE_RECOMMENDATION')")).isEqualTo(2);
             assertThat(count(statement, "SELECT COUNT(*) FROM market_instrument WHERE code='MEDIA11' AND risk_class='SPECULATIVE' AND risk_config_version='risk-v1'")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('PLAYER_POSITION_FAMILIARITY', 'PLAYER_ROLE_FAMILIARITY', 'PLAYER_FOOT_PROFILE')")).isEqualTo(3);
+        }
+    }
+
+    @Test
+    void v7MigratesLegacyHumanWithoutPlayerContextColumnsUsingFallbackFootProfile() throws Exception {
+        String url = url();
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE human (id BIGINT PRIMARY KEY, name VARCHAR(255), type_id BIGINT, retired BOOLEAN)");
+            statement.execute("INSERT INTO human(id, name, type_id, retired) VALUES "
+                    + "(100, 'Legacy Player', 1, FALSE), (101, 'Legacy Manager', 4, FALSE)");
+        }
+
+        migrate(url);
+        migrate(url);
+
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity")).isZero();
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile WHERE player_id=100 AND left_foot_rating=8 AND right_foot_rating=20")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile WHERE player_id=101")).isZero();
+        }
+    }
+
+    @Test
+    void v7MigratesCompleteHumanContextIdempotentlyAndKeepsIdentityAvailable() throws Exception {
+        String url = url();
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE human (
+                        id BIGINT PRIMARY KEY,
+                        name VARCHAR(255),
+                        type_id BIGINT,
+                        position VARCHAR(10),
+                        preferred_foot VARCHAR(10),
+                        retired BOOLEAN
+                    )
+                    """);
+            statement.execute("""
+                    INSERT INTO human(id, name, type_id, position, preferred_foot, retired) VALUES
+                    (200, 'Striker', 1, 'ST', 'Right', FALSE),
+                    (201, 'Midfielder', 1, 'MC', 'Left', FALSE),
+                    (202, 'Goalkeeper', 1, 'GK', 'Both', FALSE),
+                    (203, 'Manager', 4, 'ST', 'Left', FALSE)
+                    """);
+        }
+
+        migrate(url);
+        try (Connection connection = DriverManager.getConnection(url, "sa", "");
+             Statement statement = connection.createStatement()) {
+            long positionMax = value(statement, "SELECT COALESCE(MAX(id), 0) FROM player_position_familiarity");
+            long footMax = value(statement, "SELECT COALESCE(MAX(id), 0) FROM player_foot_profile");
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity")).isEqualTo(3);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity WHERE primary_position=TRUE AND familiarity=20")).isEqualTo(3);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity WHERE player_id=200 AND position_code='ST'")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity WHERE player_id=201 AND position_code='MC'")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity WHERE player_id=202 AND position_code='GK'")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity WHERE player_id=203")).isZero();
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile WHERE player_id=200 AND left_foot_rating=8 AND right_foot_rating=20")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile WHERE player_id=201 AND left_foot_rating=20 AND right_foot_rating=8")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile WHERE player_id=202 AND left_foot_rating=16 AND right_foot_rating=16")).isEqualTo(1);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile WHERE player_id=203")).isZero();
+
+            migrate(url);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_position_familiarity")).isEqualTo(3);
+            assertThat(count(statement, "SELECT COUNT(*) FROM player_foot_profile")).isEqualTo(3);
+
+            long newPlayerId = 204L;
+            statement.executeUpdate("INSERT INTO human(id, name, type_id, retired) VALUES (204, 'New Player', 1, FALSE)");
+            statement.executeUpdate("INSERT INTO player_position_familiarity (player_id, position_code, familiarity, primary_position, version) VALUES (200, 'DC', 10, FALSE, 0)", Statement.RETURN_GENERATED_KEYS);
+            long generatedPositionId = generatedId(statement);
+            statement.executeUpdate("INSERT INTO player_foot_profile (player_id, left_foot_rating, right_foot_rating, version) VALUES (" + newPlayerId + ", 8, 20, 0)", Statement.RETURN_GENERATED_KEYS);
+            long generatedFootId = generatedId(statement);
+            assertThat(generatedPositionId).isGreaterThan(positionMax);
+            assertThat(generatedFootId).isGreaterThan(footMax);
+            assertThat(generatedPositionId).isNotEqualTo(positionMax);
+            assertThat(generatedFootId).isNotEqualTo(footMax);
         }
     }
 
@@ -144,6 +224,20 @@ class FlywayPhase0MigrationTest {
         try (ResultSet result = statement.executeQuery(sql)) {
             result.next();
             return result.getLong(1);
+        }
+    }
+
+    private long value(Statement statement, String sql) throws Exception {
+        try (ResultSet result = statement.executeQuery(sql)) {
+            result.next();
+            return result.getLong(1);
+        }
+    }
+
+    private long generatedId(Statement statement) throws Exception {
+        try (ResultSet keys = statement.getGeneratedKeys()) {
+            keys.next();
+            return keys.getLong(1);
         }
     }
 

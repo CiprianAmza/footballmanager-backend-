@@ -15,7 +15,8 @@ class CompartmentEngineConfigTest {
         assertThat(config.isEnabled()).isFalse();
         assertThat(config.getCompartments()).containsOnlyKeys(Compartment.values());
         assertThat(config.getPositions()).hasSize(14).containsKeys("GK", "DM", "ST");
-        assertThat(config.getRoles()).hasSize(24).containsKeys(PlayerRole.POACHER, PlayerRole.PRESSING_FORWARD);
+        assertThat(config.getRoles()).hasSize(PlayerRole.values().length)
+                .containsKeys(PlayerRole.POACHER, PlayerRole.PRESSING_FORWARD, PlayerRole.SHADOW_STRIKER);
         assertThat(config.getDuties()).containsOnlyKeys(Duty.values());
         assertThat(config.getMentalities()).containsOnlyKeys(Mentality.values());
         assertThat(config.getPositionCompartmentOverrides().get("GK"))
@@ -59,5 +60,15 @@ class CompartmentEngineConfigTest {
         assertThat(config.getProbability().getExtraTimeScale()).isCloseTo(1.0 / 3.0, within(1e-15));
         assertThat(config.getProbability().getIntervalLowerQuantile()).isEqualTo(0.05);
         assertThat(config.getProbability().getIntervalUpperQuantile()).isEqualTo(0.95);
+        assertThat(config.getAggregation().getWideRedistributionShare()).isEqualTo(0.20);
+    }
+
+    @Test
+    void weightsProfileContainsNoRolloutFlags() throws Exception {
+        String weights = new String(new org.springframework.core.io.ClassPathResource(
+                "compartment-scoring-weights-v1.yml").getInputStream().readAllBytes());
+        assertThat(weights).doesNotContain("enabled: false").doesNotContain("shadow-enabled: false");
+        assertThat(config.isEnabled()).isFalse();
+        assertThat(config.isShadowEnabled()).isFalse();
     }
 }

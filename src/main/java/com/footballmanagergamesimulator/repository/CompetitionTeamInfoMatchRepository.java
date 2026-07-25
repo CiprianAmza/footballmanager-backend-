@@ -25,6 +25,9 @@ public interface CompetitionTeamInfoMatchRepository extends JpaRepository<Compet
     /** Fetch a specific leg of a two-leg tie (used to aggregate leg 2 with the persisted leg 1). */
     Optional<CompetitionTeamInfoMatch> findByTieIdAndLegNumber(long tieId, int legNumber);
 
+    Optional<CompetitionTeamInfoMatch> findByCompetitionIdAndSeasonNumberAndTieIdAndLegNumber(
+            long competitionId, String seasonNumber, long tieId, int legNumber);
+
     @Query("SELECT c FROM CompetitionTeamInfoMatch c WHERE c.seasonNumber = :seasonNumber AND ((c.team1Id = :teamId) OR (c.team2Id = :teamId))")
     List<CompetitionTeamInfoMatch> findAllBySeasonNumberAndTeamId(@Param("seasonNumber") String seasonNumber, @Param("teamId") long teamId);
 

@@ -42,7 +42,8 @@ class GameSaveGeneratorAlignmentTest {
             "CLUB_FINANCIAL_OBLIGATION", "CLUB_CAP_TABLE_STATE", "TAKEOVER_QUOTE",
             "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER", "TRADER_ADVISER_CONTRACT",
             "TRADER_ADVICE_RECOMMENDATION", "CHAIRMAN_TACTICAL_MANDATE",
-            "CHAIRMAN_TACTICAL_MANDATE_SLOT");
+            "CHAIRMAN_TACTICAL_MANDATE_SLOT", "PLAYER_POSITION_FAMILIARITY",
+            "PLAYER_ROLE_FAMILIARITY", "PLAYER_FOOT_PROFILE");
 
     @jakarta.annotation.Resource private GameSaveImportService service;
     @jakarta.annotation.Resource private JdbcTemplate jdbc;
@@ -257,6 +258,15 @@ class GameSaveGeneratorAlignmentTest {
                         case "ROUND" -> ", SEASON BIGINT";
                         case "GAME_CALENDAR" -> ", SEASON INTEGER";
                         case "HUMAN" -> ", TYPE_ID BIGINT, RETIRED BOOLEAN, NAME VARCHAR(255)";
+                        case "PLAYER_POSITION_FAMILIARITY" -> ", PLAYER_ID BIGINT DEFAULT 1, "
+                                + "POSITION_CODE VARCHAR(8) DEFAULT 'GK', FAMILIARITY INTEGER DEFAULT 20, "
+                                + "PRIMARY_POSITION BOOLEAN DEFAULT FALSE, VERSION BIGINT DEFAULT 0";
+                        case "PLAYER_ROLE_FAMILIARITY" -> ", PLAYER_ID BIGINT DEFAULT 1, "
+                                + "POSITION_CODE VARCHAR(8) DEFAULT 'GK', ROLE_CODE VARCHAR(48) DEFAULT 'GOALKEEPER', "
+                                + "FAMILIARITY INTEGER DEFAULT 10, VERSION BIGINT DEFAULT 0";
+                        case "PLAYER_FOOT_PROFILE" -> ", PLAYER_ID BIGINT DEFAULT 1, "
+                                + "LEFT_FOOT_RATING INTEGER DEFAULT 8, RIGHT_FOOT_RATING INTEGER DEFAULT 20, "
+                                + "VERSION BIGINT DEFAULT 0";
                         case "PERSONAL_ACCOUNT" -> ", PROFILE_ID BIGINT DEFAULT 0, OWNER_USER_ID INTEGER, "
                                 + "OWNER_HUMAN_ID BIGINT, CASH_BALANCE BIGINT DEFAULT 0, "
                                 + "LIFETIME_CAREER_EARNINGS BIGINT DEFAULT 0, REALIZED_INVESTMENT_GAIN BIGINT DEFAULT 0, "

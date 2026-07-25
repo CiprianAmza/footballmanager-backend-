@@ -2,6 +2,8 @@ package com.footballmanagergamesimulator.controller;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.compartment.adapter.PositionRoleKey;
 import com.footballmanagergamesimulator.economy.MarketBootstrapService;
 import com.footballmanagergamesimulator.economy.ClubCapTableService;
 import com.footballmanagergamesimulator.economy.PersonalEconomyBootstrapService;
@@ -48,7 +50,8 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_9 = 9;
     static final int SAVE_VERSION_10 = 10;
     static final int SAVE_VERSION_11 = 11;
-    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_11;
+    static final int SAVE_VERSION_12 = 12;
+    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_12;
 
     private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
             new StayForwardSeedIdentity(107L, "Kvekrpur", 14L, "ST"),
@@ -70,6 +73,9 @@ public class GameSaveImportService {
             new TableSpec("gameCalendars", "GAME_CALENDAR"),
             new TableSpec("calendarEvents", "CALENDAR_EVENT"),
             new TableSpec("humans", "HUMAN"),
+            new TableSpec("playerPositionFamiliarities", "PLAYER_POSITION_FAMILIARITY", SAVE_VERSION_12),
+            new TableSpec("playerRoleFamiliarities", "PLAYER_ROLE_FAMILIARITY", SAVE_VERSION_12),
+            new TableSpec("playerFootProfiles", "PLAYER_FOOT_PROFILE", SAVE_VERSION_12),
             new TableSpec("humanTeamRelations", "HUMAN_TEAM_RELATION", SAVE_VERSION_6),
             new TableSpec("playerSkills", "PLAYER_SKILLS"),
             new TableSpec("youthPlayers", "YOUTH_PLAYER"),
@@ -258,7 +264,10 @@ public class GameSaveImportService {
                 tables.add(new TableRows(spec, parseRows(version, spec, rows, columns)));
             }
 
-            ImportPlan parsed = new ImportPlan(version, List.copyOf(tables), List.of());
+            List<TableRows> plannedTables = version < SAVE_VERSION_12
+                    ? LegacyPlayerContextMigrator.migrate(tables)
+                    : List.copyOf(tables);
+            ImportPlan parsed = new ImportPlan(version, plannedTables, List.of());
             validateAccountCompatibility(live, parsed, schema);
             List<GeneratorReset> generators = validateInRollbackSandbox(parsed);
             return new ImportPlan(version, parsed.tables(), generators);
@@ -664,8 +673,64 @@ public class GameSaveImportService {
         if (schema.dialect() == DatabaseDialect.H2) {
             // Phase-1 economy reconciliation is H2-only; the economy tables and
             // their ledger invariants are not part of the cross-database v6 contract.
+            validatePlayerContext(connection, schema);
             validateEconomy(connection, plan.sourceVersion() >= SAVE_VERSION_8,
-                    plan.sourceVersion() >= SAVE_VERSION_9, plan.sourceVersion() >= CURRENT_SAVE_VERSION);
+                    plan.sourceVersion() >= SAVE_VERSION_9, plan.sourceVersion() >= SAVE_VERSION_11);
+        }
+    }
+
+    private void validatePlayerContext(Connection connection, SchemaCatalog schema) throws SQLException {
+        if (!schema.hasTable("PLAYER_POSITION_FAMILIARITY")
+                || !schema.hasTable("PLAYER_ROLE_FAMILIARITY")
+                || !schema.hasTable("PLAYER_FOOT_PROFILE")) {
+            return;
+        }
+        long invalidPositionReferences = scalarLong(connection, """
+                SELECT COUNT(*) FROM PLAYER_POSITION_FAMILIARITY p
+                LEFT JOIN HUMAN h ON h.ID = p.PLAYER_ID AND h.TYPE_ID = 1
+                WHERE h.ID IS NULL OR p.FAMILIARITY NOT BETWEEN 1 AND 20
+                """);
+        if (invalidPositionReferences != 0) throw invalid("player position familiarity is inconsistent");
+        long duplicatePrimaries = scalarLong(connection, """
+                SELECT COUNT(*) FROM (
+                    SELECT PLAYER_ID FROM PLAYER_POSITION_FAMILIARITY
+                    WHERE PRIMARY_POSITION = TRUE
+                    GROUP BY PLAYER_ID
+                    HAVING COUNT(*) > 1
+                ) duplicate_primary_positions
+                """);
+        if (duplicatePrimaries != 0) throw invalid("player has multiple primary positions");
+        long invalidRoleReferences = scalarLong(connection, """
+                SELECT COUNT(*) FROM PLAYER_ROLE_FAMILIARITY r
+                LEFT JOIN HUMAN h ON h.ID = r.PLAYER_ID AND h.TYPE_ID = 1
+                WHERE h.ID IS NULL OR r.FAMILIARITY NOT BETWEEN 1 AND 20
+                """);
+        if (invalidRoleReferences != 0) throw invalid("player role familiarity is inconsistent");
+        long invalidFootReferences = scalarLong(connection, """
+                SELECT COUNT(*) FROM PLAYER_FOOT_PROFILE f
+                LEFT JOIN HUMAN h ON h.ID = f.PLAYER_ID AND h.TYPE_ID = 1
+                WHERE h.ID IS NULL
+                   OR f.LEFT_FOOT_RATING NOT BETWEEN 1 AND 20
+                   OR f.RIGHT_FOOT_RATING NOT BETWEEN 1 AND 20
+                """);
+        if (invalidFootReferences != 0) throw invalid("player foot profile is inconsistent");
+
+        try (Statement statement = connection.createStatement();
+             ResultSet positions = statement.executeQuery("SELECT POSITION_CODE FROM PLAYER_POSITION_FAMILIARITY")) {
+            while (positions.next()) {
+                PlayerPosition.require(positions.getString(1));
+            }
+        } catch (IllegalArgumentException exception) {
+            throw invalid("unknown player position code", exception);
+        }
+        try (Statement statement = connection.createStatement();
+             ResultSet roles = statement.executeQuery(
+                     "SELECT POSITION_CODE, ROLE_CODE FROM PLAYER_ROLE_FAMILIARITY")) {
+            while (roles.next()) {
+                PositionRoleKey.ofCodes(roles.getString(1), roles.getString(2));
+            }
+        } catch (IllegalArgumentException exception) {
+            throw invalid("invalid player role familiarity", exception);
         }
     }
 
@@ -676,7 +741,7 @@ public class GameSaveImportService {
             mapped.put("STAY_FORWARD", sourceVersion < SAVE_VERSION_10
                     && isCanonicalStayForwardSeed(mapped));
         }
-        if ("MARKET_INSTRUMENT".equals(tableName) && sourceVersion < CURRENT_SAVE_VERSION) {
+        if ("MARKET_INSTRUMENT".equals(tableName) && sourceVersion < SAVE_VERSION_11) {
             Object type = mapped.get("INSTRUMENT_TYPE");
             Object code = mapped.get("CODE");
             if (validColumns.contains("RISK_CLASS")) {
@@ -950,15 +1015,16 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10 or 11");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10, 11 or 12");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
                 && version != SAVE_VERSION_7 && version != SAVE_VERSION_8
                 && version != SAVE_VERSION_9
                 && version != SAVE_VERSION_10
+                && version != SAVE_VERSION_11
                 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10 or 11");
+            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11 or 12");
         }
         return version;
     }

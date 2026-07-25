@@ -9,6 +9,7 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepos
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -292,9 +293,67 @@ public class MatchPlanService {
 
     /** Durable idempotency check: is this fixture's plan already COMMITTED? A committed plan
      *  means the commit already succeeded and durably persisted — a retry must not re-run. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public boolean isPlanCommitted(String fixtureKey) {
+        return matchPlanRepository.existsByFixtureKeyAndStatus(fixtureKey, MatchPlan.Status.COMMITTED);
+    }
+
+    public java.util.Optional<MatchScoringDecision> findScoreDecision(String fixtureKey) {
         return matchPlanRepository.findByFixtureKey(fixtureKey)
-                .map(p -> p.getStatus() == MatchPlan.Status.COMMITTED).orElse(false);
+                .filter(MatchPlan::hasScoreDecision)
+                .map(MatchPlan::getScoreDecision);
+    }
+
+    public java.util.Optional<PersistedScoringPlan> findPersistedScoringPlan(String fixtureKey,
+                                                                               long homeTeamId,
+                                                                               long awayTeamId) {
+        return matchPlanRepository.findByFixtureKey(fixtureKey)
+                .filter(MatchPlan::hasScoreDecision)
+                .map(plan -> {
+                    if (plan.getHomeTeamId() != homeTeamId || plan.getAwayTeamId() != awayTeamId) {
+                        throw new IllegalStateException("persisted fixture teams do not match: " + fixtureKey);
+                    }
+                    return persisted(plan);
+                });
+    }
+
+    /**
+     * Atomically adopts the first durable scoring decision for a real fixture.
+     * The fixture row is the serialization point; a losing caller always adopts
+     * the values read back from the winner's plan.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PersistedScoringPlan persistOrLoadScoreDecision(MatchScoringDecision decision,
+                                                            long homeTeamId, long awayTeamId,
+                                                            KnockoutPlanSplit knockoutPlanSplit) {
+        if (decision == null || knockoutPlanSplit == null) {
+            throw new IllegalArgumentException("decision and knockoutPlanSplit are required");
+        }
+        knockoutPlanSplit.validateAgainst(decision);
+        lockCompetitionFixture(decision.fixtureKey());
+        MatchPlan existing = matchPlanRepository.findByFixtureKey(decision.fixtureKey()).orElse(null);
+        if (existing != null) {
+            if (!existing.hasScoreDecision()) {
+                throw new IllegalStateException("existing plan has no persisted score decision: "
+                        + decision.fixtureKey());
+            }
+            if (existing.getHomeTeamId() != homeTeamId || existing.getAwayTeamId() != awayTeamId) {
+                throw new IllegalStateException("persisted fixture teams do not match: " + decision.fixtureKey());
+            }
+            return persisted(existing);
+        }
+        MatchPlan plan = planningService.plan(decision.fixtureKey(), decision.seed(), homeTeamId, awayTeamId,
+                knockoutPlanSplit.score90Home(), knockoutPlanSplit.score90Away(),
+                knockoutPlanSplit.etHome(), knockoutPlanSplit.etAway(),
+                knockoutPlanSplit.shootoutHome(), knockoutPlanSplit.shootoutAway());
+        plan.applyScoreDecision(decision);
+        plan.setStatus(MatchPlan.Status.PLANNED);
+        return persisted(matchPlanRepository.saveAndFlush(plan));
+    }
+
+    private PersistedScoringPlan persisted(MatchPlan plan) {
+        return new PersistedScoringPlan(plan.getScoreDecision(), plan.getKnockoutPlanSplit(),
+                plan.getHomeTeamId(), plan.getAwayTeamId());
     }
 
     /**
@@ -506,6 +565,14 @@ public class MatchPlanService {
         //    regenerated.
         MatchPlan existing = matchPlanRepository.findByFixtureKey(fixtureKey).orElse(null);
         if (existing != null) {
+            if (existing.hasScoreDecision()) {
+                if (existing.getStatus() == MatchPlan.Status.COMPLETED
+                        || existing.getStatus() == MatchPlan.Status.COMMITTED) {
+                    return new PlanStep(null,
+                            matchEventRepository.findByFixtureKeyOrderBySlotIndexAscEventOrderAsc(fixtureKey));
+                }
+                return new PlanStep(existing, null);
+            }
             boolean reuse = existing.getStatus() == MatchPlan.Status.COMMITTED
                     || (existing.getStatus() == MatchPlan.Status.COMPLETED && isCurrentVersion(existing));
             if (reuse) {

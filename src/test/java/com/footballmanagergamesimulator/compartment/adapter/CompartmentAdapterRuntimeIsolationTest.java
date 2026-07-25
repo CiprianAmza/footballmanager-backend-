@@ -31,7 +31,16 @@ class CompartmentAdapterRuntimeIsolationTest {
             "ContextualPlayerRatingCalculator",
             "DefensiveExposureFormula",
             "GoalProbabilityFormula",
-            "CompartmentMath");
+            "CompartmentMath",
+            "CanonicalMatchEvaluation",
+            "CanonicalMatchEvaluationAdapter",
+            "OutcomeProbability",
+            "MatchVenue");
+
+    private static final List<String> PHASE6_FORBIDDEN_REFERENCES = List.of(
+            "Repository", "jakarta.persistence", "org.springframework", "Human", "PlayerSkills",
+            "FormationData", "MatchPlan", "TacticalScoreService", "MatchRoundSimulator", "LiveMatch",
+            "java.util.Random", "ThreadLocalRandom");
 
     @Test
     void noRuntimeCallsiteReferencesTheAdapterOrPureCalculators() {
@@ -61,6 +70,128 @@ class CompartmentAdapterRuntimeIsolationTest {
                 .isEmpty();
     }
 
+    @Test
+    void phaseSixBridgeRemainsDomainFreeAndRuntimeIsolated() {
+        Path root = Path.of("src", "main", "java", "com", "footballmanagergamesimulator", "compartment", "adapter");
+        List<String> phase6Files = List.of(
+                "PlayerCapabilityResolver.java", "CanonicalLineupPlayer.java", "CanonicalPlayerEvaluation.java",
+                "CanonicalTeamEvaluation.java", "CanonicalPlayerContextAdapter.java",
+                "CanonicalTeamEvaluationAdapter.java");
+        Map<String, List<String>> offenders = new TreeMap<>();
+        try (Stream<Path> files = Files.walk(root)) {
+            files.filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> phase6Files.contains(path.getFileName().toString()))
+                    .forEach(path -> {
+                        String content = read(path);
+                        for (String forbidden : PHASE6_FORBIDDEN_REFERENCES) {
+                            if (containsIdentifier(content, forbidden) || content.contains(forbidden)) {
+                                offenders.computeIfAbsent(root.relativize(path).toString(), k -> new java.util.ArrayList<>())
+                                        .add(forbidden);
+                            }
+                        }
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        assertThat(offenders).as("Phase 6 bridge must remain pure and domain-free").isEmpty();
+    }
+
+    @Test
+    void phaseNineAllowsOnlyTheShadowServiceFrontier() {
+        Path root = Path.of("src", "main", "java");
+        Path simulator = root.resolve("com/footballmanagergamesimulator/service/MatchRoundSimulator.java");
+        assertThat(read(simulator)).contains("CompartmentShadowEvaluationService")
+                .contains("evaluateSafely(() ->");
+        Map<String, List<String>> offenders = new TreeMap<>();
+        try (Stream<Path> files = Files.walk(root)) {
+            files.filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.equals(simulator))
+                    .filter(p -> !p.toString().replace('\\', '/').contains("/compartment/"))
+                    .forEach(p -> {
+                        if (containsIdentifier(read(p), "CompartmentShadowEvaluationService")) {
+                            offenders.computeIfAbsent(root.relativize(p).toString(), k -> new java.util.ArrayList<>())
+                                    .add("CompartmentShadowEvaluationService");
+                        }
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        assertThat(offenders).as("only MatchRoundSimulator may reference the shadow service").isEmpty();
+        String simulatorSource = read(simulator);
+        for (String forbidden : List.of("CanonicalMatchEvaluationAdapter", "CanonicalRuntimeInputFactory",
+                "CanonicalTeamEvaluationAdapter", "GoalProbabilityFormula", "PlayerCapabilityService")) {
+            assertThat(containsIdentifier(simulatorSource, forbidden))
+                    .as("MatchRoundSimulator must not reference " + forbidden).isFalse();
+        }
+    }
+
+    @Test
+    void phaseElevenHasOneAiCutoverHookAndLeavesLegacyBoundariesInPlace() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        assertThat(count(simulator, "canonicalRuntimeScoringService.scoreSafely")).isEqualTo(1);
+
+        int aiStart = simulator.indexOf("aiMatches++");
+        int admin = simulator.indexOf("peekPredeterminedScore(", aiStart);
+        int cutover = simulator.indexOf("canonicalRuntimeScoringService.scoreSafely");
+        int twoAxisFallback = simulator.indexOf("TwoAxisResult r = twoAxisScores(teamId1, null, teamId2, null)", cutover);
+        assertThat(admin).isGreaterThanOrEqualTo(0).isLessThan(cutover);
+        int persistedLookup = simulator.indexOf("findPersistedScoringPlan", aiStart);
+        assertThat(persistedLookup).isGreaterThanOrEqualTo(0).isLessThan(cutover);
+        assertThat(simulator).contains("boolean durablePlan = persistedScoreDecision.isPresent() || matchPlanService.isEnabled()")
+                .contains("if (durablePlan)")
+                .contains("isPlanCommitted(aiFixtureKey)");
+        assertThat(twoAxisFallback).isGreaterThan(cutover);
+        assertThat(simulator).contains("compartmentEngineConfig.isShadowEnabled() && !compartmentEngineConfig.isEnabled()");
+        int humanStart = simulator.indexOf("if (isHumanMatch)");
+        assertThat(humanStart).isGreaterThanOrEqualTo(0).isLessThan(cutover);
+        assertThat(simulator.substring(humanStart, cutover)).doesNotContain("canonicalRuntimeScoringService");
+
+        int standalone = simulator.indexOf("public MatchOutcome scoreStandaloneMatch");
+        assertThat(standalone).isGreaterThanOrEqualTo(0);
+        assertThat(simulator.substring(standalone)).doesNotContain("canonicalRuntimeScoringService");
+        assertThat(simulator).contains("if (isHumanMatch)").contains("if (knockout)");
+    }
+
+    @Test
+    void durableAiStatsUseCanonicalProjectionAndLegacyStatsStayBehindFallback() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        int durable = simulator.indexOf("if (durablePlan)");
+        int canonicalStats = simulator.indexOf("generateAndSaveCanonicalMatchStats");
+        int legacyStats = simulator.indexOf("generateAndSaveMatchStats", canonicalStats);
+        assertThat(durable).isGreaterThanOrEqualTo(0);
+        assertThat(canonicalStats).isGreaterThan(durable);
+        assertThat(legacyStats).isGreaterThan(canonicalStats);
+        assertThat(simulator).contains("new CanonicalMatchEffectsInput")
+                .contains("canonicalEvents.stream()")
+                .contains("if (durablePlan)")
+                .contains("else {");
+        assertThat(count(simulator, "generateAndSaveCanonicalMatchStats")).isEqualTo(1);
+        String statsService = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchStatsService.java"));
+        int canonicalApi = statsService.indexOf("generateAndSaveCanonicalMatchStats");
+        int canonicalBodyEnd = statsService.indexOf("private MatchStats generateCanonicalMatchStats", canonicalApi);
+        String canonicalApiSource = statsService.substring(canonicalApi, canonicalBodyEnd);
+        assertThat(statsService).contains("CanonicalMatchEffectsInput input,")
+                .contains("CanonicalMatchStatsProfileV1.v1()");
+        assertThat(canonicalApiSource).doesNotContain("homePower", "awayPower", "PersonalizedTactic");
+    }
+
+    @Test
+    void knockoutReplayDelegatesToPureResolverAndUsesQualifiedSeasonLookup() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        assertThat(simulator).contains("KnockoutReplayResolver.resolve")
+                .contains("findByCompetitionIdAndSeasonNumberAndTieIdAndLegNumber");
+
+        String resolver = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "KnockoutReplayResolver.java"));
+        assertThat(resolver).doesNotContain("Random", "threadRandom", "decideTie", "sampling");
+    }
+
     private static boolean containsIdentifier(String content, String identifier) {
         int from = 0;
         while (true) {
@@ -76,6 +207,16 @@ class CompartmentAdapterRuntimeIsolationTest {
             }
             from = idx + 1;
         }
+    }
+
+    private static int count(String content, String value) {
+        int count = 0;
+        int from = 0;
+        while ((from = content.indexOf(value, from)) >= 0) {
+            count++;
+            from += value.length();
+        }
+        return count;
     }
 
     private static boolean isIdentifierPart(char c) {
