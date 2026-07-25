@@ -49,7 +49,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>This deliberately does not call TournamentEngine or MatchSimulationService.
  * It builds the same deterministic round-robin campaign in the test harness and
  * sends every fixture through CanonicalRuntimeScoringService, using the current
- * player skills, fitness, morale, tactics and compartment configuration.</p>
+ * player skills, fitness, morale, tactics and compartment configuration. The
+ * primary test discovers and simulates every bootstrapped league, not only the
+ * lowest-id competition.</p>
  */
 @SpringBootTest
 @TestPropertySource(properties = {
@@ -61,7 +63,6 @@ class LeagueOutcome2IT {
 
     private static final int SEASONS = 200;
     private static final long BASE_SEED = 20260528L;
-    private static final String LEAGUE_ID_PROPERTY = "league.id";
     private static final String TEAM_IDS_PROPERTY = "team.ids";
     private static final List<PlayerPosition> FOUR_FOUR_TWO = List.of(
             PlayerPosition.GK, PlayerPosition.DC, PlayerPosition.DC,
@@ -85,23 +86,31 @@ class LeagueOutcome2IT {
     @Autowired private OutcomeTestSupport support;
 
     @Test
-    @DisplayName("200-season report uses the canonical production scorer and current values")
-    void simulateLeagueAndReportWithCanonicalScorer() throws Exception {
+    @DisplayName("200-season report for every league uses the production canonical scorer")
+    void simulateAllLeaguesAndReportWithCanonicalScorer() throws Exception {
         List<Long> availableLeagues = availableLeagues();
-        long competitionId = resolveLeagueId(availableLeagues);
-        Competition league = competitionRepository.findById(competitionId)
-                .orElseThrow(() -> new IllegalStateException("league does not exist: " + competitionId));
         int season = gameState.currentSeason();
-        List<TeamSetupV2> teams = loadTeams(league.getId(), season);
-        assertThat(teams).as("league must have teams").isNotEmpty();
         assertThat(compartmentConfig.isEnabled()).isTrue();
 
-        AggregatedSimulation aggregate = runAggregateSimulation(league.getId(), teams);
-        String report = buildReport("Competition: id=" + league.getId() + ", season=" + season,
-                availableLeagues, teams, aggregate);
-        writeAndPrint(Path.of("target", "league-outcome-2-" + league.getId() + ".md"), report);
+        StringBuilder combined = new StringBuilder("# League Outcome 2 — All Leagues\n\n")
+                .append("Leagues: ").append(availableLeagues).append('\n')
+                .append("Seasons simulated per league: ").append(SEASONS).append("\n\n");
+        for (long competitionId : availableLeagues) {
+            Competition league = competitionRepository.findById(competitionId)
+                    .orElseThrow(() -> new IllegalStateException("league does not exist: " + competitionId));
+            List<TeamSetupV2> teams = loadTeams(league.getId(), season);
+            assertThat(teams).as("league %s must have teams", competitionId).isNotEmpty();
 
-        assertCompleteSimulation(teams, aggregate);
+            AggregatedSimulation aggregate = runAggregateSimulation(league.getId(), teams);
+            String report = buildReport("Competition: id=" + league.getId() + ", name="
+                            + league.getName() + ", season=" + season,
+                    availableLeagues, teams, aggregate);
+            Files.writeString(Path.of("target", "league-outcome-2-" + league.getId() + ".md"), report);
+            combined.append(report).append("\n\n---\n\n");
+
+            assertCompleteSimulation(teams, aggregate);
+        }
+        writeAndPrint(Path.of("target", "league-outcome-2-all.md"), combined.toString());
     }
 
     @Test
@@ -131,23 +140,6 @@ class LeagueOutcome2IT {
         List<Long> leagues = gameState.getLeagueCompetitionIdsCached().stream().sorted().toList();
         assertThat(leagues).as("at least one league competition must be bootstrapped").isNotEmpty();
         return leagues;
-    }
-
-    private long resolveLeagueId(List<Long> availableLeagues) {
-        String override = System.getProperty(LEAGUE_ID_PROPERTY);
-        if (override == null || override.isBlank()) return availableLeagues.get(0);
-        final long requested;
-        try {
-            requested = Long.parseLong(override.trim());
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("Invalid -Dleague.id=" + override
-                    + " — must be an integer. Available leagues: " + availableLeagues, exception);
-        }
-        if (!availableLeagues.contains(requested)) {
-            throw new IllegalArgumentException("-Dleague.id=" + requested
-                    + " is not a league competition. Available: " + availableLeagues);
-        }
-        return requested;
     }
 
     private List<TeamSetupV2> loadTeams(long competitionId, int season) {
@@ -342,7 +334,7 @@ class LeagueOutcome2IT {
                 .append("Seed: ").append(BASE_SEED).append(" (deterministic — same seed → same numbers)\n\n");
         if (availableLeagues != null) {
             report.append("## Available Leagues\n\n")
-                    .append("Run with `-Dleague.id=X` to simulate a different one.\n\n")
+                    .append("This run includes every bootstrapped league.\n\n")
                     .append('`').append(availableLeagues).append("`\n\n");
         }
         report.append("## Average Standings After ").append(SEASONS).append(" Seasons\n\n")
