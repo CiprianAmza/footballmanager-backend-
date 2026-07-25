@@ -15,6 +15,8 @@ import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepos
 import com.footballmanagergamesimulator.repository.MatchAppearanceRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.MatchPlanRepository;
+import com.footballmanagergamesimulator.repository.MatchParticipantRepository;
+import com.footballmanagergamesimulator.repository.MatchSubstitutionRepository;
 import com.footballmanagergamesimulator.repository.PredeterminedScoreRepository;
 import com.footballmanagergamesimulator.service.TeamPostMatchService;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,8 @@ class Phase13AdminOverrideLockOrderIT {
     @Autowired private MatchPlanRepository planRepository;
     @Autowired private MatchEventRepository eventRepository;
     @Autowired private MatchAppearanceRepository appearanceRepository;
+    @Autowired private MatchSubstitutionRepository substitutionRepository;
+    @Autowired private MatchParticipantRepository participantRepository;
     @Autowired private MatchPlanService matchPlanService;
     @Autowired private TeamPostMatchService postMatchService;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -118,7 +122,12 @@ class Phase13AdminOverrideLockOrderIT {
                 planRepository.findByFixtureKey(fixtureKey).ifPresent(plan -> {
                     eventRepository.findByFixtureKey(fixtureKey).forEach(eventRepository::delete);
                     appearanceRepository.findByMatchPlan(plan).forEach(appearanceRepository::delete);
+                    substitutionRepository.findByMatchPlanOrderByTeamIdAscSubIndexAsc(plan)
+                            .forEach(substitutionRepository::delete);
+                    participantRepository.findByMatchPlanOrderByTeamIdAscParticipantIndexAsc(plan)
+                            .forEach(participantRepository::delete);
                     planRepository.delete(plan);
+                    planRepository.flush();
                 });
                 predeterminedScores.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
                         901L, 7, 3, 11L, 12L).ifPresent(predeterminedScores::delete);
