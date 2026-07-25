@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.service;
 
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import com.footballmanagergamesimulator.model.PredeterminedScore;
@@ -23,10 +24,13 @@ import static org.junit.jupiter.api.Assertions.*;
 class TeamPostMatchServiceTest {
 
     private TeamPostMatchService service;
+    private EntityManager entityManager;
 
     @BeforeEach
     void setUp() {
         service = new TeamPostMatchService();
+        entityManager = mock(EntityManager.class);
+        ReflectionTestUtils.setField(service, "entityManager", entityManager);
     }
 
     // ---------------- calculateMoraleChangeForTeamDifference ----------------
@@ -106,6 +110,26 @@ class TeamPostMatchServiceTest {
         assertEquals(TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT, result.resolution());
         assertArrayEquals(new int[]{2, 1}, result.score());
         assertFalse(row.isConsumed());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void atomicOverrideClaim_refreshesLockedRowBeforeClassifyingConsumedState() {
+        PredeterminedScoreRepository repository = mock(PredeterminedScoreRepository.class);
+        ReflectionTestUtils.setField(service, "predeterminedScoreRepository", repository);
+        PredeterminedScore row = override(2, 1);
+        when(repository.findForUpdateByFixture(
+                7L, 3, 4, 11L, 12L)).thenReturn(Optional.of(row));
+        doAnswer(invocation -> {
+            row.setConsumed(true);
+            return null;
+        }).when(entityManager).refresh(row);
+
+        TeamPostMatchService.PredeterminedScoreAttempt result = service.consumePredeterminedScoreIfMatches(
+                7L, 3, 4, 11L, 12L, 2, 1);
+
+        assertEquals(TeamPostMatchService.PredeterminedScoreResolution.ALREADY_CONSUMED, result.resolution());
+        verify(entityManager).refresh(row);
         verify(repository, never()).save(any());
     }
 

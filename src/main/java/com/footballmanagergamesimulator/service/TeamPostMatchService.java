@@ -18,6 +18,8 @@ import com.footballmanagergamesimulator.repository.TeamCompetitionDetailReposito
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -58,6 +60,7 @@ public class TeamPostMatchService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private PredeterminedScoreRepository predeterminedScoreRepository;
+    @PersistenceContext private EntityManager entityManager;
     @Autowired private UserContext userContext;
     @Autowired @Lazy private MatchSimulationService matchSimulationService;
 
@@ -411,6 +414,7 @@ public class TeamPostMatchService {
             return new PredeterminedScoreAttempt(PredeterminedScoreResolution.ABSENT, null);
         }
         PredeterminedScore p = preset.get();
+        entityManager.refresh(p);
         if (p.isConsumed()) {
             return new PredeterminedScoreAttempt(PredeterminedScoreResolution.ALREADY_CONSUMED, null);
         }
