@@ -252,6 +252,14 @@ class LeagueOutcome3IT {
                 .map(team -> runtimeInputFactory.build(team.tactic, team.slots))
                 .map(matchAdapter::evaluateTeam)
                 .toList();
+        List<CanonicalStrength> strengths = teamEvaluations.stream()
+                .map(evaluation -> new CanonicalStrength(
+                        evaluation.team().rawTotals().attack(),
+                        evaluation.team().rawTotals().midfield(),
+                        evaluation.team().rawTotals().defense(),
+                        evaluation.team().attack(),
+                        evaluation.team().attackProtection()))
+                .toList();
 
         SeasonTable[] seasons = new SeasonTable[SEASONS];
         for (int seasonIndex = 0; seasonIndex < SEASONS; seasonIndex++) {
@@ -311,7 +319,7 @@ class LeagueOutcome3IT {
         }
         return new AggregatedSimulation(positionCounts, totalPoints, totalGF, totalGA,
                 totalWins, totalDraws, totalLosses, championships, matchesScored, preparedFixtures,
-                (System.nanoTime() - startedAt) / 1_000_000);
+                (System.nanoTime() - startedAt) / 1_000_000, strengths);
     }
 
     private String buildReport(String competitionLine, List<Long> availableLeagues,
@@ -357,16 +365,26 @@ class LeagueOutcome3IT {
         for (int i = 0; i < n; i++) order[i] = i;
         Arrays.sort(order, Comparator.comparingDouble(i -> meanPos[i]));
         MarkdownTable standings = new MarkdownTable(
-                List.of("Rank", "Team", "Top XI", "Tactic", "Mean Pos ± σ", "Mean Pts",
+                List.of("Rank", "Team", "Top XI", "GK Rating", "Attack", "Midfield", "Defense",
+                        "Final Attack", "Final Protection", "Tactic", "Mean Pos ± σ", "Mean Pts",
                         "Avg GF", "Avg GA", "W/D/L", "Champion"),
                 List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
                         MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
                         MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT,
                         MarkdownTable.Align.RIGHT));
         for (int rank = 0; rank < n; rank++) {
             int team = order[rank];
+            CanonicalStrength strength = aggregate.strengths.get(team);
             standings.addRow(String.valueOf(rank + 1), teams.get(team).name,
                     String.format("%.1f", teams.get(team).topXiRating),
+                    String.format("%.1f", teams.get(team).goalkeeperRating()),
+                    String.format("%.2f", strength.rawAttack),
+                    String.format("%.2f", strength.rawMidfield),
+                    String.format("%.2f", strength.rawDefense),
+                    String.format("%.2f", strength.finalAttack),
+                    String.format("%.2f", strength.finalProtection),
                     tacticLabel(teams.get(team).tactic),
                     String.format("%.1f ± %.1f", meanPos[team], stddevPos[team]),
                     String.format("%.1f", aggregate.totalPoints[team] / (double) SEASONS),
@@ -414,6 +432,9 @@ class LeagueOutcome3IT {
                 .append("## Method\n\n")
                 .append("- Squads, tactics and canonical team evaluations are frozen for this statistical run.\n")
                 .append("- **Top XI** is the sum of the ratings of the eleven starters selected by the test.\n")
+                .append("- **GK Rating** is the display rating of the player used in the goalkeeper slot.\n")
+                .append("- **Attack / Midfield / Defense** are the canonical raw compartment totals before mentality redistribution.\n")
+                .append("- **Final Attack / Final Protection** are the two values that actually enter the goal-probability matchup.\n")
                 .append("- **Tactic** lists mentality / tempo / passing / defensive line / pressing / width.\n")
                 .append("- Every directed fixture probability distribution is calculated once with the production Compartment V1 formulas and current weights.\n")
                 .append("- That distribution is sampled 200 times with distinct deterministic production seeds.\n")
@@ -461,12 +482,28 @@ class LeagueOutcome3IT {
     }
 
     private record TeamSetup(long id, String name, double topXiRating, PersonalizedTactic tactic,
-                             List<RuntimeLineupSlot> slots) {}
+                             List<RuntimeLineupSlot> slots) {
+        private double goalkeeperRating() {
+            return slots.stream()
+                    .filter(slot -> slot.usedPosition() == PlayerPosition.GK)
+                    .mapToDouble(slot -> slot.player().getRating())
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("team has no goalkeeper slot: " + id));
+        }
+    }
+
+    private record CanonicalStrength(double rawAttack, double rawMidfield, double rawDefense,
+                                     double finalAttack, double finalProtection) {}
 
     private record AggregatedSimulation(long[][] positionCounts, long[] totalPoints, long[] totalGF,
                                         long[] totalGA, long[] totalWins, long[] totalDraws,
                                         long[] totalLosses, int[] championships, int matchesScored,
-                                        int preparedFixtures, long elapsedMs) {}
+                                        int preparedFixtures, long elapsedMs,
+                                        List<CanonicalStrength> strengths) {
+        private AggregatedSimulation {
+            strengths = List.copyOf(strengths);
+        }
+    }
 
     private static final class SeasonTable {
         private final int[] points;
