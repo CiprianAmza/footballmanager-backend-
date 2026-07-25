@@ -14,6 +14,7 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.JobOfferService;
+import com.footballmanagergamesimulator.service.ChairmanInboxNotificationService;
 import com.footballmanagergamesimulator.economy.RegentEconomyProperties;
 import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import com.footballmanagergamesimulator.economy.TraderAdviserService;
@@ -75,6 +76,7 @@ class AuthSecurityWebTest {
     @MockBean private MarketTradingService marketTradingService;
     @MockBean private MarketQueryService marketQueryService;
     @MockBean private TraderAdviserService traderAdviserService;
+    @MockBean private ChairmanInboxNotificationService chairmanInboxNotificationService;
     @MockBean private GameCalendarRepository gameCalendarRepository;
     @SpyBean private CareerOnboardingService onboardingService;
 

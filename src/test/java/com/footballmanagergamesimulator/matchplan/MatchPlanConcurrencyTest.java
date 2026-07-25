@@ -193,8 +193,11 @@ class MatchPlanConcurrencyTest {
                 plan.setStatus(MatchPlan.Status.COMMITTED);
                 planRepository.saveAndFlush(plan);
             });
-            service.lockFixture(fixtureKey);
-            assertEquals(true, service.isPlanCommitted(fixtureKey));
+            boolean committed = new TransactionTemplate(txManager).execute(status -> {
+                service.lockFixture(fixtureKey);
+                return service.isPlanCommitted(fixtureKey);
+            });
+            assertEquals(true, committed);
             // The simulator's committed branch exits before admin/scorer/stat/effect calls.
         } finally {
             new TransactionTemplate(txManager).executeWithoutResult(status -> {

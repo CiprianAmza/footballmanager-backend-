@@ -7,7 +7,9 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.JobOfferService;
+import com.footballmanagergamesimulator.service.ChairmanInboxNotificationService;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
 import java.util.List;
@@ -88,8 +90,10 @@ class CareerOnboardingServiceTest {
 
     private CareerOnboardingService service(UserRepository users, TeamRepository teams,
                                              PersonProfileService profiles) {
-        return new CareerOnboardingService(users, mock(HumanRepository.class), teams,
+        CareerOnboardingService service = new CareerOnboardingService(users, mock(HumanRepository.class), teams,
                 mock(RoundRepository.class), mock(JobOfferService.class), profiles);
+        ReflectionTestUtils.setField(service, "chairmanInbox", mock(ChairmanInboxNotificationService.class));
+        return service;
     }
 
     private User managerUser(int id) {

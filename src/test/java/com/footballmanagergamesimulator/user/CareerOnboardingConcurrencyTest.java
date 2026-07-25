@@ -12,6 +12,7 @@ import com.footballmanagergamesimulator.person.PersonProfileService;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.JobOfferService;
+import com.footballmanagergamesimulator.service.ChairmanInboxNotificationService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,7 @@ class CareerOnboardingConcurrencyTest {
     @Autowired private PersonProfileRepository profiles;
     @Autowired private PlatformTransactionManager transactionManager;
     @MockBean private JobOfferService jobOfferService;
+    @MockBean private ChairmanInboxNotificationService chairmanInboxNotificationService;
 
     private long teamId;
     private int firstUserId;
