@@ -125,10 +125,10 @@ public class FastForwardService {
     private void run(String jobId, int seasons, int targetSeason, int chunkDays, long startedAt) {
         long processedDays = 0;
         try {
+            GameCalendar current = currentCalendar();
             while (true) {
-                GameCalendar beforeChunk = currentCalendar();
-                if (beforeChunk.getSeason() >= targetSeason) {
-                    publish(jobId, "COMPLETED", seasons, targetSeason, beforeChunk,
+                if (current.getSeason() >= targetSeason) {
+                    publish(jobId, "COMPLETED", seasons, targetSeason, current,
                             processedDays, 100, startedAt, "Fast-forward completed", false);
                     return;
                 }
@@ -142,9 +142,10 @@ public class FastForwardService {
                         return;
                     }
 
-                    GameCalendar before = currentCalendar();
-                    Map<String, Object> result = gameAdvanceService.advance(before.getSeason());
+                    GameCalendar before = current;
+                    Map<String, Object> result = gameAdvanceService.advanceFastForward(before.getSeason());
                     GameCalendar after = currentCalendar();
+                    current = after;
                     processedDays++;
 
                     if (Boolean.TRUE.equals(result.get("paused"))) {

@@ -30,6 +30,8 @@ import com.footballmanagergamesimulator.config.ChairmanModeProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -93,6 +95,7 @@ public class CalendarEventDispatcher {
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
     @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired private TrainingCadenceService trainingCadenceService;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     // Cache of competition IDs all human teams participate in (per season)
     private Set<Long> humanTeamCompetitionIds = null;
@@ -226,10 +229,11 @@ public class CalendarEventDispatcher {
                 result.put("details", "International break - players called up");
                 break;
             case "INJURY_UPDATE":
-                // Compatibility for calendars generated before absolute return dates.
-                injuryTimelineService.processRecoveries(calendar.getSeason(), calendar.getCurrentDay());
-                processDailyMaintenance(calendar.getSeason(), calendar.getCurrentDay());
-                result.put("details", "Injuries and facilities updated");
+                // Recovery and daily maintenance already run once at the MORNING
+                // boundary in GameAdvanceService. Older calendars may still contain
+                // this compatibility event, but it must not repeat the whole market,
+                // scouting and facility pass on the same day.
+                result.put("details", "Daily injury update already processed");
                 break;
             case "EUROPEAN_DRAW":
                 if (event.getCompetitionId() == null || event.getMatchday() <= 0) {
@@ -440,6 +444,11 @@ public class CalendarEventDispatcher {
      */
     private void trainAllAITeams(int season, int currentDay) {
         if (!trainingCadenceService.isRatingUpdateDay(currentDay)) return;
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                ignored -> trainAllAITeamsInTransaction(season));
+    }
+
+    private void trainAllAITeamsInTransaction(int season) {
 
         // 1. Determine which teams are AI teams
         List<Team> allTeams = teamRepository.findAll();
@@ -452,20 +461,15 @@ public class CalendarEventDispatcher {
         if (aiTeamIds.isEmpty()) return;
 
         // 2. Bulk load all facilities (1 query)
-        List<TeamFacilities> allFacilities = teamFacilitiesRepository.findAll();
+        List<TeamFacilities> allFacilities = teamFacilitiesRepository.findAllByTeamIdIn(aiTeamIds);
         Map<Long, TeamFacilities> facilitiesMap = new HashMap<>();
         for (TeamFacilities f : allFacilities) {
             facilitiesMap.put(f.getTeamId(), f);
         }
 
         // 3. Bulk load all AI team players (1 query)
-        List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
-        List<Human> aiPlayers = new ArrayList<>();
-        for (Human p : allPlayers) {
-            if (p.getTeamId() != null && aiTeamIds.contains(p.getTeamId()) && !p.isRetired()) {
-                aiPlayers.add(p);
-            }
-        }
+        List<Human> aiPlayers = humanRepository
+                .findAllByTeamIdInAndTypeIdAndRetiredFalse(aiTeamIds, TypeNames.PLAYER_TYPE);
         if (aiPlayers.isEmpty()) return;
 
         // 4. Bulk load all PlayerSkills for AI players (1 query)
@@ -476,18 +480,15 @@ public class CalendarEventDispatcher {
             skillsMap.put(ps.getPlayerId(), ps);
         }
 
-        // 5. Bulk load all coaching staff and pre-compute multiplier per team (1 query per coach type = 6 queries)
+        // 5. Bulk load all coaching staff and pre-compute multiplier per team (1 query)
         Map<Long, Double> coachingMultiplierCache = new HashMap<>();
-        // Pre-load all staff in one pass by loading all humans with coach types
         Map<Long, List<Human>> staffByTeam = new HashMap<>();
-        for (long coachType : new long[]{TypeNames.ASSISTANT_MANAGER_TYPE, TypeNames.FIRST_TEAM_COACH_TYPE,
+        List<Long> coachTypes = List.of(
+                TypeNames.ASSISTANT_MANAGER_TYPE, TypeNames.FIRST_TEAM_COACH_TYPE,
                 TypeNames.FITNESS_COACH_TYPE, TypeNames.GK_COACH_TYPE,
-                TypeNames.YOUTH_COACH_TYPE, TypeNames.HOYD_TYPE}) {
-            for (Human staff : humanRepository.findAllByTypeId(coachType)) {
-                if (staff.getTeamId() != null && aiTeamIds.contains(staff.getTeamId())) {
-                    staffByTeam.computeIfAbsent(staff.getTeamId(), k -> new ArrayList<>()).add(staff);
-                }
-            }
+                TypeNames.YOUTH_COACH_TYPE, TypeNames.HOYD_TYPE);
+        for (Human staff : humanRepository.findAllByTeamIdInAndTypeIdIn(aiTeamIds, coachTypes)) {
+            staffByTeam.computeIfAbsent(staff.getTeamId(), ignored -> new ArrayList<>()).add(staff);
         }
 
         for (long teamId : aiTeamIds) {
@@ -506,9 +507,6 @@ public class CalendarEventDispatcher {
 
         // 6. Train all players in memory
         Random random = new Random();
-        List<Human> modifiedPlayers = new ArrayList<>();
-        List<PlayerSkills> modifiedSkills = new ArrayList<>();
-
         for (Human player : aiPlayers) {
             long teamId = player.getTeamId();
             TeamFacilities facilities = facilitiesMap.get(teamId);
@@ -520,18 +518,11 @@ public class CalendarEventDispatcher {
             double facilityMultiplier = staffMult * 0.6 + facilityBase * 0.4;
 
             PlayerSkills skills = skillsMap.get(player.getId());
-            PlayerSkills changedSkills = humanService.trainPlayerBatch(
-                    player, facilities, facilityMultiplier, skills, season, random);
-
-            modifiedPlayers.add(player);
-            if (changedSkills != null) {
-                modifiedSkills.add(changedSkills);
-            }
+            humanService.trainPlayerBatch(player, facilities, facilityMultiplier, skills, season, random);
         }
-
-        // 7. Batch save (2 queries)
-        if (!modifiedPlayers.isEmpty()) humanRepository.saveAll(modifiedPlayers);
-        if (!modifiedSkills.isEmpty()) playerSkillsRepository.saveAll(modifiedSkills);
+        // Players and skills were loaded inside this transaction. Dirty checking
+        // batches only actual changes; saveAll on detached entities used to trigger
+        // a merge/read for every player and dominated rating-update days.
     }
 
     // ============================================================

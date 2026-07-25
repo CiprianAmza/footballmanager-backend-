@@ -71,6 +71,15 @@ public class GameAdvanceService {
     );
 
     public Map<String, Object> advance(int season) {
+        return advance(season, false);
+    }
+
+    /** Fast Forward validates unattended mode once when the job starts. */
+    Map<String, Object> advanceFastForward(int season) {
+        return advance(season, true);
+    }
+
+    private Map<String, Object> advance(int season, boolean unattendedConfirmed) {
         // gameLock so two concurrent /game/advance calls (e.g. autoContinue
         // firing rapidly, double-click on CONTINUE, two tabs) AND user squad
         // mutations (youth promotion etc.) can't update the same human/team rows
@@ -79,13 +88,13 @@ public class GameAdvanceService {
         // re-entrant advance() calls don't self-deadlock.
         gameLock.lock();
         try {
-            return advanceLocked(season);
+            return advanceLocked(season, unattendedConfirmed);
         } finally {
             gameLock.unlock();
         }
     }
 
-    private Map<String, Object> advanceLocked(int season) {
+    private Map<String, Object> advanceLocked(int season, boolean unattendedConfirmed) {
         // Recovery: any PROCESSING events left over from a previous crash/exception
         // are flipped back to PENDING so they can be retried. Safe because we're
         // synchronized and nothing else is mid-processing right now.
@@ -99,7 +108,7 @@ public class GameAdvanceService {
         if ("MORNING".equals(calendar.getCurrentPhase())) {
             calendarEventDispatcher.processDailyMaintenance(season, calendar.getCurrentDay());
         }
-        boolean alwaysContinue = isAlwaysContinueActive();
+        boolean alwaysContinue = unattendedConfirmed || isAlwaysContinueActive();
 
         if (calendar.isManagerFired() && !alwaysContinue) {
             Map<String, Object> result = new LinkedHashMap<>();

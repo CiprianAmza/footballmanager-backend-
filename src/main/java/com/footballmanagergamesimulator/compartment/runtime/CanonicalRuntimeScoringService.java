@@ -30,6 +30,7 @@ public final class CanonicalRuntimeScoringService {
     private final CompartmentRuntimeScoringTelemetry telemetry;
     private final CanonicalScoringFingerprintService fingerprintService;
     private final MatchEngineConfig matchEngineConfig;
+    private final String configFingerprint;
 
     @Autowired
     public CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
@@ -68,6 +69,7 @@ public final class CanonicalRuntimeScoringService {
         this.sampler = Objects.requireNonNull(sampler, "sampler");
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
         this.fingerprintService = Objects.requireNonNull(fingerprintService, "fingerprintService");
+        this.configFingerprint = fingerprintService.configFingerprint(compartmentConfig, matchEngineConfig);
     }
 
     CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
@@ -95,6 +97,7 @@ public final class CanonicalRuntimeScoringService {
         this.matchEngineConfig = Objects.requireNonNull(matchEngineConfig, "matchEngineConfig");
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
         this.fingerprintService = Objects.requireNonNull(fingerprintService, "fingerprintService");
+        this.configFingerprint = fingerprintService.configFingerprint(compartmentConfig, matchEngineConfig);
     }
 
     CanonicalRuntimeScoringService(CompartmentEngineConfig compartmentConfig,
@@ -125,7 +128,7 @@ public final class CanonicalRuntimeScoringService {
                     evaluation.home().team().attack() + evaluation.home().team().attackProtection(),
                     evaluation.away().team().attack() + evaluation.away().team().attackProtection(),
                     evaluation,
-                    fingerprintService.configFingerprint(compartmentConfig, matchEngineConfig),
+                    configFingerprint,
                     fingerprintService.inputFingerprint(request, home, away));
             telemetry.markSucceeded();
             return Optional.of(score);

@@ -75,12 +75,12 @@ public class ClubValuationService {
     public Map<Long, Valuation> valueBatch(Collection<Team> teams) {
         if (teams.isEmpty()) return Map.of();
         List<Long> teamIds = teams.stream().map(Team::getId).toList();
-        Map<Long, List<Human>> players = new HashMap<>();
-        humanRepository.findAllByTeamIdInAndTypeId(teamIds, TypeNames.PLAYER_TYPE)
-                .forEach(player -> players.computeIfAbsent(player.getTeamId(), ignored -> new ArrayList<>()).add(player));
-        Map<Long, List<ClubFinancialObligation>> obligations = new HashMap<>();
-        obligationRepository.findAllByTeamIdInAndSettledFalseOrderByTeamIdAscDueSeasonAscDueDayAscIdAsc(teamIds)
-                .forEach(value -> obligations.computeIfAbsent(value.getTeamId(), ignored -> new ArrayList<>()).add(value));
+        Map<Long, Long> squadValues = new HashMap<>();
+        humanRepository.sumActiveTransferValueByTeamIdsAndTypeId(teamIds, TypeNames.PLAYER_TYPE)
+                .forEach(value -> squadValues.put(value.getTeamId(), nonNegative(value.getTotalValue())));
+        Map<Long, Long> obligationTotals = new HashMap<>();
+        obligationRepository.sumUnsettledAmountByTeamIds(teamIds)
+                .forEach(value -> obligationTotals.put(value.getTeamId(), nonNegative(value.getTotalAmount())));
         Map<Long, Stadium> stadiums = new HashMap<>();
         stadiumRepository.findAllByTeamIdIn(teamIds).forEach(value -> stadiums.put(value.getTeamId(), value));
         Map<Long, TeamFacilities> facilities = new HashMap<>();
@@ -90,19 +90,26 @@ public class ClubValuationService {
                 .forEach(value -> histories.computeIfAbsent(value.getTeamId(), ignored -> new ArrayList<>()).add(value));
         Map<Long, Valuation> result = new HashMap<>();
         for (Team team : teams) {
-            result.put(team.getId(), calculate(team, players.getOrDefault(team.getId(), List.of()),
-                    obligations.getOrDefault(team.getId(), List.of()), stadiums.get(team.getId()),
+            result.put(team.getId(), calculate(team, squadValues.getOrDefault(team.getId(), 0L),
+                    obligationTotals.getOrDefault(team.getId(), 0L), stadiums.get(team.getId()),
                     facilities.get(team.getId()), histories.getOrDefault(team.getId(), List.of())));
         }
         return result;
     }
 
+    private static long nonNegative(Long value) {
+        return value == null ? 0L : Math.max(0L, value);
+    }
+
     private Valuation calculate(Team team, List<Human> players, List<ClubFinancialObligation> obligations,
+                                Stadium stadium, TeamFacilities facilities, List<CompetitionHistory> histories) {
+        return calculate(team, squadValue(players), dueObligations(obligations), stadium, facilities, histories);
+    }
+
+    private Valuation calculate(Team team, long squad, long dueObligations,
                                 Stadium stadium, TeamFacilities facilities, List<CompetitionHistory> histories) {
         RegentEconomyProperties.Club config = properties.getClub();
         validateConfiguration(config);
-        long squad = squadValue(players);
-        long dueObligations = dueObligations(obligations);
         long cashNet = exactSubtract(exactSubtract(team.getTotalFinances(), Math.max(0, team.getDebt())), dueObligations);
         long stadiumValue = stadiumAndFacilitiesValue(team.getStadiumCapacity(), config, stadium, facilities);
         long brand = exactMultiply(Math.max(0, team.getReputation()), config.getReputationPointValue());

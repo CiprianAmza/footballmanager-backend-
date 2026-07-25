@@ -12,6 +12,7 @@ import com.footballmanagergamesimulator.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.function.BiConsumer;
@@ -74,10 +75,12 @@ public class TrainingService {
                     "Stamina", "Work Rate", "Teamwork", "Composure")
     );
 
+    @Transactional
     public void processTrainingSession(long teamId, int season) {
         processTrainingSession(teamId, season, injuryTimelineService.currentDate().day());
     }
 
+    @Transactional
     public void processTrainingSession(long teamId, int season, int currentDay) {
 
         Random random = new Random();

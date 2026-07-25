@@ -35,9 +35,34 @@ public interface HumanRepository extends JpaRepository<Human, Long> {
     // Batch IN-clause lookup — used to pre-load all teams' players in one query
     // at the start of simulateRound to avoid N+1 across the per-match helpers.
     List<Human> findAllByTeamIdInAndTypeId(Collection<Long> teamIds, long typeId);
+    List<Human> findAllByTeamIdInAndTypeIdAndRetiredFalse(Collection<Long> teamIds, long typeId);
+
+    /**
+     * Lightweight aggregate used by the daily club valuation pass. Loading every
+     * player entity just to sum transfer values made Fast Forward repeatedly hydrate
+     * the whole football world.
+     */
+    @Query("""
+            select player.teamId as teamId,
+                   sum(case when player.retired = false and player.transferValue > 0
+                            then player.transferValue else 0 end) as totalValue
+              from Human player
+             where player.teamId in :teamIds and player.typeId = :typeId
+             group by player.teamId
+            """)
+    List<TeamValueTotal> sumActiveTransferValueByTeamIdsAndTypeId(
+            @Param("teamIds") Collection<Long> teamIds, @Param("typeId") long typeId);
+
+    /** One bounded query for all coaching roles belonging to the requested teams. */
+    List<Human> findAllByTeamIdInAndTypeIdIn(Collection<Long> teamIds, Collection<Long> typeIds);
 
     /** Batch lookup for a club's complete payroll (players, manager and staff). */
     List<Human> findAllByTeamIdIn(Collection<Long> teamIds);
+
+    interface TeamValueTotal {
+        Long getTeamId();
+        Long getTotalValue();
+    }
 
     Page<Human> findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNot(
             long typeId, long teamId, Pageable pageable);
