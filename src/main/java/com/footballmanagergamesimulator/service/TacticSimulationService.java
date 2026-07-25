@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
 import com.footballmanagergamesimulator.compartment.PlayerPosition;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluationAdapter;
@@ -62,11 +63,13 @@ public class TacticSimulationService {
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired private ManagerTacticService managerTacticService;
+    @Autowired private TacticService tacticService;
     @Autowired private TacticalScoreService tacticalScoreService;
     @Autowired private CanonicalRuntimeInputFactory canonicalRuntimeInputFactory;
     @Autowired private CanonicalScoreSampler canonicalScoreSampler;
     @Autowired private CompartmentEngineConfig compartmentEngineConfig;
     @Autowired private MatchEngineConfig matchEngineConfig;
+    @Autowired private ChairmanTacticalMandateEnforcementService mandateEnforcement;
 
     public record TacticPointsRow(String mentality, String tempo, String passingType,
                                   String inPossession, String timeWasting,
@@ -243,6 +246,65 @@ public class TacticSimulationService {
 
     private CanonicalMatchEvaluationAdapter canonicalAdapter() {
         return new CanonicalMatchEvaluationAdapter(compartmentEngineConfig, matchEngineConfig);
+    }
+
+    /**
+     * Evaluate every available formation through the same canonical input and team-evaluation
+     * pipeline used by the Compartment scorer, then return the formation with the greatest raw
+     * XI compartment sum. Chairman formation mandates are applied before evaluation, so an
+     * imposed formation leaves exactly one candidate. This method is read-only and does not
+     * mutate the manager's persisted preference or {@code alwaysUseBestPossibleTactic} flag.
+     *
+     * <p>The starting XI for each formation comes from the production Chairman-aware selector;
+     * player attributes, used positions, familiarity, roles, fitness, morale and tactic context
+     * are then evaluated by {@link CanonicalRuntimeInputFactory} and
+     * {@link CanonicalMatchEvaluationAdapter}.</p>
+     */
+    public CanonicalFormationEvaluation bestCanonicalFormation(long teamId, PersonalizedTactic tactic) {
+        if (teamId <= 0) throw new IllegalArgumentException("teamId must be positive");
+        PersonalizedTactic effectiveTactic = tactic == null ? neutralCanonicalTactic() : tactic;
+        CanonicalMatchEvaluationAdapter adapter = canonicalAdapter();
+        List<String> formations = tacticService.getAllExistingTactics().stream()
+                .map(formation -> mandateEnforcement.effectiveFormation(teamId, formation))
+                .distinct()
+                .sorted()
+                .toList();
+        if (formations.isEmpty()) {
+            formations = List.of(mandateEnforcement.effectiveFormation(teamId, DEFAULT_FORMATION));
+        }
+
+        CanonicalFormationEvaluation best = null;
+        for (String formation : formations) {
+            CanonicalRuntimeTeamInput input = canonicalTeamInput(teamId, formation, effectiveTactic);
+            CanonicalTeamEvaluation evaluation = adapter.evaluateTeam(input);
+            double rawTopXi = evaluation.team().rawTotals().attack()
+                    + evaluation.team().rawTotals().midfield()
+                    + evaluation.team().rawTotals().defense();
+            CanonicalFormationEvaluation candidate =
+                    new CanonicalFormationEvaluation(formation, input, evaluation, rawTopXi);
+            if (best == null || candidate.topXiRating() > best.topXiRating()
+                    || (Double.compare(candidate.topXiRating(), best.topXiRating()) == 0
+                    && candidate.formation().compareTo(best.formation()) < 0)) {
+                best = candidate;
+            }
+        }
+        return java.util.Objects.requireNonNull(best, "best canonical formation");
+    }
+
+    public record CanonicalFormationEvaluation(String formation,
+                                               CanonicalRuntimeTeamInput input,
+                                               CanonicalTeamEvaluation evaluation,
+                                               double topXiRating) {
+        public CanonicalFormationEvaluation {
+            if (formation == null || formation.isBlank()) {
+                throw new IllegalArgumentException("formation must not be blank");
+            }
+            java.util.Objects.requireNonNull(input, "input");
+            java.util.Objects.requireNonNull(evaluation, "evaluation");
+            if (!Double.isFinite(topXiRating) || topXiRating < 0) {
+                throw new IllegalArgumentException("topXiRating must be finite and non-negative");
+            }
+        }
     }
 
     private static CanonicalTeamEvaluation[] canonicalOpponentEvaluations(

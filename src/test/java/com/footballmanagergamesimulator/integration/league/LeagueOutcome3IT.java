@@ -5,31 +5,23 @@ import com.footballmanagergamesimulator.compartment.adapter.CanonicalTeamEvaluat
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluationAdapter;
 import com.footballmanagergamesimulator.compartment.match.MatchVenue;
-import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeInputFactory;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoreSampler;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoringFingerprintService;
-import com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot;
 import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
-import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.matchplan.MatchPlanService;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
-import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
-import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
-import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
-import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.GameStateService;
-import com.footballmanagergamesimulator.service.PlayerCapabilityService;
+import com.footballmanagergamesimulator.service.TacticSimulationService;
 import com.footballmanagergamesimulator.testutil.MarkdownTable;
 import com.footballmanagergamesimulator.testutil.OutcomeTestSupport;
-import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -42,10 +34,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,27 +64,17 @@ class LeagueOutcome3IT {
     private static final int SEASONS = 200;
     private static final long BASE_SEED = 20260528L;
     private static final String TEAM_IDS_PROPERTY = "team.ids";
-    private static final List<PlayerPosition> FOUR_FOUR_TWO = List.of(
-            PlayerPosition.GK, PlayerPosition.DC, PlayerPosition.DC,
-            PlayerPosition.DL, PlayerPosition.DR, PlayerPosition.MC,
-            PlayerPosition.MC, PlayerPosition.AML, PlayerPosition.AMR,
-            PlayerPosition.ST, PlayerPosition.ST);
-
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
-    @Autowired private HumanRepository humanRepository;
-    @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private PersonalizedTacticRepository tacticRepository;
     @Autowired private CompetitionFormatConfig competitionFormat;
     @Autowired private CompartmentEngineConfig compartmentConfig;
     @Autowired private MatchEngineConfig matchEngineConfig;
     @Autowired private TeamRepository teamRepository;
-    @Autowired private CanonicalRuntimeInputFactory runtimeInputFactory;
     @Autowired private CanonicalScoreSampler scoreSampler;
     @Autowired private CanonicalScoringFingerprintService fingerprintService;
     @Autowired private GameStateService gameState;
-    @Autowired private PlayerCapabilityService playerCapabilityService;
-    @Autowired private OutcomeTestSupport support;
+    @Autowired private TacticSimulationService tacticSimulationService;
 
     @Test
     @DisplayName("all leagues, 200 independent standings, one canonical evaluation per fixture")
@@ -164,33 +144,12 @@ class LeagueOutcome3IT {
         List<TeamSetup> result = new ArrayList<>();
         for (long teamId : teamIds.stream().distinct().sorted().toList()) {
             assertThat(teamRepository.existsById(teamId)).as("team %s must exist", teamId).isTrue();
-            List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
-                    .stream()
-                    .filter(player -> !player.isRetired())
-                    .sorted(Comparator.comparingDouble(Human::getRating)
-                            .reversed().thenComparingLong(Human::getId))
-                    .toList();
-            assertThat(players).as("team %s should have a playable squad", teamId)
-                    .hasSizeGreaterThanOrEqualTo(11);
-            List<Human> starters = players.subList(0, 11);
-            Map<Long, PlayerSkills> skills = playerSkillsRepository.findAllByPlayerIdIn(
-                            starters.stream().map(Human::getId).toList())
-                    .stream().collect(java.util.stream.Collectors.toMap(PlayerSkills::getPlayerId, value -> value));
-            assertThat(skills).as("team %s should have skills for every starter", teamId).hasSize(11);
-
-            List<RuntimeLineupSlot> slots = new ArrayList<>();
-            Map<PlayerPosition, Integer> occurrences = new HashMap<>();
-            for (int index = 0; index < starters.size(); index++) {
-                Human player = starters.get(index);
-                PlayerPosition position = FOUR_FOUR_TWO.get(index);
-                int occurrence = occurrences.merge(position, 1, Integer::sum);
-                slots.add(new RuntimeLineupSlot(player, skills.get(player.getId()),
-                        formationData(index, player.getId()), position, occurrence));
-            }
             PersonalizedTactic tactic = tacticRepository.findPersonalizedTacticByTeamId(teamId)
                     .orElseGet(LeagueOutcome3IT::defaultTactic);
-            result.add(new TeamSetup(teamId, teamName(teamId), support.computeTeamPower(teamId),
-                    tactic, List.copyOf(slots)));
+            TacticSimulationService.CanonicalFormationEvaluation best =
+                    tacticSimulationService.bestCanonicalFormation(teamId, tactic);
+            result.add(new TeamSetup(teamId, teamName(teamId), best.topXiRating(), best.formation(),
+                    tactic, best.evaluation()));
         }
         assertUniquePlayersAcrossTeams(result);
         return result;
@@ -199,13 +158,6 @@ class LeagueOutcome3IT {
     private String teamName(long teamId) {
         String name = teamRepository.findNameById(teamId);
         return name == null ? "Team#" + teamId : name;
-    }
-
-    private static FormationData formationData(int positionIndex, long playerId) {
-        FormationData data = new FormationData();
-        data.setPositionIndex(positionIndex);
-        data.setPlayerId(playerId);
-        return data;
     }
 
     private static PersonalizedTactic defaultTactic() {
@@ -222,24 +174,17 @@ class LeagueOutcome3IT {
     private static void assertUniquePlayersAcrossTeams(List<TeamSetup> teams) {
         Set<Long> playerIds = new HashSet<>();
         for (TeamSetup team : teams) {
-            for (RuntimeLineupSlot slot : team.slots) {
-                if (!playerIds.add(slot.player().getId())) {
+            for (var player : team.evaluation.players()) {
+                if (!playerIds.add(player.playerId())) {
                     throw new IllegalArgumentException("player belongs to multiple simulated teams: "
-                            + slot.player().getId());
+                            + player.playerId());
                 }
             }
         }
     }
 
     private AggregatedSimulation runAggregateSimulation(long competitionId, List<TeamSetup> teams) {
-        List<Long> playerIds = teams.stream().flatMap(team -> team.slots.stream())
-                .map(slot -> slot.player().getId()).distinct().sorted().toList();
-        playerCapabilityService.preloadForCurrentThread(playerIds);
-        try {
-            return runPreparedSimulation(competitionId, teams);
-        } finally {
-            playerCapabilityService.clearPreloadedForCurrentThread();
-        }
+        return runPreparedSimulation(competitionId, teams);
     }
 
     private AggregatedSimulation runPreparedSimulation(long competitionId, List<TeamSetup> teams) {
@@ -248,10 +193,8 @@ class LeagueOutcome3IT {
         int encounters = competitionFormat.get(1).encountersFor(n);
         CanonicalMatchEvaluationAdapter matchAdapter =
                 new CanonicalMatchEvaluationAdapter(compartmentConfig, matchEngineConfig);
-        List<CanonicalTeamEvaluation> teamEvaluations = teams.stream()
-                .map(team -> runtimeInputFactory.build(team.tactic, team.slots))
-                .map(matchAdapter::evaluateTeam)
-                .toList();
+        List<CanonicalTeamEvaluation> teamEvaluations =
+                teams.stream().map(TeamSetup::evaluation).toList();
         List<CanonicalStrength> strengths = teamEvaluations.stream()
                 .map(evaluation -> new CanonicalStrength(
                         evaluation.team().rawTotals().attack(),
@@ -385,7 +328,7 @@ class LeagueOutcome3IT {
                     String.format("%.2f", strength.rawDefense),
                     String.format("%.2f", strength.finalAttack),
                     String.format("%.2f", strength.finalProtection),
-                    tacticLabel(teams.get(team).tactic),
+                    tacticLabel(teams.get(team).formation, teams.get(team).tactic),
                     String.format("%.1f ± %.1f", meanPos[team], stddevPos[team]),
                     String.format("%.1f", aggregate.totalPoints[team] / (double) SEASONS),
                     String.format("%.1f", aggregate.totalGF[team] / (double) SEASONS),
@@ -431,11 +374,12 @@ class LeagueOutcome3IT {
         report.append(heatmap.render()).append('\n')
                 .append("## Method\n\n")
                 .append("- Squads, tactics and canonical team evaluations are frozen for this statistical run.\n")
-                .append("- **Top XI** is the sum of the ratings of the eleven starters selected by the test.\n")
-                .append("- **GK Rating** is the display rating of the player used in the goalkeeper slot.\n")
+                .append("- Every manager is treated as if **Always use best possible tactic** were enabled; no manager row is mutated.\n")
+                .append("- **Top XI** is the canonical raw Attack + Midfield + Defense sum for the best evaluated formation, not the legacy `Human.rating` sum.\n")
+                .append("- **GK Rating** is the goalkeeper's canonical Attack + Midfield + Defense score in the used GK slot.\n")
                 .append("- **Attack / Midfield / Defense** are the canonical raw compartment totals before mentality redistribution.\n")
                 .append("- **Final Attack / Final Protection** are the two values that actually enter the goal-probability matchup.\n")
-                .append("- **Tactic** lists mentality / tempo / passing / defensive line / pressing / width.\n")
+                .append("- **Tactic** lists formation | mentality / tempo / passing / defensive line / pressing / width.\n")
                 .append("- Every directed fixture probability distribution is calculated once with the production Compartment V1 formulas and current weights.\n")
                 .append("- That distribution is sampled 200 times with distinct deterministic production seeds.\n")
                 .append("- Sample `s` contributes only to standings table `s`; no score averaging occurs before ranking.\n")
@@ -467,8 +411,8 @@ class LeagueOutcome3IT {
         return String.format("%.1f%%", count * 100.0 / SEASONS);
     }
 
-    private static String tacticLabel(PersonalizedTactic tactic) {
-        return String.join(" / ",
+    private static String tacticLabel(String formation, PersonalizedTactic tactic) {
+        return formation + " | " + String.join(" / ",
                 tacticValue(tactic.getMentality(), "Balanced"),
                 tacticValue(tactic.getTempo(), "Standard"),
                 tacticValue(tactic.getPassingType(), "Normal"),
@@ -481,12 +425,14 @@ class LeagueOutcome3IT {
         return value == null || value.isBlank() ? fallback : value.trim();
     }
 
-    private record TeamSetup(long id, String name, double topXiRating, PersonalizedTactic tactic,
-                             List<RuntimeLineupSlot> slots) {
+    private record TeamSetup(long id, String name, double topXiRating, String formation,
+                             PersonalizedTactic tactic, CanonicalTeamEvaluation evaluation) {
         private double goalkeeperRating() {
-            return slots.stream()
-                    .filter(slot -> slot.usedPosition() == PlayerPosition.GK)
-                    .mapToDouble(slot -> slot.player().getRating())
+            return evaluation.players().stream()
+                    .filter(player -> player.usedPosition() == PlayerPosition.GK)
+                    .mapToDouble(player -> player.rating().compartments().values().stream()
+                            .mapToDouble(compartment -> compartment.finalScore())
+                            .sum())
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException("team has no goalkeeper slot: " + id));
         }
