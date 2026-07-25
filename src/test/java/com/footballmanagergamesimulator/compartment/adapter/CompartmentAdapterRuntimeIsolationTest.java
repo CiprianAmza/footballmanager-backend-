@@ -156,6 +156,26 @@ class CompartmentAdapterRuntimeIsolationTest {
     }
 
     @Test
+    void adminOverrideLockOrderIsDiscoveryThenAdoptionThenFixtureThenClaim() {
+        String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
+                "service", "MatchRoundSimulator.java"));
+        int aiStart = simulator.indexOf("aiMatches++");
+        int discovery = simulator.indexOf("readPredeterminedScore(", aiStart);
+        int persist = simulator.indexOf("persistOrLoadScoreDecision(", aiStart);
+        int durableLock = simulator.indexOf("lockFixture(aiFixtureKey)", persist);
+        int durableClaim = simulator.indexOf("consumeMatchingAdminOverride(", durableLock);
+        assertThat(discovery).isGreaterThanOrEqualTo(0).isLessThan(persist);
+        assertThat(persist).isLessThan(durableLock);
+        assertThat(durableLock).isLessThan(durableClaim);
+
+        int matchPlanOff = simulator.indexOf("if (!matchPlanService.isEnabled())", discovery);
+        int offClaim = simulator.indexOf("consumeMatchingAdminOverride(", matchPlanOff);
+        int knockout = simulator.indexOf("if (knockout && persistedScoreDecision.isEmpty())", matchPlanOff);
+        assertThat(matchPlanOff).isGreaterThanOrEqualTo(0);
+        assertThat(offClaim).isGreaterThanOrEqualTo(0).isLessThan(knockout);
+    }
+
+    @Test
     void durableAiStatsUseCanonicalProjectionAndLegacyStatsStayBehindFallback() {
         String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
                 "service", "MatchRoundSimulator.java"));

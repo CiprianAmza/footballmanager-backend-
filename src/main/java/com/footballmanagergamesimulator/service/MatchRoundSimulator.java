@@ -685,14 +685,34 @@ public class MatchRoundSimulator {
                     if (matchPlanService.isPlanCommitted(aiFixtureKey)) {
                         continue;
                     }
+                    if (adoptedScoring.decision().scoreEngine() == ScoreEngineKind.ADMIN_OVERRIDE) {
+                        TeamPostMatchService.PredeterminedScoreAttempt adminAttempt =
+                                consumeMatchingAdminOverride(_competitionId, (int) _roundId,
+                                        adoptedScoring.decision().homeScore90(),
+                                        adoptedScoring.decision().awayScore90(), teamId1, teamId2);
+                        if (adminAttempt.resolution()
+                                == TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT) {
+                            continue;
+                        }
+                    }
                 } else {
-                    // Predetermined scores are consumed only after the immutable decision lookup.
+                    // Discovery is non-locking. Durable candidates claim only after
+                    // persist-or-load and fixture lock; MatchPlan OFF claims immediately.
                     adminScoreAi = teamPostMatchService.readPredeterminedScore(
                             _competitionId, (int) _roundId, teamId1, teamId2);
                     if (adminScoreAi != null) {
                     teamScore1 = adminScoreAi[0];
                     teamScore2 = adminScoreAi[1];
                     selectedScoreEngine = ScoreEngineKind.ADMIN_OVERRIDE;
+                    if (!matchPlanService.isEnabled()) {
+                        TeamPostMatchService.PredeterminedScoreAttempt adminAttempt =
+                                consumeMatchingAdminOverride(_competitionId, (int) _roundId,
+                                        teamScore1, teamScore2, teamId1, teamId2);
+                        if (adminAttempt.resolution()
+                                == TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT) {
+                            continue;
+                        }
+                    }
                     } else {
                     final long canonicalHomeTeamId = teamId1;
                     final long canonicalAwayTeamId = teamId2;
@@ -833,24 +853,15 @@ public class MatchRoundSimulator {
                     if (matchPlanService.isPlanCommitted(aiFixtureKey)) {
                         continue;
                     }
-                }
-
-                // An admin override is part of the persisted scoring decision.  Both a
-                // newly-created decision and a decision adopted from storage use this same
-                // post-lock consumption check.  A missing row means a retry already consumed
-                // it; a conflicting unconsumed row invalidates this attempt without mutating
-                // either durable object.
-                if (selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE) {
-                    int expectedHome = adoptedDecision != null
-                            ? adoptedDecision.homeScore90() : adminScoreAi[0];
-                    int expectedAway = adoptedDecision != null
-                            ? adoptedDecision.awayScore90() : adminScoreAi[1];
-                    TeamPostMatchService.PredeterminedScoreAttempt adminAttempt =
-                            consumeMatchingAdminOverride(_competitionId, (int) _roundId,
-                                    expectedHome, expectedAway, teamId1, teamId2);
-                    if (adminAttempt.resolution()
-                            == TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT) {
-                        continue;
+                    if (adoptedScoring.decision().scoreEngine() == ScoreEngineKind.ADMIN_OVERRIDE) {
+                        TeamPostMatchService.PredeterminedScoreAttempt adminAttempt =
+                                consumeMatchingAdminOverride(_competitionId, (int) _roundId,
+                                        adoptedScoring.decision().homeScore90(),
+                                        adoptedScoring.decision().awayScore90(), teamId1, teamId2);
+                        if (adminAttempt.resolution()
+                                == TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT) {
+                            continue;
+                        }
                     }
                 }
 

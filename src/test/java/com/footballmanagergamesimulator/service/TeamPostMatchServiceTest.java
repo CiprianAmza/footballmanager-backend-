@@ -78,7 +78,7 @@ class TeamPostMatchServiceTest {
         PredeterminedScoreRepository repository = mock(PredeterminedScoreRepository.class);
         ReflectionTestUtils.setField(service, "predeterminedScoreRepository", repository);
         PredeterminedScore row = override(2, 1);
-        when(repository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+        when(repository.findForUpdateByFixture(
                 7L, 3, 4, 11L, 12L)).thenReturn(Optional.of(row));
 
         TeamPostMatchService.PredeterminedScoreAttempt first = service.consumePredeterminedScoreIfMatches(
@@ -97,7 +97,7 @@ class TeamPostMatchServiceTest {
         PredeterminedScoreRepository repository = mock(PredeterminedScoreRepository.class);
         ReflectionTestUtils.setField(service, "predeterminedScoreRepository", repository);
         PredeterminedScore row = override(2, 1);
-        when(repository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+        when(repository.findForUpdateByFixture(
                 7L, 3, 4, 11L, 12L)).thenReturn(Optional.of(row));
 
         TeamPostMatchService.PredeterminedScoreAttempt result = service.consumePredeterminedScoreIfMatches(
@@ -113,7 +113,7 @@ class TeamPostMatchServiceTest {
     void atomicOverrideClaim_absentIsReplayPermitted() {
         PredeterminedScoreRepository repository = mock(PredeterminedScoreRepository.class);
         ReflectionTestUtils.setField(service, "predeterminedScoreRepository", repository);
-        when(repository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+        when(repository.findForUpdateByFixture(
                 7L, 3, 4, 11L, 12L)).thenReturn(Optional.empty());
 
         TeamPostMatchService.PredeterminedScoreAttempt result = service.consumePredeterminedScoreIfMatches(

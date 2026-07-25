@@ -384,7 +384,7 @@ public class TeamPostMatchService {
         }
     }
 
-    /** Pessimistic read used while constructing a candidate; the row lock is held by the caller's transaction. */
+    /** Non-locking discovery used while constructing a durable candidate. */
     public int[] readPredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
         int season = roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
         return readPredeterminedScore(competitionId, season, roundId, team1Id, team2Id);
@@ -405,7 +405,7 @@ public class TeamPostMatchService {
             long competitionId, int season, int roundId, long team1Id, long team2Id,
             int expectedTeam1Score, int expectedTeam2Score) {
         Optional<PredeterminedScore> preset = predeterminedScoreRepository
-                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+                .findForUpdateByFixture(
                         competitionId, season, roundId, team1Id, team2Id);
         if (preset.isEmpty()) {
             return new PredeterminedScoreAttempt(PredeterminedScoreResolution.ABSENT, null);
@@ -434,7 +434,7 @@ public class TeamPostMatchService {
     public int[] consumePredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
         int season = roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
         Optional<PredeterminedScore> preset = predeterminedScoreRepository
-                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+                .findForUpdateByFixture(
                         competitionId, season, roundId, team1Id, team2Id);
         if (preset.isEmpty() || preset.get().isConsumed()) return null;
         PredeterminedScore p = preset.get();
