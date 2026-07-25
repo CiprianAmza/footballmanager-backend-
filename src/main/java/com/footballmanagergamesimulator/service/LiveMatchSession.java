@@ -290,10 +290,14 @@ public class LiveMatchSession {
     }
 
     private void applyOnPitch(Lineup xi, Set<Long> teamIds) {
-        Set<Long> starterIds = xi.getStartingXI().stream().map(Contributor::playerId).collect(Collectors.toSet());
+        Map<Long, String> starterPositions = xi.getStartingXI().stream().collect(Collectors.toMap(
+                Contributor::playerId, Contributor::position, (left, right) -> left));
         for (Long id : teamIds) {
             PlayerMatchState st = matchStates.get(id);
-            if (st != null) st.isOnPitch = starterIds.contains(id);
+            if (st != null) {
+                st.isOnPitch = starterPositions.containsKey(id);
+                if (st.isOnPitch) fieldedPosition.put(id, starterPositions.get(id));
+            }
         }
     }
 
@@ -568,6 +572,7 @@ public class LiveMatchSession {
     // ---- Deferred context for /commit (stashed by simulateMatchday) ----
     double deferredTeamPower1, deferredTeamPower2;
     String deferredTactic1, deferredTactic2;
+    String kickoffFormation1, kickoffFormation2;
     PersonalizedTactic deferredPersonalizedTactic1;
     PersonalizedTactic deferredPersonalizedTactic2;
     boolean deferredKnockout;
@@ -594,6 +599,7 @@ public class LiveMatchSession {
         this.deferredTeamPower2 = teamPower2;
         this.deferredTactic1 = tactic1;
         this.deferredTactic2 = tactic2;
+        setKickoffFormations(tactic1, tactic2);
         this.deferredPersonalizedTactic1 = pt1;
         this.deferredPersonalizedTactic2 = pt2;
         this.deferredKnockout = knockout;
@@ -627,6 +633,13 @@ public class LiveMatchSession {
     public int getDeferredLegNumber() { return deferredLegNumber; }
     public long getDeferredTieId() { return deferredTieId; }
     public int getDeferredMatchIndex() { return deferredMatchIndex; }
+
+    /** Formation keys exposed to the live client. These are the already-resolved
+     *  effective formations (including a Chairman mandate), never a UI inference. */
+    void setKickoffFormations(String homeFormation, String awayFormation) {
+        this.kickoffFormation1 = homeFormation;
+        this.kickoffFormation2 = awayFormation;
+    }
 
     /** Mutators for /commit's knockout extra-time decider. */
     public synchronized void bumpHomeScore() {
@@ -1639,6 +1652,8 @@ public class LiveMatchSession {
         data.setAwayTeamId(teamId2);
         data.setHomeTeamName(homeTeamName);
         data.setAwayTeamName(awayTeamName);
+        data.setHomeFormation(kickoffFormation1);
+        data.setAwayFormation(kickoffFormation2);
         data.setCompetitionName(competitionName);
         data.setCompetitionId(competitionId);
         data.setRound(round);
@@ -1687,7 +1702,7 @@ public class LiveMatchSession {
             PlayerStaminaInfo info = new PlayerStaminaInfo();
             info.setPlayerId(s.playerId);
             info.setName(s.name);
-            info.setPosition(s.position);
+            info.setPosition(fieldedPosition.getOrDefault(s.playerId, s.position));
             info.setStamina((int) Math.round(s.currentStamina));
             info.setMinutesPlayed(s.minutesPlayed);
             info.setOnPitch(s.isOnPitch);
