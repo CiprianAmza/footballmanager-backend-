@@ -32,6 +32,21 @@ public final class CalibrationScenarioFixtures {
                 team(1001, Mentality.BALANCED, 14), 13_071_991L, 200);
     }
 
+    /**
+     * Twenty-club calibration league with the candidate at index zero and a
+     * symmetric distribution of weaker/equal/stronger opponents. Ranking, not a
+     * hard-coded points total, defines whether the candidate is genuinely mid-table.
+     */
+    public static List<CalibrationTeam> midTableLeague() {
+        int[] strengths = {15, 10, 11, 12, 13, 14, 10, 11, 12, 13,
+                15, 16, 17, 18, 19, 20, 16, 17, 18, 19};
+        java.util.ArrayList<CalibrationTeam> teams = new java.util.ArrayList<>(strengths.length);
+        for (int index = 0; index < strengths.length; index++) {
+            teams.add(team(1L + index * 100L, Mentality.BALANCED, strengths[index]));
+        }
+        return List.copyOf(teams);
+    }
+
     private static CalibrationTeam team(long firstId, Mentality mentality, int value) {
         List<PlayerPosition> positions = List.of(PlayerPosition.GK, PlayerPosition.DC, PlayerPosition.DC,
                 PlayerPosition.DL, PlayerPosition.DR, PlayerPosition.DM, PlayerPosition.DM,

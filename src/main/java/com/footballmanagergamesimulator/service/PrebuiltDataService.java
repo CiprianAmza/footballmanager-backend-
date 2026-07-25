@@ -7,6 +7,9 @@ import org.flywaydb.core.Flyway;
 
 import javax.sql.DataSource;
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -25,6 +28,11 @@ import java.sql.Statement;
  */
 @Service
 public class PrebuiltDataService {
+
+    private static final String[] REQUIRED_SNAPSHOT_SCHEMA = {
+            "SCORE_ENGINE", "SCORE_CONFIG_FINGERPRINT", "SCORE_INPUT_FINGERPRINT",
+            "PLAYER_POSITION_FAMILIARITY", "CHAIRMAN_TACTICAL_MANDATE"
+    };
 
     @Value("${bootstrap.snapshot-path:prebuilt-data.sql}")
     private String snapshotPath;
@@ -52,6 +60,35 @@ public class PrebuiltDataService {
 
     public boolean snapshotExists() {
         return snapshotFile().isFile();
+    }
+
+    /**
+     * Snapshots are disposable test accelerators, not saves. Refuse to restore a
+     * schema that predates the canonical scoring/player/chairman model; trying to
+     * patch such a dump after Hibernate startup leaves unmapped tables and columns.
+     */
+    public boolean snapshotIsCompatible() {
+        File file = snapshotFile();
+        if (!file.isFile()) return false;
+        try {
+            String script = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+            for (String required : REQUIRED_SNAPSHOT_SCHEMA) {
+                if (!script.contains(required)) return false;
+            }
+            return true;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to inspect pre-built data snapshot " + file, exception);
+        }
+    }
+
+    public void discardSnapshot() {
+        File file = snapshotFile();
+        try {
+            Files.deleteIfExists(file.toPath());
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to discard incompatible pre-built data snapshot " + file,
+                    exception);
+        }
     }
 
     /** Dump the entire current database to the snapshot file (schema + data + sequences). */

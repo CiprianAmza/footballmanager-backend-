@@ -15,7 +15,8 @@ spring:
     baseline-version: 0
   jpa:
     hibernate:
-      ddl-auto: update
+      # Test-stage policy: saves/snapshots are disposable; always boot the canonical schema.
+      ddl-auto: create-drop
     properties:
       hibernate:
         jdbc:

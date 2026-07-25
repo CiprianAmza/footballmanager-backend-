@@ -16,24 +16,29 @@ public class MarketTradingService {
     private final PortfolioPositionRepository positionRepository;
     private final MarketTradeRepository tradeRepository;
     private final GameCalendarRepository calendarRepository;
+    private final MarketMutationLock marketMutationLock;
 
     public MarketTradingService(PersonalAccountRepository accountRepository,
                                 PersonalAccountingService accountingService,
                                 MarketInstrumentRepository instrumentRepository,
                                 PortfolioPositionRepository positionRepository,
                                 MarketTradeRepository tradeRepository,
-                                GameCalendarRepository calendarRepository) {
+                                GameCalendarRepository calendarRepository,
+                                MarketMutationLock marketMutationLock) {
         this.accountRepository = accountRepository;
         this.accountingService = accountingService;
         this.instrumentRepository = instrumentRepository;
         this.positionRepository = positionRepository;
         this.tradeRepository = tradeRepository;
         this.calendarRepository = calendarRepository;
+        this.marketMutationLock = marketMutationLock;
     }
 
     @Transactional
     public TradeResult trade(PersonProfile profile, long instrumentId, MarketTradeSide side,
                              long quantity, String idempotencyKey) {
+        marketMutationLock.lock();
+        try {
         if (side == null) throw new IllegalArgumentException("side is required");
         if (quantity <= 0) throw new IllegalArgumentException("quantity must be positive");
         validateKey(idempotencyKey);
@@ -125,6 +130,9 @@ public class MarketTradingService {
         executed.setQuantityAfter(quantityAfter);
         executed.setCostBasisAfter(basisAfter);
         return new TradeResult(tradeRepository.save(executed), false);
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     private static long allocatedBasis(long totalBasis, long soldQuantity, long totalQuantity) {

@@ -14,6 +14,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class MarketBootstrapService {
@@ -25,17 +30,20 @@ public class MarketBootstrapService {
     private final TeamRepository teamRepository;
     private final ChairmanModeProperties chairmanModeProperties;
     private final ClubValuationService clubValuationService;
+    private final MarketMutationLock marketMutationLock;
     private final TransactionTemplate isolatedTransaction;
 
     public MarketBootstrapService(MarketInstrumentRepository instrumentRepository,
                                   TeamRepository teamRepository,
                                   ChairmanModeProperties chairmanModeProperties,
                                   ClubValuationService clubValuationService,
+                                  MarketMutationLock marketMutationLock,
                                   PlatformTransactionManager transactionManager) {
         this.instrumentRepository = instrumentRepository;
         this.teamRepository = teamRepository;
         this.chairmanModeProperties = chairmanModeProperties;
         this.clubValuationService = clubValuationService;
+        this.marketMutationLock = marketMutationLock;
         this.isolatedTransaction = new TransactionTemplate(transactionManager);
         this.isolatedTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -46,13 +54,14 @@ public class MarketBootstrapService {
         if (chairmanModeProperties.isEnabled()) ensureAllInstruments();
     }
 
-    /**
-     * Keep the Java monitor until the transaction has committed. With a synchronized
-     * {@code @Transactional} target method Spring commits after the monitor is released, which
-     * allowed an HTTP request to race the ApplicationReady bootstrap on H2.
-     */
-    public synchronized void ensureAllInstruments() {
-        isolatedTransaction.executeWithoutResult(status -> ensureAllInstrumentsInTransaction());
+    /** Keep the shared market lane until the isolated bootstrap transaction commits. */
+    public void ensureAllInstruments() {
+        marketMutationLock.lock();
+        try {
+            isolatedTransaction.executeWithoutResult(status -> ensureAllInstrumentsInTransaction());
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     /**
@@ -61,19 +70,41 @@ public class MarketBootstrapService {
      * REQUIRES_NEW transaction would make H2 wait on rows locked by the import
      * itself.
      */
-    public synchronized void ensureAllInstrumentsInCurrentTransaction() {
+    public void ensureAllInstrumentsInCurrentTransaction() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("an active transaction is required for in-transaction market bootstrap");
         }
-        ensureAllInstrumentsInTransaction();
+        marketMutationLock.lock();
+        try {
+            ensureAllInstrumentsInTransaction();
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     private void ensureAllInstrumentsInTransaction() {
-        ensureCompany("FMX", "Football Markets Exchange", 1_250, 772360782L, MarketRiskClass.SAFE_COMPANY);
-        ensureCompany("SPORTTECH", "Sport Technology Group", 850, 1297702381L, MarketRiskClass.SAFE_COMPANY);
-        ensureCompany("MEDIA11", "Eleven Sports Media", 640, 214013921L, MarketRiskClass.SPECULATIVE);
-        for (Team team : teamRepository.findAll().stream().sorted(java.util.Comparator.comparingLong(Team::getId)).toList()) {
-            if (instrumentRepository.findByTeamId(team.getId()).isPresent()) continue;
+        List<MarketInstrument> existing = instrumentRepository.findAll();
+        Set<String> existingCodes = new HashSet<>();
+        Set<Long> listedTeamIds = new HashSet<>();
+        for (MarketInstrument instrument : existing) {
+            existingCodes.add(instrument.getCode());
+            if (instrument.getTeamId() != null) listedTeamIds.add(instrument.getTeamId());
+        }
+        List<MarketInstrument> pending = new ArrayList<>();
+        ensureCompany(existingCodes, pending, "FMX", "Football Markets Exchange", 1_250,
+                772360782L, MarketRiskClass.SAFE_COMPANY);
+        ensureCompany(existingCodes, pending, "SPORTTECH", "Sport Technology Group", 850,
+                1297702381L, MarketRiskClass.SAFE_COMPANY);
+        ensureCompany(existingCodes, pending, "MEDIA11", "Eleven Sports Media", 640,
+                214013921L, MarketRiskClass.SPECULATIVE);
+
+        List<Team> missingTeams = teamRepository.findAll().stream()
+                .filter(team -> !listedTeamIds.contains(team.getId()))
+                .sorted(java.util.Comparator.comparingLong(Team::getId))
+                .toList();
+        Map<Long, ClubValuationService.Valuation> valuations =
+                missingTeams.isEmpty() ? Map.of() : clubValuationService.valueBatch(missingTeams);
+        for (Team team : missingTeams) {
             MarketInstrument instrument = new MarketInstrument();
             instrument.setCode("CLUB-" + team.getId());
             instrument.setInstrumentType(MarketInstrumentType.CLUB);
@@ -82,7 +113,7 @@ public class MarketBootstrapService {
             instrument.setTotalSupply(CLUB_SUPPLY);
             instrument.setAvailableSupply(CLUB_SUPPLY);
             instrument.setCurrentPrice(clubValuationService.perSharePrice(
-                    clubValuationService.value(team), CLUB_SUPPLY));
+                    valuations.get(team.getId()), CLUB_SUPPLY));
             instrument.setPriceSeed(stableSeed(instrument.getCode()));
             instrument.setPriceAlgorithmVersion(DeterministicMarketPriceService.MARKET_V1);
             instrument.setRiskClass(MarketRiskClass.CLUB_EQUITY);
@@ -90,12 +121,15 @@ public class MarketBootstrapService {
             instrument.setDailyLimitBps(DEFAULT_DAILY_LIMIT_BPS);
             instrument.setWeeklyLimitBps(DEFAULT_WEEKLY_LIMIT_BPS);
             instrument.setActive(true);
-            instrumentRepository.save(instrument);
+            pending.add(instrument);
         }
+        if (!pending.isEmpty()) instrumentRepository.saveAll(pending);
     }
 
-    private void ensureCompany(String code, String name, long price, long seed, MarketRiskClass riskClass) {
-        if (instrumentRepository.findByCode(code).isPresent()) return;
+    private void ensureCompany(Set<String> existingCodes, List<MarketInstrument> pending,
+                               String code, String name, long price, long seed,
+                               MarketRiskClass riskClass) {
+        if (!existingCodes.add(code)) return;
         MarketInstrument instrument = new MarketInstrument();
         instrument.setCode(code);
         instrument.setInstrumentType(MarketInstrumentType.COMPANY);
@@ -110,7 +144,7 @@ public class MarketBootstrapService {
         instrument.setDailyLimitBps(DEFAULT_DAILY_LIMIT_BPS);
         instrument.setWeeklyLimitBps(DEFAULT_WEEKLY_LIMIT_BPS);
         instrument.setActive(true);
-        instrumentRepository.save(instrument);
+        pending.add(instrument);
     }
 
     static long clubInitialPrice(int reputation) {

@@ -43,6 +43,7 @@ public class ClubCapTableService {
     private final ClubCapTableStateRepository stateRepository;
     private final RegentEconomyProperties properties;
     private final ChairmanModeProperties chairmanModeProperties;
+    private final MarketMutationLock marketMutationLock;
     private final TransactionTemplate isolatedTransaction;
 
     public ClubCapTableService(MarketBootstrapService marketBootstrapService,
@@ -55,6 +56,7 @@ public class ClubCapTableService {
                                ClubCapTableStateRepository stateRepository,
                                RegentEconomyProperties properties,
                                ChairmanModeProperties chairmanModeProperties,
+                               MarketMutationLock marketMutationLock,
                                PlatformTransactionManager transactionManager) {
         this.marketBootstrapService = marketBootstrapService;
         this.instrumentRepository = instrumentRepository;
@@ -66,6 +68,7 @@ public class ClubCapTableService {
         this.stateRepository = stateRepository;
         this.properties = properties;
         this.chairmanModeProperties = chairmanModeProperties;
+        this.marketMutationLock = marketMutationLock;
         this.isolatedTransaction = new TransactionTemplate(transactionManager);
         this.isolatedTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -76,12 +79,15 @@ public class ClubCapTableService {
         if (chairmanModeProperties.isEnabled()) ensureAllMigrated();
     }
 
-    /** Serialize the complete transaction, including commit, against lazy HTTP initialization. */
-    public synchronized void ensureAllMigrated() {
-        isolatedTransaction.executeWithoutResult(status -> {
+    /** Serialize the complete transaction, including commit, against all other market mutations. */
+    public void ensureAllMigrated() {
+        marketMutationLock.lock();
+        try {
             marketBootstrapService.ensureAllInstruments();
-            ensureAllMigratedInTransaction();
-        });
+            isolatedTransaction.executeWithoutResult(status -> ensureAllMigratedInTransaction());
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     /**
@@ -89,12 +95,17 @@ public class ClubCapTableService {
      * safe path during atomic save import because REQUIRES_NEW would contend
      * with the import transaction's own MARKET_INSTRUMENT locks on H2.
      */
-    public synchronized void ensureAllMigratedInCurrentTransaction() {
+    public void ensureAllMigratedInCurrentTransaction() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("an active transaction is required for in-transaction cap-table migration");
         }
-        marketBootstrapService.ensureAllInstrumentsInCurrentTransaction();
-        ensureAllMigratedInTransaction();
+        marketMutationLock.lock();
+        try {
+            marketBootstrapService.ensureAllInstrumentsInCurrentTransaction();
+            ensureAllMigratedInTransaction();
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     private void ensureAllMigratedInTransaction() {
@@ -105,8 +116,13 @@ public class ClubCapTableService {
         }
     }
 
-    public synchronized CapTable ensureMigrated(long teamId) {
-        return isolatedTransaction.execute(status -> ensureMigratedInTransaction(teamId));
+    public CapTable ensureMigrated(long teamId) {
+        marketMutationLock.lock();
+        try {
+            return isolatedTransaction.execute(status -> ensureMigratedInTransaction(teamId));
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     /** Read-only catalog path: all cap-table rows are fetched in bounded batches. */

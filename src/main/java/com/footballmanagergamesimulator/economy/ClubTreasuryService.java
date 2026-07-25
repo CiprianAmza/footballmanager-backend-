@@ -28,6 +28,7 @@ public class ClubTreasuryService {
     private final ClubFinancialPolicyService policyService;
     private final GameCalendarRepository calendarRepository;
     private final Phase3TransactionProbe probe;
+    private final MarketMutationLock marketMutationLock;
 
     public ClubTreasuryService(PersonalAccountRepository accountRepository,
                                PersonalAccountingService accountingService,
@@ -39,7 +40,8 @@ public class ClubTreasuryService {
                                ClubCashTransferRepository transferRepository,
                                ClubFinancialPolicyService policyService,
                                GameCalendarRepository calendarRepository,
-                               Phase3TransactionProbe probe) {
+                               Phase3TransactionProbe probe,
+                               MarketMutationLock marketMutationLock) {
         this.accountRepository = accountRepository;
         this.accountingService = accountingService;
         this.instrumentRepository = instrumentRepository;
@@ -51,12 +53,15 @@ public class ClubTreasuryService {
         this.policyService = policyService;
         this.calendarRepository = calendarRepository;
         this.probe = probe;
+        this.marketMutationLock = marketMutationLock;
     }
 
     @Transactional
     public TransferResult transfer(PersonProfile profile, long teamId,
                                    ClubCashTransferDirection direction, long amount,
                                    String idempotencyKey) {
+        marketMutationLock.lock();
+        try {
         if (profile.getCareerType() != CareerType.CHAIRMAN) {
             throw new EconomyConflictException("CHAIRMAN_REQUIRED", "A chairman career is required");
         }
@@ -152,6 +157,9 @@ public class ClubTreasuryService {
                         : "Withdrew " + amount + " from distributable funds of " + team.getName(),
                 "TREASURY:" + saved.getTransferKey());
         return new TransferResult(saved, false);
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     private GameDate date() {

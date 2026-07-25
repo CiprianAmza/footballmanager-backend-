@@ -19,4 +19,8 @@ public interface MarketInstrumentRepository extends JpaRepository<MarketInstrume
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select instrument from MarketInstrument instrument where instrument.id = :instrumentId")
     Optional<MarketInstrument> findByIdForUpdate(@Param("instrumentId") long instrumentId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select instrument from MarketInstrument instrument where instrument.active = true order by instrument.code asc")
+    List<MarketInstrument> findAllActiveForUpdate();
 }

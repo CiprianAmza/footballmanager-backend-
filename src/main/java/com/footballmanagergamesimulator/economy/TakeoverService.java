@@ -35,6 +35,7 @@ public class TakeoverService {
     private final GameCalendarRepository calendarRepository;
     private final RegentEconomyProperties properties;
     private final Phase3TransactionProbe probe;
+    private final MarketMutationLock marketMutationLock;
 
     public TakeoverService(PersonalAccountRepository accountRepository,
                            PersonalAccountingService accountingService,
@@ -49,7 +50,8 @@ public class TakeoverService {
                            FinancialRecordRepository financialRecordRepository,
                            GameCalendarRepository calendarRepository,
                            RegentEconomyProperties properties,
-                           Phase3TransactionProbe probe) {
+                           Phase3TransactionProbe probe,
+                           MarketMutationLock marketMutationLock) {
         this.accountRepository = accountRepository;
         this.accountingService = accountingService;
         this.instrumentRepository = instrumentRepository;
@@ -64,10 +66,13 @@ public class TakeoverService {
         this.calendarRepository = calendarRepository;
         this.properties = properties;
         this.probe = probe;
+        this.marketMutationLock = marketMutationLock;
     }
 
     @Transactional
     public QuoteResult quote(PersonProfile profile, long teamId, String idempotencyKey) {
+        marketMutationLock.lock();
+        try {
         requireChairman(profile);
         validateKey(idempotencyKey);
         PersonalAccount buyer = accountRepository.findByProfileIdForUpdate(profile.getId())
@@ -121,11 +126,16 @@ public class TakeoverService {
         quote.setIdempotencyKey(idempotencyKey);
         quote.setStatus(TakeoverQuoteStatus.OPEN);
         return new QuoteResult(quoteRepository.save(quote), false);
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     @Transactional
     public ExecutionResult execute(PersonProfile profile, long expectedTeamId,
                                    String quoteKey, String idempotencyKey) {
+        marketMutationLock.lock();
+        try {
         requireChairman(profile);
         validateKey(idempotencyKey);
         if (quoteKey == null || quoteKey.isBlank() || quoteKey.length() > 36) {
@@ -274,6 +284,9 @@ public class TakeoverService {
                 "Club control acquired", "You acquired control of " + team.getName() + ".",
                 "CONTROL_ACQUIRED:" + saved.getExecutionKey());
         return new ExecutionResult(saved, false);
+        } finally {
+            marketMutationLock.unlock();
+        }
     }
 
     private Map<Long, PersonalAccount> lockAccounts(List<PortfolioPosition> positions, long buyerId) {

@@ -156,19 +156,25 @@ public class FastForwardService {
                             && after.getCurrentPhase().equals(before.getCurrentPhase())) {
                         throw new IllegalStateException("Calendar did not advance");
                     }
+                    publish(jobId, "RUNNING", seasons, targetSeason, after, processedDays,
+                            progress(processedDays, targetSeason, after), startedAt,
+                            "Simulating season " + after.getSeason() + ", day " + after.getCurrentDay(), true);
                     if (after.getSeason() >= targetSeason) break;
                 }
-
-                GameCalendar current = currentCalendar();
-                publish(jobId, "RUNNING", seasons, targetSeason, current, processedDays,
-                        progress(processedDays, targetSeason, current), startedAt,
-                        "Simulating season " + current.getSeason() + ", day " + current.getCurrentDay(), true);
             }
         } catch (Exception exception) {
-            GameCalendar current = currentCalendar();
-            publish(jobId, "FAILED", seasons, targetSeason, current, processedDays,
-                    progress(processedDays, targetSeason, current), startedAt,
-                    exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage(), false);
+            String message = exception.getMessage() == null
+                    ? exception.getClass().getSimpleName() : exception.getMessage();
+            try {
+                GameCalendar current = currentCalendar();
+                publish(jobId, "FAILED", seasons, targetSeason, current, processedDays,
+                        progress(processedDays, targetSeason, current), startedAt, message, false);
+            } catch (Exception unavailableCalendar) {
+                FastForwardStatus previous = latest.get();
+                if (previous != null) {
+                    latest.set(copy(previous, "FAILED", previous.percent(), elapsedMs(startedAt), message, false));
+                }
+            }
         }
     }
 

@@ -108,7 +108,16 @@ public class GameInitializationService {
             return round;
         }
 
-        // Fast path: restore the whole DB from a previously dumped snapshot instead of regenerating.
+        // Snapshots are disposable test accelerators. Never drop the live Hibernate
+        // schema for a dump that predates the current canonical schema.
+        if (usePrebuiltData && !rebuildPrebuiltData && prebuiltDataService.snapshotExists()
+                && !prebuiltDataService.snapshotIsCompatible()) {
+            System.out.println("=== Discarding incompatible pre-built data snapshot "
+                    + prebuiltDataService.snapshotFile() + " ===");
+            prebuiltDataService.discardSnapshot();
+        }
+
+        // Fast path: restore the whole DB from a compatible snapshot instead of regenerating.
         if (usePrebuiltData && !rebuildPrebuiltData && prebuiltDataService.snapshotExists()) {
             System.out.println("=== Loading pre-built data from " + prebuiltDataService.snapshotFile() + " ===");
             prebuiltDataService.restore();

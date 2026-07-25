@@ -1,7 +1,9 @@
 package com.footballmanagergamesimulator.economy;
 
 import com.footballmanagergamesimulator.model.GameCalendar;
+import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.GameCalendarRepository;
+import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ public class MarketQueryService {
     private final TraderAdviserContractRepository contractRepository;
     private final TraderAdviceRecommendationRepository adviceRepository;
     private final GameCalendarRepository calendarRepository;
+    private final TeamRepository teamRepository;
 
     public MarketQueryService(MarketInstrumentRepository instrumentRepository,
                               MarketPriceSnapshotRepository snapshotRepository,
@@ -35,7 +38,8 @@ public class MarketQueryService {
                               TraderAdviserService traderAdviserService,
                               TraderAdviserContractRepository contractRepository,
                               TraderAdviceRecommendationRepository adviceRepository,
-                              GameCalendarRepository calendarRepository) {
+                              GameCalendarRepository calendarRepository,
+                              TeamRepository teamRepository) {
         this.instrumentRepository = instrumentRepository;
         this.snapshotRepository = snapshotRepository;
         this.positionRepository = positionRepository;
@@ -47,11 +51,21 @@ public class MarketQueryService {
         this.contractRepository = contractRepository;
         this.adviceRepository = adviceRepository;
         this.calendarRepository = calendarRepository;
+        this.teamRepository = teamRepository;
     }
 
     @Transactional(readOnly = true)
     public List<MarketDtos.InstrumentView> instruments() {
-        return instrumentRepository.findAllByActiveTrueOrderByCodeAsc().stream().map(this::instrumentView).toList();
+        List<MarketInstrument> instruments = instrumentRepository.findAllByActiveTrueOrderByCodeAsc();
+        List<Long> teamIds = instruments.stream()
+                .filter(instrument -> instrument.getInstrumentType() == MarketInstrumentType.CLUB)
+                .map(MarketInstrument::getTeamId)
+                .distinct()
+                .toList();
+        List<Team> teams = teamIds.isEmpty() ? List.of() : teamRepository.findAllById(teamIds);
+        Map<Long, ClubValuationService.Valuation> valuations = clubValuationService.valueBatch(teams);
+        return instruments.stream().map(instrument ->
+                instrumentView(instrument, valuations.get(instrument.getTeamId()))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -108,9 +122,8 @@ public class MarketQueryService {
         return tradeView(result.trade(), instrument, result.replayed());
     }
 
-    private MarketDtos.InstrumentView instrumentView(MarketInstrument value) {
-        ClubValuationService.Valuation valuation = value.getInstrumentType() == MarketInstrumentType.CLUB
-                ? clubValuationService.value(value.getTeamId()) : null;
+    private MarketDtos.InstrumentView instrumentView(MarketInstrument value,
+                                                     ClubValuationService.Valuation valuation) {
         return new MarketDtos.InstrumentView(value.getId(), value.getCode(), value.getInstrumentType(),
                 value.getTeamId(), value.getName(), money(value.getCurrentPrice()), value.getTotalSupply(),
                 value.getAvailableSupply(), value.getRiskClass(), value.getDailyLimitBps(), value.getWeeklyLimitBps(),

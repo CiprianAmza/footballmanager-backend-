@@ -8,20 +8,20 @@ import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoreSample
 /** Written for the long calibration gate; execution is intentionally policy-gated. */
 @EnabledIfSystemProperty(named = "compartment.calibration.long", matches = "true")
 class CompartmentBaselineTwoHundredSeasonsIT {
-    @Test void baselineAveragePointsIsBetweenFiftyEightAndSixtyTwo() {
-        var scenario = CalibrationScenarioFixtures.baseline200Season();
+    @Test void baselineClubFinishesNearTheMiddleOfADistributedLeague() {
         var config = CalibrationConfigFixture.load();
-        var harness = new ScoringSensitivityHarness(config.compartment(), config.match(), new CanonicalScoreSampler());
-        var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
-        var leaf = catalog.require("match.role-weights.suitability-scale");
-        double baselineValue = ((Number) leaf.baselineValue()).doubleValue();
-        var result = harness.run(scenario, catalog,
-                new CanonicalScoringWeightOverride(leaf.path(), baselineValue));
-        org.assertj.core.api.Assertions.assertThat(result.baselineAveragePoints()).isBetween(58.0, 62.0);
-        org.assertj.core.api.Assertions.assertThat(result.matches()).isEqualTo(7600);
+        var harness = new LeagueCalibrationHarness(config.compartment(), config.match(), new CanonicalScoreSampler());
+        var result = harness.run(CalibrationScenarioFixtures.midTableLeague(), 200, 13_071_991L);
+        org.assertj.core.api.Assertions.assertThat(result.averageRank()).isBetween(8.0, 13.0);
+        org.assertj.core.api.Assertions.assertThat(result.rankPercentile()).isBetween(0.35, 0.65);
+        org.assertj.core.api.Assertions.assertThat(result.matches()).isEqualTo(76_000);
         try {
-            new ScoringSensitivityReportWriter().write(java.nio.file.Path.of("target", "compartment-calibration", "baseline"),
-                    "baseline", java.util.List.of(result));
+            java.nio.file.Path directory = java.nio.file.Path.of("target", "compartment-calibration", "baseline");
+            java.nio.file.Files.createDirectories(directory);
+            String report = "seasons,matches,averagePoints,averageRank,rankPercentile\n"
+                    + result.seasons() + ',' + result.matches() + ',' + result.averagePoints() + ','
+                    + result.averageRank() + ',' + result.rankPercentile() + '\n';
+            java.nio.file.Files.writeString(directory.resolve("league-baseline.csv"), report);
         } catch (java.io.IOException exception) {
             throw new IllegalStateException(exception);
         }
