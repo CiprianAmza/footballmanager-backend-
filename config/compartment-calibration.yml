@@ -1,0 +1,27 @@
+# This file controls the opt-in Compartment Engine calibration report.
+# It is deliberately separate from production weights. Edit the percentage
+# grid and selected weight paths here, then run: mvn verify -Pcalibrate
+calibration:
+  seed: 13071991
+  output-directory: target/compartment-calibration/final
+  finish-buckets: [1, 4, 6, 10]
+
+  # Fast paired 38-match seasons. Every active numeric production weight is
+  # evaluated here and ranked by points impact per one-percent weight change.
+  fast-sweep:
+    seasons: 200
+    percentages: [-10, 10]
+
+  # Full 20-club home-and-away league. The candidate is defined by its average
+  # rank, never by a hard-coded 60-point target. Explicit paths plus the top N
+  # fast-sweep weights receive complete standings for every season.
+  full-league:
+    seasons: 200
+    top-weight-count: 8
+    percentages: [-20, -10, -5, 5, 10, 20]
+    selected-weights:
+      - compartment.compartments.ATTACK.attributes.PACE
+      - compartment.context-rules.linehigh.PACE
+      - compartment.rating.morale-slope
+      - compartment.roles.POACHER.attack
+      - compartment.work-rate.instructions.STAY_FORWARD.attack-multiplier

@@ -256,6 +256,7 @@
                         <exclude>**/*TunerIT.java</exclude>
                         <exclude>**/*SensitivityIT.java</exclude>
                         <exclude>**/*InteractionIT.java</exclude>
+                        <exclude>**/CompartmentCalibrationReportIT.java</exclude>
                         <exclude>**/integration/league/*IT.java</exclude>
                         <exclude>**/integration/cup/*IT.java</exclude>
                         <exclude>**/integration/europe/*IT.java</exclude>
@@ -381,6 +382,50 @@
                                 <include>**/integration/cup/*IT.java</include>
                                 <include>**/integration/europe/*IT.java</include>
                             </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!--
+            Reproducible Compartment Engine calibration report. This profile
+            runs only the pure calibration executable; it does not run the
+            regular unit/integration suites:
+
+              mvn verify -Pcalibrate
+              mvn verify -Pcalibrate \
+                -Dcompartment.calibration.config=/absolute/path/experiments.yml
+
+            Artifacts are written below target/compartment-calibration.
+        -->
+        <profile>
+            <id>calibrate</id>
+            <properties>
+                <compartment.calibration.report>true</compartment.calibration.report>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>none</exclude>
+                            </excludes>
+                            <includes>
+                                <include>**/CompartmentCalibrationReportIT.java</include>
+                            </includes>
+                            <systemPropertyVariables>
+                                <compartment.calibration.report>${compartment.calibration.report}</compartment.calibration.report>
+                            </systemPropertyVariables>
                         </configuration>
                     </plugin>
                 </plugins>

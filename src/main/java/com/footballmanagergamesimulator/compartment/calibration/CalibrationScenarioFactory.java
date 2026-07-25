@@ -14,6 +14,11 @@ public final class CalibrationScenarioFactory {
         return build(leaf, 200);
     }
 
+    public static ScoringSensitivityScenario forWeight(CanonicalScoringWeightKey leaf, int seasons) {
+        if (seasons < 1) throw new IllegalArgumentException("seasons must be positive");
+        return build(leaf, seasons);
+    }
+
     public static ScoringSensitivityScenario forWeightSmoke(CanonicalScoringWeightKey leaf) {
         return build(leaf, 1);
     }

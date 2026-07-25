@@ -92,18 +92,21 @@ public final class ScoringSensitivityHarness {
                                          CanonicalRuntimeTeamInput homeTeam,
                                          CanonicalRuntimeTeamInput awayTeam) {
         List<SeasonStats> seasons = new ArrayList<>();
+        CanonicalMatchEvaluation candidateHomeEvaluation = adapter.evaluate(
+                homeTeam, awayTeam, MatchVenue.HOME);
+        CanonicalMatchEvaluation candidateAwayEvaluation = adapter.evaluate(
+                awayTeam, homeTeam, MatchVenue.HOME);
         for (int season = 0; season < scenario.seasons(); season++) {
             SeasonStats stats = new SeasonStats();
             for (int match = 0; match < 38; match++) {
                 boolean homeMatch = scenario.isHomeMatch(match);
-                CanonicalRuntimeTeamInput home = homeMatch ? homeTeam : awayTeam;
-                CanonicalRuntimeTeamInput away = homeMatch ? awayTeam : homeTeam;
-                CanonicalMatchEvaluation evaluation = adapter.evaluate(home, away, MatchVenue.HOME);
+                CanonicalMatchEvaluation evaluation = homeMatch
+                        ? candidateHomeEvaluation : candidateAwayEvaluation;
                 CanonicalScoreSampler.GoalSample sample = sampler.sample(evaluation, scenario.seed() + season * 38L + match);
-                int own = home == homeTeam ? sample.homeGoals() : sample.awayGoals();
-                int opponent = home == homeTeam ? sample.awayGoals() : sample.homeGoals();
+                int own = homeMatch ? sample.homeGoals() : sample.awayGoals();
+                int opponent = homeMatch ? sample.awayGoals() : sample.homeGoals();
                 stats.add(own, opponent, evaluation,
-                        home == homeTeam ? evaluation.home() : evaluation.away(), home == homeTeam);
+                        homeMatch ? evaluation.home() : evaluation.away(), homeMatch);
             }
             seasons.add(stats);
         }
