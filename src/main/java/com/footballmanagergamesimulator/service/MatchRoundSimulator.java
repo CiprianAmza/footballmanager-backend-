@@ -833,10 +833,18 @@ public class MatchRoundSimulator {
                     if (matchPlanService.isPlanCommitted(aiFixtureKey)) {
                         continue;
                     }
-                    if (adoptedScoring.decision().scoreEngine() == ScoreEngineKind.ADMIN_OVERRIDE) {
-                        teamPostMatchService.consumePredeterminedScore(
-                                _competitionId, (int) _roundId, teamId1, teamId2);
-                    }
+                }
+
+                // An admin override is part of the persisted scoring decision.  Both a
+                // newly-created decision and a decision adopted from storage use this same
+                // post-lock consumption check.  A missing row means a retry already consumed
+                // it; a conflicting unconsumed row invalidates this attempt without mutating
+                // either durable object.
+                if (adoptedDecision != null
+                        && adoptedDecision.scoreEngine() == ScoreEngineKind.ADMIN_OVERRIDE
+                        && !consumeMatchingAdminOverride(adoptedDecision, _competitionId, (int) _roundId,
+                        teamId1, teamId2)) {
+                    continue;
                 }
 
                 // Shadow is an observation of the adopted decision and must run only
@@ -1638,6 +1646,22 @@ public class MatchRoundSimulator {
                                   com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit split,
                                   int homeScore, int awayScore, double homePower, double awayPower,
                                   KnockoutMatchResolution knockoutResolution) {}
+
+    private boolean consumeMatchingAdminOverride(MatchScoringDecision decision,
+                                                  long competitionId, int roundId,
+                                                  long homeTeamId, long awayTeamId) {
+        int[] pending = teamPostMatchService.peekPredeterminedScore(
+                competitionId, roundId, homeTeamId, awayTeamId);
+        if (pending == null) {
+            return true;
+        }
+        if (pending[0] != decision.homeScore90() || pending[1] != decision.awayScore90()) {
+            return false;
+        }
+        teamPostMatchService.consumePredeterminedScore(
+                competitionId, roundId, homeTeamId, awayTeamId);
+        return true;
+    }
 
     private KnockoutMatchResolution reconstructKnockoutResolution(
             CompetitionTeamInfoMatch match, long homeTeamId, long awayTeamId,

@@ -103,7 +103,7 @@ public final class ScoringSensitivityHarness {
                 int own = home == homeTeam ? sample.homeGoals() : sample.awayGoals();
                 int opponent = home == homeTeam ? sample.awayGoals() : sample.homeGoals();
                 stats.add(own, opponent, evaluation,
-                        home == homeTeam ? evaluation.home() : evaluation.away());
+                        home == homeTeam ? evaluation.home() : evaluation.away(), home == homeTeam);
             }
             seasons.add(stats);
         }
@@ -136,8 +136,10 @@ public final class ScoringSensitivityHarness {
         private final java.util.Map<Integer, Double> homePmf = new java.util.HashMap<>();
         private final java.util.Map<Integer, Double> awayPmf = new java.util.HashMap<>();
         void add(int own, int opponent, com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation evaluation,
-                 CanonicalTeamEvaluation evaluatedTeam) {
-            gf += own; ga += opponent; xgf += evaluation.probability().homeXg(); xga += evaluation.probability().awayXg();
+                 CanonicalTeamEvaluation evaluatedTeam, boolean evaluatedHome) {
+            gf += own; ga += opponent;
+            xgf += evaluatedHome ? evaluation.probability().homeXg() : evaluation.probability().awayXg();
+            xga += evaluatedHome ? evaluation.probability().awayXg() : evaluation.probability().homeXg();
             homeXg += evaluation.probability().homeXg(); awayXg += evaluation.probability().awayXg();
             homeWin += evaluation.outcome().homeWin(); drawProbability += evaluation.outcome().draw(); awayWin += evaluation.outcome().awayWin();
             double[] homeProbabilities = evaluation.probability().homeGoals().probabilities();

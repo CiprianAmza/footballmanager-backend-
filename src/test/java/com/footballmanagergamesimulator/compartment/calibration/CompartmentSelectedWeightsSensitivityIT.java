@@ -11,7 +11,7 @@ import java.util.List;
 
 @EnabledIfSystemProperty(named = "compartment.calibration.long", matches = "true")
 class CompartmentSelectedWeightsSensitivityIT {
-    @Test void paceShadowStrikerMoraleStayForwardAndDefensiveMentalityAreReported() throws Exception {
+    @Test void paceStayForwardMoraleAndDefensiveMentalityAreReported() throws Exception {
         var config = CalibrationConfigFixture.load();
         var c = config.compartment(); var m = config.match();
         var harness = new ScoringSensitivityHarness(c, m, new CanonicalScoreSampler());

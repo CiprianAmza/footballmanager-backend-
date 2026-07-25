@@ -23,4 +23,23 @@ class ScoringSensitivityHarnessTest {
         assertThat(result.baselineFingerprint()).isNotEqualTo(result.testedFingerprint());
         assertThat(result.pointsDelta()).isEqualTo(result.testedAveragePoints() - result.baselineAveragePoints());
     }
+
+    @Test
+    void asymmetricTeamUsesHomeAndAwayXgForBothOrientations() {
+        var fixture = CalibrationScenarioFixtures.selectedWeights();
+        var config = CalibrationConfigFixture.load();
+        var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
+        var harness = new ScoringSensitivityHarness(config.compartment(), config.match(), new CanonicalScoreSampler());
+        var homeFirst = harness.run(
+                new ScoringSensitivityScenario("xg-home-first", fixture.baselineTeam(), fixture.opponent(),
+                        fixture.seed(), 1), catalog,
+                new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 5.5));
+        var awayFirst = harness.run(
+                new ScoringSensitivityScenario("xg-away-first", fixture.opponent(), fixture.baselineTeam(),
+                        fixture.seed(), 1), catalog,
+                new CanonicalScoringWeightOverride("match.role-weights.suitability-scale", 5.5));
+
+        assertThat(homeFirst.baselineXgFor()).isNotEqualTo(homeFirst.baselineXgAgainst());
+        assertThat(awayFirst.baselineXgFor()).isNotEqualTo(awayFirst.baselineXgAgainst());
+    }
 }
