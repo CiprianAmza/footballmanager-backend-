@@ -2,6 +2,13 @@ package com.footballmanagergamesimulator.service;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.footballmanagergamesimulator.model.PredeterminedScore;
+import com.footballmanagergamesimulator.repository.PredeterminedScoreRepository;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.Optional;
+
+import static org.mockito.Mockito.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -64,5 +71,62 @@ class TeamPostMatchServiceTest {
             assertTrue(delta >= 3 && delta < 7,
                     "underdog draw morale should be 3..7, got " + delta);
         }
+    }
+
+    @Test
+    void atomicOverrideClaim_consumesMatchingRowExactlyOnce() {
+        PredeterminedScoreRepository repository = mock(PredeterminedScoreRepository.class);
+        ReflectionTestUtils.setField(service, "predeterminedScoreRepository", repository);
+        PredeterminedScore row = override(2, 1);
+        when(repository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+                7L, 3, 4, 11L, 12L)).thenReturn(Optional.of(row));
+
+        TeamPostMatchService.PredeterminedScoreAttempt first = service.consumePredeterminedScoreIfMatches(
+                7L, 3, 4, 11L, 12L, 2, 1);
+        TeamPostMatchService.PredeterminedScoreAttempt replay = service.consumePredeterminedScoreIfMatches(
+                7L, 3, 4, 11L, 12L, 2, 1);
+
+        assertEquals(TeamPostMatchService.PredeterminedScoreResolution.CONSUMED, first.resolution());
+        assertEquals(TeamPostMatchService.PredeterminedScoreResolution.ALREADY_CONSUMED, replay.resolution());
+        assertTrue(row.isConsumed());
+        verify(repository, times(1)).save(row);
+    }
+
+    @Test
+    void atomicOverrideClaim_divergentScoreLeavesOverrideUnconsumed() {
+        PredeterminedScoreRepository repository = mock(PredeterminedScoreRepository.class);
+        ReflectionTestUtils.setField(service, "predeterminedScoreRepository", repository);
+        PredeterminedScore row = override(2, 1);
+        when(repository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+                7L, 3, 4, 11L, 12L)).thenReturn(Optional.of(row));
+
+        TeamPostMatchService.PredeterminedScoreAttempt result = service.consumePredeterminedScoreIfMatches(
+                7L, 3, 4, 11L, 12L, 1, 1);
+
+        assertEquals(TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT, result.resolution());
+        assertArrayEquals(new int[]{2, 1}, result.score());
+        assertFalse(row.isConsumed());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void atomicOverrideClaim_absentIsReplayPermitted() {
+        PredeterminedScoreRepository repository = mock(PredeterminedScoreRepository.class);
+        ReflectionTestUtils.setField(service, "predeterminedScoreRepository", repository);
+        when(repository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+                7L, 3, 4, 11L, 12L)).thenReturn(Optional.empty());
+
+        TeamPostMatchService.PredeterminedScoreAttempt result = service.consumePredeterminedScoreIfMatches(
+                7L, 3, 4, 11L, 12L, 2, 1);
+
+        assertEquals(TeamPostMatchService.PredeterminedScoreResolution.ABSENT, result.resolution());
+        verify(repository, never()).save(any());
+    }
+
+    private static PredeterminedScore override(int home, int away) {
+        PredeterminedScore row = new PredeterminedScore();
+        row.setTeam1Score(home);
+        row.setTeam2Score(away);
+        return row;
     }
 }

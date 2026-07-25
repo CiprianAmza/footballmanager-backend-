@@ -687,7 +687,7 @@ public class MatchRoundSimulator {
                     }
                 } else {
                     // Predetermined scores are consumed only after the immutable decision lookup.
-                    adminScoreAi = teamPostMatchService.peekPredeterminedScore(
+                    adminScoreAi = teamPostMatchService.readPredeterminedScore(
                             _competitionId, (int) _roundId, teamId1, teamId2);
                     if (adminScoreAi != null) {
                     teamScore1 = adminScoreAi[0];
@@ -840,11 +840,18 @@ public class MatchRoundSimulator {
                 // post-lock consumption check.  A missing row means a retry already consumed
                 // it; a conflicting unconsumed row invalidates this attempt without mutating
                 // either durable object.
-                if (adoptedDecision != null
-                        && adoptedDecision.scoreEngine() == ScoreEngineKind.ADMIN_OVERRIDE
-                        && !consumeMatchingAdminOverride(adoptedDecision, _competitionId, (int) _roundId,
-                        teamId1, teamId2)) {
-                    continue;
+                if (selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE) {
+                    int expectedHome = adoptedDecision != null
+                            ? adoptedDecision.homeScore90() : adminScoreAi[0];
+                    int expectedAway = adoptedDecision != null
+                            ? adoptedDecision.awayScore90() : adminScoreAi[1];
+                    TeamPostMatchService.PredeterminedScoreAttempt adminAttempt =
+                            consumeMatchingAdminOverride(_competitionId, (int) _roundId,
+                                    expectedHome, expectedAway, teamId1, teamId2);
+                    if (adminAttempt.resolution()
+                            == TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT) {
+                        continue;
+                    }
                 }
 
                 // Shadow is an observation of the adopted decision and must run only
@@ -1647,20 +1654,13 @@ public class MatchRoundSimulator {
                                   int homeScore, int awayScore, double homePower, double awayPower,
                                   KnockoutMatchResolution knockoutResolution) {}
 
-    private boolean consumeMatchingAdminOverride(MatchScoringDecision decision,
-                                                  long competitionId, int roundId,
-                                                  long homeTeamId, long awayTeamId) {
-        int[] pending = teamPostMatchService.peekPredeterminedScore(
-                competitionId, roundId, homeTeamId, awayTeamId);
-        if (pending == null) {
-            return true;
-        }
-        if (pending[0] != decision.homeScore90() || pending[1] != decision.awayScore90()) {
-            return false;
-        }
-        teamPostMatchService.consumePredeterminedScore(
-                competitionId, roundId, homeTeamId, awayTeamId);
-        return true;
+    private TeamPostMatchService.PredeterminedScoreAttempt consumeMatchingAdminOverride(
+            long competitionId, int roundId, int expectedHome, int expectedAway,
+            long homeTeamId, long awayTeamId) {
+        int season = Integer.parseInt(getCurrentSeason());
+        return teamPostMatchService.consumePredeterminedScoreIfMatches(
+                competitionId, season, roundId, homeTeamId, awayTeamId,
+                expectedHome, expectedAway);
     }
 
     private KnockoutMatchResolution reconstructKnockoutResolution(

@@ -368,23 +368,75 @@ public class TeamPostMatchService {
     // tuned MatchSimulationService.calculateScores so the game uses the exact
     // mechanism the invariant/tuner tests validate.
 
-    /** Read-only admin peek used while constructing a candidate decision. */
-    public int[] peekPredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
+    public enum PredeterminedScoreResolution {
+        ABSENT, ALREADY_CONSUMED, CONSUMED, DIVERGENT
+    }
+
+    public record PredeterminedScoreAttempt(PredeterminedScoreResolution resolution, int[] score) {
+        public PredeterminedScoreAttempt {
+            if (resolution == null) throw new NullPointerException("resolution");
+            score = score == null ? null : score.clone();
+        }
+
+        @Override
+        public int[] score() {
+            return score == null ? null : score.clone();
+        }
+    }
+
+    /** Pessimistic read used while constructing a candidate; the row lock is held by the caller's transaction. */
+    public int[] readPredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
         int season = roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
+        return readPredeterminedScore(competitionId, season, roundId, team1Id, team2Id);
+    }
+
+    public int[] readPredeterminedScore(long competitionId, int season, int roundId, long team1Id, long team2Id) {
         return predeterminedScoreRepository
-                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2IdAndConsumedFalse(
+                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
                         competitionId, season, roundId, team1Id, team2Id)
+                .filter(p -> !p.isConsumed())
                 .map(p -> new int[]{p.getTeam1Score(), p.getTeam2Score()})
                 .orElse(null);
     }
 
-    /** Admin override: consume only after its fixture decision has been durably adopted. */
+    /** Atomically compares and consumes the locked fixture override, if it is still available. */
+    @org.springframework.transaction.annotation.Transactional
+    public PredeterminedScoreAttempt consumePredeterminedScoreIfMatches(
+            long competitionId, int season, int roundId, long team1Id, long team2Id,
+            int expectedTeam1Score, int expectedTeam2Score) {
+        Optional<PredeterminedScore> preset = predeterminedScoreRepository
+                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
+                        competitionId, season, roundId, team1Id, team2Id);
+        if (preset.isEmpty()) {
+            return new PredeterminedScoreAttempt(PredeterminedScoreResolution.ABSENT, null);
+        }
+        PredeterminedScore p = preset.get();
+        if (p.isConsumed()) {
+            return new PredeterminedScoreAttempt(PredeterminedScoreResolution.ALREADY_CONSUMED, null);
+        }
+        int actualTeam1Score = p.getTeam1Score();
+        int actualTeam2Score = p.getTeam2Score();
+        if (actualTeam1Score != expectedTeam1Score || actualTeam2Score != expectedTeam2Score) {
+            return new PredeterminedScoreAttempt(PredeterminedScoreResolution.DIVERGENT,
+                    new int[]{actualTeam1Score, actualTeam2Score});
+        }
+        p.setConsumed(true);
+        predeterminedScoreRepository.save(p);
+        System.out.println("=== PredeterminedScore consumed: comp=" + competitionId
+                + " round=" + roundId + " " + team1Id + " vs " + team2Id + " = "
+                + actualTeam1Score + "-" + actualTeam2Score);
+        return new PredeterminedScoreAttempt(PredeterminedScoreResolution.CONSUMED,
+                new int[]{actualTeam1Score, actualTeam2Score});
+    }
+
+    /** Legacy admin override path: claim the available row atomically, or return null. */
+    @org.springframework.transaction.annotation.Transactional
     public int[] consumePredeterminedScore(long competitionId, int roundId, long team1Id, long team2Id) {
         int season = roundRepository.findById(1L).map(r -> (int) r.getSeason()).orElse(1);
         Optional<PredeterminedScore> preset = predeterminedScoreRepository
-                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2IdAndConsumedFalse(
+                .findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
                         competitionId, season, roundId, team1Id, team2Id);
-        if (preset.isEmpty()) return null;
+        if (preset.isEmpty() || preset.get().isConsumed()) return null;
         PredeterminedScore p = preset.get();
         int s1 = p.getTeam1Score();
         int s2 = p.getTeam2Score();
