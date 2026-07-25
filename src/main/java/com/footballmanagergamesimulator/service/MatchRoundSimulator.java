@@ -57,6 +57,10 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.FlushModeType;
+import jakarta.persistence.PersistenceContext;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -137,6 +141,7 @@ public class MatchRoundSimulator {
     @Autowired private CanonicalScoringFingerprintService canonicalScoringFingerprintService;
     @Autowired(required = false) private GameplayFeatureConfig gameplayFeatures;
     @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
+    @PersistenceContext private EntityManager entityManager;
 
     /**
      * One RNG per simulation thread. A shared {@link Random} is internally safe,
@@ -365,6 +370,15 @@ public class MatchRoundSimulator {
              tHumanFull = 0;
         int humanMatches = 0, aiMatches = 0;
 
+        // A round deliberately batches match effects in one atomic transaction. With AUTO
+        // flush, however, every repository query made by the next fixture asks Hibernate to
+        // dirty-check every player, plan, event and statistic accumulated so far. The work
+        // therefore grows superlinearly across a matchday. COMMIT keeps those managed changes
+        // visible in memory without repeatedly scanning the whole persistence context; the
+        // explicit flush below establishes the DB-visible boundary needed before plans are
+        // looked up and marked COMMITTED.
+        FlushModeType previousFlushMode = entityManager.getFlushMode();
+        entityManager.setFlushMode(FlushModeType.COMMIT);
         try {
 
         if (compartmentEngineConfig.isEnabled() || compartmentEngineConfig.isShadowEnabled()) {
@@ -1105,6 +1119,11 @@ public class MatchRoundSimulator {
         // Players and managers came from this transaction's round preload; their morale,
         // fitness, injury status and reputation changes are flushed by JPA dirty checking.
 
+        // MatchPlanService.markCommitted performs a query by fixture key. Make all newly
+        // persisted plans and their effects visible exactly once, instead of auto-flushing
+        // the ever-growing round state before every query in the fixture loop.
+        entityManager.flush();
+
         // Every canonical AI plan resolved this round is now COMMITTED — immutable, and only
         // after its Scorer/rating/stats effects are durably persisted above (all in this one
         // transaction, so a rollback un-commits the plan too and a retry re-runs cleanly).
@@ -1137,6 +1156,7 @@ public class MatchRoundSimulator {
         }
 
         } finally {
+            entityManager.setFlushMode(previousFlushMode);
             // Managed entities must never leak into the next task executed by this worker.
             playerCapabilityService.clearPreloadedForCurrentThread();
             roundContext.remove();
