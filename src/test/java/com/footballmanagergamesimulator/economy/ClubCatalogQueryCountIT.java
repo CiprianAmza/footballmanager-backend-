@@ -12,6 +12,7 @@ import jakarta.persistence.EntityManager;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,6 +26,8 @@ class ClubCatalogQueryCountIT {
     @Autowired private PersonalAccountRepository accounts;
     @Autowired private PortfolioPositionRepository positions;
     @Autowired private ClubCapTableStateRepository capTableStates;
+    @Autowired private MarketInstrumentRepository instruments;
+    @Autowired private ClubCapTableService capTableService;
     @Autowired private SessionFactory sessionFactory;
     @Autowired private EntityManager entityManager;
 
@@ -32,19 +35,36 @@ class ClubCatalogQueryCountIT {
     void catalogFor106ClubsIsBatchBoundedAndScalarParityHolds() {
         List<Team> fixture = teams.findAll().stream().sorted(java.util.Comparator.comparingLong(Team::getId)).toList();
         assertThat(fixture).as("bootstrap must provide the 106-club fixture").hasSizeGreaterThanOrEqualTo(106);
-        Map<Long, PersonalAccount> accountsById = accounts.findAll().stream()
-                .collect(java.util.stream.Collectors.toMap(PersonalAccount::getId, account -> account));
-        List<PortfolioPosition> positiveHoldings = positions.findAllByQuantityGreaterThan(0);
-        long profileId = capTableStates.findAll().stream()
-                .filter(state -> state.getControllingAccountId() != null)
-                .filter(state -> positiveHoldings.stream().anyMatch(position ->
-                        position.getAccountId() == state.getControllingAccountId()
-                                && position.getInstrumentId() == state.getInstrumentId()))
-                .map(state -> accountsById.get(state.getControllingAccountId()))
-                .filter(java.util.Objects::nonNull)
-                .map(PersonalAccount::getProfileId)
-                .sorted().findFirst()
-                .orElseThrow(() -> new AssertionError("fixture must provide a profile with a holding and controlling holding"));
+        PersonalAccount principal = accounts.findAll().stream()
+                .min(java.util.Comparator.comparingLong(PersonalAccount::getId))
+                .orElseThrow(() -> new AssertionError("fixture must provide a personal account"));
+        java.util.Set<Long> occupiedInstrumentIds = positions.findAll().stream()
+                .map(PortfolioPosition::getInstrumentId)
+                .collect(java.util.stream.Collectors.toSet());
+        MarketInstrument instrument = fixture.stream()
+                .map(Team::getId)
+                .map(instruments::findByTeamId)
+                .flatMap(Optional::stream)
+                .filter(value -> value.getInstrumentType() == MarketInstrumentType.CLUB)
+                .filter(value -> !occupiedInstrumentIds.contains(value.getId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("fixture must provide an unoccupied club instrument"));
+        assertThat(instrument.getTotalSupply()).isPositive();
+        PortfolioPosition seeded = new PortfolioPosition();
+        seeded.setAccountId(principal.getId());
+        seeded.setProfileId(principal.getProfileId());
+        seeded.setInstrumentId(instrument.getId());
+        seeded.setQuantity(instrument.getTotalSupply());
+        seeded.setTotalCostBasis(Math.multiplyExact(instrument.getTotalSupply(), instrument.getCurrentPrice()));
+        positions.saveAndFlush(seeded);
+        capTableService.ensureAllMigratedInCurrentTransaction();
+        ClubCapTableState state = capTableStates.findByInstrumentId(instrument.getId()).orElseThrow();
+        assertThat(state.getControllingAccountId()).isEqualTo(principal.getId());
+        assertThat(positions.findByAccountIdAndInstrumentId(principal.getId(), instrument.getId()))
+                .get().extracting(PortfolioPosition::getQuantity).isEqualTo(instrument.getTotalSupply());
+        long profileId = principal.getProfileId();
+        entityManager.flush();
+        entityManager.clear();
 
         Statistics statistics = sessionFactory.getStatistics();
         boolean statisticsWereEnabled = statistics.isStatisticsEnabled();
