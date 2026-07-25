@@ -138,7 +138,7 @@ class InboxControllerSecurityTest {
         controller.meMarkAllRead(mock(HttpServletRequest.class));
 
         List<InboxAudience> expected = List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH);
-        verify(messages).findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(11L, expected);
+        verify(messages, times(2)).findAllByRecipientProfileIdAndAudienceInOrderByIdDesc(11L, expected);
         verify(messages).countByRecipientProfileIdAndAudienceInAndIsReadFalse(11L, expected);
     }
 
