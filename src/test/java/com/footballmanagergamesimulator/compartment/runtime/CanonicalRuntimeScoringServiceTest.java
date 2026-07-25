@@ -34,6 +34,18 @@ import static org.mockito.Mockito.mock;
 
 class CanonicalRuntimeScoringServiceTest {
     @Test
+    void productionConstructorIsAutowiredWithCanonicalDependencies() throws NoSuchMethodException {
+        var production = CanonicalRuntimeScoringService.class.getConstructor(
+                CompartmentEngineConfig.class, MatchEngineConfig.class,
+                CanonicalRuntimeInputFactory.class, CanonicalScoreSampler.class,
+                CompartmentRuntimeScoringTelemetry.class, CanonicalScoringFingerprintService.class);
+        assertThat(production.isAnnotationPresent(org.springframework.beans.factory.annotation.Autowired.class)).isTrue();
+        assertThat(java.util.Arrays.stream(CanonicalRuntimeScoringService.class.getDeclaredConstructors())
+                .filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
+                .toList()).containsExactly(production);
+    }
+
+    @Test
     void flagOffDoesNotInvokeSupplierOrAttempt() {
         CompartmentEngineConfig config = new CompartmentEngineConfig();
         CanonicalRuntimeScoringService service = service(config);

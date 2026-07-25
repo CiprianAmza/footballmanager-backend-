@@ -9,6 +9,7 @@ import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeTeam
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public final class CompartmentShadowEvaluationService {
     private final CompartmentShadowTelemetry telemetry;
     private final CompartmentCalibrationAccumulator calibrationAccumulator;
 
+    @Autowired
     public CompartmentShadowEvaluationService(CompartmentEngineConfig compartmentConfig,
                                               MatchEngineConfig matchEngineConfig,
                                               CanonicalRuntimeInputFactory runtimeFactory,

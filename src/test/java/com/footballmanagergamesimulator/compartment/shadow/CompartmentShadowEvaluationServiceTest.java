@@ -34,17 +34,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CompartmentShadowEvaluationServiceTest {
 
     @Test
-    void productionConstructorIsUniqueAndUsesSpringAccumulator() {
-        Constructor<?>[] publicConstructors = java.util.Arrays.stream(CompartmentShadowEvaluationService.class
-                .getDeclaredConstructors()).filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
-                .toArray(Constructor[]::new);
-        assertThat(publicConstructors).hasSize(1);
-        assertThat(publicConstructors[0].getParameterTypes())
+    void productionConstructorIsAutowiredWithCanonicalDependencies() throws NoSuchMethodException {
+        Constructor<?> production = CompartmentShadowEvaluationService.class.getConstructor(
+                CompartmentEngineConfig.class, MatchEngineConfig.class,
+                CanonicalRuntimeInputFactory.class, CompartmentShadowTelemetry.class,
+                CompartmentCalibrationAccumulator.class);
+        assertThat(production.isAnnotationPresent(org.springframework.beans.factory.annotation.Autowired.class)).isTrue();
+        assertThat(java.util.Arrays.stream(CompartmentShadowEvaluationService.class.getDeclaredConstructors())
+                .filter(constructor -> java.lang.reflect.Modifier.isPublic(constructor.getModifiers()))
+                .toList()).containsExactly(production);
+        assertThat(production.getParameterTypes())
                 .containsExactly(CompartmentEngineConfig.class, MatchEngineConfig.class,
                         CanonicalRuntimeInputFactory.class, CompartmentShadowTelemetry.class,
                         CompartmentCalibrationAccumulator.class);
-        assertThat(java.util.Arrays.stream(CompartmentShadowEvaluationService.class.getDeclaredConstructors())
-                .noneMatch(constructor -> constructor.getParameterCount() == 4)).isTrue();
     }
 
     @Test
