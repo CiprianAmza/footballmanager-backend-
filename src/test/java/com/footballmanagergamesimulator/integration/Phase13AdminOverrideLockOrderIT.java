@@ -28,7 +28,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -79,24 +78,17 @@ class Phase13AdminOverrideLockOrderIT {
                 ScoreEngineKind.ADMIN_OVERRIDE, ScoreEngineKind.ADMIN_OVERRIDE.algorithmVersion(),
                 "a".repeat(64), "b".repeat(64), 2, 1, 40, 34, null, null);
         CountDownLatch decisionPersisted = new CountDownLatch(1);
-        CyclicBarrier claimStart = new CyclicBarrier(2);
+        CountDownLatch replayLockedFixture = new CountDownLatch(1);
         ExecutorService workers = Executors.newFixedThreadPool(2);
         try {
             Future<RunnerResult> creator = workers.submit(() -> {
-                PersistedScoringPlan adopted = matchPlanService.persistOrLoadScoreDecision(
-                        decision, 11L, 12L, KnockoutPlanSplit.regularOnly(2, 1));
-                decisionPersisted.countDown();
-                claimStart.await(10, TimeUnit.SECONDS);
-                return finishWithRealFixtureLock(adopted.decision(), fixtureKey, 11L, 12L);
+                return runCreator(decision, fixtureKey, decisionPersisted, replayLockedFixture);
             });
             Future<RunnerResult> replay = workers.submit(() -> {
                 if (!decisionPersisted.await(10, TimeUnit.SECONDS)) {
                     throw new AssertionError("decision was not persisted in time");
                 }
-                PersistedScoringPlan adopted = matchPlanService.findPersistedScoringPlan(
-                        fixtureKey, 11L, 12L).orElseThrow();
-                claimStart.await(10, TimeUnit.SECONDS);
-                return finishWithRealFixtureLock(adopted.decision(), fixtureKey, 11L, 12L);
+                return runReplay(fixtureKey, replayLockedFixture);
             });
 
             List<RunnerResult> results = assertTimeoutPreemptively(Duration.ofSeconds(10),
@@ -111,10 +103,13 @@ class Phase13AdminOverrideLockOrderIT {
                     .filter(plan -> fixtureKey.equals(plan.getFixtureKey()))).hasSize(1);
             MatchPlan plan = planRepository.findByFixtureKey(fixtureKey).orElseThrow();
             assertThat(plan.getStatus()).isEqualTo(MatchPlan.Status.COMPLETED);
-            assertThat(eventRepository.findByFixtureKey(fixtureKey)).isNotEmpty();
-            assertThat(eventRepository.findByFixtureKey(fixtureKey)).hasSize(
-                    results.get(0).events().size());
-            assertThat(appearanceRepository.findByMatchPlan(plan)).isNotEmpty();
+            List<MatchEvent> persistedEvents = eventRepository.findByFixtureKey(fixtureKey);
+            assertThat(persistedEvents).isNotEmpty().hasSize(results.get(0).events().size());
+            assertThat(persistedEvents).extracting(MatchEvent::getId).doesNotHaveDuplicates();
+            var persistedAppearances = appearanceRepository.findByMatchPlan(plan);
+            assertThat(persistedAppearances).hasSize(22);
+            assertThat(persistedAppearances).extracting(appearance -> appearance.getPlayerId())
+                    .doesNotHaveDuplicates();
             assertThat(predeterminedScores.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
                     901L, 7, 3, 11L, 12L).orElseThrow().isConsumed()).isTrue();
         } finally {
@@ -132,17 +127,46 @@ class Phase13AdminOverrideLockOrderIT {
         }
     }
 
-    private RunnerResult finishWithRealFixtureLock(MatchScoringDecision decision, String fixtureKey,
-                                                    long homeTeamId, long awayTeamId) {
+    private RunnerResult runCreator(MatchScoringDecision decision, String fixtureKey,
+                                    CountDownLatch decisionPersisted,
+                                    CountDownLatch replayLockedFixture) {
         return new TransactionTemplate(transactionManager).execute(status -> {
+            int[] discovered = postMatchService.readPredeterminedScore(901L, 7, 3, 11L, 12L);
+            assertThat(discovered).containsExactly(2, 1);
+            PersistedScoringPlan adopted = matchPlanService.persistOrLoadScoreDecision(
+                    decision, 11L, 12L, KnockoutPlanSplit.regularOnly(2, 1));
+            decisionPersisted.countDown();
+            try {
+                if (!replayLockedFixture.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("replay did not acquire fixture lock in time");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("creator interrupted while waiting for replay", exception);
+            }
             matchPlanService.lockFixture(fixtureKey);
-            TeamPostMatchService.PredeterminedScoreAttempt claim =
-                    postMatchService.consumePredeterminedScoreIfMatches(
-                            901L, 7, 3, homeTeamId, awayTeamId,
-                            decision.homeScore90(), decision.awayScore90());
+            TeamPostMatchService.PredeterminedScoreAttempt claim = postMatchService
+                    .consumePredeterminedScoreIfMatches(901L, 7, 3, 11L, 12L,
+                            adopted.decision().homeScore90(), adopted.decision().awayScore90());
             List<MatchEvent> events = matchPlanService.buildAndPersistLive(
-                    fixtureKey, 901L, 7, 3, homeTeamId, awayTeamId,
-                    lineup(100L), lineup(200L), decision.homeScore90(), decision.awayScore90());
+                    fixtureKey, 901L, 7, 3, 11L, 12L,
+                    lineup(100L), lineup(200L), adopted.decision().homeScore90(), adopted.decision().awayScore90());
+            return new RunnerResult(claim, events);
+        });
+    }
+
+    private RunnerResult runReplay(String fixtureKey, CountDownLatch replayLockedFixture) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            PersistedScoringPlan adopted = matchPlanService.findPersistedScoringPlan(
+                    fixtureKey, 11L, 12L).orElseThrow();
+            matchPlanService.lockFixture(fixtureKey);
+            replayLockedFixture.countDown();
+            TeamPostMatchService.PredeterminedScoreAttempt claim = postMatchService
+                    .consumePredeterminedScoreIfMatches(901L, 7, 3, 11L, 12L,
+                            adopted.decision().homeScore90(), adopted.decision().awayScore90());
+            List<MatchEvent> events = matchPlanService.buildAndPersistLive(
+                    fixtureKey, 901L, 7, 3, 11L, 12L,
+                    lineup(100L), lineup(200L), adopted.decision().homeScore90(), adopted.decision().awayScore90());
             return new RunnerResult(claim, events);
         });
     }
