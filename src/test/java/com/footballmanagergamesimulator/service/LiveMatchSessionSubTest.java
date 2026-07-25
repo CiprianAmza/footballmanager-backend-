@@ -1,6 +1,9 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.matchplan.Contributor;
+import com.footballmanagergamesimulator.matchplan.Lineup;
+import com.footballmanagergamesimulator.matchplan.MatchPlanService;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService.InvalidSubstitutionException;
@@ -30,6 +33,7 @@ class LiveMatchSessionSubTest {
     private PlayerSkillsRepository playerSkillsRepository;
     private MatchEventRepository matchEventRepository;
     private GoalAnimationService goalAnimationService;
+    private MatchPlanService matchPlanService;
 
     private static final long HOME_TEAM = 1L;
     private static final long AWAY_TEAM = 2L;
@@ -49,6 +53,7 @@ class LiveMatchSessionSubTest {
         playerSkillsRepository = mock(PlayerSkillsRepository.class);
         matchEventRepository = mock(MatchEventRepository.class);
         goalAnimationService = mock(GoalAnimationService.class);
+        matchPlanService = mock(MatchPlanService.class);
 
         inject("humanRepository", humanRepository);
         inject("teamRepository", teamRepository);
@@ -56,6 +61,7 @@ class LiveMatchSessionSubTest {
         inject("playerSkillsRepository", playerSkillsRepository);
         inject("matchEventRepository", matchEventRepository);
         inject("goalAnimationService", goalAnimationService);
+        inject("matchPlanService", matchPlanService);
         inject("engineConfig", new com.footballmanagergamesimulator.config.MatchEngineConfig());
 
         homeSquad = buildSquad(100L);
@@ -179,6 +185,31 @@ class LiveMatchSessionSubTest {
         assertTrue(ex.getMessage().toLowerCase().contains("no substitutions"));
     }
 
+    @Test
+    void flagOffInteractiveKickoffStillAdoptsAuthoritativeLineupAndFormations() {
+        Lineup home = lineup(100L, 112L, "ST");
+        Lineup away = lineup(200L, 212L, "AMC");
+        when(matchPlanService.isEnabled()).thenReturn(false);
+        when(matchPlanService.buildKickoffLineups(anyString(), eq(COMP), eq(1), eq(1),
+                eq(HOME_TEAM), eq(AWAY_TEAM), eq("4231"), eq("4411")))
+                .thenReturn(new MatchPlanService.KickoffLineups(home, away));
+
+        LiveMatchSession session = service.createInteractiveSession(
+                HOME_TEAM, AWAY_TEAM, 100.0, 100.0, COMP, 1, 1, false,
+                null, -1, -1, 99L, "4231", "4411", -1, -1, -1, -1);
+
+        var state = session.snapshot();
+        assertEquals("4231", state.getHomeFormation());
+        assertEquals("4411", state.getAwayFormation());
+        assertTrue(state.getHomePitch().stream().anyMatch(player -> player.getPlayerId() == 112L
+                && "ST".equals(player.getPosition())));
+        assertFalse(state.getHomePitch().stream().anyMatch(player -> player.getPlayerId() == 101L));
+        assertTrue(state.getAwayPitch().stream().anyMatch(player -> player.getPlayerId() == 212L
+                && "AMC".equals(player.getPosition())));
+        verify(matchPlanService).buildKickoffLineups(anyString(), eq(COMP), eq(1), eq(1),
+                eq(HOME_TEAM), eq(AWAY_TEAM), eq("4231"), eq("4411"));
+    }
+
     // ---------------- fixtures ----------------
 
     /** 1 GK + 11 outfield (DCs to keep things simple) + 1 bench DC = 13 players. */
@@ -191,6 +222,21 @@ class LiveMatchSessionSubTest {
         // Bench DC — ensures we have a bench to sub TO in the happy-path test.
         squad.add(humanWithPosition(baseId + 12, "DC", 50));
         return squad;
+    }
+
+    private static Lineup lineup(long baseId, long mandatedPlayerId, String mandatedPosition) {
+        List<Contributor> starters = new ArrayList<>();
+        starters.add(contributor(baseId, "GK"));
+        for (long id = baseId + 2; id <= baseId + 10; id++) {
+            starters.add(contributor(id, "DC"));
+        }
+        starters.add(contributor(mandatedPlayerId, mandatedPosition));
+        return new Lineup(starters, List.of(), List.of());
+    }
+
+    private static Contributor contributor(long id, String position) {
+        return new Contributor(id, position + "_" + id, position, 70, 10, 10, 10,
+                100, false, false);
     }
 
     private static Human humanWithPosition(long id, String position, double rating) {

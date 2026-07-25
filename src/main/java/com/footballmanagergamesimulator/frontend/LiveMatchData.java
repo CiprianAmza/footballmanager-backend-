@@ -26,6 +26,11 @@ public class LiveMatchData {
     private long awayTeamId;
     private String homeTeamName;
     private String awayTeamName;
+    /** Authoritative formation keys used at kickoff (for example 4231). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String homeFormation;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String awayFormation;
     private String competitionName;
     private long competitionId;
     private int round;

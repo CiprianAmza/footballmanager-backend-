@@ -1356,15 +1356,22 @@ public class LiveMatchSimulationService {
                 competitionId, season, round, generateGoalAnimations, matchup,
                 targetHomeGoals, targetAwayGoals, liveRandom);
 
-        if (canonical) {
-            String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
-                    .competitionFixtureKey(matchRowId);
-            // Authoritative XI/bench for BOTH paths: the same adapter the instant path uses
-            // (saved first11 for a human team, auto for AI), with designated takers. The
-            // session adopts it as its on-pitch set so watched == instant.
+        // Kickoff selection is authoritative independently of MatchPlan persistence.
+        // With the plan flag off, a watched match must still respect Chairman formation
+        // and player locks instead of reverting to the session's generic top-rated XI.
+        session.setKickoffFormations(homeTactic, awayTactic);
+        String fixtureKey = matchRowId > 0
+                ? com.footballmanagergamesimulator.matchplan.MatchPlanService.competitionFixtureKey(matchRowId)
+                : buildKey(competitionId, season, round, teamId1, teamId2);
+        if (matchPlanService != null) {
             var kickoff = matchPlanService.buildKickoffLineups(fixtureKey, competitionId, season, round,
                     teamId1, teamId2, homeTactic, awayTactic);
             session.adoptCanonicalXi(kickoff.home(), kickoff.away());
+        }
+        String liveKey = buildKey(competitionId, season, round, teamId1, teamId2);
+        liveMatchCache.put(liveKey, session.snapshot());
+
+        if (canonical) {
             // Persisted participants = the adopted XI (with takers) + the rest of the squad
             // as bench, so any player the user brings on is snapshotted.
             com.footballmanagergamesimulator.matchplan.Lineup homeXI = session.canonicalKickoffLineup(true);
