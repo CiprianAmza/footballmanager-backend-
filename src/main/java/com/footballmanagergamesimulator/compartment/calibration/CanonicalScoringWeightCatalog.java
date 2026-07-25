@@ -9,7 +9,6 @@ import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,16 +37,7 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.rating.morale-slope", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getMoraleSlope(), CanonicalScoringWeightKey.Type.CONTINUOUS, "morale");
         add(leaves, "compartment.rating.default-position-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultPositionMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "position fallback");
         add(leaves, "compartment.rating.default-role-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultRoleMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fallback");
-        compartment.getContextRules().entrySet().stream()
-                .collect(java.util.stream.Collectors.groupingBy(
-                        entry -> normalizeContextSource(entry.getKey()),
-                        LinkedHashMap::new,
-                        java.util.stream.Collectors.toList()))
-                .entrySet().stream().sorted(Map.Entry.comparingByKey())
-                .forEach(group -> preferredContextRule(group.getValue()).getValue().entrySet().stream()
-                        .sorted(Map.Entry.comparingByKey())
-                        .forEach(e -> add(leaves, "compartment.context-rules." + group.getKey() + "." + e.getKey().name(), CanonicalScoringWeightKey.Category.CONTEXT,
-                                e.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS, "ContextCoefficientMapper")));
+        addContextRules(leaves, compartment.getContextRules());
         compartment.getCompartments().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
                 e.getValue().getAttributes().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(a ->
                         add(leaves, "compartment.compartments." + e.getKey().name() + ".attributes." + a.getKey().name(), CanonicalScoringWeightKey.Category.COMPARTMENT,
@@ -94,7 +84,9 @@ public final class CanonicalScoringWeightCatalog {
     }
 
     private static void addWorkRule(Map<String, CanonicalScoringWeightKey> leaves, String path, CompartmentEngineConfig.WorkRule rule) {
-        add(leaves, path + ".engagement", CanonicalScoringWeightKey.Category.WORK_RATE, rule.getEngagement(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator");
+        if (!path.endsWith("STAY_FORWARD")) {
+            add(leaves, path + ".engagement", CanonicalScoringWeightKey.Category.WORK_RATE, rule.getEngagement(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator");
+        }
         add(leaves, path + ".attack-multiplier", CanonicalScoringWeightKey.Category.WORK_RATE, rule.getAttackMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "TeamCompartmentAggregator");
     }
 
@@ -136,16 +128,37 @@ public final class CanonicalScoringWeightCatalog {
         return value == null ? "" : value.replace(" ", "").replace("-", "").replace("_", "").toUpperCase();
     }
 
-    private static String normalizeContextSource(String value) {
-        return value == null ? "" : value.replace(" ", "").replace(":", "");
+    private static void addContextRules(Map<String, CanonicalScoringWeightKey> leaves,
+                                         Map<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> rules) {
+        Map<String, Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>>> canonical = new java.util.TreeMap<>();
+        for (Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> entry
+                : rules.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()) {
+            String normalized = normalizeContextSource(entry.getKey());
+            var previous = canonical.get(normalized);
+            if (previous == null) {
+                canonical.put(normalized, entry);
+                continue;
+            }
+            if (!isDeclaredContextAlias(previous.getKey(), entry.getKey())
+                    || !previous.getValue().equals(entry.getValue())) {
+                throw new IllegalArgumentException("context rule path collision after normalization: "
+                        + previous.getKey() + " vs " + entry.getKey());
+            }
+            if (entry.getKey().contains(":") && !previous.getKey().contains(":")) canonical.put(normalized, entry);
+        }
+        canonical.values().forEach(entry -> entry.getValue().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(e -> add(leaves, "compartment.context-rules." + normalizeContextSource(entry.getKey()) + "." + e.getKey().name(),
+                        CanonicalScoringWeightKey.Category.CONTEXT, e.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS,
+                        "ContextCoefficientMapper")));
     }
 
-    private static Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> preferredContextRule(
-            List<Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>>> candidates) {
-        return candidates.stream()
-                .sorted(Comparator.comparing((Map.Entry<String, ?> entry) -> entry.getKey().contains(":" ) ? 0 : 1)
-                        .thenComparing(Map.Entry::getKey))
-                .findFirst().orElseThrow();
+    private static boolean isDeclaredContextAlias(String first, String second) {
+        return first.contains(":") != second.contains(":");
+    }
+
+    private static String normalizeContextSource(String value) {
+        return value == null ? "" : value.replace(" ", "").replace(":", "");
     }
 
     private static void addMultipliers(Map<String, CanonicalScoringWeightKey> leaves, String path, CompartmentEngineConfig.CompartmentMultipliers m, CanonicalScoringWeightKey.Category category) {

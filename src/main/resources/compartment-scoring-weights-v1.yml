@@ -170,7 +170,7 @@ match:
             forced-defensive-morale-delta: -3.0
         instructions:
           DEFAULT:      { engagement: 1.00, attack-multiplier: 1.00, ignores-defensive-instructions: false, forced-defensive-morale-delta: 0.0 }
-          STAY_FORWARD: { engagement: 0.30, attack-multiplier: 1.08, ignores-defensive-instructions: false, forced-defensive-morale-delta: 0.0 }
+          STAY_FORWARD: { attack-multiplier: 1.08, ignores-defensive-instructions: false, forced-defensive-morale-delta: 0.0 }
           TRACK_BACK:   { engagement: 1.15, attack-multiplier: 0.95, ignores-defensive-instructions: false, forced-defensive-morale-delta: 0.0 }
 
       exposure:

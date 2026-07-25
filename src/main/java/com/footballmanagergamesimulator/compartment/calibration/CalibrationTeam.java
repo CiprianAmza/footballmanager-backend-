@@ -30,7 +30,7 @@ public record CalibrationTeam(Mentality mentality, List<CalibrationPlayer> playe
 
     public CalibrationTeam withStayForward() {
         return new CalibrationTeam(mentality, players.stream().map(p -> p.position().code().equals("ST")
-                || p.position().code().equals("DC")
+                && p.role() == com.footballmanagergamesimulator.compartment.PlayerRole.POACHER
                 ? copy(p, p.morale(), p.traits(), ForwardInstruction.STAY_FORWARD)
                 : p).toList());
     }

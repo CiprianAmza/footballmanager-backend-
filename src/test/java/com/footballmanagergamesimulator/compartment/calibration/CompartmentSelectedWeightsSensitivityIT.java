@@ -28,9 +28,13 @@ class CompartmentSelectedWeightsSensitivityIT {
             if (experiment.id().equals("stay-forward")) {
                 var active = scenario.baselineTeam().players().stream()
                         .filter(player -> player.instruction() == ForwardInstruction.STAY_FORWARD)
-                        .findFirst().orElseThrow();
-                org.assertj.core.api.Assertions.assertThat(active.position()).isEqualTo(PlayerPosition.ST);
-                org.assertj.core.api.Assertions.assertThat(active.role()).isEqualTo(PlayerRole.POACHER);
+                        .toList();
+                org.assertj.core.api.Assertions.assertThat(active).hasSize(1);
+                org.assertj.core.api.Assertions.assertThat(active.get(0).position()).isEqualTo(PlayerPosition.ST);
+                org.assertj.core.api.Assertions.assertThat(active.get(0).role()).isEqualTo(PlayerRole.POACHER);
+                org.assertj.core.api.Assertions.assertThat(scenario.baselineTeam().players())
+                        .filteredOn(player -> player.position() == PlayerPosition.DC)
+                        .noneMatch(player -> player.instruction() == ForwardInstruction.STAY_FORWARD);
             }
             var leaf = catalog.require(experiment.key()); double value = CanonicalWeightPerturbation.validAlternative(leaf);
             var result = harness.run(scenario, catalog, new CanonicalScoringWeightOverride(experiment.key(), value));

@@ -13,13 +13,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 class CanonicalScoringWeightCatalogTest {
     @Test
     void catalogIsStableAndContainsContextAndRoleWeights() {
         var config = CalibrationConfigFixture.load();
         var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
-        assertThat(catalog.size()).isEqualTo(732);
+        assertThat(catalog.size()).isEqualTo(731);
         assertThat(catalog.leafWeights()).isSortedAccordingTo(java.util.Comparator.comparing(CanonicalScoringWeightKey::path));
         assertThat(catalog.get("compartment.context-rules.linehigh.PACE")).isNotNull();
         assertThat(catalog.get("match.role-weights.suitability-scale")).isNotNull();
@@ -91,6 +93,20 @@ class CanonicalScoringWeightCatalogTest {
                 "compartment.context-rules.instruction:close down less.POSITIONING",
                 "compartment.context-rules.instructionclosedownless.POSITIONING")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void distinctContextCollisionIsRejectedByCatalogConstruction() {
+        var profile = CalibrationConfigFixture.load();
+        Map<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> rules =
+                new LinkedHashMap<>(profile.compartment().getContextRules());
+        rules.put("instruction:closedownless", Map.of(
+                com.footballmanagergamesimulator.compartment.PlayerAttribute.POSITIONING, 0.99));
+        profile.compartment().setContextRules(rules);
+
+        assertThatThrownBy(() -> CanonicalScoringWeightCatalog.from(profile.compartment(), profile.match()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("context rule path collision");
     }
 
     private static void flatten(Object value, String path, List<String> output) {
