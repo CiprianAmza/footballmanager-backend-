@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.compartment.calibration;
 import com.footballmanagergamesimulator.compartment.Compartment;
 import com.footballmanagergamesimulator.compartment.PlayerAttribute;
 import com.footballmanagergamesimulator.compartment.PlayerRole;
+import com.footballmanagergamesimulator.compartment.ContextRuleNormalizer;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 
@@ -130,35 +131,11 @@ public final class CanonicalScoringWeightCatalog {
 
     private static void addContextRules(Map<String, CanonicalScoringWeightKey> leaves,
                                          Map<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> rules) {
-        Map<String, Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>>> canonical = new java.util.TreeMap<>();
-        for (Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> entry
-                : rules.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()) {
-            String normalized = normalizeContextSource(entry.getKey());
-            var previous = canonical.get(normalized);
-            if (previous == null) {
-                canonical.put(normalized, entry);
-                continue;
-            }
-            if (!isDeclaredContextAlias(previous.getKey(), entry.getKey())
-                    || !previous.getValue().equals(entry.getValue())) {
-                throw new IllegalArgumentException("context rule path collision after normalization: "
-                        + previous.getKey() + " vs " + entry.getKey());
-            }
-            if (entry.getKey().contains(":") && !previous.getKey().contains(":")) canonical.put(normalized, entry);
-        }
-        canonical.values().forEach(entry -> entry.getValue().entrySet().stream()
+        ContextRuleNormalizer.effective(rules).entrySet().forEach(entry -> entry.getValue().entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
-                .forEach(e -> add(leaves, "compartment.context-rules." + normalizeContextSource(entry.getKey()) + "." + e.getKey().name(),
+                .forEach(e -> add(leaves, "compartment.context-rules." + entry.getKey() + "." + e.getKey().name(),
                         CanonicalScoringWeightKey.Category.CONTEXT, e.getValue(), CanonicalScoringWeightKey.Type.CONTINUOUS,
                         "ContextCoefficientMapper")));
-    }
-
-    private static boolean isDeclaredContextAlias(String first, String second) {
-        return first.contains(":") != second.contains(":");
-    }
-
-    private static String normalizeContextSource(String value) {
-        return value == null ? "" : value.replace(" ", "").replace(":", "");
     }
 
     private static void addMultipliers(Map<String, CanonicalScoringWeightKey> leaves, String path, CompartmentEngineConfig.CompartmentMultipliers m, CanonicalScoringWeightKey.Category category) {

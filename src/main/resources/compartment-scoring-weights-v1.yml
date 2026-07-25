@@ -197,7 +197,7 @@ match:
         mentality:defensive: { POSITIONING: 0.15, CONCENTRATION: 0.10 }
         mentality:very defensive: { POSITIONING: 0.30, CONCENTRATION: 0.20 }
         tempo:higher: { DECISIONS: 0.15, FIRST_TOUCH: 0.10 }
-        tempo:much higher: { DECISIONS: 0.30, FIRST_TOUCH: 0.20 }
+        tempo:much higher: { DECISIONS: 0.30, FIRST_TOUCH: 0.20, PACE: 0.40 }
         tempo:lower: { TECHNIQUE: 0.10, VISION: 0.10 }
         tempo:much lower: { TECHNIQUE: 0.20, VISION: 0.20 }
         passing:short: { PASSING: 0.15, FIRST_TOUCH: 0.10 }

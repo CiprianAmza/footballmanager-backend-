@@ -22,6 +22,7 @@ calibration:
     selected-weights:
       - compartment.compartments.ATTACK.attributes.PACE
       - compartment.context-rules.linehigh.PACE
+      - compartment.context-rules.tempomuchhigher.PACE
       - compartment.rating.morale-slope
       - compartment.roles.POACHER.attack
       - compartment.work-rate.instructions.STAY_FORWARD.attack-multiplier

@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.compartment.runtime;
 
 import com.footballmanagergamesimulator.compartment.TacticalContextInput;
+import com.footballmanagergamesimulator.compartment.ContextRuleNormalizer;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalLineupPlayer;
 import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
@@ -30,7 +31,7 @@ public final class CanonicalScoringFingerprintService {
                 + ',' + compartment.getRating().getFitnessFloor() + ',' + compartment.getRating().getMoraleNeutral()
                 + ',' + compartment.getRating().getMoraleSlope() + ',' + compartment.getRating().getDefaultPositionMultiplier()
                 + ',' + compartment.getRating().getDefaultRoleMultiplier()
-                + "|contextRules=" + ordered(compartment.getContextRules())
+                + "|contextRules=" + ordered(ContextRuleNormalizer.effective(compartment.getContextRules()))
                 + "|roleWeights=" + roleWeights(match.getRoleWeights())
                 + "|compartments=" + ordered(compartment.getCompartments())
                 + "|positionOverrides=" + ordered(compartment.getPositionCompartmentOverrides())

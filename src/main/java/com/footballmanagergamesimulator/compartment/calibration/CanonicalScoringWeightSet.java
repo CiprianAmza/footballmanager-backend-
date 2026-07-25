@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.compartment.calibration;
 
 import com.footballmanagergamesimulator.compartment.Compartment;
+import com.footballmanagergamesimulator.compartment.ContextRuleNormalizer;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 
@@ -129,18 +130,16 @@ public final class CanonicalScoringWeightSet {
             String[] parts = key.split("\\.", 4);
             if (parts.length != 4) throw new IllegalArgumentException("unsupported override: " + key);
             String source = parts[2];
-            String normalizedSource = source.replace(" ", "").replace(":", "");
+            String normalizedSource = ContextRuleNormalizer.canonicalKey(source);
             com.footballmanagergamesimulator.compartment.PlayerAttribute attribute =
                     com.footballmanagergamesimulator.compartment.PlayerAttribute.valueOf(parts[3]);
-            Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double> row = compartment.getContextRules().get(source);
             var matchingRows = compartment.getContextRules().entrySet().stream()
-                    .filter(entry -> entry.getKey().replace(" ", "").replace(":", "").equals(normalizedSource))
-                    .sorted(java.util.Comparator.comparing((Map.Entry<String, Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double>> entry)
-                            -> entry.getKey().contains(":") ? 0 : 1).thenComparing(Map.Entry::getKey))
+                    .filter(entry -> ContextRuleNormalizer.canonicalKey(entry.getKey()).equals(normalizedSource))
                     .toList();
-            if (!matchingRows.isEmpty()) row = matchingRows.get(0).getValue();
-            if (row == null) throw new IllegalArgumentException("unknown context rule: " + source);
-            row.put(attribute, override.value());
+            if (matchingRows.isEmpty()) throw new IllegalArgumentException("unknown context rule: " + source);
+            // Keep Java defaults and relaxed-binding aliases aligned inside the copied calibration
+            // config; the effective runtime row then always observes the perturbation.
+            matchingRows.forEach(entry -> entry.getValue().put(attribute, override.value()));
         } else if (key.startsWith("compartment.compartments.")) {
             String[] parts = key.split("\\.");
             if (parts.length != 5 || !parts[3].equals("attributes")) throw new IllegalArgumentException("unsupported override: " + key);

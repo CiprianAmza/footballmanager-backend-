@@ -28,8 +28,8 @@ import java.util.TreeSet;
 
 /**
  * Non-admin, user-facing tactic / competition simulation endpoints. Powers the frontend pages that
- * rank a team's 900 tactic settings by REAL simulated season points and run custom round-robin
- * competitions. Read-only.
+ * rank the six team axes consumed by the authoritative Compartment Engine and run custom
+ * round-robin competitions. Read-only.
  */
 @RestController
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
@@ -68,8 +68,7 @@ public class TacticSimController {
                                        @RequestParam(required = false, defaultValue = "442") String formation,
                                        @RequestParam(required = false, defaultValue = "300") int topN,
                                        @RequestParam(required = false) String opponentIds) {
-        // Committed tactics (no defaults) ranked by closed-form expected points vs the team's REAL
-        // league opponents (their actual tactics) — true matchup advantage/disadvantage, not a panel.
+        // Canonical tactics ranked by Compartment PMF expected points versus real league opponents.
         TacticSimulationService.AnalyticalResult res =
                 tacticSimulationService.analyticalTacticPoints(teamId, formation, topN, parseCsv(opponentIds));
         List<AnalyticalRow> rows = new ArrayList<>(res.rows().size());

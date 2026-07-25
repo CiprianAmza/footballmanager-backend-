@@ -36,10 +36,22 @@ public final class CanonicalMatchEvaluationAdapter {
             throw new IllegalArgumentException("player ids must be unique across teams: " + overlapping);
         }
 
-        CanonicalTeamEvaluation homeEvaluation = teamAdapter.evaluate(
-                home.mentality(), home.lineup(), home.tacticalContexts());
-        CanonicalTeamEvaluation awayEvaluation = teamAdapter.evaluate(
-                away.mentality(), away.lineup(), away.tacticalContexts());
+        return evaluate(evaluateTeam(home), evaluateTeam(away), venue);
+    }
+
+    /** Evaluate a fixed XI once so high-volume read-only consumers can reuse it across matchups. */
+    public CanonicalTeamEvaluation evaluateTeam(CanonicalRuntimeTeamInput input) {
+        Objects.requireNonNull(input, "input");
+        return teamAdapter.evaluate(input.mentality(), input.lineup(), input.tacticalContexts());
+    }
+
+    /** Combine two already-evaluated teams without repeating player/compartment calculations. */
+    public CanonicalMatchEvaluation evaluate(CanonicalTeamEvaluation homeEvaluation,
+                                              CanonicalTeamEvaluation awayEvaluation,
+                                              MatchVenue venue) {
+        Objects.requireNonNull(homeEvaluation, "homeEvaluation");
+        Objects.requireNonNull(awayEvaluation, "awayEvaluation");
+        Objects.requireNonNull(venue, "venue");
         double combinedOpenness = (homeEvaluation.team().openness() + awayEvaluation.team().openness()) / 2.0;
         GoalProbabilityFormula.MatchProbability probability = probabilityFormula.expectedGoals(
                 homeEvaluation.team().attack(), awayEvaluation.team().attackProtection(),

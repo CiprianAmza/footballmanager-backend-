@@ -59,9 +59,10 @@ public final class ContextCoefficientMapper {
 
     private void apply(EnumMap<PlayerAttribute, Double> totals,
                               List<ContextCoefficientMapping.Contribution> breakdown, String source) {
-        for (Delta delta : rules.getOrDefault(source, List.of())) {
+        String canonicalSource = ContextRuleNormalizer.canonicalKey(source);
+        for (Delta delta : rules.getOrDefault(canonicalSource, List.of())) {
             totals.merge(delta.attribute, delta.value, Double::sum);
-            breakdown.add(new ContextCoefficientMapping.Contribution(source, delta.attribute, delta.value));
+            breakdown.add(new ContextCoefficientMapping.Contribution(canonicalSource, delta.attribute, delta.value));
         }
     }
 
@@ -71,7 +72,7 @@ public final class ContextCoefficientMapper {
 
     private static Map<String, List<Delta>> copyRules(Map<String, Map<PlayerAttribute, Double>> source) {
         Map<String, List<Delta>> copy = new java.util.TreeMap<>();
-        source.forEach((key, row) -> copy.put(key, row.entrySet().stream()
+        ContextRuleNormalizer.effective(source).forEach((key, row) -> copy.put(key, row.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> new Delta(e.getKey(), e.getValue())).toList()));
         return java.util.Collections.unmodifiableMap(copy);

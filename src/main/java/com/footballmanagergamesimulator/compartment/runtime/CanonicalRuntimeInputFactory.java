@@ -95,6 +95,26 @@ public final class CanonicalRuntimeInputFactory {
         return new CanonicalRuntimeTeamInput(axes.mentality(), lineup, contexts);
     }
 
+    /**
+     * Re-evaluates team-level tactic axes without reloading immutable player capabilities.
+     * Player roles, duties and individual instructions stay attached to the same lineup. This is
+     * the canonical, database-free hot path used by Tactics Advisor when comparing many tactics.
+     */
+    public CanonicalRuntimeTeamInput withTactic(CanonicalRuntimeTeamInput baseline,
+                                                PersonalizedTactic tactic) {
+        Objects.requireNonNull(baseline, "baseline");
+        Objects.requireNonNull(tactic, "tactic");
+        CanonicalAxes axes = canonicalAxes(tactic);
+        Map<Long, TacticalContextInput> contexts = new LinkedHashMap<>();
+        for (CanonicalLineupPlayer player : baseline.lineup()) {
+            TacticalContextInput previous = baseline.tacticalContexts().get(player.playerId());
+            contexts.put(player.playerId(), new TacticalContextInput(
+                    axes.mentalityText(), axes.tempo(), axes.passingType(), axes.defensiveLine(),
+                    axes.pressing(), axes.width(), previous.playerInstructions()));
+        }
+        return new CanonicalRuntimeTeamInput(axes.mentality(), baseline.lineup(), contexts);
+    }
+
     private void validateDuty(RuntimeLineupSlot slot, PlayerRole role, Duty duty) {
         if (role != null && !roleService.isDutyAllowed(slot.usedPosition().code(), role.displayName(), duty.name())) {
             throw new IllegalArgumentException("duty " + duty.name() + " is not allowed for role "
