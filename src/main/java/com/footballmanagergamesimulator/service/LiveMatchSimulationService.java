@@ -17,6 +17,7 @@ import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -48,6 +49,8 @@ public class LiveMatchSimulationService {
     PlayerValueService playerValueService;
     @Autowired
     MatchSimulationService matchSimulationService;
+    @Autowired @Lazy
+    MatchSimulationOrchestrator matchSimulationOrchestrator;
     // Optional: null in the pure-helper unit tests that build the service with `new`.
     // Guarded at every use so the canonical path is inert unless the flag is on.
     @Autowired(required = false)
@@ -1083,6 +1086,20 @@ public class LiveMatchSimulationService {
         return null;
     }
 
+    /** Completes and commits abandoned interactive sessions through the canonical commit path. */
+    public void finishAndCommitForTeams(Set<Long> teamIds) {
+        if (teamIds == null || teamIds.isEmpty()) return;
+        for (LiveMatchSession session : new ArrayList<>(liveMatchSessions.values())) {
+            if (session.isCommitted() || (session.getTeamId1() != 0 && !teamIds.contains(session.getTeamId1())
+                    && !teamIds.contains(session.getTeamId2()))) continue;
+            synchronized (session) {
+                if (session.isCommitted()) continue;
+                if (!session.isFinished()) session.advanceUntilAndSnapshot(session.getTotalMinutes());
+                matchSimulationOrchestrator.finalizeInteractiveLiveMatch(buildKey(session.getCompetitionId(), session.getSeason(), session.getRound(), session.getTeamId1(), session.getTeamId2()));
+            }
+        }
+    }
+
     CommitOutcome resolveCommitOutcome(LiveMatchSession session) {
         if (!session.hasManualSubstitutions()) {
             return new CommitOutcome(
@@ -1239,12 +1256,14 @@ public class LiveMatchSimulationService {
             boolean generateGoalAnimations,
             TacticalScoreService.Matchup matchup,
             int targetHomeGoals, int targetAwayGoals,
-            Random liveRandom) {
+        Random liveRandom) {
+        String key = buildKey(competitionId, season, round, teamId1, teamId2);
+        LiveMatchSession existing = liveMatchSessions.get(key);
+        if (existing != null && !existing.isCommitted()) return existing;
         LiveMatchSession session = new LiveMatchSession(this,
                 teamId1, teamId2, power1, power2,
                 competitionId, season, round, generateGoalAnimations, matchup, liveRandom,
                 targetHomeGoals, targetAwayGoals, true);
-        String key = buildKey(competitionId, season, round, teamId1, teamId2);
         liveMatchSessions.put(key, session);
         // Also seed liveMatchCache with the initial snapshot so legacy
         // /match/live/{key} reads return the kickoff state.

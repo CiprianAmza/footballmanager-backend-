@@ -419,7 +419,7 @@ public class MatchdayCoordinator {
      * an unchanged result map.
      */
     @Transactional
-    public Map<String, Object> finalizeInteractiveLiveMatch(String liveKey) {
+    public synchronized Map<String, Object> finalizeInteractiveLiveMatch(String liveKey) {
         LiveMatchSession session = liveMatchSimulationService.getSession(liveKey);
         if (session == null) {
             throw new RuntimeException("No interactive session for key=" + liveKey);

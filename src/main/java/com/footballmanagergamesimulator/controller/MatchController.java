@@ -590,6 +590,7 @@ public class MatchController {
     public org.springframework.http.ResponseEntity<LiveMatchData> getLiveMatchState(@PathVariable String key) {
         LiveMatchSession session = liveMatchSimulationService.getSessionOrRecover(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        requireLiveMatchOwnership(session);
         return org.springframework.http.ResponseEntity.ok(session.snapshot());
     }
 
@@ -603,6 +604,7 @@ public class MatchController {
             @RequestParam("untilMinute") int untilMinute) {
         LiveMatchSession session = liveMatchSimulationService.getSessionOrRecover(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        requireLiveMatchOwnership(session);
         return org.springframework.http.ResponseEntity.ok(session.advanceUntilAndSnapshot(untilMinute));
     }
 
@@ -617,6 +619,11 @@ public class MatchController {
             @RequestBody SubstituteRequest body) {
         LiveMatchSession session = liveMatchSimulationService.getSessionOrRecover(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        requireLiveMatchOwnership(session);
+        long userTeamId = userContext.getTeamIdOrNull(null) == null ? 0L : userContext.getTeamIdOrNull(null);
+        if (session.teamIdForPlayer(body.playerOutId) != userTeamId || session.teamIdForPlayer(body.playerInId) != userTeamId) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "SUBSTITUTION_TEAM_OWNERSHIP_REQUIRED");
+        }
         try {
             LiveMatchData state = body.atMinute > 0
                     ? session.applyUserSubAtMinuteAndSnapshot(body.playerOutId, body.playerInId, body.atMinute)
@@ -649,6 +656,7 @@ public class MatchController {
     public org.springframework.http.ResponseEntity<?> commitLiveMatch(@PathVariable String key) {
         LiveMatchSession session = liveMatchSimulationService.getSessionOrRecoverForCommit(key);
         if (session == null) return org.springframework.http.ResponseEntity.notFound().build();
+        requireLiveMatchOwnership(session);
         if (!session.isFinished()) {
             return org.springframework.http.ResponseEntity.badRequest()
                     .body(java.util.Map.of("error", "Match is still in progress."));
@@ -719,6 +727,13 @@ public class MatchController {
         result.put("committed", true);
         result.put("liveMatch", session.snapshot());
         return org.springframework.http.ResponseEntity.ok(result);
+    }
+
+    private void requireLiveMatchOwnership(LiveMatchSession session) {
+        Long teamId = userContext.getTeamIdOrNull(null);
+        if (teamId == null || (teamId != session.getTeamId1() && teamId != session.getTeamId2())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "LIVE_MATCH_TEAM_OWNERSHIP_REQUIRED");
+        }
     }
 
     /** Resolve which side of the session belongs to the human user. Returns

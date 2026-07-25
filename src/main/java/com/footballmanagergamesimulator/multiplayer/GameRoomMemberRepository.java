@@ -8,6 +8,9 @@ import java.util.*;
 public interface GameRoomMemberRepository extends JpaRepository<GameRoomMember, Long> {
     List<GameRoomMember> findAllByRoomIdAndMembershipStatus(Long roomId, MembershipStatus status);
     Optional<GameRoomMember> findByRoomIdAndUserIdAndMembershipStatus(Long roomId, int userId, MembershipStatus status);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from GameRoomMember m where m.roomId = :roomId and m.userId = :userId and m.membershipStatus = 'ACTIVE'")
+    Optional<GameRoomMember> findActiveForUpdate(@Param("roomId") Long roomId, @Param("userId") int userId);
     Optional<GameRoomMember> findFirstByUserIdAndMembershipStatus(int userId, MembershipStatus status);
     boolean existsByRoomIdAndTeamIdAndMembershipStatus(Long roomId, long teamId, MembershipStatus status);
     @Lock(LockModeType.PESSIMISTIC_WRITE)

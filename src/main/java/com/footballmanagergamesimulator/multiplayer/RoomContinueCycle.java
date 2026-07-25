@@ -23,5 +23,13 @@ public class RoomContinueCycle {
     private Instant advanceStartedAt;
     private Instant completedAt;
     private String failureCode;
+    @Column(name = "advance_token", length = 36)
+    private String advanceToken;
+    @Column(name = "advance_lease_until")
+    private Instant advanceLeaseUntil;
+    @Column(name = "advance_execution_started_at")
+    private Instant advanceExecutionStartedAt;
+    @Column(name = "advance_mode", length = 8)
+    private String advanceMode;
     @Version private long version;
 }

@@ -175,6 +175,11 @@ public class LiveMatchSession {
     public int getSeason() { return season; }
     public int getRound() { return round; }
     public int getTotalMinutes() { return totalMinutes; }
+    public long teamIdForPlayer(long playerId) {
+        if (team1Ids.contains(playerId)) return teamId1;
+        if (team2Ids.contains(playerId)) return teamId2;
+        return 0L;
+    }
 
     // ---------------- Canonical MatchPlan binding ----------------
 

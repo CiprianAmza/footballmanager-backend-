@@ -9,7 +9,11 @@ public class RoomContinueScheduler {
     public RoomContinueScheduler(RoomContinueCoordinator coordinator) { this.coordinator = coordinator; }
     @Scheduled(fixedDelay = 1000)
     public void tick() {
-        try { if (coordinator.claimExpired()) coordinator.advanceClaimed(); }
+        try {
+            AdvanceClaim claim = coordinator.claimExpired();
+            if (claim == null) claim = coordinator.recoverExpired();
+            if (claim != null) coordinator.advanceClaimed(claim);
+        }
         catch (Exception ignored) { /* hard failures are persisted on the cycle; do not spin */ }
     }
 }

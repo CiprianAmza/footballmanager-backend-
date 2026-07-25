@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.HashSet;
+import java.util.Objects;
 
 /**
  * Thin advance-loop orchestrator. Pumps the calendar one day at a time,
@@ -84,7 +86,9 @@ public class GameAdvanceService {
         if (roomUserIds == null || roomUserIds.isEmpty()) {
             throw new IllegalArgumentException("roomUserIds must not be empty");
         }
-        return advance(season, true);
+        Set<Long> roomTeamIds = userRepository.findAllById(roomUserIds).stream()
+                .map(User::getTeamId).filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        return advance(season, true, new AdvanceScope(roomUserIds, roomTeamIds));
     }
 
     /** Fast Forward validates unattended mode once when the job starts. */
@@ -93,6 +97,10 @@ public class GameAdvanceService {
     }
 
     private Map<String, Object> advance(int season, boolean unattendedConfirmed) {
+        return advance(season, unattendedConfirmed, null);
+    }
+
+    private Map<String, Object> advance(int season, boolean unattendedConfirmed, AdvanceScope scope) {
         // gameLock so two concurrent /game/advance calls (e.g. autoContinue
         // firing rapidly, double-click on CONTINUE, two tabs) AND user squad
         // mutations (youth promotion etc.) can't update the same human/team rows
@@ -101,13 +109,13 @@ public class GameAdvanceService {
         // re-entrant advance() calls don't self-deadlock.
         gameLock.lock();
         try {
-            return advanceLocked(season, unattendedConfirmed);
+            return advanceLocked(season, unattendedConfirmed, scope);
         } finally {
             gameLock.unlock();
         }
     }
 
-    private Map<String, Object> advanceLocked(int season, boolean unattendedConfirmed) {
+    private Map<String, Object> advanceLocked(int season, boolean unattendedConfirmed, AdvanceScope scope) {
         // Recovery: any PROCESSING events left over from a previous crash/exception
         // are flipped back to PENDING so they can be retried. Safe because we're
         // synchronized and nothing else is mid-processing right now.
@@ -123,6 +131,8 @@ public class GameAdvanceService {
         }
         boolean alwaysContinue = unattendedConfirmed || isAlwaysContinueActive();
 
+        if (scope != null) liveMatchSimulationService.finishAndCommitForTeams(scope.roomTeamIds());
+
         if (calendar.isManagerFired() && !alwaysContinue) {
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("paused", true);
@@ -137,7 +147,7 @@ public class GameAdvanceService {
         // Hard pause: any logged-in user has a pending job offer → block advance
         // until they accept/decline. Frontend shows a banner / inbox modal.
         if (!alwaysContinue) {
-            Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar);
+            Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar, scope);
             if (jobOfferBlock != null) return jobOfferBlock;
         }
 
@@ -147,7 +157,7 @@ public class GameAdvanceService {
         // the calendar would silently roll past the matchday with no result
         // for the human team.
         if (!alwaysContinue) {
-            Map<String, Object> liveMatchBlock = checkLiveMatchPause(season, calendar);
+            Map<String, Object> liveMatchBlock = checkLiveMatchPause(season, calendar, scope);
             if (liveMatchBlock != null) return liveMatchBlock;
         }
 
@@ -159,10 +169,12 @@ public class GameAdvanceService {
 
         // Run the offer generator — admin force OR sacking-driven (a club sacks
         // its AI manager and offers the open seat to an in-band human).
-        try {
-            maybeGenerateForcedJobOffers();
-        } catch (Exception ex) {
-            System.err.println("Job offer generator failed: " + ex);
+        if (scope == null) {
+            try {
+                maybeGenerateForcedJobOffers();
+            } catch (Exception ex) {
+                System.err.println("Job offer generator failed: " + ex);
+            }
         }
 
         List<Map<String, Object>> processedEvents = new ArrayList<>();
@@ -405,8 +417,9 @@ public class GameAdvanceService {
      * it was. Without this, the next CONTINUE press would advance the calendar
      * past the matchday and silently lose the result.
      */
-    private Map<String, Object> checkLiveMatchPause(int season, GameCalendar calendar) {
-        for (var u : userRepository.findAll()) {
+    private Map<String, Object> checkLiveMatchPause(int season, GameCalendar calendar, AdvanceScope scope) {
+        for (var u : scope == null ? userRepository.findAll() : userRepository.findAllById(scope.roomUserIds())) {
+            if (scope != null && !scope.roomUserIds().contains(u.getId())) continue;
             if (u.getTeamId() == null) continue;
             var session = liveMatchSimulationService.findAnyUncommittedSessionForTeam(u.getTeamId());
             if (session == null) continue;
@@ -429,10 +442,10 @@ public class GameAdvanceService {
         return null;
     }
 
-    private Map<String, Object> checkJobOfferPause(int season, GameCalendar calendar) {
+    private Map<String, Object> checkJobOfferPause(int season, GameCalendar calendar, AdvanceScope scope) {
         boolean anyPending = false;
         List<Integer> usersWithOffers = new ArrayList<>();
-        for (var u : userRepository.findAll()) {
+        for (var u : scope == null ? userRepository.findAll() : userRepository.findAllById(scope.roomUserIds())) {
             if (jobOfferService.userHasPendingOffer(u.getId())) {
                 anyPending = true;
                 usersWithOffers.add(u.getId());
