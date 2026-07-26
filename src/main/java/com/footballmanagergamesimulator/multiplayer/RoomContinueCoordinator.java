@@ -42,6 +42,11 @@ public class RoomContinueCoordinator {
         RoomContinueCycle cycle = rooms.currentCycleForUpdate(room);
         if (cycle == null) return null;
         RoomContinueVote existing = rooms.votes().findForUpdate(cycle.getId(), userId).orElse(null);
+        if (existing != null && cycle.getStatus() != CycleStatus.BLOCKED) {
+            // A vote belongs to (cycle, authenticated user). Repeated clicks from
+            // the same browser/user are strict no-ops and must not touch timers.
+            return null;
+        }
         if (existing == null) {
             RoomContinueVote vote = new RoomContinueVote(); vote.setCycleId(cycle.getId()); vote.setUserId(member.getUserId()); vote.setSource(source); vote.setVotedAt(Instant.now()); rooms.votes().saveAndFlush(vote);
         }
@@ -128,11 +133,10 @@ public class RoomContinueCoordinator {
                                              boolean allowBlockedRecheck, boolean rapidWorker) {
         if (cycle.getStatus() == CycleStatus.BLOCKED) {
             if (!allowBlockedRecheck) return null;
-            Instant now = Instant.now();
+            // Re-checking after a blocker was resolved must preserve the original
+            // voting window. Otherwise a voter can extend the timeout forever by
+            // pressing Continue repeatedly.
             cycle.setStatus(CycleStatus.OPEN);
-            cycle.setDayDeadline(now.plusSeconds(room.getDayTimeoutSeconds()));
-            cycle.setMajorityReachedAt(null);
-            cycle.setMajorityDeadline(null);
             rooms.cycles().save(cycle);
         }
         List<GameRoomMember> members = rooms.membersRepository().findActiveForUpdate(room.getId());

@@ -88,6 +88,7 @@ public class MultiplayerRoomController {
         out.put("forceContinue", room.isForceContinue()); out.put("members", members.stream().map(this::memberState).toList());
         out.put("votes", votes); out.put("totalPlayers", members.size()); out.put("requiredVotes", coordinator.requiredVotes(room, members.size()));
         out.put("currentUserVoted", cycle != null && service.votes().findByCycleIdAndUserId(cycle.getId(), user.getId()).isPresent());
+        out.put("cycleStatus", cycle == null ? null : cycle.getStatus());
         out.put("fastForwardCount", members.stream().filter(GameRoomMember::isFastForwardEnabled).count());
         out.put("allFastForward", !members.isEmpty() && members.stream().allMatch(GameRoomMember::isFastForwardEnabled));
         out.put("season", cal == null ? 0 : cal.getSeason()); out.put("day", cal == null ? 0 : cal.getCurrentDay());
