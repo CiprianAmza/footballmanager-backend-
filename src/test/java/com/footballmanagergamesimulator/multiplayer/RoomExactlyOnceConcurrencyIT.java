@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -51,9 +52,10 @@ class RoomExactlyOnceConcurrencyIT {
     void twoRecoveryAttemptsShareOneRealCoordinatorLifecycleAdvance() throws Exception {
         AtomicBoolean calendarCommitted = new AtomicBoolean();
         CountDownLatch advanceStarted = new CountDownLatch(1);
+        CountDownLatch allowAdvanceToFinish = new CountDownLatch(1);
         doAnswer(invocation -> {
             advanceStarted.countDown();
-            Thread.sleep(31_000); // deliberately longer than the persisted lease
+            allowAdvanceToFinish.await();
             synchronized (calendarCommitted) {
                 GameCalendar current = calendars.findTopByOrderBySeasonDesc().orElseThrow();
                 if (RoomDate.of(current).equals(new RoomDate(1, 365)) && calendarCommitted.compareAndSet(false, true)) {
@@ -69,9 +71,14 @@ class RoomExactlyOnceConcurrencyIT {
             assertNotNull(first);
             Future<?> a = executor.submit(() -> coordinator.advanceClaimed(first));
             assertTrue(advanceStarted.await(10, TimeUnit.SECONDS), "first RoomAdvanceService invocation started");
+            Instant initialLease = cycles.findFirstByRoomIdAndStatusOrderByIdDesc(actualRoomId(), CycleStatus.ADVANCING)
+                    .orElseThrow().getAdvanceLeaseUntil();
+            assertNotNull(initialLease);
             Future<?> b = executor.submit(() -> coordinator.advanceClaimed(first));
-            Thread.sleep(6_000); // allows the real 5-second heartbeat to extend the lease
+            awaitAfter(initialLease);
+            assertTrue(Instant.now().isAfter(initialLease), "recovery attempt is after the initial lease");
             assertNull(coordinator.recoverExpired(), "heartbeat keeps the long-running claim fenced");
+            allowAdvanceToFinish.countDown();
             a.get(45, TimeUnit.SECONDS); b.get(45, TimeUnit.SECONDS);
 
             verify(roomAdvance, timeout(1_000).times(1)).advanceOneDay(eq(1), eq(365), anySet(), anyBoolean());
@@ -79,8 +86,15 @@ class RoomExactlyOnceConcurrencyIT {
             assertEquals(new RoomDate(2, 1), RoomDate.of(actual));
             assertEquals(1, cycles.findAllByRoomId(rooms.findFirstByStatusIn(List.of(RoomStatus.ACTIVE)).orElseThrow().getId()).stream().filter(c -> c.getStatus() == CycleStatus.COMPLETED).count());
             assertEquals(1, cycles.findAllByRoomId(actualRoomId()).stream().filter(c -> c.getStatus() == CycleStatus.OPEN).count());
-        } finally { executor.shutdownNow(); }
+        } finally {
+            allowAdvanceToFinish.countDown();
+            executor.shutdownNow();
+        }
     }
 
     private Long actualRoomId() { return rooms.findFirstByStatusIn(List.of(RoomStatus.ACTIVE)).orElseThrow().getId(); }
+
+    private void awaitAfter(Instant instant) {
+        while (!Instant.now().isAfter(instant)) LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
+    }
 }
