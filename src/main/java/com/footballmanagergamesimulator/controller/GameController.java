@@ -358,7 +358,7 @@ public class GameController {
 
     @PostMapping("/advance")
     public Map<String, Object> advance() {
-        if (multiplayerRoomService.currentUserInActiveRoom()) {
+        if (multiplayerRoomService.hasActiveRoom()) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
         }
         int season = getCurrentSeason();
@@ -373,7 +373,7 @@ public class GameController {
 
     @PostMapping("/advanceToDay/{day}")
     public Map<String, Object> advanceToDay(@PathVariable int day) {
-        if (multiplayerRoomService.currentUserInActiveRoom()) {
+        if (multiplayerRoomService.hasActiveRoom()) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
         }
         int season = getCurrentSeason();
@@ -382,7 +382,7 @@ public class GameController {
 
     @PostMapping("/unpause")
     public Map<String, Object> unpause() {
-        if (multiplayerRoomService.currentUserInActiveRoom()) {
+        if (multiplayerRoomService.hasActiveRoom()) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
         }
         int season = getCurrentSeason();

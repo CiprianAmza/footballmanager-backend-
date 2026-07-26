@@ -50,6 +50,7 @@ import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
+import com.footballmanagergamesimulator.multiplayer.MultiplayerRoomService;
 import org.apache.commons.math3.distribution.EnumeratedDistribution;
 import org.apache.commons.math3.util.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,6 +134,7 @@ public class MatchRoundSimulator {
     @Autowired private PlayerMatchStatService playerMatchStatService;
     @Autowired private UserContext userContext;
     @Autowired private UserRepository userRepository;
+    @Autowired(required = false) private MultiplayerRoomService multiplayerRoomService;
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
     @Autowired private CompartmentEngineConfig compartmentEngineConfig;
@@ -460,10 +462,21 @@ public class MatchRoundSimulator {
 
                 // Check if any human manager has viewFullMatch enabled
                 boolean useFullMatchEngine = false;
-                long humanTeamIdForMatch = userContext.isHumanTeam(teamId1) ? teamId1 : teamId2;
+                boolean roomHumanFixture = multiplayerRoomService != null
+                        && multiplayerRoomService.activeRoomHasTeams(teamId1, teamId2);
+                List<Long> interestedTeams = List.of(teamId1, teamId2).stream()
+                        .filter(teamId -> roomHumanFixture || userContext.isHumanTeam(teamId))
+                        .filter(teamId -> resolveCurrentManager(teamId,
+                                humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)) != null)
+                        .toList();
+                long humanTeamIdForMatch = interestedTeams.isEmpty() ? teamId1 : interestedTeams.get(0);
                 List<Human> humanManagers = humanRepository
                         .findAllByTeamIdAndTypeId(humanTeamIdForMatch, TypeNames.MANAGER_TYPE);
-                Human humanManager = resolveCurrentManager(humanTeamIdForMatch, humanManagers);
+                Human humanManager = interestedTeams.stream()
+                        .map(teamId -> resolveCurrentManager(teamId, humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)))
+                        .filter(Objects::nonNull)
+                        .filter(manager -> manager.isViewFullMatch() && !manager.isAlwaysContinue())
+                        .findFirst().orElse(resolveCurrentManager(humanTeamIdForMatch, humanManagers));
                 if (humanManager != null && humanManager.isViewFullMatch()
                         && !humanManager.isAlwaysContinue() && adminScore == null) {
                     useFullMatchEngine = true;

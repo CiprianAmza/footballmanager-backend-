@@ -8,6 +8,9 @@ CREATE TABLE game_room (
     day_timeout_seconds INTEGER NOT NULL,
     majority_timeout_seconds INTEGER NOT NULL,
     max_players INTEGER NOT NULL,
+    force_continue BOOLEAN NOT NULL DEFAULT FALSE,
+    blocker_code VARCHAR(64),
+    blocker_message VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     started_at TIMESTAMP WITH TIME ZONE,
     version BIGINT NOT NULL DEFAULT 0,
@@ -51,6 +54,7 @@ CREATE TABLE room_continue_cycle (
     advance_lease_until TIMESTAMP WITH TIME ZONE,
     advance_execution_started_at TIMESTAMP WITH TIME ZONE,
     advance_mode VARCHAR(8),
+    advance_force_continue BOOLEAN NOT NULL DEFAULT FALSE,
     version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT fk_cycle_room FOREIGN KEY (room_id) REFERENCES game_room(id),
     CONSTRAINT uk_cycle_date UNIQUE (room_id, season, game_day)

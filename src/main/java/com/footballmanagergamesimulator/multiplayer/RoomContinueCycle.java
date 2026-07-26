@@ -31,5 +31,7 @@ public class RoomContinueCycle {
     private Instant advanceExecutionStartedAt;
     @Column(name = "advance_mode", length = 8)
     private String advanceMode;
+    @Column(name = "advance_force_continue", nullable = false)
+    private boolean advanceForceContinue = false;
     @Version private long version;
 }

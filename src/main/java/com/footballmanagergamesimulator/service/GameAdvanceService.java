@@ -83,12 +83,65 @@ public class GameAdvanceService {
      * back to scanning unrelated users.
      */
     public Map<String, Object> advanceOneDayUnattended(int season, Set<Integer> roomUserIds) {
+        return advanceOneDayUnattended(season, -1, roomUserIds, true);
+    }
+
+    /**
+     * Room coordinator entry point. The expected date check deliberately lives
+     * after acquiring GameLock and before any event, calendar, fixture, or
+     * economy side effect. A recovery therefore adopts the already-advanced
+     * result instead of ever running the next day.
+     */
+    public Map<String, Object> advanceOneDayUnattended(int expectedSeason, int expectedDay,
+                                                        Set<Integer> roomUserIds, boolean forceContinue) {
         if (roomUserIds == null || roomUserIds.isEmpty()) {
             throw new IllegalArgumentException("roomUserIds must not be empty");
         }
         Set<Long> roomTeamIds = userRepository.findAllById(roomUserIds).stream()
                 .map(User::getTeamId).filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
-        return advance(season, true, new AdvanceScope(roomUserIds, roomTeamIds));
+        gameLock.lock();
+        try {
+            GameCalendar current = calendarService.getOrCreateCalendar(expectedSeason);
+            if (expectedDay > 0) {
+                long expected = ((long) expectedSeason - 1L) * 366L + expectedDay;
+                long actual = ((long) current.getSeason() - 1L) * 366L + current.getCurrentDay();
+                if (actual > expected) {
+                    return roomResult("ALREADY_ADVANCED", current);
+                }
+                if (actual < expected) {
+                    throw new IllegalStateException("ROOM_CALENDAR_BEHIND_CYCLE_DATE");
+                }
+            }
+            Map<String, Object> result = advanceLocked(expectedSeason, forceContinue,
+                    new AdvanceScope(roomUserIds, roomTeamIds));
+            GameCalendar after = calendarService.getOrCreateCalendar(expectedSeason);
+            long beforeAbsolute = ((long) expectedSeason - 1L) * 366L + (expectedDay > 0 ? expectedDay : current.getCurrentDay());
+            long afterAbsolute = ((long) after.getSeason() - 1L) * 366L + after.getCurrentDay();
+            if (expectedDay > 0 && afterAbsolute - beforeAbsolute != 1L
+                    && !Boolean.TRUE.equals(result.get("paused"))) {
+                throw new IllegalStateException("ROOM_ADVANCE_NOT_EXACTLY_ONE_DAY");
+            }
+            if (Boolean.TRUE.equals(result.get("paused"))) {
+                result.put("roomAdvanceStatus", "BLOCKED");
+                result.put("blockerCode", result.getOrDefault("reason", "ADVANCE_BLOCKED"));
+                result.put("blockerMessage", result.getOrDefault("blockingEvent", "Room input is required"));
+            } else {
+                result.put("roomAdvanceStatus", "ADVANCED");
+            }
+            return result;
+        } finally {
+            gameLock.unlock();
+        }
+    }
+
+    private Map<String, Object> roomResult(String status, GameCalendar calendar) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("roomAdvanceStatus", status);
+        result.put("season", calendar.getSeason());
+        result.put("day", calendar.getCurrentDay());
+        result.put("paused", false);
+        result.put("eventsProcessed", List.of());
+        return result;
     }
 
     /** Fast Forward validates unattended mode once when the job starts. */
@@ -129,9 +182,15 @@ public class GameAdvanceService {
         if ("MORNING".equals(calendar.getCurrentPhase())) {
             calendarEventDispatcher.processDailyMaintenance(season, calendar.getCurrentDay());
         }
-        boolean alwaysContinue = unattendedConfirmed || isAlwaysContinueActive();
+        // Human.alwaysContinue is a single-player preference. It is never a
+        // multiplayer agreement; only the room's explicit force/rapid path can
+        // make a room-scoped advance unattended.
+        boolean alwaysContinue = scope != null ? unattendedConfirmed
+                : unattendedConfirmed || isAlwaysContinueActive();
 
-        if (scope != null) liveMatchSimulationService.finishAndCommitForTeams(scope.roomTeamIds());
+        if (scope != null && unattendedConfirmed) {
+            liveMatchSimulationService.finishAndCommitForTeams(scope.roomTeamIds());
+        }
 
         if (calendar.isManagerFired() && !alwaysContinue) {
             Map<String, Object> result = new LinkedHashMap<>();
@@ -254,6 +313,12 @@ public class GameAdvanceService {
                     throw ex;
                 }
                 processedEvents.add(batchResult);
+
+                if (scope != null && !alwaysContinue && Boolean.TRUE.equals(batchResult.get("hasLiveMatch"))) {
+                    calendar.setPaused(true);
+                    gameCalendarRepository.save(calendar);
+                    pauseReason = "LIVE_MATCH_PENDING";
+                }
 
                 for (CalendarEvent me : matchEvents) {
                     calendarService.markEventCompleted(me.getId());

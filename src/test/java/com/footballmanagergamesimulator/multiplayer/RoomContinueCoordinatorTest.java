@@ -60,11 +60,11 @@ class RoomContinueCoordinatorTest {
         assertNull(coordinator.cast(1, VoteSource.MANUAL)); verify(votes, never()).saveAndFlush(any());
     }
 
-    @Test void allFastForwardClaimsRapidlyAndDoesNotUseHumanAlwaysContinue() {
+    @Test void allFastForwardIsLeftToContinuousWorkerAndDoesNotUseHumanAlwaysContinue() {
         configureMembers(2); List<GameRoomMember> members = rooms.membersRepository().findActiveForUpdate(7L);
         members.forEach(m -> { m.setFastForwardEnabled(true); m.setFastForwardUntilAbsoluteDay(500L); }); when(votes.countByCycleId(11L)).thenReturn(2L);
         AdvanceClaim claim = coordinator.claimExpired();
-        assertNotNull(claim); assertEquals("RAPID", cycle.getAdvanceMode()); assertTrue(cycle.getAdvanceToken() != null);
+        assertNull(claim); assertEquals(CycleStatus.OPEN, cycle.getStatus());
     }
 
     private void configureMembers(int count) { List<GameRoomMember> list = java.util.stream.IntStream.range(0, count).mapToObj(i -> member(i + 1)).toList(); when(rooms.openRoomForUpdate()).thenReturn(room); when(rooms.currentCycleForUpdate(room)).thenReturn(cycle); when(rooms.membersRepository().findActiveForUpdate(7L)).thenReturn(list); when(rooms.members(room)).thenReturn(list); }

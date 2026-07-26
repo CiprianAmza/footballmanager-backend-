@@ -51,6 +51,7 @@ public class MultiplayerRoomService {
         GameRoom room = new GameRoom(); room.setHostUserId(user.getId()); room.setPasswordHash(passwordEncoder.encode(command.password()));
         room.setContinueThresholdPercent(command.threshold()); room.setDayTimeoutSeconds(command.dayTimeoutSeconds());
         room.setMajorityTimeoutSeconds(command.majorityTimeoutSeconds()); room.setMaxPlayers(command.maxPlayers());
+        room.setForceContinue(command.forceContinue());
         room = roomRepository.save(room);
         memberRepository.save(member(room, user));
         return room;
@@ -77,10 +78,22 @@ public class MultiplayerRoomService {
         validateSettings(command.threshold(), command.dayTimeoutSeconds(), command.majorityTimeoutSeconds(), command.maxPlayers());
         if (memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE).size() > command.maxPlayers()) conflict("MAX_PLAYERS_TOO_LOW");
         room.setContinueThresholdPercent(command.threshold()); room.setDayTimeoutSeconds(command.dayTimeoutSeconds()); room.setMajorityTimeoutSeconds(command.majorityTimeoutSeconds()); room.setMaxPlayers(command.maxPlayers());
+        room.setForceContinue(command.forceContinue());
         return roomRepository.save(room);
     }
 
     @Transactional public void ready(boolean ready) { User user = user(); requireManager(user); GameRoom room = lockMemberRoom(user.getId()); if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED"); GameRoomMember m = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow(); m.setReady(ready); memberRepository.save(m); }
+
+    @Transactional
+    public void leave() {
+        User user = user(); requireManager(user);
+        GameRoom room = lockMemberRoom(user.getId());
+        GameRoomMember member = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow();
+        member.setMembershipStatus(MembershipStatus.LEFT); member.setFastForwardEnabled(false); member.setFastForwardUntilAbsoluteDay(null); memberRepository.save(member);
+        if (memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE).isEmpty()) {
+            room.setStatus(RoomStatus.CLOSED); roomRepository.save(room);
+        }
+    }
 
     @Transactional
     public void start() {
@@ -106,6 +119,15 @@ public class MultiplayerRoomService {
         return memberRepository.findFirstByUserIdAndMembershipStatus(current.getId(), MembershipStatus.ACTIVE)
                 .map(m -> roomRepository.findById(m.getRoomId()).map(r -> r.getStatus() == RoomStatus.ACTIVE).orElse(false))
                 .orElse(false);
+    }
+    public boolean hasActiveRoom() { return roomRepository.findFirstByStatusIn(List.of(RoomStatus.ACTIVE)).isPresent(); }
+    public boolean activeRoomHasTeams(long team1, long team2) {
+        return roomRepository.findFirstByStatusIn(List.of(RoomStatus.ACTIVE))
+                .map(room -> {
+                    Set<Long> teams = memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE)
+                            .stream().map(GameRoomMember::getTeamId).collect(java.util.stream.Collectors.toSet());
+                    return teams.contains(team1) && teams.contains(team2);
+                }).orElse(false);
     }
     public GameRoomMember member(int userId) { GameRoom room = requireMemberRoom(userId); return memberRepository.findByRoomIdAndUserIdAndMembershipStatus(room.getId(), userId, MembershipStatus.ACTIVE).orElseThrow(); }
     public GameRoomMember memberForUpdate(GameRoom room, int userId) { return memberRepository.findActiveForUpdate(room.getId(), userId).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "NOT_ROOM_MEMBER")); }
@@ -151,6 +173,10 @@ public class MultiplayerRoomService {
     private void bad(String s) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, s); }
     private void conflict(String s) { throw new ResponseStatusException(HttpStatus.CONFLICT, s); }
     private void forbidden(String s) { throw new ResponseStatusException(HttpStatus.FORBIDDEN, s); }
-    public record CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) {}
-    public record Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) {}
+    public record CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) {
+        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false); }
+    }
+    public record Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) {
+        public Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false); }
+    }
 }

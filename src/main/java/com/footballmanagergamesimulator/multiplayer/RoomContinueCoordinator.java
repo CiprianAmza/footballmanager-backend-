@@ -70,7 +70,7 @@ public class RoomContinueCoordinator {
         if (room.getStatus() != RoomStatus.ACTIVE) return null;
         RoomContinueCycle cycle = rooms.cycles().findAdvancingForUpdate(room.getId()).orElse(null);
         if (cycle == null || cycle.getAdvanceLeaseUntil() == null || Instant.now().isBefore(cycle.getAdvanceLeaseUntil())) return null;
-        return new AdvanceClaim(cycle.getId(), cycle.getAdvanceToken());
+        return new AdvanceClaim(cycle.getId(), cycle.getAdvanceToken(), cycle.isAdvanceForceContinue());
     }
 
     /** Executes only the persisted claim token, outside the database transaction. */
@@ -81,20 +81,19 @@ public class RoomContinueCoordinator {
         if (!lifecycle.beginExecution(claim)) return;
         GameRoom room = rooms.rooms().findById(cycle.getRoomId()).orElse(null);
         if (room == null || room.getStatus() != RoomStatus.ACTIVE) return;
-        GameCalendar before = calendars.findTopByOrderBySeasonDesc().orElseThrow(() -> new IllegalStateException("calendar missing"));
-        if (dateAfter(before, cycle.getSeason(), cycle.getGameDay())) {
-            lifecycle.completeAndOpen(claim, before, before);
-            return;
-        }
         List<GameRoomMember> members = rooms.members(room);
         boolean rapidClaim = "RAPID".equals(cycle.getAdvanceMode());
         if (rapidClaim && !allFastForward(members)) { lifecycle.reopen(claim); return; }
         try {
             Set<Integer> userIds = members.stream().map(GameRoomMember::getUserId).collect(Collectors.toSet());
-            advance.advanceOneDay(cycle.getSeason(), userIds);
-            GameCalendar after = calendars.findTopByOrderBySeasonDesc().orElseThrow();
-            if (absolute(after) - absolute(before) != 1) throw new IllegalStateException("ROOM_ADVANCE_NOT_EXACTLY_ONE_DAY");
-            lifecycle.completeAndOpen(claim, before, after);
+            RoomAdvanceResult result = advance.advanceOneDay(cycle.getSeason(), cycle.getGameDay(), userIds,
+                    claim.forceContinue() || rapidClaim);
+            if (result.status() == RoomAdvanceResult.Status.BLOCKED) {
+                lifecycle.reopenWithBlocker(claim, result.blockerCode(), result.blockerMessage());
+            } else {
+                GameCalendar after = calendars.findTopByOrderBySeasonDesc().orElseThrow();
+                lifecycle.completeAndOpen(claim, after);
+            }
         } catch (RuntimeException e) {
             lifecycle.markFailed(claim.cycleId(), e.getClass().getSimpleName());
         }
@@ -111,11 +110,16 @@ public class RoomContinueCoordinator {
     }
 
     private AdvanceClaim claimIfReadyLocked(GameRoom room, RoomContinueCycle cycle) {
+        return claimIfReadyLocked(room, cycle, false);
+    }
+
+    private AdvanceClaim claimIfReadyLocked(GameRoom room, RoomContinueCycle cycle, boolean rapidWorker) {
         List<GameRoomMember> members = rooms.membersRepository().findActiveForUpdate(room.getId());
         expireReachedTargets(members, cycle);
         long votes = rooms.votes().countByCycleId(cycle.getId());
         boolean all = !members.isEmpty() && votes == members.size();
         boolean rapid = allFastForward(members) && !targetReached(members);
+        if (rapid && !rapidWorker) return null;
         boolean deadline = !Instant.now().isBefore(cycle.getDayDeadline()) || (cycle.getMajorityDeadline() != null && !Instant.now().isBefore(cycle.getMajorityDeadline()));
         if (!all && !rapid) {
             if (votes >= requiredVotes(room, members.size()) && cycle.getMajorityDeadline() == null && !deadline) {
@@ -124,14 +128,36 @@ public class RoomContinueCoordinator {
             if (votes < requiredVotes(room, members.size()) && !deadline) return null;
         }
         if (cycle.getStatus() != CycleStatus.OPEN) return null;
-        String token = UUID.randomUUID().toString(); cycle.setStatus(CycleStatus.ADVANCING); cycle.setAdvanceStartedAt(Instant.now()); cycle.setAdvanceToken(token); cycle.setAdvanceLeaseUntil(Instant.now().plusSeconds(LEASE_SECONDS)); cycle.setAdvanceMode(rapid ? "RAPID" : "NORMAL"); rooms.cycles().saveAndFlush(cycle); return new AdvanceClaim(cycle.getId(), token);
+        boolean forceContinue = rapid || (deadline && room.isForceContinue()); String token = UUID.randomUUID().toString(); cycle.setStatus(CycleStatus.ADVANCING); cycle.setAdvanceStartedAt(Instant.now()); cycle.setAdvanceToken(token); cycle.setAdvanceLeaseUntil(Instant.now().plusSeconds(LEASE_SECONDS)); cycle.setAdvanceMode(rapid ? "RAPID" : "NORMAL"); cycle.setAdvanceForceContinue(forceContinue); rooms.cycles().saveAndFlush(cycle); return new AdvanceClaim(cycle.getId(), token, forceContinue);
     }
 
     private boolean allFastForward(List<GameRoomMember> members) { return !members.isEmpty() && members.stream().allMatch(GameRoomMember::isFastForwardEnabled); }
     private boolean targetReached(List<GameRoomMember> members) { long now = calendars.findTopByOrderBySeasonDesc().map(c -> absolute(c)).orElse(0L); return members.stream().anyMatch(m -> m.getFastForwardUntilAbsoluteDay() == null || now >= m.getFastForwardUntilAbsoluteDay()); }
     public int requiredVotes(GameRoom room, int total) { return Math.max(1, (int) Math.ceil(total * room.getContinueThresholdPercent() / 100.0)); }
     static long absolute(GameCalendar c) { return ((long) c.getSeason() - 1L) * 366L + c.getCurrentDay(); }
-    private boolean dateAfter(GameCalendar c, int season, int day) { return absolute(c) > ((long) season - 1L) * 366L + day; }
+    /** Claims one rapid day under room -> cycle -> member locks. */
+    @Transactional
+    public AdvanceClaim claimRapidForRoom(Long roomId) {
+        GameRoom room = rooms.rooms().findByIdForUpdate(roomId).orElse(null);
+        if (room == null || room.getStatus() != RoomStatus.ACTIVE) return null;
+        RoomContinueCycle cycle = rooms.cycles().findOpenForUpdate(roomId).orElse(null);
+        if (cycle == null) return null;
+        List<GameRoomMember> active = rooms.membersRepository().findActiveForUpdate(roomId);
+        expireReachedTargets(active, cycle);
+        if (!allFastForward(active) || targetReached(active)) return null;
+        return claimIfReadyLocked(room, cycle, true);
+    }
+
+    @Transactional
+    public boolean rapidEligible(Long roomId) {
+        GameRoom room = rooms.rooms().findByIdForUpdate(roomId).orElse(null);
+        if (room == null || room.getStatus() != RoomStatus.ACTIVE) return false;
+        RoomContinueCycle cycle = rooms.cycles().findOpenForUpdate(roomId).orElse(null);
+        if (cycle == null) return false;
+        List<GameRoomMember> active = rooms.membersRepository().findActiveForUpdate(roomId);
+        expireReachedTargets(active, cycle);
+        return allFastForward(active) && !targetReached(active);
+    }
 
     private void expireReachedTargets(List<GameRoomMember> members, RoomContinueCycle cycle) {
         long now = calendars.findTopByOrderBySeasonDesc().map(RoomContinueCoordinator::absolute).orElse(0L);

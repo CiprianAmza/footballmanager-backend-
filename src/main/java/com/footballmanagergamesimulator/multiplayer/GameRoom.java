@@ -24,6 +24,9 @@ public class GameRoom {
     @Column(nullable = false) private int dayTimeoutSeconds = 300;
     @Column(nullable = false) private int majorityTimeoutSeconds = 60;
     @Column(nullable = false) private int maxPlayers = 2;
+    @Column(nullable = false) private boolean forceContinue = false;
+    @Column(length = 64) private String blockerCode;
+    @Column(length = 255) private String blockerMessage;
     @Column(nullable = false) private Instant createdAt = Instant.now();
     private Instant startedAt;
     @Version private long version;

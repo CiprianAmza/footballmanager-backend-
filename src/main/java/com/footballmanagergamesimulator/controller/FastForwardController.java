@@ -26,7 +26,7 @@ public class FastForwardController {
 
     @PostMapping
     public FastForwardService.FastForwardStatus start(@RequestBody FastForwardRequest request) {
-        if (multiplayerRoomService.currentUserInActiveRoom()) {
+        if (multiplayerRoomService.hasActiveRoom()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "USE_MULTIPLAYER_FAST_FORWARD");
         }
         return fastForwardService.start(request.seasons(), request.chunkDays());
@@ -34,11 +34,17 @@ public class FastForwardController {
 
     @GetMapping
     public FastForwardService.FastForwardStatus status() {
+        if (multiplayerRoomService.hasActiveRoom()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "USE_MULTIPLAYER_FAST_FORWARD");
+        }
         return fastForwardService.getStatus();
     }
 
     @DeleteMapping("/{jobId}")
     public FastForwardService.FastForwardStatus cancel(@PathVariable String jobId) {
+        if (multiplayerRoomService.hasActiveRoom()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "USE_MULTIPLAYER_FAST_FORWARD");
+        }
         return fastForwardService.cancel(jobId);
     }
 }

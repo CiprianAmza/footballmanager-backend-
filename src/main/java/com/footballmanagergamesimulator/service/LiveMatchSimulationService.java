@@ -1258,13 +1258,12 @@ public class LiveMatchSimulationService {
             int targetHomeGoals, int targetAwayGoals,
         Random liveRandom) {
         String key = buildKey(competitionId, season, round, teamId1, teamId2);
-        LiveMatchSession existing = liveMatchSessions.get(key);
-        if (existing != null && !existing.isCommitted()) return existing;
-        LiveMatchSession session = new LiveMatchSession(this,
-                teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations, matchup, liveRandom,
-                targetHomeGoals, targetAwayGoals, true);
-        liveMatchSessions.put(key, session);
+        LiveMatchSession session = liveMatchSessions.compute(key, (fixtureKey, existing) -> {
+            if (existing != null) return existing;
+            return new LiveMatchSession(this, teamId1, teamId2, power1, power2,
+                    competitionId, season, round, generateGoalAnimations, matchup, liveRandom,
+                    targetHomeGoals, targetAwayGoals, true);
+        });
         // Also seed liveMatchCache with the initial snapshot so legacy
         // /match/live/{key} reads return the kickoff state.
         liveMatchCache.put(key, session.snapshot());
