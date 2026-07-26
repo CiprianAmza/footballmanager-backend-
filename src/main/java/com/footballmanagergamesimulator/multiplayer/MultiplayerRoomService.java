@@ -48,7 +48,8 @@ public class MultiplayerRoomService {
         if (roomRepository.findOpenForUpdate(List.of(RoomStatus.LOBBY, RoomStatus.ACTIVE)).isPresent()) conflict("A room is already open");
         validateSettings(command.threshold(), command.dayTimeoutSeconds(), command.majorityTimeoutSeconds(), command.maxPlayers());
         if (command.password() == null || command.password().isBlank()) bad("Password is required");
-        GameRoom room = new GameRoom(); room.setHostUserId(user.getId()); room.setPasswordHash(passwordEncoder.encode(command.password()));
+        GameRoom room = new GameRoom(); room.setName(normalizeRoomName(command.name()));
+        room.setHostUserId(user.getId()); room.setPasswordHash(passwordEncoder.encode(command.password()));
         room.setContinueThresholdPercent(command.threshold()); room.setDayTimeoutSeconds(command.dayTimeoutSeconds());
         room.setMajorityTimeoutSeconds(command.majorityTimeoutSeconds()); room.setMaxPlayers(command.maxPlayers());
         room.setForceContinue(command.forceContinue());
@@ -82,6 +83,7 @@ public class MultiplayerRoomService {
         if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED");
         validateSettings(command.threshold(), command.dayTimeoutSeconds(), command.majorityTimeoutSeconds(), command.maxPlayers());
         if (memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE).size() > command.maxPlayers()) conflict("MAX_PLAYERS_TOO_LOW");
+        if (command.name() != null) room.setName(normalizeRoomName(command.name()));
         room.setContinueThresholdPercent(command.threshold()); room.setDayTimeoutSeconds(command.dayTimeoutSeconds()); room.setMajorityTimeoutSeconds(command.majorityTimeoutSeconds()); room.setMaxPlayers(command.maxPlayers());
         room.setForceContinue(command.forceContinue());
         return roomRepository.save(room);
@@ -135,7 +137,14 @@ public class MultiplayerRoomService {
                 .map(m -> roomRepository.findById(m.getRoomId()).map(r -> r.getStatus() == RoomStatus.ACTIVE).orElse(false))
                 .orElse(false);
     }
-    public boolean hasActiveRoom() { return roomRepository.findFirstByStatusIn(List.of(RoomStatus.ACTIVE)).isPresent(); }
+    /**
+     * Once a multiplayer lobby exists, the shared world is owned by that room.
+     * Legacy single-player advance/fast-forward must therefore stay disabled
+     * both while players prepare in the lobby and after the room starts.
+     */
+    public boolean hasActiveRoom() {
+        return roomRepository.findFirstByStatusIn(List.of(RoomStatus.LOBBY, RoomStatus.ACTIVE)).isPresent();
+    }
     public boolean activeRoomHasTeams(long team1, long team2) {
         return roomRepository.findFirstByStatusIn(List.of(RoomStatus.ACTIVE))
                 .map(room -> {
@@ -195,14 +204,21 @@ public class MultiplayerRoomService {
             bad("MANAGER_TEAM_REQUIRED");
         }
     }
+    private String normalizeRoomName(String value) {
+        String normalized = value == null ? "" : value.trim().replaceAll("\\s+", " ");
+        if (normalized.length() < 3 || normalized.length() > 80) bad("INVALID_ROOM_NAME");
+        return normalized;
+    }
     private void validateSettings(int threshold, int day, int majority, int max) { if (threshold < 50 || threshold > 100 || day < 30 || day > 3600 || majority < 5 || majority > 600 || max < 2 || max > 8) bad("INVALID_ROOM_SETTINGS"); }
     private void bad(String s) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, s); }
     private void conflict(String s) { throw new ResponseStatusException(HttpStatus.CONFLICT, s); }
     private void forbidden(String s) { throw new ResponseStatusException(HttpStatus.FORBIDDEN, s); }
-    public record CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) {
-        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false); }
+    public record CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue, String name) {
+        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false, "Football Manager Room"); }
+        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, forceContinue, "Football Manager Room"); }
     }
-    public record Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) {
-        public Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false); }
+    public record Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue, String name) {
+        public Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false, null); }
+        public Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) { this(threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, forceContinue, null); }
     }
 }

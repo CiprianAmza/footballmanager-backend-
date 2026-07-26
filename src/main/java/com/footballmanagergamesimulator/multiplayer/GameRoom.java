@@ -17,6 +17,7 @@ public class GameRoom {
     private Long id;
     @Column(name = "singleton_key", nullable = false, unique = true)
     private short singletonKey = 1;
+    @Column(nullable = false, length = 80) private String name = "Football Manager Room";
     @Column(nullable = false) private int hostUserId;
     @Column(nullable = false, length = 100) private String passwordHash;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 12) private RoomStatus status = RoomStatus.LOBBY;

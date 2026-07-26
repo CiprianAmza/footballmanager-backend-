@@ -81,7 +81,8 @@ public class MultiplayerRoomController {
         out.put("currentUserId", user.getId());
         out.put("currentMember", members.stream().filter(m -> m.getUserId() == user.getId()).findFirst()
                 .map(this::memberState).orElse(null));
-        out.put("status", room.getStatus()); out.put("roomId", room.getId()); out.put("hostUserId", room.getHostUserId());
+        out.put("status", room.getStatus()); out.put("roomId", room.getId()); out.put("name", room.getName());
+        out.put("hostUserId", room.getHostUserId());
         out.put("continueThresholdPercent", room.getContinueThresholdPercent()); out.put("dayTimeoutSeconds", room.getDayTimeoutSeconds());
         out.put("majorityTimeoutSeconds", room.getMajorityTimeoutSeconds()); out.put("maxPlayers", room.getMaxPlayers());
         out.put("forceContinue", room.isForceContinue()); out.put("members", members.stream().map(this::memberState).toList());
@@ -136,21 +137,22 @@ public class MultiplayerRoomController {
         return c.getDayDeadline().isBefore(c.getMajorityDeadline()) ? c.getDayDeadline() : c.getMajorityDeadline();
     }
 
-    public record RoomRequest(String password, Integer continueThresholdPercent, Integer dayTimeoutSeconds,
+    public record RoomRequest(String name, String password, Integer continueThresholdPercent, Integer dayTimeoutSeconds,
                               Integer majorityTimeoutSeconds, Integer maxPlayers, Boolean forceContinue) {
         MultiplayerRoomService.CreateRoom create() { return new MultiplayerRoomService.CreateRoom(password,
                 continueThresholdPercent == null ? 50 : continueThresholdPercent,
                 dayTimeoutSeconds == null ? 300 : dayTimeoutSeconds,
                 majorityTimeoutSeconds == null ? 60 : majorityTimeoutSeconds,
-                maxPlayers == null ? 2 : maxPlayers, Boolean.TRUE.equals(forceContinue)); }
+                maxPlayers == null ? 2 : maxPlayers, Boolean.TRUE.equals(forceContinue),
+                name == null || name.isBlank() ? "Football Manager Room" : name); }
     }
-    public record SettingsRequest(Integer continueThresholdPercent, Integer dayTimeoutSeconds,
+    public record SettingsRequest(String name, Integer continueThresholdPercent, Integer dayTimeoutSeconds,
                                   Integer majorityTimeoutSeconds, Integer maxPlayers, Boolean forceContinue) {
         MultiplayerRoomService.Settings settings() { return new MultiplayerRoomService.Settings(
                 continueThresholdPercent == null ? 50 : continueThresholdPercent,
                 dayTimeoutSeconds == null ? 300 : dayTimeoutSeconds,
                 majorityTimeoutSeconds == null ? 60 : majorityTimeoutSeconds,
-                maxPlayers == null ? 2 : maxPlayers, Boolean.TRUE.equals(forceContinue)); }
+                maxPlayers == null ? 2 : maxPlayers, Boolean.TRUE.equals(forceContinue), name); }
     }
     public record PasswordRequest(String password) {}
     public record FastForwardRequest(boolean enabled, int seasons) {}
