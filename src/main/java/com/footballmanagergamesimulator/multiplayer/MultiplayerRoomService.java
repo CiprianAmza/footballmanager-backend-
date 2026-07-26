@@ -89,7 +89,7 @@ public class MultiplayerRoomService {
         User user = user(); requireManager(user);
         GameRoom room = lockMemberRoom(user.getId());
         GameRoomMember member = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow();
-        member.setMembershipStatus(MembershipStatus.LEFT); member.setFastForwardEnabled(false); member.setFastForwardUntilAbsoluteDay(null); memberRepository.save(member);
+        member.setMembershipStatus(MembershipStatus.LEFT); member.setFastForwardEnabled(false); member.setFastForwardTargetSeason(null); member.setFastForwardTargetDay(null); memberRepository.save(member);
         if (memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE).isEmpty()) {
             room.setStatus(RoomStatus.CLOSED); roomRepository.save(room);
         }
@@ -134,8 +134,8 @@ public class MultiplayerRoomService {
     public GameRoom lockMemberRoom(int userId) { GameRoomMember m = memberRepository.findFirstByUserIdAndMembershipStatus(userId, MembershipStatus.ACTIVE).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "NOT_ROOM_MEMBER")); return roomRepository.findByIdForUpdate(m.getRoomId()).orElseThrow(); }
     public GameRoom requireMember(int userId) { return requireMemberRoom(userId); }
     public List<GameRoomMember> members(GameRoom room) { return memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE); }
-    public RoomContinueCycle currentCycle(GameRoom room) { return cycleRepository.findFirstByRoomIdAndStatusOrderByIdDesc(room.getId(), CycleStatus.OPEN).orElse(null); }
-    public RoomContinueCycle currentCycleForUpdate(GameRoom room) { return cycleRepository.findOpenForUpdate(room.getId()).orElse(null); }
+    public RoomContinueCycle currentCycle(GameRoom room) { return cycleRepository.findCurrent(room.getId()).orElse(null); }
+    public RoomContinueCycle currentCycleForUpdate(GameRoom room) { return cycleRepository.findCurrentForUpdate(room.getId()).orElse(null); }
     public RoomContinueCycle createCycle(GameRoom room, int season, int day) { RoomContinueCycle c = new RoomContinueCycle(); Instant now = Instant.now(); c.setRoomId(room.getId()); c.setSeason(season); c.setGameDay(day); c.setOpenedAt(now); c.setDayDeadline(now.plusSeconds(room.getDayTimeoutSeconds())); c = cycleRepository.save(c); for (GameRoomMember m : members(room)) if (m.isFastForwardEnabled()) { RoomContinueVote v = new RoomContinueVote(); v.setCycleId(c.getId()); v.setUserId(m.getUserId()); v.setSource(VoteSource.FAST_FORWARD); v.setVotedAt(now); voteRepository.save(v); } return c; }
     public RoomContinueCycleRepository cycles() { return cycleRepository; }
     public RoomContinueVoteRepository votes() { return voteRepository; }
@@ -147,15 +147,17 @@ public class MultiplayerRoomService {
         User user = user(); requireManager(user); GameRoom room = lockMemberRoom(user.getId());
         if (room.getStatus() != RoomStatus.ACTIVE) conflict("ROOM_NOT_ACTIVE");
         GameRoomMember member = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow();
-        RoomContinueCycle cycle = cycleRepository.findOpenForUpdate(room.getId()).orElseGet(() -> cycleRepository.findAdvancingForUpdate(room.getId()).orElse(null));
+        RoomContinueCycle cycle = cycleRepository.findCurrentForUpdate(room.getId()).orElse(null);
         member.setFastForwardEnabled(enabled);
         if (enabled) {
             if (seasons < 1 || seasons > 100) bad("INVALID_FAST_FORWARD_TARGET");
             GameCalendar calendar = calendarRepository.findTopByOrderBySeasonDesc().orElseThrow();
-            member.setFastForwardUntilAbsoluteDay(((long) calendar.getSeason() - 1L) * 366L + calendar.getCurrentDay() + (long) seasons * 366L);
+            member.setFastForwardTargetSeason(calendar.getSeason() + seasons);
+            member.setFastForwardTargetDay(calendar.getCurrentDay());
             if (cycle != null) upsertFastForwardVote(cycle, user.getId());
         } else {
-            member.setFastForwardUntilAbsoluteDay(null);
+            member.setFastForwardTargetSeason(null);
+            member.setFastForwardTargetDay(null);
             if (cycle != null && (cycle.getMajorityDeadline() == null || "RAPID".equals(cycle.getAdvanceMode()))) voteRepository.findForUpdate(cycle.getId(), user.getId()).filter(v -> v.getSource() == VoteSource.FAST_FORWARD).ifPresent(voteRepository::delete);
         }
         memberRepository.save(member);

@@ -10,6 +10,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -19,6 +22,11 @@ public class RoomContinueCoordinator {
     private final RoomAdvanceService advance;
     private final GameCalendarRepository calendars;
     private final RoomContinueLifecycleService lifecycle;
+    private final ScheduledExecutorService heartbeats = Executors.newScheduledThreadPool(1, r -> {
+        Thread thread = new Thread(r, "room-advance-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public RoomContinueCoordinator(MultiplayerRoomService rooms, RoomAdvanceService advance,
                                    GameCalendarRepository calendars, RoomContinueLifecycleService lifecycle) {
@@ -37,7 +45,7 @@ public class RoomContinueCoordinator {
         if (existing == null) {
             RoomContinueVote vote = new RoomContinueVote(); vote.setCycleId(cycle.getId()); vote.setUserId(member.getUserId()); vote.setSource(source); vote.setVotedAt(Instant.now()); rooms.votes().saveAndFlush(vote);
         }
-        return claimIfReadyLocked(room, cycle);
+        return claimIfReadyLocked(room, cycle, true, false);
     }
 
     @Transactional
@@ -60,7 +68,8 @@ public class RoomContinueCoordinator {
         if (room.getStatus() != RoomStatus.ACTIVE) return null;
         RoomContinueCycle cycle = rooms.currentCycleForUpdate(room);
         if (cycle == null) return null;
-        return claimIfReadyLocked(room, cycle);
+        if (cycle.getStatus() != CycleStatus.OPEN) return null;
+        return claimIfReadyLocked(room, cycle, false, false);
     }
 
     /** Recovers exactly one expired lease; it never selects an unrelated ADVANCING cycle. */
@@ -79,12 +88,13 @@ public class RoomContinueCoordinator {
         RoomContinueCycle cycle = rooms.cycles().findById(claim.cycleId()).orElse(null);
         if (cycle == null || cycle.getStatus() != CycleStatus.ADVANCING || !claim.token().equals(cycle.getAdvanceToken())) return;
         if (!lifecycle.beginExecution(claim)) return;
+        var heartbeat = heartbeats.scheduleAtFixedRate(() -> lifecycle.heartbeat(claim), 5, 5, TimeUnit.SECONDS);
         GameRoom room = rooms.rooms().findById(cycle.getRoomId()).orElse(null);
-        if (room == null || room.getStatus() != RoomStatus.ACTIVE) return;
-        List<GameRoomMember> members = rooms.members(room);
-        boolean rapidClaim = "RAPID".equals(cycle.getAdvanceMode());
-        if (rapidClaim && !allFastForward(members)) { lifecycle.reopen(claim); return; }
         try {
+            if (room == null || room.getStatus() != RoomStatus.ACTIVE) return;
+            List<GameRoomMember> members = rooms.members(room);
+            boolean rapidClaim = "RAPID".equals(cycle.getAdvanceMode());
+            if (rapidClaim && !allFastForward(members)) { lifecycle.reopen(claim); return; }
             Set<Integer> userIds = members.stream().map(GameRoomMember::getUserId).collect(Collectors.toSet());
             RoomAdvanceResult result = advance.advanceOneDay(cycle.getSeason(), cycle.getGameDay(), userIds,
                     claim.forceContinue() || rapidClaim);
@@ -96,8 +106,13 @@ public class RoomContinueCoordinator {
             }
         } catch (RuntimeException e) {
             lifecycle.markFailed(claim.cycleId(), e.getClass().getSimpleName());
+        } finally {
+            heartbeat.cancel(false);
         }
     }
+
+    @jakarta.annotation.PreDestroy
+    void stopHeartbeats() { heartbeats.shutdownNow(); }
 
     /** Used by the HTTP preference endpoint after it has upserted a FAST_FORWARD vote. */
     @Transactional
@@ -106,14 +121,20 @@ public class RoomContinueCoordinator {
     @Transactional
     public AdvanceClaim claimForUser(int userId) {
         GameRoom room = rooms.lockMemberRoom(userId); if (room.getStatus() != RoomStatus.ACTIVE) return null;
-        rooms.memberForUpdate(room, userId); RoomContinueCycle cycle = rooms.currentCycleForUpdate(room); return cycle == null ? null : claimIfReadyLocked(room, cycle);
+        rooms.memberForUpdate(room, userId); RoomContinueCycle cycle = rooms.currentCycleForUpdate(room); return cycle == null ? null : claimIfReadyLocked(room, cycle, true, false);
     }
 
-    private AdvanceClaim claimIfReadyLocked(GameRoom room, RoomContinueCycle cycle) {
-        return claimIfReadyLocked(room, cycle, false);
-    }
-
-    private AdvanceClaim claimIfReadyLocked(GameRoom room, RoomContinueCycle cycle, boolean rapidWorker) {
+    private AdvanceClaim claimIfReadyLocked(GameRoom room, RoomContinueCycle cycle,
+                                             boolean allowBlockedRecheck, boolean rapidWorker) {
+        if (cycle.getStatus() == CycleStatus.BLOCKED) {
+            if (!allowBlockedRecheck) return null;
+            Instant now = Instant.now();
+            cycle.setStatus(CycleStatus.OPEN);
+            cycle.setDayDeadline(now.plusSeconds(room.getDayTimeoutSeconds()));
+            cycle.setMajorityReachedAt(null);
+            cycle.setMajorityDeadline(null);
+            rooms.cycles().save(cycle);
+        }
         List<GameRoomMember> members = rooms.membersRepository().findActiveForUpdate(room.getId());
         expireReachedTargets(members, cycle);
         long votes = rooms.votes().countByCycleId(cycle.getId());
@@ -132,9 +153,14 @@ public class RoomContinueCoordinator {
     }
 
     private boolean allFastForward(List<GameRoomMember> members) { return !members.isEmpty() && members.stream().allMatch(GameRoomMember::isFastForwardEnabled); }
-    private boolean targetReached(List<GameRoomMember> members) { long now = calendars.findTopByOrderBySeasonDesc().map(c -> absolute(c)).orElse(0L); return members.stream().anyMatch(m -> m.getFastForwardUntilAbsoluteDay() == null || now >= m.getFastForwardUntilAbsoluteDay()); }
+    private boolean targetReached(List<GameRoomMember> members) {
+        RoomDate now = calendars.findTopByOrderBySeasonDesc().map(RoomDate::of).orElse(null);
+        return now == null || members.stream().anyMatch(m -> m.getFastForwardTargetSeason() == null
+                || m.getFastForwardTargetDay() == null
+                || now.compareTo(new RoomDate(m.getFastForwardTargetSeason(), m.getFastForwardTargetDay())) >= 0);
+    }
     public int requiredVotes(GameRoom room, int total) { return Math.max(1, (int) Math.ceil(total * room.getContinueThresholdPercent() / 100.0)); }
-    static long absolute(GameCalendar c) { return ((long) c.getSeason() - 1L) * 366L + c.getCurrentDay(); }
+    static RoomDate date(GameCalendar c) { return RoomDate.of(c); }
     /** Claims one rapid day under room -> cycle -> member locks. */
     @Transactional
     public AdvanceClaim claimRapidForRoom(Long roomId) {
@@ -145,7 +171,7 @@ public class RoomContinueCoordinator {
         List<GameRoomMember> active = rooms.membersRepository().findActiveForUpdate(roomId);
         expireReachedTargets(active, cycle);
         if (!allFastForward(active) || targetReached(active)) return null;
-        return claimIfReadyLocked(room, cycle, true);
+        return claimIfReadyLocked(room, cycle, false, true);
     }
 
     @Transactional
@@ -160,10 +186,11 @@ public class RoomContinueCoordinator {
     }
 
     private void expireReachedTargets(List<GameRoomMember> members, RoomContinueCycle cycle) {
-        long now = calendars.findTopByOrderBySeasonDesc().map(RoomContinueCoordinator::absolute).orElse(0L);
+        RoomDate now = calendars.findTopByOrderBySeasonDesc().map(RoomDate::of).orElse(null);
         for (GameRoomMember member : members) {
-            if (member.isFastForwardEnabled() && member.getFastForwardUntilAbsoluteDay() != null && now >= member.getFastForwardUntilAbsoluteDay()) {
-                member.setFastForwardEnabled(false); member.setFastForwardUntilAbsoluteDay(null); rooms.membersRepository().save(member);
+            if (now != null && member.isFastForwardEnabled() && member.getFastForwardTargetSeason() != null && member.getFastForwardTargetDay() != null
+                    && now.compareTo(new RoomDate(member.getFastForwardTargetSeason(), member.getFastForwardTargetDay())) >= 0) {
+                member.setFastForwardEnabled(false); member.setFastForwardTargetSeason(null); member.setFastForwardTargetDay(null); rooms.membersRepository().save(member);
                 if (cycle.getMajorityDeadline() == null) rooms.votes().findForUpdate(cycle.getId(), member.getUserId()).filter(v -> v.getSource() == VoteSource.FAST_FORWARD).ifPresent(rooms.votes()::delete);
             }
         }

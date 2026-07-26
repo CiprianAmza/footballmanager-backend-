@@ -21,7 +21,8 @@ public class GameRoomMember {
     @Column(nullable = false) private boolean ready;
     @Enumerated(EnumType.STRING) @Column(name = "membership_status", nullable = false, length = 8) private MembershipStatus membershipStatus = MembershipStatus.ACTIVE;
     @Column(nullable = false) private boolean fastForwardEnabled;
-    private Long fastForwardUntilAbsoluteDay;
+    @Column(name = "fast_forward_target_season") private Integer fastForwardTargetSeason;
+    @Column(name = "fast_forward_target_day") private Integer fastForwardTargetDay;
     @Column(nullable = false) private Instant joinedAt = Instant.now();
     @Column(nullable = false) private Instant lastSeenAt = Instant.now();
     @Version private long version;

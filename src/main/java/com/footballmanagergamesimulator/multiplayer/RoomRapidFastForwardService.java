@@ -28,7 +28,7 @@ public class RoomRapidFastForwardService {
         progress.compute(roomId, (id, current) -> {
             if (current != null && current.status() == Status.RUNNING) return current;
             executor.submit(() -> run(id));
-            return new Progress(Status.RUNNING, 0L, 0L, false);
+            return new Progress(Status.RUNNING, 0, 0, 0, 0, false);
         });
     }
 
@@ -38,29 +38,33 @@ public class RoomRapidFastForwardService {
                 AdvanceClaim claim = coordinator.claimRapidForRoom(roomId);
                 if (claim == null) {
                     progress.computeIfPresent(roomId, (id, p) -> new Progress(Status.CANCEL_PENDING,
-                            p.currentAbsoluteDay(), p.targetAbsoluteDay(), true));
+                            p.currentSeason(), p.currentDay(), p.targetSeason(), p.targetDay(), true));
                     LockSupport.parkNanos(5_000_000L);
                     continue;
                 }
                 coordinator.advanceClaimed(claim);
                 progress.computeIfPresent(roomId, (id, p) -> new Progress(Status.RUNNING,
-                        p.currentAbsoluteDay() + 1L, p.targetAbsoluteDay(), false));
+                        p.currentSeason(), p.currentDay(), p.targetSeason(), p.targetDay(), false));
             }
         } finally {
             progress.computeIfPresent(roomId, (id, p) -> new Progress(Status.IDLE,
-                    p.currentAbsoluteDay(), p.targetAbsoluteDay(), p.cancelPending()));
+                    p.currentSeason(), p.currentDay(), p.targetSeason(), p.targetDay(), p.cancelPending()));
         }
     }
 
-    public Progress state(Long roomId, long currentAbsoluteDay, long targetAbsoluteDay) {
+    public Progress state(Long roomId, RoomDate currentDate, RoomDate targetDate) {
         Progress p = progress.get(roomId);
-        if (p == null) return new Progress(Status.IDLE, currentAbsoluteDay, targetAbsoluteDay, false);
-        return new Progress(p.status(), currentAbsoluteDay, targetAbsoluteDay, p.cancelPending());
+        if (p == null) return new Progress(Status.IDLE,
+                currentDate == null ? 0 : currentDate.season(), currentDate == null ? 0 : currentDate.day(),
+                targetDate == null ? 0 : targetDate.season(), targetDate == null ? 0 : targetDate.day(), false);
+        return new Progress(p.status(),
+                currentDate == null ? p.currentSeason() : currentDate.season(), currentDate == null ? p.currentDay() : currentDate.day(),
+                targetDate == null ? p.targetSeason() : targetDate.season(), targetDate == null ? p.targetDay() : targetDate.day(), p.cancelPending());
     }
 
     @PreDestroy
     void stop() { executor.shutdownNow(); }
 
     public enum Status { IDLE, RUNNING, CANCEL_PENDING }
-    public record Progress(Status status, long currentAbsoluteDay, long targetAbsoluteDay, boolean cancelPending) { }
+    public record Progress(Status status, int currentSeason, int currentDay, int targetSeason, int targetDay, boolean cancelPending) { }
 }

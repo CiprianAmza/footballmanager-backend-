@@ -28,16 +28,32 @@ public class RoomContinueLifecycleService {
         current.setAdvanceExecutionStartedAt(now); current.setAdvanceLeaseUntil(now.plusSeconds(30)); cycles.save(current); return true;
     }
 
+    /** Refreshes the execution lease while a legitimate worker is still alive. */
+    @Transactional
+    public boolean heartbeat(AdvanceClaim claim) {
+        RoomContinueCycle snapshot = cycles.findById(claim.cycleId()).orElse(null);
+        if (snapshot == null) return false;
+        return rooms.findByIdForUpdate(snapshot.getRoomId()).map(room -> {
+            RoomContinueCycle current = cycles.findByIdForUpdate(claim.cycleId()).orElse(null);
+            if (current == null || current.getStatus() != CycleStatus.ADVANCING
+                    || !claim.token().equals(current.getAdvanceToken())
+                    || current.getAdvanceExecutionStartedAt() == null) return false;
+            current.setAdvanceLeaseUntil(Instant.now().plusSeconds(30));
+            cycles.save(current);
+            return true;
+        }).orElse(false);
+    }
+
     @Transactional
     public void completeAndOpen(AdvanceClaim claim, GameCalendar after) {
         RoomContinueCycle current = cycles.findById(claim.cycleId()).orElse(null); if (current == null) return;
         GameRoom room = rooms.findByIdForUpdate(current.getRoomId()).orElse(null); if (room == null) return;
         current = cycles.findByIdForUpdate(claim.cycleId()).orElse(null); if (current == null || current.getStatus() == CycleStatus.COMPLETED) return;
         if (current.getStatus() != CycleStatus.ADVANCING || !claim.token().equals(current.getAdvanceToken())) return;
-        if (RoomContinueCoordinator.absolute(after) < ((long) current.getSeason() - 1L) * 366L + current.getGameDay()) throw new IllegalStateException("calendar moved backwards");
+        if (RoomDate.of(after).compareTo(new RoomDate(current.getSeason(), current.getGameDay())) < 0) throw new IllegalStateException("calendar moved backwards");
         current.setStatus(CycleStatus.COMPLETED); current.setCompletedAt(Instant.now()); current.setAdvanceLeaseUntil(null); current.setAdvanceExecutionStartedAt(null); cycles.save(current);
         RoomContinueCycle next = new RoomContinueCycle(); Instant now = Instant.now(); next.setRoomId(room.getId()); next.setSeason(after.getSeason()); next.setGameDay(after.getCurrentDay()); next.setOpenedAt(now); next.setDayDeadline(now.plusSeconds(room.getDayTimeoutSeconds())); next = cycles.save(next);
-        for (GameRoomMember member : members.findActiveForUpdate(room.getId())) if (member.isFastForwardEnabled() && member.getFastForwardUntilAbsoluteDay() != null && RoomContinueCoordinator.absolute(after) < member.getFastForwardUntilAbsoluteDay()) { RoomContinueVote vote = new RoomContinueVote(); vote.setCycleId(next.getId()); vote.setUserId(member.getUserId()); vote.setSource(VoteSource.FAST_FORWARD); vote.setVotedAt(now); votes.save(vote); }
+        for (GameRoomMember member : members.findActiveForUpdate(room.getId())) if (member.isFastForwardEnabled() && member.getFastForwardTargetSeason() != null && member.getFastForwardTargetDay() != null && RoomDate.of(after).compareTo(new RoomDate(member.getFastForwardTargetSeason(), member.getFastForwardTargetDay())) < 0) { RoomContinueVote vote = new RoomContinueVote(); vote.setCycleId(next.getId()); vote.setUserId(member.getUserId()); vote.setSource(VoteSource.FAST_FORWARD); vote.setVotedAt(now); votes.save(vote); }
         room.setBlockerCode(null); room.setBlockerMessage(null); rooms.save(room);
         activeExecutions.remove(claim.cycleId() + ":" + claim.token());
     }
@@ -50,14 +66,23 @@ public class RoomContinueLifecycleService {
             activeExecutions.remove(cycleId + ":" + c.getAdvanceToken());
         }));
     }
-    @Transactional public void reopen(AdvanceClaim claim) { reopenWithBlocker(claim, null, null); }
+    @Transactional public void reopen(AdvanceClaim claim) {
+        RoomContinueCycle snapshot = cycles.findById(claim.cycleId()).orElse(null);
+        if (snapshot != null) rooms.findByIdForUpdate(snapshot.getRoomId()).ifPresent(room -> {
+            RoomContinueCycle cycle = cycles.findByIdForUpdate(claim.cycleId()).orElse(null);
+            if (cycle != null && cycle.getStatus() == CycleStatus.ADVANCING && claim.token().equals(cycle.getAdvanceToken())) {
+                cycle.setStatus(CycleStatus.OPEN); cycle.setAdvanceToken(null); cycle.setAdvanceLeaseUntil(null); cycle.setAdvanceStartedAt(null); cycle.setAdvanceExecutionStartedAt(null); cycle.setAdvanceForceContinue(false); cycles.save(cycle);
+            }
+        });
+        activeExecutions.remove(claim.cycleId() + ":" + claim.token());
+    }
     @Transactional public void reopenWithBlocker(AdvanceClaim claim, String code, String message) {
         RoomContinueCycle snapshot = cycles.findById(claim.cycleId()).orElse(null);
         if (snapshot != null) rooms.findByIdForUpdate(snapshot.getRoomId()).ifPresent(room -> {
             RoomContinueCycle cycle = cycles.findByIdForUpdate(claim.cycleId()).orElse(null);
             if (cycle != null && cycle.getStatus() == CycleStatus.ADVANCING && claim.token().equals(cycle.getAdvanceToken())) {
                 room.setBlockerCode(code); room.setBlockerMessage(message); rooms.save(room);
-                cycle.setStatus(CycleStatus.OPEN); cycle.setAdvanceToken(null); cycle.setAdvanceLeaseUntil(null); cycle.setAdvanceStartedAt(null); cycle.setAdvanceExecutionStartedAt(null); cycle.setAdvanceForceContinue(false); cycles.save(cycle);
+                cycle.setStatus(CycleStatus.BLOCKED); cycle.setAdvanceToken(null); cycle.setAdvanceLeaseUntil(null); cycle.setAdvanceStartedAt(null); cycle.setAdvanceExecutionStartedAt(null); cycle.setAdvanceForceContinue(false); cycles.save(cycle);
             }
         });
         activeExecutions.remove(claim.cycleId() + ":" + claim.token());

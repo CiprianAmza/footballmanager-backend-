@@ -101,26 +101,45 @@ public class GameAdvanceService {
                 .map(User::getTeamId).filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
         gameLock.lock();
         try {
-            GameCalendar current = calendarService.getOrCreateCalendar(expectedSeason);
+            GameCalendar current = gameCalendarRepository.findTopByOrderBySeasonDesc()
+                    .orElseThrow(() -> new IllegalStateException("calendar missing"));
             if (expectedDay > 0) {
-                long expected = ((long) expectedSeason - 1L) * 366L + expectedDay;
-                long actual = ((long) current.getSeason() - 1L) * 366L + current.getCurrentDay();
-                if (actual > expected) {
+                com.footballmanagergamesimulator.multiplayer.RoomDate expected =
+                        new com.footballmanagergamesimulator.multiplayer.RoomDate(expectedSeason, expectedDay);
+                com.footballmanagergamesimulator.multiplayer.RoomDate actual =
+                        com.footballmanagergamesimulator.multiplayer.RoomDate.of(current);
+                if (actual.isAfter(expected)) {
                     return roomResult("ALREADY_ADVANCED", current);
                 }
-                if (actual < expected) {
+                if (actual.compareTo(expected) < 0) {
                     throw new IllegalStateException("ROOM_CALENDAR_BEHIND_CYCLE_DATE");
                 }
             }
             Map<String, Object> result = advanceLocked(expectedSeason, forceContinue,
                     new AdvanceScope(roomUserIds, roomTeamIds));
-            GameCalendar after = calendarService.getOrCreateCalendar(expectedSeason);
-            long beforeAbsolute = ((long) expectedSeason - 1L) * 366L + (expectedDay > 0 ? expectedDay : current.getCurrentDay());
-            long afterAbsolute = ((long) after.getSeason() - 1L) * 366L + after.getCurrentDay();
-            if (expectedDay > 0 && afterAbsolute - beforeAbsolute != 1L
-                    && !Boolean.TRUE.equals(result.get("paused"))) {
-                throw new IllegalStateException("ROOM_ADVANCE_NOT_EXACTLY_ONE_DAY");
+            GameCalendar after = gameCalendarRepository.findTopByOrderBySeasonDesc()
+                    .orElseThrow(() -> new IllegalStateException("calendar missing after advance"));
+            com.footballmanagergamesimulator.multiplayer.RoomDate expected =
+                    new com.footballmanagergamesimulator.multiplayer.RoomDate(expectedSeason, expectedDay > 0 ? expectedDay : current.getCurrentDay());
+            com.footballmanagergamesimulator.multiplayer.RoomDate actualAfter =
+                    com.footballmanagergamesimulator.multiplayer.RoomDate.of(after);
+            if (expectedDay > 0) {
+                com.footballmanagergamesimulator.multiplayer.RoomDate before =
+                        com.footballmanagergamesimulator.multiplayer.RoomDate.of(current);
+                boolean unchanged = actualAfter.equalsDate(before);
+                boolean advancedExactlyOnce = isExactlyNextDate(expected, actualAfter);
+                if (!unchanged && !advancedExactlyOnce) {
+                    throw new IllegalStateException("ROOM_ADVANCE_NOT_EXACTLY_ONE_DAY");
+                }
+                if (Boolean.TRUE.equals(result.get("paused")) && !unchanged) {
+                    // A season-transition event may report paused for its next
+                    // input while the canonical calendar has already moved to
+                    // season+1/day1. That is still one successful day advance.
+                    result.put("paused", false);
+                }
             }
+            result.put("season", after.getSeason());
+            result.put("day", after.getCurrentDay());
             if (Boolean.TRUE.equals(result.get("paused"))) {
                 result.put("roomAdvanceStatus", "BLOCKED");
                 result.put("blockerCode", result.getOrDefault("reason", "ADVANCE_BLOCKED"));
@@ -132,6 +151,12 @@ public class GameAdvanceService {
         } finally {
             gameLock.unlock();
         }
+    }
+
+    static boolean isExactlyNextDate(com.footballmanagergamesimulator.multiplayer.RoomDate expected,
+                                     com.footballmanagergamesimulator.multiplayer.RoomDate actual) {
+        return (actual.season() == expected.season() && actual.day() == expected.day() + 1)
+                || (actual.season() == expected.season() + 1 && actual.day() == 1);
     }
 
     private Map<String, Object> roomResult(String status, GameCalendar calendar) {
@@ -172,21 +197,35 @@ public class GameAdvanceService {
         // Recovery: any PROCESSING events left over from a previous crash/exception
         // are flipped back to PENDING so they can be retried. Safe because we're
         // synchronized and nothing else is mid-processing right now.
-        int released = calendarService.releaseStuckEvents(season);
+        GameCalendar calendar = scope != null
+                ? gameCalendarRepository.findTopByOrderBySeasonDesc().orElseThrow(() -> new IllegalStateException("calendar missing"))
+                : calendarService.getOrCreateCalendar(season);
+        // The canonical row is authoritative at season boundaries. All event
+        // queries below must use the season that was actually read, never the
+        // caller's stale cycle parameter.
+        season = calendar.getSeason();
+        boolean alwaysContinue = scope != null ? unattendedConfirmed
+                : unattendedConfirmed || isAlwaysContinueActive();
+
+        // Room blockers are checked before recovery, injuries, daily
+        // maintenance, or any other side effect. A BLOCKED cycle therefore
+        // remains observationally stable until an explicit Continue/FF retry.
+        if (scope != null && !alwaysContinue) {
+            Map<String, Object> jobOfferBlock = checkJobOfferPause(calendar.getSeason(), calendar, scope);
+            if (jobOfferBlock != null) return jobOfferBlock;
+            Map<String, Object> liveMatchBlock = checkLiveMatchPause(calendar.getSeason(), calendar, scope);
+            if (liveMatchBlock != null) return liveMatchBlock;
+        }
+
+        int released = calendarService.releaseStuckEvents(calendar.getSeason());
         if (released > 0) {
             System.out.println(">>> advance: released " + released + " stuck PROCESSING events back to PENDING");
         }
 
-        GameCalendar calendar = calendarService.getOrCreateCalendar(season);
-        injuryTimelineService.processRecoveries(season, calendar.getCurrentDay());
+        injuryTimelineService.processRecoveries(calendar.getSeason(), calendar.getCurrentDay());
         if ("MORNING".equals(calendar.getCurrentPhase())) {
-            calendarEventDispatcher.processDailyMaintenance(season, calendar.getCurrentDay());
+            calendarEventDispatcher.processDailyMaintenance(calendar.getSeason(), calendar.getCurrentDay());
         }
-        // Human.alwaysContinue is a single-player preference. It is never a
-        // multiplayer agreement; only the room's explicit force/rapid path can
-        // make a room-scoped advance unattended.
-        boolean alwaysContinue = scope != null ? unattendedConfirmed
-                : unattendedConfirmed || isAlwaysContinueActive();
 
         if (scope != null && unattendedConfirmed) {
             liveMatchSimulationService.finishAndCommitForTeams(scope.roomTeamIds());
@@ -205,7 +244,7 @@ public class GameAdvanceService {
 
         // Hard pause: any logged-in user has a pending job offer → block advance
         // until they accept/decline. Frontend shows a banner / inbox modal.
-        if (!alwaysContinue) {
+        if (scope == null && !alwaysContinue) {
             Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar, scope);
             if (jobOfferBlock != null) return jobOfferBlock;
         }
@@ -215,7 +254,7 @@ public class GameAdvanceService {
         // advance and signal the FE to resume the live modal — without this,
         // the calendar would silently roll past the matchday with no result
         // for the human team.
-        if (!alwaysContinue) {
+        if (scope == null && !alwaysContinue) {
             Map<String, Object> liveMatchBlock = checkLiveMatchPause(season, calendar, scope);
             if (liveMatchBlock != null) return liveMatchBlock;
         }

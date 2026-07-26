@@ -37,6 +37,17 @@ class RoomContinueCoordinatorTest {
         assertNotNull(claim); assertEquals(CycleStatus.ADVANCING, cycle.getStatus());
     }
 
+    @Test void blockedCycleIsNotReclaimedByTheScheduler() {
+        configureMembers(2);
+        cycle.setStatus(CycleStatus.BLOCKED);
+        cycle.setDayDeadline(Instant.now().minusSeconds(1));
+        when(votes.countByCycleId(11L)).thenReturn(2L);
+
+        assertNull(coordinator.claimExpired());
+        assertEquals(CycleStatus.BLOCKED, cycle.getStatus());
+        verify(cycles, never()).saveAndFlush(any());
+    }
+
     @Test void oneOfTwoStartsMajorityTimeoutThenClaimsOnItsDeadline() {
         configureMembers(2); when(votes.countByCycleId(11L)).thenReturn(1L);
         assertNull(coordinator.claimExpired()); assertNotNull(cycle.getMajorityDeadline());
@@ -62,7 +73,7 @@ class RoomContinueCoordinatorTest {
 
     @Test void allFastForwardIsLeftToContinuousWorkerAndDoesNotUseHumanAlwaysContinue() {
         configureMembers(2); List<GameRoomMember> members = rooms.membersRepository().findActiveForUpdate(7L);
-        members.forEach(m -> { m.setFastForwardEnabled(true); m.setFastForwardUntilAbsoluteDay(500L); }); when(votes.countByCycleId(11L)).thenReturn(2L);
+        members.forEach(m -> { m.setFastForwardEnabled(true); m.setFastForwardTargetSeason(2); m.setFastForwardTargetDay(365); }); when(votes.countByCycleId(11L)).thenReturn(2L);
         AdvanceClaim claim = coordinator.claimExpired();
         assertNull(claim); assertEquals(CycleStatus.OPEN, cycle.getStatus());
     }

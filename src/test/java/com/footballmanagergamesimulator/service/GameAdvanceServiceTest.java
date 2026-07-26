@@ -54,6 +54,19 @@ class GameAdvanceServiceTest {
     }
 
     @Test
+    void roomDateAcceptsTheNextDayWithoutArithmeticAcrossSeasons() {
+        assertTrue(GameAdvanceService.isExactlyNextDate(
+                new com.footballmanagergamesimulator.multiplayer.RoomDate(1, 42),
+                new com.footballmanagergamesimulator.multiplayer.RoomDate(1, 43)));
+        assertTrue(GameAdvanceService.isExactlyNextDate(
+                new com.footballmanagergamesimulator.multiplayer.RoomDate(1, 365),
+                new com.footballmanagergamesimulator.multiplayer.RoomDate(2, 1)));
+        assertFalse(GameAdvanceService.isExactlyNextDate(
+                new com.footballmanagergamesimulator.multiplayer.RoomDate(1, 42),
+                new com.footballmanagergamesimulator.multiplayer.RoomDate(1, 44)));
+    }
+
+    @Test
     void alwaysContinueRequiresAConfiguredHumanManager() {
         when(userRepository.findAll()).thenReturn(List.of());
 
