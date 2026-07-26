@@ -102,11 +102,13 @@ public class MultiplayerRoomController {
         out.put("rapidTargetDay", progress.targetDay()); out.put("rapidCancelPending", progress.cancelPending());
 
         GameRoomMember currentMember = members.stream().filter(m -> m.getUserId() == user.getId()).findFirst().orElse(null);
-        var ownSession = currentMember == null ? null : liveMatches.findAnyUncommittedSessionForTeam(currentMember.getTeamId());
+        var ownSession = currentMember == null || currentMember.getTeamId() == null
+                ? null : liveMatches.findAnyUncommittedSessionForTeam(currentMember.getTeamId());
         String liveKey = ownSession == null ? null : com.footballmanagergamesimulator.service.LiveMatchSimulationService.buildKey(
                 ownSession.getCompetitionId(), ownSession.getSeason(), ownSession.getRound(), ownSession.getTeamId1(), ownSession.getTeamId2());
         boolean liveInteractive = ownSession != null && !ownSession.isFinished();
-        boolean anyLiveMatch = members.stream().anyMatch(m -> liveMatches.findAnyUncommittedSessionForTeam(m.getTeamId()) != null);
+        boolean anyLiveMatch = members.stream().map(GameRoomMember::getTeamId).filter(Objects::nonNull)
+                .anyMatch(teamId -> liveMatches.findAnyUncommittedSessionForTeam(teamId) != null);
         if (liveKey != null) { out.put("liveMatchKey", liveKey); out.put("liveMatchInteractive", liveInteractive); }
         if (cycle != null) {
             out.put("dayDeadline", cycle.getDayDeadline()); out.put("majorityDeadline", cycle.getMajorityDeadline());
@@ -121,8 +123,12 @@ public class MultiplayerRoomController {
     }
 
     private Map<String, Object> memberState(GameRoomMember member) {
-        return Map.of("userId", member.getUserId(), "teamId", member.getTeamId(), "ready", member.isReady(),
-                "fastForwardEnabled", member.isFastForwardEnabled());
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("userId", member.getUserId());
+        state.put("teamId", member.getTeamId());
+        state.put("ready", member.isReady());
+        state.put("fastForwardEnabled", member.isFastForwardEnabled());
+        return state;
     }
 
     private Instant effective(RoomContinueCycle c) {

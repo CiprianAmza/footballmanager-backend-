@@ -17,7 +17,13 @@ public class GameRoomMember {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @Column(name = "room_id", nullable = false) private Long roomId;
     @Column(name = "user_id", nullable = false) private int userId;
-    @Column(name = "team_id", nullable = false) private long teamId;
+    /**
+     * The managed team is optional because a Chairman is a full multiplayer
+     * participant without necessarily managing a club. Continue votes and
+     * room ownership are user-scoped; this field is only used for manager
+     * live-match ownership.
+     */
+    @Column(name = "team_id") private Long teamId;
     @Column(nullable = false) private boolean ready;
     @Enumerated(EnumType.STRING) @Column(name = "membership_status", nullable = false, length = 8) private MembershipStatus membershipStatus = MembershipStatus.ACTIVE;
     @Column(nullable = false) private boolean fastForwardEnabled;

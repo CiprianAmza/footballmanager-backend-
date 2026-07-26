@@ -42,8 +42,8 @@ public class MultiplayerRoomService {
     @Transactional
     public synchronized GameRoom create(CreateRoom command) {
         User user = user();
-        requireManager(user);
-        requireTeam(user);
+        requirePlayableCareer(user);
+        requireManagedTeamWhenManager(user);
         if (memberRepository.findFirstByUserIdAndMembershipStatus(user.getId(), MembershipStatus.ACTIVE).isPresent()) conflict("User is already in a room");
         if (roomRepository.findOpenForUpdate(List.of(RoomStatus.LOBBY, RoomStatus.ACTIVE)).isPresent()) conflict("A room is already open");
         validateSettings(command.threshold(), command.dayTimeoutSeconds(), command.majorityTimeoutSeconds(), command.maxPlayers());
@@ -59,14 +59,15 @@ public class MultiplayerRoomService {
 
     @Transactional
     public GameRoom join(String password) {
-        User user = user(); requireManager(user); requireTeam(user);
+        User user = user(); requirePlayableCareer(user); requireManagedTeamWhenManager(user);
         if (memberRepository.findFirstByUserIdAndMembershipStatus(user.getId(), MembershipStatus.ACTIVE).isPresent()) conflict("User is already in a room");
         GameRoom room = roomRepository.findOpenForUpdate(List.of(RoomStatus.LOBBY, RoomStatus.ACTIVE)).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "NO_ACTIVE_ROOM"));
         if (!passwordEncoder.matches(password == null ? "" : password, room.getPasswordHash())) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "INVALID_ROOM_PASSWORD");
         List<GameRoomMember> members = memberRepository.findActiveForUpdate(room.getId());
         if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED");
         if (members.size() >= room.getMaxPlayers()) throw new ResponseStatusException(HttpStatus.CONFLICT, "ROOM_FULL");
-        if (members.stream().anyMatch(m -> m.getTeamId() == user.getTeamId())) conflict("TEAM_ALREADY_IN_ROOM");
+        if (user.getTeamId() != null && members.stream().map(GameRoomMember::getTeamId)
+                .filter(Objects::nonNull).anyMatch(user.getTeamId()::equals)) conflict("TEAM_ALREADY_IN_ROOM");
         GameRoomMember previous = memberRepository.findByRoomIdAndUserId(room.getId(), user.getId()).orElse(null);
         if (previous == null) previous = member(room, user);
         previous.setTeamId(user.getTeamId()); previous.setMembershipStatus(MembershipStatus.ACTIVE); previous.setReady(false);
@@ -76,7 +77,7 @@ public class MultiplayerRoomService {
 
     @Transactional
     public GameRoom updateSettings(Settings command) {
-        User user = user(); requireManager(user); GameRoom room = lockMemberRoom(user.getId());
+        User user = user(); requirePlayableCareer(user); GameRoom room = lockMemberRoom(user.getId());
         if (room.getHostUserId() != user.getId()) forbidden("HOST_ONLY");
         if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED");
         validateSettings(command.threshold(), command.dayTimeoutSeconds(), command.majorityTimeoutSeconds(), command.maxPlayers());
@@ -86,11 +87,11 @@ public class MultiplayerRoomService {
         return roomRepository.save(room);
     }
 
-    @Transactional public void ready(boolean ready) { User user = user(); requireManager(user); GameRoom room = lockMemberRoom(user.getId()); if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED"); GameRoomMember m = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow(); m.setReady(ready); memberRepository.save(m); }
+    @Transactional public void ready(boolean ready) { User user = user(); requirePlayableCareer(user); GameRoom room = lockMemberRoom(user.getId()); if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED"); GameRoomMember m = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow(); m.setReady(ready); memberRepository.save(m); }
 
     @Transactional
     public void leave() {
-        User user = user(); requireManager(user);
+        User user = user(); requirePlayableCareer(user);
         GameRoom room = lockMemberRoom(user.getId());
         GameRoomMember member = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow();
         if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_LEAVE_ONLY_IN_LOBBY");
@@ -110,13 +111,14 @@ public class MultiplayerRoomService {
 
     @Transactional
     public void start() {
-        User user = user(); requireManager(user); GameRoom room = lockMemberRoom(user.getId());
+        User user = user(); requirePlayableCareer(user); GameRoom room = lockMemberRoom(user.getId());
         if (room.getHostUserId() != user.getId()) forbidden("HOST_ONLY");
         if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED");
         List<GameRoomMember> members = memberRepository.findActiveForUpdate(room.getId());
         if (members.size() < 2) conflict("MINIMUM_TWO_PLAYERS");
         if (members.stream().anyMatch(m -> !m.isReady())) conflict("ALL_MEMBERS_MUST_BE_READY");
-        if (members.stream().map(GameRoomMember::getTeamId).distinct().count() != members.size()) conflict("TEAM_ALREADY_IN_ROOM");
+        List<Long> managedTeams = members.stream().map(GameRoomMember::getTeamId).filter(Objects::nonNull).toList();
+        if (managedTeams.stream().distinct().count() != managedTeams.size()) conflict("TEAM_ALREADY_IN_ROOM");
         room.setStatus(RoomStatus.ACTIVE); room.setStartedAt(Instant.now()); roomRepository.save(room);
         GameCalendar calendar = calendarRepository.findTopByOrderBySeasonDesc().orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "GAME_NOT_INITIALIZED"));
         createCycle(room, calendar.getSeason(), calendar.getCurrentDay());
@@ -157,7 +159,7 @@ public class MultiplayerRoomService {
 
     @Transactional
     public void setFastForward(boolean enabled, int seasons) {
-        User user = user(); requireManager(user); GameRoom room = lockMemberRoom(user.getId());
+        User user = user(); requirePlayableCareer(user); GameRoom room = lockMemberRoom(user.getId());
         if (room.getStatus() != RoomStatus.ACTIVE) conflict("ROOM_NOT_ACTIVE");
         GameRoomMember member = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow();
         RoomContinueCycle cycle = cycleRepository.findCurrentForUpdate(room.getId()).orElse(null);
@@ -182,8 +184,17 @@ public class MultiplayerRoomService {
     }
 
     private GameRoomMember member(GameRoom room, User user) { GameRoomMember m = new GameRoomMember(); m.setRoomId(room.getId()); m.setUserId(user.getId()); m.setTeamId(user.getTeamId()); return m; }
-    private void requireManager(User u) { if (u.getCareerRole() != CareerRole.MANAGER) forbidden("MANAGER_ONLY"); }
-    private void requireTeam(User u) { if (u.getTeamId() == null || u.getTeamId() <= 0) bad("MANAGER_TEAM_REQUIRED"); }
+    private void requirePlayableCareer(User user) {
+        if (user.getCareerRole() != CareerRole.MANAGER && user.getCareerRole() != CareerRole.CHAIRMAN) {
+            forbidden("PLAYER_CAREER_REQUIRED");
+        }
+    }
+    private void requireManagedTeamWhenManager(User user) {
+        if (user.getCareerRole() == CareerRole.MANAGER
+                && (user.getTeamId() == null || user.getTeamId() <= 0)) {
+            bad("MANAGER_TEAM_REQUIRED");
+        }
+    }
     private void validateSettings(int threshold, int day, int majority, int max) { if (threshold < 50 || threshold > 100 || day < 30 || day > 3600 || majority < 5 || majority > 600 || max < 2 || max > 8) bad("INVALID_ROOM_SETTINGS"); }
     private void bad(String s) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, s); }
     private void conflict(String s) { throw new ResponseStatusException(HttpStatus.CONFLICT, s); }
