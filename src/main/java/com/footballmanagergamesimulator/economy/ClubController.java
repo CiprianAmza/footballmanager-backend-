@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 
@@ -31,6 +32,7 @@ public class ClubController {
     private final ClubTreasuryService treasuryService;
     private final ChairmanCommandCentreService commandCentreService;
     private final ChairmanTacticalMandateService tacticalMandateService;
+    @Autowired private ChairmanTransferBudgetService transferBudgetService;
 
     public ClubController(CurrentUserService currentUserService,
                           PersonProfileService profileService,
@@ -115,6 +117,12 @@ public class ClubController {
         accountingService.ensureAccount(profile);
         return queryService.transfer(treasuryService.transfer(profile, teamId, request.direction(),
                 request.amount(), request.idempotencyKey()));
+    }
+
+    @PutMapping("/{teamId}/transfer-budget")
+    public ClubDtos.TransferBudgetView updateTransferBudget(
+            @PathVariable long teamId, @Valid @RequestBody ClubDtos.TransferBudgetRequest request) {
+        return transferBudgetService.update(currentProfile(), teamId, request.amount());
     }
 
     private PersonProfile currentProfile() {
