@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -94,9 +95,11 @@ public class AnimationV3GoalAdapter {
             int firstHalfStoppage = Math.max(0, animationContext.firstHalfStoppage());
             MatchPeriod period = periodFor(extraTime, minute, firstHalfStoppage);
 
-            List<PlayerSnapshot> onPitch = new ArrayList<>(attackersOnPitch.size() + defendersOnPitch.size());
+            List<Contributor> visualDefenders = ensureGoalkeeper(
+                    defendersOnPitch, fixtureKey, slotIndex, defendingTeamId);
+            List<PlayerSnapshot> onPitch = new ArrayList<>(attackersOnPitch.size() + visualDefenders.size());
             addSnapshots(onPitch, attackersOnPitch, attackingTeamId, shirtNumbers);
-            addSnapshots(onPitch, defendersOnPitch, defendingTeamId, shirtNumbers);
+            addSnapshots(onPitch, visualDefenders, defendingTeamId, shirtNumbers);
 
             MatchMomentSpec spec = new MatchMomentSpec(
                     fixtureKey, slotIndex, planSeed, AnimationDirector.CURRENT_GENERATOR_VERSION,
@@ -148,6 +151,42 @@ public class AnimationV3GoalAdapter {
                     c.playerId(), teamId, c.name(), Math.max(0, shirt),
                     c.position(), "ROLE_" + c.position(), Math.max(0.0, c.rating())));
         }
+    }
+
+    /**
+     * A sent-off/injured goalkeeper must not make an otherwise valid canonical moment disappear.
+     * The match truth remains unchanged; for presentation only, the most defensive remaining
+     * outfield player is shown acting as the emergency goalkeeper.  This keeps the whole match on
+     * V3 instead of mixing in the legacy renderer and is deterministic across replay/recovery.
+     */
+    private static List<Contributor> ensureGoalkeeper(
+            List<Contributor> defenders, String fixtureKey, int slotIndex, long defendingTeamId) {
+        if (defenders.stream().anyMatch(Contributor::isGoalkeeper) || defenders.isEmpty()) {
+            return defenders;
+        }
+        Contributor emergency = defenders.stream()
+                .min(Comparator.comparingInt((Contributor c) -> emergencyGoalkeeperRank(c.position()))
+                        .thenComparingLong(Contributor::playerId))
+                .orElseThrow();
+        List<Contributor> normalized = new ArrayList<>(defenders.size());
+        for (Contributor defender : defenders) {
+            normalized.add(defender.playerId() == emergency.playerId()
+                    ? defender.withPosition("GK") : defender);
+        }
+        log.warn("Animation V3 using emergency goalkeeper fixture={} slot={} defendingTeam={} player={}",
+                fixtureKey, slotIndex, defendingTeamId, emergency.playerId());
+        return normalized;
+    }
+
+    private static int emergencyGoalkeeperRank(String position) {
+        if (position == null) return 5;
+        return switch (position) {
+            case "DC" -> 0;
+            case "DL", "DR", "WBL", "WBR" -> 1;
+            case "DM" -> 2;
+            case "MC", "ML", "MR" -> 3;
+            default -> 4;
+        };
     }
 
     // ---- Engine replay → frontend DTO ------------------------------------

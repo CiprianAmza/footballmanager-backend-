@@ -7,8 +7,9 @@ package com.footballmanagergamesimulator.animation;
  * the length of the pitch — with the ball's flights fitting too. Slower profiles get proportionally more
  * frames; there is no frame-0 teleport and no per-profile special case.
  *
- * <p>The budget is a deterministic function of the profile (which the recipe pins), so a replay
- * regenerates with exactly the same frame count.
+ * <p>The budget is a deterministic maximum scheduling envelope. Current generators export only
+ * the frames required by the selected play plus its result beat; frozen legacy generators still
+ * export the whole envelope.
  */
 public final class AnimationFrameBudget {
     /** Worst-case continuous player run: a goalkeeper anchor to the advanced finishing point. */

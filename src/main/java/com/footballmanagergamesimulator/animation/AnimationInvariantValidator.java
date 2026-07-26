@@ -27,9 +27,13 @@ public final class AnimationInvariantValidator {
     public List<String> validate(AnimationReplay replay, MatchMomentSpec spec) {
         List<String> errors = new ArrayList<>();
         validateCanonical(replay, spec, errors);
-        int expectedFrames = AnimationFrameBudget.framesFor(replay.renderedWithVersion(), profile) + 1;
-        if (replay.frames().size() != expectedFrames) {
-            errors.add("expected " + expectedFrames + " frames, got " + replay.frames().size());
+        int maximumFrames = AnimationFrameBudget.framesFor(replay.renderedWithVersion(), profile) + 1;
+        boolean dynamicCurrentVersion = replay.renderedWithVersion() >= FrameCompiler.VERSION;
+        if ((!dynamicCurrentVersion && replay.frames().size() != maximumFrames)
+                || (dynamicCurrentVersion && (replay.frames().size() < 2
+                || replay.frames().size() > maximumFrames))) {
+            errors.add((dynamicCurrentVersion ? "expected at most " : "expected ")
+                    + maximumFrames + " frames, got " + replay.frames().size());
             return errors;
         }
         int lastFrame = replay.frames().size() - 1;

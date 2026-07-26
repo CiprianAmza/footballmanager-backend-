@@ -8,8 +8,9 @@ import java.util.Map;
 import java.util.Random;
 
 /**
- * Versioned script -> a profile-adaptive number of continuous physical frames
- * ({@link AnimationFrameBudget#framesFor}; the replay holds {@code totalFrames + 1} snapshots).
+ * Versioned script -> continuous physical frames. {@link AnimationFrameBudget#framesFor}
+ * is the maximum scheduling capacity; current replays end after their real physical action
+ * plus a short result beat instead of padding every phase to that worst-case capacity.
  *
  * <p>Two properties are guaranteed by construction rather than by validator
  * tolerance:
@@ -34,6 +35,8 @@ public final class FrameCompiler implements AnimationCompiler {
 
     private static final int MIN_DWELL = 3;
     private static final int SHOT_TAIL = 2;
+    /** No player should freeze on the ball for more than 0.4 seconds at 30 fps. */
+    private static final int MAX_ADDED_DWELL_PER_TOUCH = 12;
 
     /** Frozen cosmetic tuning for this version. */
     public record CompilerTuning(double patrolAmplitudeX, double patrolAmplitudeY,
@@ -54,7 +57,7 @@ public final class FrameCompiler implements AnimationCompiler {
     private final double stepCap;
     private final double accelCap;
     private final double ballCap;
-    /** Profile-adaptive number of animated frames for this render (the replay holds totalFrames + 1). */
+    /** Profile-adaptive maximum scheduling capacity for this render. */
     private final int totalFrames;
     /**
      * "On the ball" radius: how close a mover must be to the declared target to
@@ -163,24 +166,31 @@ public final class FrameCompiler implements AnimationCompiler {
         };
         List<BallLeg> legs = ballLegs(spec, script, touches, index, schedule, shotFrame, shotArrival,
                 shotOrigin, shotEnd);
-        PitchPoint[] ball = compileBall(legs, positions, shotArrival, spec.outcome(), shotEnd, reboundDirection);
+        int resultTailFrames = resultTailFrames(spec.outcome(), shotEnd, reboundDirection);
+        PitchPoint[] ball = compileBall(legs, positions, shotArrival, spec.outcome(), shotEnd,
+                reboundDirection, resultTailFrames);
         long[] carrier = compileCarriers(legs, players);
 
         List<AnimationEvent> events = compileEvents(spec, touches, index, schedule, shotFrame, shotArrival,
                 players, goalkeeper, blocker);
 
+        // The full array is only a physical scheduling envelope.  Export exactly the action
+        // that occurred and enough frames to see its result; short combinations stay short,
+        // while genuinely long runs retain the time they physically need.
+        int renderedFrames = Math.min(totalFrames, shotArrival + resultTailFrames);
+
         boolean scoringAttacksRight = spec.scoringTeamAttacksRight();
         boolean mirror = !scoringAttacksRight;
         if (mirror) {
-            for (int frame = 0; frame <= totalFrames; frame++) {
+            for (int frame = 0; frame <= renderedFrames; frame++) {
                 ball[frame] = ball[frame].mirrorX();
                 for (int player = 0; player < playerCount; player++)
                     positions[frame][player] = positions[frame][player].mirrorX();
             }
         }
 
-        List<AnimationFrame> frames = new ArrayList<>(totalFrames + 1);
-        for (int frame = 0; frame <= totalFrames; frame++) {
+        List<AnimationFrame> frames = new ArrayList<>(renderedFrames + 1);
+        for (int frame = 0; frame <= renderedFrames; frame++) {
             List<PitchPoint> framePositions = new ArrayList<>(playerCount);
             for (int player = 0; player < playerCount; player++)
                 framePositions.add(positions[frame][player].rounded());
@@ -289,9 +299,7 @@ public final class FrameCompiler implements AnimationCompiler {
      * hard lower bounds.
      */
     private void applyPacing(PatternId pattern, int[] arrival, int[] release) {
-        int earliestShot = release[release.length - 1];
-        int targetShot = Math.max(earliestShot, pacingTargetShot(pattern));
-        int slack = targetShot - earliestShot;
+        int slack = pacingSlack(pattern, release.length);
         if (slack <= 0) return;
 
         double[] weights = pacingWeights(pattern, release.length);
@@ -299,28 +307,22 @@ public final class FrameCompiler implements AnimationCompiler {
         int cumulative = 0;
         for (int touch = 0; touch < release.length; touch++) {
             arrival[touch] += cumulative;
-            cumulative += pauses[touch];
+            cumulative += Math.min(MAX_ADDED_DWELL_PER_TOUCH, pauses[touch]);
             release[touch] += cumulative;
         }
     }
 
-    /** The shot, not the result, is targeted; its physical flight then occupies the final beat. */
-    private int pacingTargetShot(PatternId pattern) {
-        double fraction = switch (pattern) {
-            // Genuine ruptures of rhythm: a visible first read, then an accelerated break.
-            case COUNTER_ATTACK -> 0.70;
-            case LONG_BALL, THROUGH_BALL, ONE_TWO -> 0.76;
-            // Dynamic wide attacks: quick final delivery after a measured setup.
-            case LOW_CROSS_CUTBACK, OVERLAP_AND_CROSS -> 0.80;
-            // Patient phases use most of the clip rather than finishing immediately.
-            case SHORT_PASSING_SEQUENCE, SWITCH_OF_PLAY, LONG_SHOT -> 0.84;
-            // Dead balls spend their time in preparation; the strike remains quick.
-            case PENALTY, DIRECT_FREE_KICK, CROSSED_FREE_KICK, CORNER_CROSS, SHORT_CORNER -> 0.84;
-            case SAFE_FALLBACK -> 0.78;
+    /** Deliberate rhythm is added to the physical minimum, never to a worst-case clip size. */
+    private static int pacingSlack(PatternId pattern, int touches) {
+        int requested = switch (pattern) {
+            case COUNTER_ATTACK -> 8;
+            case LONG_BALL, THROUGH_BALL, ONE_TWO -> 12;
+            case LOW_CROSS_CUTBACK, OVERLAP_AND_CROSS -> 16;
+            case SHORT_PASSING_SEQUENCE, SWITCH_OF_PLAY, LONG_SHOT -> Math.min(36, touches * 8);
+            case PENALTY, DIRECT_FREE_KICK, CROSSED_FREE_KICK, CORNER_CROSS, SHORT_CORNER -> 18;
+            case SAFE_FALLBACK -> 8;
         };
-        // Reserve enough room for the shot flight and a short visible result, eliminating
-        // the multi-second dead tail without risking an over-budget render.
-        return Math.min((int) Math.round(totalFrames * fraction), totalFrames - 38);
+        return Math.min(requested, touches * MAX_ADDED_DWELL_PER_TOUCH);
     }
 
     private static double[] pacingWeights(PatternId pattern, int touches) {
@@ -516,7 +518,8 @@ public final class FrameCompiler implements AnimationCompiler {
     }
 
     private PitchPoint[] compileBall(List<BallLeg> legs, PitchPoint[][] positions, int shotArrival,
-                                     AnimationOutcome outcome, PitchPoint shotEnd, double reboundDirection) {
+                                     AnimationOutcome outcome, PitchPoint shotEnd, double reboundDirection,
+                                     int settle) {
         PitchPoint[] ball = new PitchPoint[totalFrames + 1];
         for (BallLeg leg : legs) {
             for (int frame = leg.from(); frame <= Math.min(leg.to(), totalFrames); frame++) {
@@ -532,8 +535,6 @@ public final class FrameCompiler implements AnimationCompiler {
                 }
             }
         }
-        int settle = Math.max(tuning.shotSettleBase(), (int) Math.ceil(
-                2 * shotEnd.distanceTo(rest(outcome, shotEnd, reboundDirection)) / ballCap));
         PitchPoint rest = rest(outcome, shotEnd, reboundDirection);
         for (int frame = shotArrival + 1; frame <= totalFrames; frame++) {
             double t = Math.min(1, (double) (frame - shotArrival) / settle);
@@ -541,6 +542,11 @@ public final class FrameCompiler implements AnimationCompiler {
             ball[frame] = lerp(shotEnd, rest, eased);
         }
         return ball;
+    }
+
+    private int resultTailFrames(AnimationOutcome outcome, PitchPoint shotEnd, double reboundDirection) {
+        return Math.max(tuning.shotSettleBase(), (int) Math.ceil(
+                2 * shotEnd.distanceTo(rest(outcome, shotEnd, reboundDirection)) / ballCap));
     }
 
     private PitchPoint rest(AnimationOutcome outcome, PitchPoint shotEnd, double reboundDirection) {

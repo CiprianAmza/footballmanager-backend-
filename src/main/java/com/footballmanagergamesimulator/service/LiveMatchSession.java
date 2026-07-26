@@ -673,7 +673,12 @@ public class LiveMatchSession {
         int slotIndex = nextVisualSlotIndex++;
         long attackingTeamId = attackingHome ? teamId1 : teamId2;
         long defendingTeamId = attackingHome ? teamId2 : teamId1;
-        boolean extraTime = min > 90 + secondHalfStoppage;
+        // Minutes in this session are absolute match ticks: first-half stoppage shifts
+        // every second-half tick as well.  Using only second-half stoppage classified the
+        // last firstHalfStoppage ticks of regulation as extra time and reversed the goal
+        // direction for those V3 moments.
+        int regulationEndMinute = 90 + firstHalfStoppage + secondHalfStoppage;
+        boolean extraTime = min > regulationEndMinute;
         return svc.animationV3GoalAdapter.tryBuildMoment(
                 visualFixtureKey(), slotIndex, visualPlanSeed(), min, extraTime,
                 attackingTeamId, defendingTeamId, teamId1,
