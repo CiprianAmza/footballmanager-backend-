@@ -98,7 +98,7 @@ class RoomContinueCoordinatorTest {
     }
 
     private void configureMembers(int count) { List<GameRoomMember> list = java.util.stream.IntStream.range(0, count).mapToObj(i -> member(i + 1)).toList(); when(rooms.openRoomForUpdate()).thenReturn(room); when(rooms.currentCycleForUpdate(room)).thenReturn(cycle); when(rooms.membersRepository().findActiveForUpdate(7L)).thenReturn(list); when(rooms.members(room)).thenReturn(list); }
-    private GameRoomMember member(int userId) { GameRoomMember m = new GameRoomMember(); m.setUserId(userId); m.setRoomId(7L); m.setTeamId(userId); return m; }
+    private GameRoomMember member(int userId) { GameRoomMember m = new GameRoomMember(); m.setUserId(userId); m.setRoomId(7L); m.setTeamId((long) userId); return m; }
     private RoomContinueVote vote(long cycleId, int userId, VoteSource source) { RoomContinueVote v = new RoomContinueVote(); v.setCycleId(cycleId); v.setUserId(userId); v.setSource(source); return v; }
     private GameCalendar calendar(int season, int day) { GameCalendar c = new GameCalendar(); c.setSeason(season); c.setCurrentDay(day); c.setCurrentPhase("MORNING"); return c; }
 }

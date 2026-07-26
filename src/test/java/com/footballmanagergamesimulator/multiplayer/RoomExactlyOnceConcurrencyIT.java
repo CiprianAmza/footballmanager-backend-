@@ -42,7 +42,7 @@ class RoomExactlyOnceConcurrencyIT {
         votes.deleteAll(); cycles.deleteAll(); members.deleteAll(); rooms.deleteAll(); calendars.deleteAll();
         GameCalendar calendar = new GameCalendar(); calendar.setSeason(1); calendar.setCurrentDay(365); calendar.setCurrentPhase("EVENING"); calendars.saveAndFlush(calendar);
         GameRoom room = new GameRoom(); room.setHostUserId(7001); room.setPasswordHash("test-only"); room.setStatus(RoomStatus.ACTIVE); rooms.saveAndFlush(room);
-        GameRoomMember member = new GameRoomMember(); member.setRoomId(room.getId()); member.setUserId(7001); member.setTeamId(7001); members.saveAndFlush(member);
+        GameRoomMember member = new GameRoomMember(); member.setRoomId(room.getId()); member.setUserId(7001); member.setTeamId(7001L); members.saveAndFlush(member);
         RoomContinueCycle cycle = new RoomContinueCycle(); cycle.setRoomId(room.getId()); cycle.setSeason(1); cycle.setGameDay(365); cycle.setStatus(CycleStatus.ADVANCING);
         cycle.setOpenedAt(Instant.now().minusSeconds(60)); cycle.setDayDeadline(Instant.now().minusSeconds(60)); cycle.setAdvanceToken("long-day-token"); cycle.setAdvanceLeaseUntil(Instant.now().minusSeconds(1));
         cycles.saveAndFlush(cycle);
