@@ -455,6 +455,8 @@ public final class FrameCompiler implements AnimationCompiler {
             }
         }
 
+        addDefensivePressureTracks(tracks, formation, attackingCount, goalkeeper, schedule, touches);
+
         // Scorer follow-through after the shot.
         int scorer = index.get(touches.get(finalTouch).playerId());
         tracks.get(scorer).add(new Span(shotFrame, totalFrames + 1,
@@ -475,6 +477,50 @@ public final class FrameCompiler implements AnimationCompiler {
                     formation[blocker].distanceTo(blockPoint))), totalFrames + 1, blockPoint, false));
         }
         return tracks;
+    }
+
+    /**
+     * Defenders react to the actual move instead of uniformly retreating toward their
+     * own goal. At every advanced touch, the nearest defender closes the ball and a
+     * second defender covers the central lane. These are physical seek targets, so the
+     * same speed/acceleration constraints as every other movement still apply.
+     */
+    private void addDefensivePressureTracks(
+            List<List<Span>> tracks, PitchPoint[] formation, int attackingCount,
+            int goalkeeper, Schedule schedule, List<PlayScript.Touch> touches) {
+        for (int touchIndex = 0; touchIndex < touches.size(); touchIndex++) {
+            PitchPoint ballTarget = touches.get(touchIndex).target();
+            // Do not send a back line chasing harmless possession in the opponent's
+            // defensive third; pressure begins once the move enters a relevant zone.
+            if (ballTarget.x() < 45) continue;
+
+            List<Integer> nearest = new ArrayList<>();
+            for (int player = attackingCount; player < formation.length; player++) {
+                if (player != goalkeeper) nearest.add(player);
+            }
+            nearest.sort(java.util.Comparator
+                    .comparingDouble((Integer player) -> formation[player].distanceTo(ballTarget))
+                    .thenComparingInt(Integer::intValue));
+
+            int defendersToMove = Math.min(2, nearest.size());
+            for (int rank = 0; rank < defendersToMove; rank++) {
+                int defender = nearest.get(rank);
+                double coverDepth = rank == 0 ? 2.5 : 7.0;
+                double coverY = rank == 0
+                        ? ballTarget.y()
+                        : ballTarget.y() + (50 - ballTarget.y()) * 0.45;
+                PitchPoint pressure = clamp(new PitchPoint(
+                        Math.min(97, ballTarget.x() + coverDepth), coverY));
+
+                int arrival = schedule.arrival()[touchIndex];
+                int release = touchIndex == touches.size() - 1
+                        ? schedule.shotFrame() : schedule.release()[touchIndex];
+                int lead = framesToReach(formation[defender].distanceTo(pressure));
+                int from = Math.max(0, arrival - lead);
+                int to = Math.min(totalFrames + 1, release + (rank == 0 ? 7 : 12));
+                if (to > from) tracks.get(defender).add(new Span(from, to, pressure, false));
+            }
+        }
     }
 
     private static int previousRelease(List<PlayScript.Touch> touches, Map<Long, Integer> index,

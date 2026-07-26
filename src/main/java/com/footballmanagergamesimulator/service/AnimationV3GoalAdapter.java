@@ -101,11 +101,23 @@ public class AnimationV3GoalAdapter {
             addSnapshots(onPitch, attackersOnPitch, attackingTeamId, shirtNumbers);
             addSnapshots(onPitch, visualDefenders, defendingTeamId, shirtNumbers);
 
+            // SAVE/MISS/BLOCKED do not have a statistical assist, but that must not be
+            // interpreted as "the shooter dribbled alone from midfield". Select a stable
+            // build-up provider for presentation so the existing collective V3 patterns
+            // (through ball, one-two, passing move, cross, counter) remain available.
+            // GOAL keeps its canonical assist truth unchanged.
+            Long visualProviderId = assisterId;
+            if (visualProviderId == null && outcome != AnimationOutcome.GOAL) {
+                visualProviderId = buildUpProvider(attackersOnPitch, shooterId)
+                        .map(Contributor::playerId)
+                        .orElse(null);
+            }
+
             MatchMomentSpec spec = new MatchMomentSpec(
                     fixtureKey, slotIndex, planSeed, AnimationDirector.CURRENT_GENERATOR_VERSION,
                     minute, firstHalfStoppage, period,
                     attackingTeamId, defendingTeamId, homeTeamId,
-                    phase, outcome, shooterId, assisterId, onPitch, null);
+                    phase, outcome, shooterId, visualProviderId, onPitch, null);
 
             AnimationReplay replay = director.direct(spec).replay();
             GoalAnimationData data = toGoalAnimationData(replay, firstHalfStoppage);
@@ -186,6 +198,27 @@ public class AnimationV3GoalAdapter {
             case "DM" -> 2;
             case "MC", "ML", "MR" -> 3;
             default -> 4;
+        };
+    }
+
+    private static Optional<Contributor> buildUpProvider(List<Contributor> attackers, long shooterId) {
+        return attackers.stream()
+                .filter(player -> player.playerId() != shooterId)
+                .filter(player -> !player.isGoalkeeper())
+                .min(Comparator.comparingInt((Contributor player) -> buildUpRank(player.position()))
+                        .thenComparingLong(Contributor::playerId));
+    }
+
+    private static int buildUpRank(String position) {
+        if (position == null) return 6;
+        return switch (position) {
+            case "AMC", "AML", "AMR" -> 0;
+            case "MC", "ML", "MR" -> 1;
+            case "DM" -> 2;
+            case "WBL", "WBR", "DL", "DR" -> 3;
+            case "ST" -> 4;
+            case "DC" -> 5;
+            default -> 6;
         };
     }
 
