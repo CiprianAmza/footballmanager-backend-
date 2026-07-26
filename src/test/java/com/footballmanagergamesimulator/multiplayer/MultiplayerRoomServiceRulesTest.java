@@ -50,12 +50,31 @@ class MultiplayerRoomServiceRulesTest {
         User manager = user(1, CareerRole.MANAGER, 11L); CurrentUserService current = mock(CurrentUserService.class); when(current.requireUser()).thenReturn(manager);
         GameRoom room = new GameRoom(); room.setId(10L); room.setStatus(RoomStatus.ACTIVE); room.setHostUserId(1);
         GameRoomMember member = new GameRoomMember(); member.setRoomId(10L); member.setUserId(1); member.setTeamId(11L);
+        GameRoomMember left = new GameRoomMember(); left.setRoomId(10L); left.setUserId(2); left.setTeamId(22L); left.setMembershipStatus(MembershipStatus.LEFT);
         GameRoomRepository roomRepo = mock(GameRoomRepository.class); GameRoomMemberRepository memberRepo = mock(GameRoomMemberRepository.class);
         when(memberRepo.findFirstByUserIdAndMembershipStatus(1, MembershipStatus.ACTIVE)).thenReturn(Optional.of(member)); when(roomRepo.findByIdForUpdate(10L)).thenReturn(Optional.of(room)); when(memberRepo.findActiveForUpdate(10L, 1)).thenReturn(Optional.of(member));
         MultiplayerRoomService service = new MultiplayerRoomService(roomRepo, memberRepo, mock(RoomContinueCycleRepository.class), mock(RoomContinueVoteRepository.class), current, mock(PasswordEncoder.class), mock(TeamRepository.class), mock(GameCalendarRepository.class));
         assertThrows(org.springframework.web.server.ResponseStatusException.class, service::leave);
-        room.setStatus(RoomStatus.LOBBY); when(memberRepo.findAllByRoomIdAndMembershipStatus(10L, MembershipStatus.ACTIVE)).thenReturn(List.of()); when(memberRepo.findAllByRoomIdAndMembershipStatus(10L, MembershipStatus.LEFT)).thenReturn(List.of());
-        service.leave(); verify(roomRepo).delete(room);
+        room.setStatus(RoomStatus.LOBBY); when(memberRepo.findAllByRoomId(10L)).thenReturn(List.of(member, left));
+        service.leave(); verify(memberRepo).deleteAll(List.of(member, left)); verify(roomRepo).delete(room);
+    }
+
+    @Test void nonHostLeaveThenHostLeaveRemovesAllRowsAndAllowsNewSingletonRoom() {
+        User nonHost = user(2, CareerRole.MANAGER, 22L); User host = user(1, CareerRole.MANAGER, 11L);
+        CurrentUserService current = mock(CurrentUserService.class); when(current.requireUser()).thenReturn(nonHost, host, host);
+        GameRoom room = new GameRoom(); room.setId(12L); room.setStatus(RoomStatus.LOBBY); room.setHostUserId(1); room.setPasswordHash("encoded");
+        GameRoomMember hostMember = new GameRoomMember(); hostMember.setRoomId(12L); hostMember.setUserId(1); hostMember.setTeamId(11L);
+        GameRoomMember guestMember = new GameRoomMember(); guestMember.setRoomId(12L); guestMember.setUserId(2); guestMember.setTeamId(22L);
+        GameRoomRepository roomRepo = mock(GameRoomRepository.class); GameRoomMemberRepository memberRepo = mock(GameRoomMemberRepository.class); PasswordEncoder encoder = mock(PasswordEncoder.class);
+        when(memberRepo.findFirstByUserIdAndMembershipStatus(2, MembershipStatus.ACTIVE)).thenReturn(Optional.of(guestMember)); when(memberRepo.findFirstByUserIdAndMembershipStatus(1, MembershipStatus.ACTIVE)).thenReturn(Optional.of(hostMember), Optional.empty());
+        when(roomRepo.findByIdForUpdate(12L)).thenReturn(Optional.of(room)); when(memberRepo.findActiveForUpdate(12L, 2)).thenReturn(Optional.of(guestMember)); when(memberRepo.findActiveForUpdate(12L, 1)).thenReturn(Optional.of(hostMember));
+        when(memberRepo.findAllByRoomId(12L)).thenReturn(List.of(hostMember, guestMember)); when(encoder.encode(anyString())).thenReturn("encoded");
+        GameRoom replacement = new GameRoom(); replacement.setId(13L); replacement.setStatus(RoomStatus.LOBBY); when(roomRepo.findOpenForUpdate(List.of(RoomStatus.LOBBY, RoomStatus.ACTIVE))).thenReturn(Optional.empty()); when(roomRepo.save(any(GameRoom.class))).thenReturn(replacement);
+        MultiplayerRoomService service = new MultiplayerRoomService(roomRepo, memberRepo, mock(RoomContinueCycleRepository.class), mock(RoomContinueVoteRepository.class), current, encoder, mock(TeamRepository.class), mock(GameCalendarRepository.class));
+
+        service.leave(); assertEquals(MembershipStatus.LEFT, guestMember.getMembershipStatus());
+        service.leave(); verify(memberRepo).deleteAll(List.of(hostMember, guestMember)); verify(roomRepo).delete(room);
+        assertEquals(replacement, service.create(new MultiplayerRoomService.CreateRoom("secret", 50, 300, 60, 2)));
     }
 
     private MultiplayerRoomService service(CurrentUserService current, User user, GameRoomRepository roomRepo, GameRoomMemberRepository memberRepo) {

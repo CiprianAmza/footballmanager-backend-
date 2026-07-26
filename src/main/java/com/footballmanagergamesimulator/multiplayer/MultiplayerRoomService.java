@@ -102,8 +102,8 @@ public class MultiplayerRoomService {
             }
             voteRepository.flush();
             cycleRepository.deleteAll(cycleRepository.findAllByRoomId(room.getId())); cycleRepository.flush();
-            memberRepository.deleteAll(memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE));
-            memberRepository.delete(member); memberRepository.flush();
+            memberRepository.deleteAll(memberRepository.findAllByRoomId(room.getId()));
+            memberRepository.flush();
             roomRepository.delete(room); roomRepository.flush();
         }
     }

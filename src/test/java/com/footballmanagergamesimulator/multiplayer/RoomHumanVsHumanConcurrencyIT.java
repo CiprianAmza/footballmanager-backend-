@@ -10,6 +10,8 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchPlanRepository;
+import com.footballmanagergamesimulator.multiplayer.RoomContinueCycleRepository;
+import com.footballmanagergamesimulator.multiplayer.RoomContinueVoteRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
@@ -37,6 +39,8 @@ class RoomHumanVsHumanConcurrencyIT {
     @Autowired private HumanRepository humans;
     @Autowired private GameRoomRepository rooms;
     @Autowired private GameRoomMemberRepository members;
+    @Autowired private RoomContinueVoteRepository votes;
+    @Autowired private RoomContinueCycleRepository cycles;
     @Autowired private CompetitionTeamInfoMatchRepository fixtures;
     @Autowired private MatchPlanRepository plans;
     @Autowired private MatchPlanService planService;
@@ -48,6 +52,8 @@ class RoomHumanVsHumanConcurrencyIT {
 
     @BeforeEach
     void seed() {
+        votes.deleteAll();
+        cycles.deleteAll();
         members.deleteAll();
         rooms.deleteAll();
         plans.deleteAll();
