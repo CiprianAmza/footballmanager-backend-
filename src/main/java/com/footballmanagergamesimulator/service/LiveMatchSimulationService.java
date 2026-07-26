@@ -13,6 +13,7 @@ import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
+import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -41,6 +42,8 @@ public class LiveMatchSimulationService {
     GoalAnimationService goalAnimationService;
     @Autowired
     PlayerSkillsRepository playerSkillsRepository;
+    @Autowired
+    PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired
     MatchEngineConfig engineConfig;
     @Autowired
@@ -184,6 +187,50 @@ public class LiveMatchSimulationService {
         liveMatchCache.put(key, data);
         liveMatchSessions.put(key, session);
         return data;
+    }
+
+    /**
+     * Animation-lab match rendered through the same kickoff-lineup seam as production.
+     * The old preview constructed a standalone live session and therefore used its
+     * rating-only provisional XI; this adopts the saved/AI positional XI before the
+     * first minute, including Chairman formation enforcement inside {@code LineupAdapter}.
+     */
+    public LiveMatchData simulateLivePreview(
+            long teamId1, long teamId2,
+            double power1, double power2,
+            long competitionId, int season, int round) {
+        LiveMatchSession session = new LiveMatchSession(this,
+                teamId1, teamId2, power1, power2,
+                competitionId, season, round, true);
+        String homeTactic = previewTactic(teamId1);
+        String awayTactic = previewTactic(teamId2);
+        if (matchPlanService != null) {
+            String fixtureKey = "animation-preview:" + teamId1 + ":" + teamId2;
+            var lineups = matchPlanService.buildKickoffLineups(
+                    fixtureKey, competitionId, season, round,
+                    teamId1, teamId2, homeTactic, awayTactic);
+            session.adoptCanonicalXi(lineups.home(), lineups.away());
+        }
+        session.setKickoffFormations(homeTactic, awayTactic);
+        session.advanceUntil(session.totalMinutes);
+
+        LiveMatchData data = session.buildResult();
+        String key = buildKey(competitionId, season, round, teamId1, teamId2);
+        liveMatchCache.put(key, data);
+        liveMatchSessions.put(key, session);
+        return data;
+    }
+
+    private String previewTactic(long teamId) {
+        return personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
+                .map(PersonalizedTactic::getTactic)
+                .filter(value -> value != null && !value.isBlank())
+                .orElseGet(() -> humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                        .stream()
+                        .filter(manager -> !manager.isRetired())
+                        .map(Human::getTacticStyle)
+                        .filter(value -> value != null && !value.isBlank())
+                        .findFirst().orElse("442"));
     }
 
 

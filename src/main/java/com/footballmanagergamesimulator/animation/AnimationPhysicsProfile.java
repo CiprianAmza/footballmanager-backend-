@@ -41,7 +41,7 @@ public record AnimationPhysicsProfile(
     }
 
     public static AnimationPhysicsProfile defaults() {
-        return new AnimationPhysicsProfile(0.9, 0.45, 4.0);
+        return new AnimationPhysicsProfile(0.45, 0.15, 1.5);
     }
 
     /**

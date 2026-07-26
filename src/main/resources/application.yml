@@ -119,9 +119,9 @@ match:
   animation:
     v3:
       enabled: true
-      max-player-step: 0.9
-      max-player-acceleration: 0.45
-      max-ball-step: 4.0
+      max-player-step: 0.45
+      max-player-acceleration: 0.15
+      max-ball-step: 1.5
   engine:
 
     # Canonical MatchPlan is the durable boundary required by authoritative Compartment scoring.

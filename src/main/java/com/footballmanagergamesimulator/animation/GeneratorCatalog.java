@@ -17,16 +17,17 @@ final class GeneratorCatalog {
     }
 
     /** Newest installed generator; new moments render with this version. */
-    static final int CURRENT_VERSION = 2;
+    static final int CURRENT_VERSION = FrameCompiler.VERSION;
 
     private final Map<Integer, Generator> generators = new LinkedHashMap<>();
 
     GeneratorCatalog(AnimationPhysicsProfile profile) {
-        // Two independently frozen implementations coexist and dispatch is by exact version.
-        // Version 1 is the original engine, preserved byte-for-byte; version 2 is the remediated
-        // engine and is current. Registering version 2 never mutates version 1.
+        // Independently frozen implementations coexist and dispatch is by exact version.
         register(new Generator(LegacyFrameCompiler.VERSION, new LegacyFrameCompiler(profile),
                 LegacyPatternLibrary.patterns(), LegacyPatternLibrary.fallback()));
+        register(new Generator(FrameCompiler.PREVIOUS_VERSION,
+                new FrameCompiler(profile, FrameCompiler.PREVIOUS_VERSION, FrameCompiler.TUNING),
+                PatternLibrary.patterns(), PatternLibrary.fallback()));
         register(new Generator(FrameCompiler.VERSION, new FrameCompiler(profile),
                 PatternLibrary.patterns(), PatternLibrary.fallback()));
     }

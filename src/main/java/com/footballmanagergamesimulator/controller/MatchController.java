@@ -1,8 +1,14 @@
 package com.footballmanagergamesimulator.controller;
 
+import com.footballmanagergamesimulator.animation.AnimationOutcome;
+import com.footballmanagergamesimulator.animation.AnimationPhase;
 import com.footballmanagergamesimulator.frontend.*;
+import com.footballmanagergamesimulator.matchplan.Contributor;
+import com.footballmanagergamesimulator.matchplan.Lineup;
+import com.footballmanagergamesimulator.matchplan.LineupAdapter;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
+import com.footballmanagergamesimulator.service.AnimationV3GoalAdapter;
 import com.footballmanagergamesimulator.service.GoalAnimationService;
 import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
@@ -58,6 +64,12 @@ public class MatchController {
     HumanRepository humanRepository;
     @Autowired
     GoalAnimationService goalAnimationService;
+    @Autowired
+    AnimationV3GoalAdapter animationV3GoalAdapter;
+    @Autowired
+    LineupAdapter lineupAdapter;
+    @Autowired
+    PersonalizedTacticRepository personalizedTacticRepository;
     @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
     @Autowired
@@ -762,48 +774,111 @@ public class MatchController {
             @RequestParam(defaultValue = "GOAL") String outcome,
             @RequestParam(defaultValue = "25") int minute) {
 
-        List<Human> atkAll = humanRepository.findAllByTeamIdAndTypeId(teamId1, 1L).stream()
+        List<Human> atkSquad = humanRepository.findAllByTeamIdAndTypeId(teamId1, 1L).stream()
                 .filter(h -> !h.isRetired()).collect(Collectors.toList());
-        List<Human> defAll = humanRepository.findAllByTeamIdAndTypeId(teamId2, 1L).stream()
+        List<Human> defSquad = humanRepository.findAllByTeamIdAndTypeId(teamId2, 1L).stream()
                 .filter(h -> !h.isRetired()).collect(Collectors.toList());
 
-        if (atkAll.isEmpty() || defAll.isEmpty()) return null;
+        if (atkSquad.isEmpty() || defSquad.isEmpty()) return null;
 
-        // Pick a random scorer from the attacking team (weighted by position)
-        Random rng = new Random();
-        List<Human> outfield = atkAll.stream()
-                .filter(h -> !"GK".equals(h.getPosition()))
-                .collect(Collectors.toList());
-        if (outfield.isEmpty()) outfield = atkAll;
-        Human scorer = outfield.get(rng.nextInt(outfield.size()));
+        String normalizedType = type == null ? "OPEN_PLAY" : type.trim().toUpperCase(Locale.ROOT);
+        AnimationOutcome normalizedOutcome;
+        try {
+            normalizedOutcome = AnimationOutcome.valueOf(
+                    outcome == null ? "GOAL" : outcome.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException invalidOutcome) {
+            normalizedOutcome = AnimationOutcome.GOAL;
+        }
+        AnimationPhase phase = switch (normalizedType) {
+            case "PENALTY" -> AnimationPhase.PENALTY;
+            case "FREE_KICK" -> AnimationPhase.FREE_KICK;
+            case "CORNER" -> AnimationPhase.CORNER;
+            default -> AnimationPhase.OPEN_PLAY;
+        };
 
-        switch (type.toUpperCase()) {
+        long previewSeed = Objects.hash(teamId1, teamId2, normalizedType, normalizedOutcome, minute);
+        Lineup attackingLineup = previewLineup(teamId1, previewSeed);
+        Lineup defendingLineup = previewLineup(teamId2, previewSeed * 31 + 1);
+        List<Contributor> attackers = attackingLineup.getStartingXI();
+        List<Contributor> defenders = defendingLineup.getStartingXI();
+        if (attackers.isEmpty() || defenders.isEmpty()) return null;
+
+        List<Contributor> outfield = attackers.stream()
+                .filter(player -> !player.isGoalkeeper())
+                .sorted(Comparator.comparingDouble(Contributor::rating).reversed()
+                        .thenComparingLong(Contributor::playerId))
+                .toList();
+        if (outfield.isEmpty()) outfield = attackers;
+        Contributor shooter = outfield.get(0);
+        Contributor assister = phase == AnimationPhase.OPEN_PLAY || phase == AnimationPhase.CORNER
+                ? outfield.stream().filter(player -> player.playerId() != shooter.playerId())
+                        .findFirst().orElse(null)
+                : null;
+
+        Map<Long, Integer> shirtNumbers = new HashMap<>();
+        atkSquad.forEach(player -> shirtNumbers.put(player.getId(), player.getShirtNumber()));
+        defSquad.forEach(player -> shirtNumbers.put(player.getId(), player.getShirtNumber()));
+
+        if (animationV3GoalAdapter.enabled()) {
+            return animationV3GoalAdapter.tryBuildMoment(
+                    "animation-preview:" + teamId1 + ":" + teamId2 + ":" + normalizedType
+                            + ":" + normalizedOutcome + ":" + minute,
+                    0, previewSeed, minute, minute > 90,
+                    teamId1, teamId2, teamId1, phase, normalizedOutcome,
+                    shooter.playerId(), assister == null ? null : assister.playerId(),
+                    attackers, defenders, shirtNumbers).orElse(null);
+        }
+
+        // Flag-off compatibility follows the same authoritative XI; it is never allowed
+        // to silently substitute higher-rated bench players into the preview.
+        List<Human> atkAll = humansInLineupOrder(attackers, atkSquad);
+        List<Human> defAll = humansInLineupOrder(defenders, defSquad);
+        Human scorer = findHuman(atkAll, shooter.playerId());
+        Human legacyAssister = assister == null ? null : findHuman(atkAll, assister.playerId());
+
+        switch (normalizedType) {
             case "PENALTY":
                 return goalAnimationService.generatePenalty(
                         atkAll, defAll, scorer,
                         teamId1, teamId2, teamId1, minute,
-                        "GOAL".equalsIgnoreCase(outcome));
+                        normalizedOutcome == AnimationOutcome.GOAL);
 
             case "FREE_KICK":
-                String fkOutcome = outcome.toUpperCase();
-                if (!"GOAL".equals(fkOutcome) && !"SAVE".equals(fkOutcome) && !"MISS".equals(fkOutcome)) {
-                    fkOutcome = "GOAL";
-                }
                 return goalAnimationService.generateFreeKick(
                         atkAll, defAll, scorer,
-                        teamId1, teamId2, teamId1, minute, fkOutcome);
+                        teamId1, teamId2, teamId1, minute, normalizedOutcome.name());
 
             default: // OPEN_PLAY
-                Human assister = null;
-                if (outfield.size() > 1) {
-                    do {
-                        assister = outfield.get(rng.nextInt(outfield.size()));
-                    } while (assister.getId() == scorer.getId());
-                }
                 return goalAnimationService.generate(
-                        atkAll, defAll, scorer, assister,
-                        teamId1, teamId2, teamId1, minute);
+                        atkAll, defAll, scorer, legacyAssister,
+                        teamId1, teamId2, teamId1, minute, normalizedOutcome.name());
         }
+    }
+
+    private Lineup previewLineup(long teamId, long seed) {
+        String formation = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
+                .map(PersonalizedTactic::getTactic)
+                .filter(value -> value != null && !value.isBlank())
+                .orElseGet(() -> humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                        .stream()
+                        .filter(manager -> !manager.isRetired())
+                        .map(Human::getTacticStyle)
+                        .filter(value -> value != null && !value.isBlank())
+                        .findFirst().orElse("442"));
+        // USER_SAVED consumes the real saved XI when present and atomically falls back to
+        // the canonical automatic positional selection when it is absent or incomplete.
+        return lineupAdapter.build(teamId, formation, seed, LineupAdapter.Mode.USER_SAVED).lineup();
+    }
+
+    private static List<Human> humansInLineupOrder(List<Contributor> lineup, List<Human> squad) {
+        Map<Long, Human> byId = squad.stream().collect(Collectors.toMap(
+                Human::getId, player -> player, (left, right) -> left));
+        return lineup.stream().map(player -> byId.get(player.playerId()))
+                .filter(Objects::nonNull).toList();
+    }
+
+    private static Human findHuman(List<Human> players, long playerId) {
+        return players.stream().filter(player -> player.getId() == playerId).findFirst().orElse(null);
     }
 
     /**
@@ -829,7 +904,7 @@ public class MatchController {
 
         // Sentinel coordinates keep the preview session out of real fixtures'
         // key space (competitionId -1, season 0, round 0).
-        return liveMatchSimulationService.simulateLiveMatch(
+        return liveMatchSimulationService.simulateLivePreview(
                 teamId1, teamId2, power1, power2, -1L, 0, 0);
     }
 

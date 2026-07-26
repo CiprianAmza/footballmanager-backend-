@@ -26,8 +26,9 @@ import java.util.Random;
  * not actually reach the declared target — the director then falls back.
  */
 public final class FrameCompiler implements AnimationCompiler {
-    /** Generator version 2: the remediated engine, current for all new moments. Version 1 is frozen legacy. */
-    public static final int VERSION = 2;
+    /** Generator version 3: physically paced phases. Versions 1 and 2 remain frozen for replay. */
+    public static final int VERSION = 3;
+    public static final int PREVIOUS_VERSION = 2;
     public static final double GOAL_MIN_Y = 44;
     public static final double GOAL_MAX_Y = 56;
 
@@ -75,7 +76,7 @@ public final class FrameCompiler implements AnimationCompiler {
         this.stepCap = profile.playerStepCap();
         this.accelCap = profile.playerAccelerationCap();
         this.ballCap = profile.ballStepCap();
-        this.totalFrames = AnimationFrameBudget.framesFor(profile);
+        this.totalFrames = AnimationFrameBudget.framesFor(version, profile);
         this.reachTolerance = stepCap + 0.15;
     }
 
@@ -267,7 +268,129 @@ public final class FrameCompiler implements AnimationCompiler {
         }
         int shotFrame = release[n - 1];
         if (shotFrame > totalFrames - 25) return null;
+        if (version >= VERSION) {
+            applyPacing(script.pattern(), arrival, release);
+            shotFrame = release[n - 1];
+        }
+        if (shotFrame > totalFrames - 25) return null;
         return new Schedule(script, arrival, release, shotFrame);
+    }
+
+    /**
+     * Version-3 visual rhythm. Version 2 deliberately scheduled every touch at the first
+     * physically possible frame, which made every pattern look like the same continuous
+     * sprint and left most of the fixed replay budget after the result.
+     *
+     * <p>The extra time is held by the current carrier and distributed at pattern-specific
+     * break points. A counter attack therefore has a short setup followed by a burst, a
+     * switch/long ball has a visible scan before the release, combinations remain sharp,
+     * patient possession breathes between passes, and set pieces keep their deliberate
+     * preparation. Physical travel and ball-flight calculations are unchanged and remain
+     * hard lower bounds.
+     */
+    private void applyPacing(PatternId pattern, int[] arrival, int[] release) {
+        int earliestShot = release[release.length - 1];
+        int targetShot = Math.max(earliestShot, pacingTargetShot(pattern));
+        int slack = targetShot - earliestShot;
+        if (slack <= 0) return;
+
+        double[] weights = pacingWeights(pattern, release.length);
+        int[] pauses = distribute(slack, weights);
+        int cumulative = 0;
+        for (int touch = 0; touch < release.length; touch++) {
+            arrival[touch] += cumulative;
+            cumulative += pauses[touch];
+            release[touch] += cumulative;
+        }
+    }
+
+    /** The shot, not the result, is targeted; its physical flight then occupies the final beat. */
+    private int pacingTargetShot(PatternId pattern) {
+        double fraction = switch (pattern) {
+            // Genuine ruptures of rhythm: a visible first read, then an accelerated break.
+            case COUNTER_ATTACK -> 0.70;
+            case LONG_BALL, THROUGH_BALL, ONE_TWO -> 0.76;
+            // Dynamic wide attacks: quick final delivery after a measured setup.
+            case LOW_CROSS_CUTBACK, OVERLAP_AND_CROSS -> 0.80;
+            // Patient phases use most of the clip rather than finishing immediately.
+            case SHORT_PASSING_SEQUENCE, SWITCH_OF_PLAY, LONG_SHOT -> 0.84;
+            // Dead balls spend their time in preparation; the strike remains quick.
+            case PENALTY, DIRECT_FREE_KICK, CROSSED_FREE_KICK, CORNER_CROSS, SHORT_CORNER -> 0.84;
+            case SAFE_FALLBACK -> 0.78;
+        };
+        // Reserve enough room for the shot flight and a short visible result, eliminating
+        // the multi-second dead tail without risking an over-budget render.
+        return Math.min((int) Math.round(totalFrames * fraction), totalFrames - 38);
+    }
+
+    private static double[] pacingWeights(PatternId pattern, int touches) {
+        double[] weights = new double[touches];
+        if (touches == 1) {
+            weights[0] = 1.0;
+            return weights;
+        }
+        switch (pattern) {
+            case COUNTER_ATTACK -> {
+                weights[0] = 0.58;
+                weights[touches - 1] = 0.12;
+                fillMiddle(weights, 0.30);
+            }
+            case LONG_BALL, SWITCH_OF_PLAY -> {
+                weights[0] = 0.68;
+                weights[touches - 1] = 0.17;
+                fillMiddle(weights, 0.15);
+            }
+            case THROUGH_BALL, ONE_TWO -> {
+                weights[0] = 0.48;
+                weights[touches - 1] = 0.27;
+                fillMiddle(weights, 0.25);
+            }
+            case LOW_CROSS_CUTBACK, OVERLAP_AND_CROSS -> {
+                weights[0] = 0.44;
+                weights[touches - 1] = 0.30;
+                fillMiddle(weights, 0.26);
+            }
+            case SHORT_PASSING_SEQUENCE -> {
+                // Intentionally even: this is the patient pattern, not another sudden break.
+                for (int i = 0; i < touches; i++) weights[i] = 1.0 / touches;
+            }
+            case PENALTY, DIRECT_FREE_KICK, CROSSED_FREE_KICK, CORNER_CROSS, SHORT_CORNER -> {
+                weights[0] = 0.82;
+                weights[touches - 1] = 0.12;
+                fillMiddle(weights, 0.06);
+            }
+            default -> {
+                weights[0] = 0.52;
+                weights[touches - 1] = 0.28;
+                fillMiddle(weights, 0.20);
+            }
+        }
+        return weights;
+    }
+
+    private static void fillMiddle(double[] weights, double total) {
+        int middle = Math.max(0, weights.length - 2);
+        if (middle == 0) {
+            weights[0] += total * 0.5;
+            weights[weights.length - 1] += total * 0.5;
+            return;
+        }
+        for (int i = 1; i < weights.length - 1; i++) weights[i] = total / middle;
+    }
+
+    private static int[] distribute(int total, double[] weights) {
+        int[] result = new int[weights.length];
+        int allocated = 0;
+        for (int i = 0; i < weights.length; i++) {
+            result[i] = (int) Math.floor(total * weights[i]);
+            allocated += result[i];
+        }
+        // Stable remainder distribution keeps replay output deterministic.
+        for (int i = 0; allocated < total; i = (i + 1) % result.length) {
+            result[i]++;
+            allocated++;
+        }
+        return result;
     }
 
     private int framesToReach(double distance) {

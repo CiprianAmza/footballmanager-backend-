@@ -100,8 +100,22 @@ public class GoalAnimationContext {
      * positioning step doesn't double-place keepers on the goal line.
      */
     public static List<Human> selectEleven(List<Human> all, Human must1, Human must2) {
-        List<Human> sorted = all.stream()
+        List<Human> available = all.stream()
+                .filter(java.util.Objects::nonNull)
                 .filter(h -> !h.isRetired())
+                .filter(distinctById())
+                .collect(Collectors.toList());
+
+        /*
+         * Live callers pass the actual on-pitch set. Treat a set of at most eleven as
+         * authoritative and preserve both its membership and field order; selecting the
+         * highest-rated squad players here used to put substitutes into SAVE/MISS clips.
+         * A list larger than eleven is the old preview/squad contract and still needs a
+         * deterministic best-eleven fallback.
+         */
+        if (available.size() <= 11) return List.copyOf(available);
+
+        List<Human> sorted = available.stream()
                 .sorted(Comparator.comparingDouble(Human::getRating).reversed())
                 .collect(Collectors.toList());
 
@@ -137,6 +151,11 @@ public class GoalAnimationContext {
             used.add(p.getId());
         }
         return result;
+    }
+
+    private static java.util.function.Predicate<Human> distinctById() {
+        Set<Long> seen = new HashSet<>();
+        return human -> human != null && seen.add(human.getId());
     }
 
     /** Build the per-player animation info row. */
