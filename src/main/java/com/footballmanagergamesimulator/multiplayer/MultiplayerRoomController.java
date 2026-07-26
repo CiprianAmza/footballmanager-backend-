@@ -57,7 +57,18 @@ public class MultiplayerRoomController {
     @DeleteMapping("/room/fast-forward")
     public Map<String, Object> stopFastForward() { service.setFastForward(false, 0); return state(false); }
 
-    @GetMapping("/room/state") public Map<String, Object> stateEndpoint() { return state(true); }
+    @GetMapping("/room/state")
+    public Map<String, Object> stateEndpoint() {
+        try {
+            return state(true);
+        } catch (org.springframework.web.server.ResponseStatusException exception) {
+            if (exception.getStatusCode().value() == 403 && "NOT_ROOM_MEMBER".equals(exception.getReason())) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "ROOM_MEMBERSHIP_NOT_FOUND");
+            }
+            throw exception;
+        }
+    }
 
     private Map<String, Object> state(boolean includeCycle) {
         GameRoom room = service.requireMemberRoom();
