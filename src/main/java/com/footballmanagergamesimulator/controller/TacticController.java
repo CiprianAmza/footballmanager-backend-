@@ -219,10 +219,18 @@ public class TacticController {
         source.setTactic(effectiveFormation);
         if (source.getFormationDataList() != null) {
             List<FormationData> effective = mandateEnforcement.enforceFormation(teamId, effectiveFormation,
-                    source.getFormationDataList(), coachPermissionService.lockedSlots(teamId), unavailable, runtime);
+                    source.getFormationDataList(), legacyLocksUnlessCanonicalMandate(teamId), unavailable, runtime);
             source.setFormationDataList(new ArrayList<>(effective));
         }
         return source;
+    }
+
+    private List<com.footballmanagergamesimulator.service.CoachPermissionService.LockedSlot>
+    legacyLocksUnlessCanonicalMandate(long teamId) {
+        EffectiveChairmanMandate mandate = mandateEnforcement.mandate(teamId);
+        return mandate.requiredFormation() != null || !mandate.lockedSlots().isEmpty()
+                ? List.of()
+                : coachPermissionService.lockedSlots(teamId);
     }
 
     private boolean isKnownFormation(String tactic) {
@@ -315,6 +323,9 @@ public class TacticController {
 
         CoachPermissions perms = coachPermissionService.getOrDefault(teamId);
         PersonalizedTactic existing = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId).orElse(null);
+        EffectiveChairmanMandate chairmanMandate = mandateEnforcement.mandate(teamId);
+        boolean canonicalMandateActive = chairmanMandate.requiredFormation() != null
+                || !chairmanMandate.lockedSlots().isEmpty();
 
         // Resolve the manager permission first, then overlay the Chairman mandate. The
         // persisted tactic is always this effective value; the request must never win later.
@@ -330,15 +341,22 @@ public class TacticController {
         // coach's submission. Owner-locked slots are then forced on top (server-side validation,
         // not just UI), so a coach cannot move a player the owner pinned to a slot.
         List<FormationData> xi;
-        if (!adminOverride && !perms.isCanPickXI() && existing != null && existing.getFirst11() != null) {
+        if (!adminOverride && !canonicalMandateActive && !perms.isCanPickXI()
+                && existing != null && existing.getFirst11() != null) {
             xi = parseFirst11(existing.getFirst11());
         } else {
             xi = personalizedTacticView.getFormationDataList() != null
                     ? new ArrayList<>(personalizedTacticView.getFormationDataList())
                     : new ArrayList<>();
         }
+        // The canonical mandate is authoritative: when present, only its exact locked slots
+        // restrict the manager. Legacy all-XI/slot permissions must not make every other slot
+        // read-only after the Chairman selected only a subset of players.
         xi = mandateEnforcement.enforceFormation(teamId, effectiveTactic, xi,
-                adminOverride ? List.of() : coachPermissionService.parseLockedSlots(perms.getLockedSlots()), Set.of(), false);
+                adminOverride || canonicalMandateActive
+                        ? List.of()
+                        : coachPermissionService.parseLockedSlots(perms.getLockedSlots()),
+                Set.of(), false);
         try {
             personalizedTactic.setFirst11(objectMapper.writeValueAsString(xi));
         } catch (JsonProcessingException e) {
@@ -504,6 +522,21 @@ public class TacticController {
             result.add(view);
         }
         return List.copyOf(result);
+    }
+
+    /** Minimal manager-editor mandate read model. It deliberately performs no lineup, match or
+     * availability work, so the UI can always explain and enforce Chairman restrictions. */
+    @GetMapping("/editorMandate/{teamId}")
+    public Map<String, Object> editorMandate(@PathVariable long teamId) {
+        if (!teamRepository.existsById(teamId)) {
+            throw new RuntimeException("Team not found.");
+        }
+        EffectiveChairmanMandate mandate = mandateEnforcement.mandate(teamId);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("teamId", teamId);
+        response.put("requiredFormation", mandate.requiredFormation());
+        response.put("lockedSlots", mandate.lockedSlots());
+        return response;
     }
 
     /** One pitch cell of a formation: the 0..29 grid index and the position label rendered there. */
@@ -961,7 +994,7 @@ public class TacticController {
         Set<Long> lockedPlayerIds = new HashSet<>();
         Map<String, Integer> lockedCountByPos = new HashMap<>();
         for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.resolvedLockedSlots(team.getId(), formation,
-                coachPermissionService.lockedSlots(team.getId()), unavailableIds)) {
+                legacyLocksUnlessCanonicalMandate(team.getId()), unavailableIds)) {
             Human locked = humanRepository.findById(lock.playerId()).orElse(null);
             if (locked == null || lockedPlayerIds.contains(locked.getId())) continue;
             String slotPos = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
@@ -1303,7 +1336,7 @@ public class TacticController {
         // Chairman locks first; legacy locks follow only when they do not conflict.
         Set<Integer> lockedIndices = new HashSet<>();
         for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.resolvedLockedSlots(teamId, effectiveTactic,
-                coachPermissionService.lockedSlots(teamId), unavailableIds)) {
+                legacyLocksUnlessCanonicalMandate(teamId), unavailableIds)) {
             FormationData fd = new FormationData();
             fd.setPositionIndex(lock.positionIndex());
             fd.setPlayerId(lock.playerId());
