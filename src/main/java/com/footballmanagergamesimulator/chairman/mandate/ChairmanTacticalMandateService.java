@@ -83,7 +83,12 @@ public class ChairmanTacticalMandateService {
         mandate.setUpdatedGameDay(calendar == null ? 0 : calendar.getCurrentDay());
         List<MandateSlot> slots = requested.stream().sorted(Comparator.comparingInt(ChairmanTacticalMandateDtos.LockedSlot::positionIndex))
                 .map(slot -> new MandateSlot(slot.positionIndex(), slot.playerId())).toList();
-        mandate.replaceSlots(slots);
+        // Do not clear and recreate every child in one flush. Hibernate may insert the
+        // replacements before deleting the orphans, violating the unique slot/player
+        // constraints even for a valid edit that retains an existing lock.
+        mandate.retainExactSlots(slots);
+        mandateRepository.saveAndFlush(mandate);
+        mandate.addMissingSlots(slots);
         ChairmanTacticalMandateDtos.MandateView result = view(mandateRepository.saveAndFlush(mandate));
         chairmanInbox.notify(principal.getId(), teamId, result.updatedSeason(), result.updatedGameDay(),
                 "TACTICAL_MANDATE_UPDATED", "Tactical mandate updated", "A new tactical mandate was committed.",

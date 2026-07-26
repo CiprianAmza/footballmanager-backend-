@@ -48,4 +48,30 @@ public class ChairmanTacticalMandate {
         slots.clear();
         replacement.forEach(slot -> { slot.setMandate(this); slots.add(slot); });
     }
+
+    /**
+     * Keeps only rows that are already an exact part of the requested mandate.
+     * The service flushes these removals before inserting replacements so the
+     * two database unique constraints cannot be hit by Hibernate insert/delete
+     * ordering when a Chairman edits an existing XI mandate.
+     */
+    public void retainExactSlots(List<MandateSlot> requested) {
+        slots.removeIf(existing -> requested.stream().noneMatch(candidate ->
+                candidate.getPositionIndex() == existing.getPositionIndex()
+                        && candidate.getRequiredPlayerId() == existing.getRequiredPlayerId()));
+    }
+
+    /** Adds only requested rows which were not retained by {@link #retainExactSlots(List)}. */
+    public void addMissingSlots(List<MandateSlot> requested) {
+        requested.stream()
+                .sorted(Comparator.comparingInt(MandateSlot::getPositionIndex)
+                        .thenComparingLong(MandateSlot::getRequiredPlayerId))
+                .filter(candidate -> slots.stream().noneMatch(existing ->
+                        candidate.getPositionIndex() == existing.getPositionIndex()
+                                && candidate.getRequiredPlayerId() == existing.getRequiredPlayerId()))
+                .forEach(slot -> {
+                    slot.setMandate(this);
+                    slots.add(slot);
+                });
+    }
 }
