@@ -59,11 +59,6 @@ public interface HumanRepository extends JpaRepository<Human, Long> {
     /** Batch lookup for a club's complete payroll (players, manager and staff). */
     List<Human> findAllByTeamIdIn(Collection<Long> teamIds);
 
-    interface TeamValueTotal {
-        Long getTeamId();
-        Long getTotalValue();
-    }
-
     Page<Human> findAllByTypeIdAndRetiredFalseAndTeamIdIsNotNullAndTeamIdNot(
             long typeId, long teamId, Pageable pageable);
 
