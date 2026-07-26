@@ -154,8 +154,8 @@ public class MatchStatsService {
         stats.setAwayShotsBlocked(awayBlocked);
 
         // --- CORNERS ---
-        int homeCorners = clamp((int) (sc.getCornersBase() + homeShots * sc.getCornersPerShot() + rng.nextGaussian() * sc.getCornersNoise()), 0, 15);
-        int awayCorners = clamp((int) (sc.getCornersBase() + awayShots * sc.getCornersPerShot() + rng.nextGaussian() * sc.getCornersNoise()), 0, 15);
+        int homeCorners = shotVolume.homeCorners();
+        int awayCorners = shotVolume.awayCorners();
         stats.setHomeCorners(homeCorners);
         stats.setAwayCorners(awayCorners);
 
@@ -371,10 +371,8 @@ public class MatchStatsService {
                 * (profile.blockedRate() + rng.nextDouble() * profile.blockedNoise())), 0,
                 awayShots - awayShotsOnTarget));
 
-        stats.setHomeCorners(clamp((int) Math.round(profile.cornersBase()
-                + homeShots * profile.cornersPerShot() + rng.nextGaussian()), 0, 15));
-        stats.setAwayCorners(clamp((int) Math.round(profile.cornersBase()
-                + awayShots * profile.cornersPerShot() + rng.nextGaussian()), 0, 15));
+        stats.setHomeCorners(shotVolume.homeCorners());
+        stats.setAwayCorners(shotVolume.awayCorners());
         int homeFouls = clamp((int) Math.round(profile.foulsBase() - edge * 2 + rng.nextGaussian() * profile.foulNoise()), 4, 22);
         int awayFouls = clamp((int) Math.round(profile.foulsBase() + edge * 2 + rng.nextGaussian() * profile.foulNoise()), 4, 22);
         stats.setHomeFouls(homeFouls);

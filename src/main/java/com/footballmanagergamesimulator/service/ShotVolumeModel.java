@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.Random;
 
 /**
- * Single source of truth for pre-match shot volume.
+ * Single source of truth for pre-match shot and corner volume.
  *
  * <p>The sampled score never drives the shot line.  The only score-related
  * input is the final invariant floor ({@code shots >= goals}).  When canonical
@@ -35,8 +35,8 @@ public final class ShotVolumeModel {
         double exponent = Math.max(0.1, stats.getShotVolumeSplitExponent());
         double weightedHome = poweredShare(controlShare, exponent);
 
-        Random random = new Random(seedFor(
-                competitionId, season, round, homeTeamId, awayTeamId));
+        long seed = seedFor(competitionId, season, round, homeTeamId, awayTeamId);
+        Random random = new Random(seed);
         double matchTempo = logNormalMeanOne(random, stats.getShotsTempoNoiseSigma());
         double totalMean = Math.max(1.0, stats.getShotVolumeTotalBase() * matchTempo);
         double homeMean = Math.max(0.2, totalMean * weightedHome
@@ -46,7 +46,15 @@ public final class ShotVolumeModel {
 
         int homeShots = Math.max(homeGoals, poisson(random, homeMean, stats.getShotsMax()));
         int awayShots = Math.max(awayGoals, poisson(random, awayMean, stats.getShotsMax()));
-        return new ShotVolume(controlShare, weightedHome, homeMean, awayMean, homeShots, awayShots);
+
+        // Corners are also a pre-match budget. Keeping their RNG independent from
+        // the shot sampler makes the result stable when shot-sampling internals evolve,
+        // while every consumer still receives the exact same match-level totals.
+        Random cornerRandom = new Random(seed ^ 0x434f524e455253L);
+        int homeCorners = cornerBudget(homeShots, stats, cornerRandom);
+        int awayCorners = cornerBudget(awayShots, stats, cornerRandom);
+        return new ShotVolume(controlShare, weightedHome, homeMean, awayMean,
+                homeShots, awayShots, homeCorners, awayCorners);
     }
 
     private static double controlShare(double homePower, double awayPower,
@@ -86,6 +94,13 @@ public final class ShotVolumeModel {
         return Math.min(max, value - 1);
     }
 
+    private static int cornerBudget(int shots, MatchEngineConfig.Stats stats, Random random) {
+        int corners = (int) Math.round(stats.getCornersBase()
+                + shots * stats.getCornersPerShot()
+                + random.nextGaussian() * stats.getCornersNoise());
+        return Math.max(0, Math.min(15, corners));
+    }
+
     static long seedFor(long competitionId, int season, int round,
                         long homeTeamId, long awayTeamId) {
         long hash = 0xcbf29ce484222325L;
@@ -109,6 +124,8 @@ public final class ShotVolumeModel {
             double homeMean,
             double awayMean,
             int homeShots,
-            int awayShots) {
+            int awayShots,
+            int homeCorners,
+            int awayCorners) {
     }
 }

@@ -124,8 +124,12 @@ public class LiveMatchSession {
     private final double shotPlanAwayPower;
     private int plannedHomeShots;
     private int plannedAwayShots;
+    private int plannedHomeCorners;
+    private int plannedAwayCorners;
     private final Map<Integer, Integer> homeNonGoalShotsByMinute = new HashMap<>();
     private final Map<Integer, Integer> awayNonGoalShotsByMinute = new HashMap<>();
+    private final Map<Integer, Integer> homeCornersByMinute = new HashMap<>();
+    private final Map<Integer, Integer> awayCornersByMinute = new HashMap<>();
     private Integer plannedHomeXg;
     private Integer plannedAwayXg;
 
@@ -393,17 +397,25 @@ public class LiveMatchSession {
                     homeGoals, awayGoals);
             plannedHomeShots = volume.homeShots();
             plannedAwayShots = volume.awayShots();
+            plannedHomeCorners = volume.homeCorners();
+            plannedAwayCorners = volume.awayCorners();
         } else {
             // Pure-helper construction without a Spring context.
             plannedHomeShots = Math.max(homeGoals, 12);
             plannedAwayShots = Math.max(awayGoals, 12);
+            plannedHomeCorners = 7;
+            plannedAwayCorners = 7;
         }
         homeNonGoalShotsByMinute.clear();
         awayNonGoalShotsByMinute.clear();
+        homeCornersByMinute.clear();
+        awayCornersByMinute.clear();
         scheduleNonGoalShots(homeNonGoalShotsByMinute,
                 Math.max(0, plannedHomeShots - homeGoals), true);
         scheduleNonGoalShots(awayNonGoalShotsByMinute,
                 Math.max(0, plannedAwayShots - awayGoals), false);
+        scheduleCorners(homeCornersByMinute, plannedHomeCorners, true);
+        scheduleCorners(awayCornersByMinute, plannedAwayCorners, false);
     }
 
     private void scheduleNonGoalShots(Map<Integer, Integer> target, int count, boolean home) {
@@ -428,6 +440,20 @@ public class LiveMatchSession {
         }
         int remaining = count - target.values().stream().mapToInt(Integer::intValue).sum();
         while (remaining-- > 0) {
+            int minute = firstMinute + scheduleRandom.nextInt(available);
+            target.merge(minute, 1, Integer::sum);
+        }
+    }
+
+    private void scheduleCorners(Map<Integer, Integer> target, int count, boolean home) {
+        if (count <= 0) return;
+        long sideSalt = home ? 0x484f4d455f434f52L : 0x415741595f434f52L;
+        Random scheduleRandom = new Random(ShotVolumeModel.seedFor(
+                competitionId, season, round, teamId1, teamId2) ^ sideSalt);
+        int firstMinute = 2;
+        int lastMinute = Math.max(firstMinute, totalMinutes - 1);
+        int available = lastMinute - firstMinute + 1;
+        for (int index = 0; index < count; index++) {
             int minute = firstMinute + scheduleRandom.nextInt(available);
             target.merge(minute, 1, Integer::sum);
         }
@@ -1326,6 +1352,8 @@ public class LiveMatchSession {
         boolean forcedAttack = isHomeBigChance || isAwayBigChance;
         int plannedHomeNonGoals = homeNonGoalShotsByMinute.getOrDefault(min, 0);
         int plannedAwayNonGoals = awayNonGoalShotsByMinute.getOrDefault(min, 0);
+        int plannedHomeCornersNow = homeCornersByMinute.getOrDefault(min, 0);
+        int plannedAwayCornersNow = awayCornersByMinute.getOrDefault(min, 0);
         boolean canonicalHomeGoal = isCanonicalPlanBound() && homeMinuteToSlots.containsKey(min);
         boolean canonicalAwayGoal = isCanonicalPlanBound() && awayMinuteToSlots.containsKey(min);
 
@@ -1341,8 +1369,12 @@ public class LiveMatchSession {
             effectivePossChance = Math.max(0.15, Math.min(0.85, team1PossChance + 0.08 * manDiff));
         }
 
-        boolean homeActionDue = isHomeGoalMinute || canonicalHomeGoal || plannedHomeNonGoals > 0;
-        boolean awayActionDue = isAwayGoalMinute || canonicalAwayGoal || plannedAwayNonGoals > 0;
+        // Only pinned playback consumes the deterministic shot/corner schedules.
+        // Legacy sessions must not let those unused plans steer possession.
+        boolean homeActionDue = isHomeGoalMinute || (pinned && (canonicalHomeGoal
+                || plannedHomeNonGoals > 0 || plannedHomeCornersNow > 0));
+        boolean awayActionDue = isAwayGoalMinute || (pinned && (canonicalAwayGoal
+                || plannedAwayNonGoals > 0 || plannedAwayCornersNow > 0));
         boolean team1HasBall = homeActionDue != awayActionDue
                 ? homeActionDue
                 : forcedAttack ? isHomeBigChance : random.nextDouble() < effectivePossChance;
@@ -1371,6 +1403,14 @@ public class LiveMatchSession {
             }
             if (plannedAwayNonGoals > 0) {
                 tickScheduledNonGoalShots(min, false, plannedAwayNonGoals);
+                emittedAttack = true;
+            }
+            if (plannedHomeCornersNow > 0) {
+                tickScheduledCorners(min, true, plannedHomeCornersNow);
+                emittedAttack = true;
+            }
+            if (plannedAwayCornersNow > 0) {
+                tickScheduledCorners(min, false, plannedAwayCornersNow);
                 emittedAttack = true;
             }
             if (!emittedAttack) {
@@ -1453,6 +1493,17 @@ public class LiveMatchSession {
         for (int index = 0; index < count; index++) {
             tickAttackBranch(min, attackers, teamId, teamName,
                     home, bigChance, false, true);
+        }
+    }
+
+    private void tickScheduledCorners(int min, boolean home, int count) {
+        long teamId = home ? teamId1 : teamId2;
+        String teamName = home ? homeTeamName : awayTeamName;
+        for (int index = 0; index < count; index++) {
+            if (home) homeCorners++; else awayCorners++;
+            timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "corner",
+                    "Corner kick for " + teamName + ".",
+                    0, null, teamId, teamName));
         }
     }
 
@@ -1597,15 +1648,6 @@ public class LiveMatchSession {
                 recordVisualMomentV3(
                         min, team1HasBall, attacker, null, AnimationOutcome.BLOCKED, "OPEN_PLAY");
             }
-            // A blocked effort can go behind. It remains exactly one shot; the
-            // resulting corner is a set piece, not a second synthetic attempt.
-            if (budgetedShot && random.nextDouble() < 0.28) {
-                if (team1HasBall) homeCorners++; else awayCorners++;
-                timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "corner",
-                        "The block sends it behind. Corner kick for " + attackingTeamName + ".",
-                        0, null, attackingTeamId, attackingTeamName));
-            }
-
         } else {
             // Corner
             if (team1HasBall) homeCorners++; else awayCorners++;
