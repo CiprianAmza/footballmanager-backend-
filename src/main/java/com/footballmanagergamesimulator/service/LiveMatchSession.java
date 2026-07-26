@@ -1,5 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.animation.AnimationOutcome;
+import com.footballmanagergamesimulator.animation.AnimationPhase;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.frontend.GoalAnimationData;
 import com.footballmanagergamesimulator.frontend.LiveMatchData;
@@ -48,6 +50,9 @@ import java.util.stream.Collectors;
  */
 public class LiveMatchSession {
 
+    /** Cosmetic/key-moment identities live above canonical MatchPlan goal-slot indices. */
+    private static final int VISUAL_SLOT_BASE = 1_000_000;
+
     private final LiveMatchSimulationService svc;
 
     // --- Identity / inputs (final) ---
@@ -68,12 +73,12 @@ public class LiveMatchSession {
     final List<StaminaSnapshot> staminaSnapshots = new ArrayList<>();
 
     // --- Output containers ---
-    // LEGACY: cosmetic (save/miss) animations, and — with the flag off — goal animations,
-    // keyed by minute (last at a minute wins). Byte-compatible with the existing frontend.
+    // LEGACY boundary retained only for Animation V3 flag-off compatibility.
     final Map<Integer, GoalAnimationData> goalAnimations;
-    // CANONICAL (flag on): the plan's goal animations in order, each carrying its
-    // (minute, slotIndex, fixtureKey) so the frontend queues by (minute, slotIndex).
+    // V3 boundary: every animated outcome in order, each carrying a collision-safe
+    // (minute, slotIndex, fixtureKey) identity. Multiple moments at one minute are preserved.
     final List<GoalAnimationData> canonicalAnimations = new ArrayList<>();
+    private int nextVisualSlotIndex = VISUAL_SLOT_BASE;
     final List<LiveMatchMinute> timeline = new ArrayList<>();
     final List<MatchEvent> dbEvents = new ArrayList<>();
 
@@ -406,13 +411,15 @@ public class LiveMatchSession {
             if (animScorer != null) {
                 LivePlanSnapshot.SlotView sv = slotByIndex.get(slotIndex);
                 String playType = sv != null ? sv.goalType() : "OPEN_PLAY";
-                // Presentation-only Animation Engine V3 first (feature flag, default off). It only
-                // renders the already-persisted canonical facts and can never change them; empty ⇒
-                // flag off or unrenderable ⇒ the legacy engine below runs with unchanged behaviour.
-                GoalAnimationData anim =
-                        buildCanonicalGoalAnimationV3(min, slotIndex, home, sv, scorerId, rg.assistId())
-                                .orElse(null);
-                if (anim == null) {
+                // Presentation-only Animation Engine V3 renders the already-persisted facts and
+                // can never change them. Legacy is used only when the V3 feature is disabled.
+                boolean v3Enabled = svc.animationV3GoalAdapter != null
+                        && svc.animationV3GoalAdapter.enabled();
+                GoalAnimationData anim = v3Enabled
+                        ? buildCanonicalGoalAnimationV3(min, slotIndex, home, sv, scorerId, rg.assistId())
+                                .orElse(null)
+                        : null;
+                if (anim == null && !v3Enabled) {
                     // Seed the animation from fixtureKey + slotIndex (not scorer + minute), so
                     // a same-minute goal gets a distinct animation and a refresh/replay
                     // regenerates the identical one. Cleared right after (thread-local).
@@ -428,8 +435,9 @@ public class LiveMatchSession {
                         svc.goalAnimationService.clearAnimationSeed();
                     }
                 }
-                // Canonical goal: appended to the ordered (minute, slotIndex) list so
-                // simultaneous goals never overwrite each other.
+                // With V3 enabled there is deliberately no per-event legacy fallback: a V3
+                // render failure is logged by the adapter and remains visible operationally.
+                // Mixing renderers inside one match would reintroduce different pacing/lineups.
                 addCanonicalAnimation(min, slotIndex, anim);
             }
         }
@@ -451,7 +459,6 @@ public class LiveMatchSession {
         if (svc.animationV3GoalAdapter == null || !svc.animationV3GoalAdapter.enabled()) return Optional.empty();
         List<Contributor> attackers = canonicalOnPitch(home);
         List<Contributor> defenders = canonicalOnPitch(!home);
-        if (attackers.isEmpty() || defenders.isEmpty()) return Optional.empty();
         long scoringTeamId = home ? teamId1 : teamId2;
         long defendingTeamId = home ? teamId2 : teamId1;
         boolean extraTime = sv != null && sv.phase() == GoalPhase.EXTRA_TIME;
@@ -523,21 +530,99 @@ public class LiveMatchSession {
         return out;
     }
 
-    /**
-     * Append a canonical GOAL animation to the ordered {@link #canonicalAnimations} list,
-     * stamped with its {@code (minute, slotIndex, fixtureKey)} so the frontend can queue and
-     * play by {@code (minute, slotIndex)} and a refresh can identify each goal's animation.
-     * Kept sorted by {@code (minute, slotIndex)}; multiple goals at one minute are preserved.
-     */
+    /** Current on-pitch snapshot for V3, using canonical participant attributes when a
+     * MatchPlan exists and the live Human state otherwise. */
+    private List<Contributor> visualOnPitch(boolean home) {
+        List<Contributor> canonical = canonicalOnPitch(home);
+        if (!canonical.isEmpty()) return canonical;
+
+        List<Human> players = home ? team1All : team2All;
+        List<Contributor> out = new ArrayList<>();
+        for (Human player : players) {
+            PlayerMatchState state = matchStates.get(player.getId());
+            if (state == null || !state.isOnPitch) continue;
+            String position = fieldedPosition.getOrDefault(player.getId(), player.getPosition());
+            out.add(new Contributor(
+                    player.getId(), player.getName(), position, player.getRating(),
+                    0, 0, 0, Math.max(0.0, state.currentStamina), false, false));
+        }
+        return out;
+    }
+
+    private Map<Long, Integer> visualShirtNumbers() {
+        Map<Long, Integer> shirtNumbers = new HashMap<>();
+        for (Human player : team1All) shirtNumbers.put(player.getId(), player.getShirtNumber());
+        for (Human player : team2All) shirtNumbers.put(player.getId(), player.getShirtNumber());
+        return shirtNumbers;
+    }
+
+    private String visualFixtureKey() {
+        return canonicalFixtureKey != null
+                ? canonicalFixtureKey
+                : "live:" + LiveMatchSimulationService.buildKey(
+                        competitionId, season, round, teamId1, teamId2);
+    }
+
+    private long visualPlanSeed() {
+        if (canonicalPlan != null) return canonicalPlan.seed();
+        long seed = competitionId;
+        seed = seed * 1_000_003L + season;
+        seed = seed * 1_000_003L + round;
+        seed = seed * 1_000_003L + teamId1;
+        return seed * 1_000_003L + teamId2;
+    }
+
+    private static AnimationPhase visualPhase(String playType) {
+        if ("PENALTY".equals(playType)) return AnimationPhase.PENALTY;
+        if ("FREE_KICK".equals(playType)) return AnimationPhase.FREE_KICK;
+        if ("CORNER".equals(playType)) return AnimationPhase.CORNER;
+        return AnimationPhase.OPEN_PLAY;
+    }
+
+    /** Render one non-plan visual moment through V3 and assign it a unique identity. */
+    private GoalAnimationData buildVisualMomentV3(
+            int min, boolean attackingHome, Human shooter, Human assister,
+            AnimationOutcome outcome, String playType) {
+        if (svc.animationV3GoalAdapter == null || !svc.animationV3GoalAdapter.enabled()) return null;
+        List<Contributor> attackers = visualOnPitch(attackingHome);
+        List<Contributor> defenders = visualOnPitch(!attackingHome);
+        int slotIndex = nextVisualSlotIndex++;
+        long attackingTeamId = attackingHome ? teamId1 : teamId2;
+        long defendingTeamId = attackingHome ? teamId2 : teamId1;
+        boolean extraTime = min > 90 + secondHalfStoppage;
+        return svc.animationV3GoalAdapter.tryBuildMoment(
+                visualFixtureKey(), slotIndex, visualPlanSeed(), min, extraTime,
+                attackingTeamId, defendingTeamId, teamId1,
+                visualPhase(playType), outcome, shooter.getId(),
+                assister == null ? null : assister.getId(),
+                attackers, defenders, visualShirtNumbers()).orElse(null);
+    }
+
+    /** @return true when V3 owns this moment, including a logged V3 render failure. */
+    private boolean recordVisualMomentV3(
+            int min, boolean attackingHome, Human shooter, Human assister,
+            AnimationOutcome outcome, String playType) {
+        if (svc.animationV3GoalAdapter == null || !svc.animationV3GoalAdapter.enabled()) return false;
+        GoalAnimationData animation = buildVisualMomentV3(
+                min, attackingHome, shooter, assister, outcome, playType);
+        if (animation != null) {
+            addCanonicalAnimation(min, animation.getSlotIndex(), animation);
+        }
+        return true;
+    }
+
+    /** Append one V3 moment to the ordered, collision-safe playback boundary. */
     private void addCanonicalAnimation(int min, int slotIndex, GoalAnimationData anim) {
         if (anim == null) return;
         anim.setMinute(min);
         anim.setSlotIndex(slotIndex);
-        anim.setFixtureKey(canonicalFixtureKey);
+        anim.setFixtureKey(visualFixtureKey());
         // Persist the complete versioned recipe BEFORE exposing it to the frontend.  A cold
         // recovery then reuses these exact frames even after the generator implementation is
         // upgraded; it never silently regenerates an old goal with new code.
-        svc.persistCanonicalAnimation(canonicalFixtureKey, slotIndex, anim);
+        if (canonicalFixtureKey != null) {
+            svc.persistCanonicalAnimation(canonicalFixtureKey, slotIndex, anim);
+        }
         canonicalAnimations.add(anim);
         canonicalAnimations.sort(java.util.Comparator
                 .comparingInt(GoalAnimationData::getMinute)
@@ -550,6 +635,10 @@ public class LiveMatchSession {
         canonicalAnimations.sort(java.util.Comparator
                 .comparingInt(GoalAnimationData::getMinute)
                 .thenComparingInt(GoalAnimationData::getSlotIndex));
+        nextVisualSlotIndex = canonicalAnimations.stream()
+                .mapToInt(GoalAnimationData::getSlotIndex)
+                .filter(slot -> slot >= VISUAL_SLOT_BASE)
+                .max().orElse(VISUAL_SLOT_BASE - 1) + 1;
     }
 
     /** Mark the session as committed — called by CompetitionController after
@@ -1265,13 +1354,17 @@ public class LiveMatchSession {
             }
 
             if (goalAnimations != null) {
-                GoalAnimationData anim = svc.buildAttackAnimation(
-                        svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
-                        svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
-                        attacker, goalAssister,
-                        attackingTeamId, team1HasBall ? teamId2 : teamId1,
-                        teamId1, min, "GOAL", playType);
-                if (anim != null) goalAnimations.put(min, anim);
+                boolean handledByV3 = recordVisualMomentV3(
+                        min, team1HasBall, attacker, goalAssister, AnimationOutcome.GOAL, playType);
+                if (!handledByV3) {
+                    GoalAnimationData anim = svc.buildAttackAnimation(
+                            svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
+                            svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
+                            attacker, goalAssister,
+                            attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                            teamId1, min, "GOAL", playType);
+                    if (anim != null) goalAnimations.put(min, anim);
+                }
             }
 
         } else if (attackRoll < saveCutoff) {
@@ -1289,15 +1382,21 @@ public class LiveMatchSession {
                     min, "shot_saved", attacker.getId(), attacker.getName(), attackingTeamId,
                     (prefix.isEmpty() ? "Shot saved" : prefix.trim())));
 
-            boolean shouldAnimate = forcedAttack || (goalAnimations != null && random.nextDouble() < 0.25);
-            if (goalAnimations != null && shouldAnimate) {
-                GoalAnimationData anim = svc.buildAttackAnimation(
-                        svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
-                        svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
-                        attacker, null,
-                        attackingTeamId, team1HasBall ? teamId2 : teamId1,
-                        teamId1, min, "SAVE", playType);
-                if (anim != null) goalAnimations.put(min, anim);
+            // Preserve the historical presentation RNG draw, but no longer sample away 75%
+            // of saves. Every save is available to the clients' highlight filters.
+            if (!forcedAttack && goalAnimations != null) random.nextDouble();
+            if (goalAnimations != null) {
+                boolean handledByV3 = recordVisualMomentV3(
+                        min, team1HasBall, attacker, null, AnimationOutcome.SAVE, playType);
+                if (!handledByV3) {
+                    GoalAnimationData anim = svc.buildAttackAnimation(
+                            svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
+                            svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
+                            attacker, null,
+                            attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                            teamId1, min, "SAVE", playType);
+                    if (anim != null) goalAnimations.put(min, anim);
+                }
             }
 
         } else if (attackRoll < missCutoff) {
@@ -1312,15 +1411,20 @@ public class LiveMatchSession {
                     min, "shot_wide", attacker.getId(), attacker.getName(), attackingTeamId,
                     (prefix.isEmpty() ? "Shot wide" : prefix.trim())));
 
-            boolean shouldAnimate = forcedAttack || (goalAnimations != null && random.nextDouble() < 0.15);
-            if (goalAnimations != null && shouldAnimate) {
-                GoalAnimationData anim = svc.buildAttackAnimation(
-                        svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
-                        svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
-                        attacker, null,
-                        attackingTeamId, team1HasBall ? teamId2 : teamId1,
-                        teamId1, min, "MISS", playType);
-                if (anim != null) goalAnimations.put(min, anim);
+            // Preserve the historical presentation RNG draw, but expose every miss.
+            if (!forcedAttack && goalAnimations != null) random.nextDouble();
+            if (goalAnimations != null) {
+                boolean handledByV3 = recordVisualMomentV3(
+                        min, team1HasBall, attacker, null, AnimationOutcome.MISS, playType);
+                if (!handledByV3) {
+                    GoalAnimationData anim = svc.buildAttackAnimation(
+                            svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
+                            svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
+                            attacker, null,
+                            attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                            teamId1, min, "MISS", playType);
+                    if (anim != null) goalAnimations.put(min, anim);
+                }
             }
 
         } else if (attackRoll < blockedCutoff) {
@@ -1329,6 +1433,10 @@ public class LiveMatchSession {
             timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "shot_blocked",
                     attacker.getName() + blockDesc,
                     attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+            if (goalAnimations != null) {
+                recordVisualMomentV3(
+                        min, team1HasBall, attacker, null, AnimationOutcome.BLOCKED, "OPEN_PLAY");
+            }
 
         } else {
             // Corner
@@ -1351,13 +1459,17 @@ public class LiveMatchSession {
                         min, "goal", header.getId(), header.getName(), attackingTeamId, "Header from corner"));
 
                 if (goalAnimations != null) {
-                    GoalAnimationData anim = svc.goalAnimationService.generate(
-                            svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
-                            svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
-                            header, null,
-                            attackingTeamId, team1HasBall ? teamId2 : teamId1,
-                            teamId1, min, "GOAL");
-                    if (anim != null) goalAnimations.put(min, anim);
+                    boolean handledByV3 = recordVisualMomentV3(
+                            min, team1HasBall, header, null, AnimationOutcome.GOAL, "CORNER");
+                    if (!handledByV3) {
+                        GoalAnimationData anim = svc.goalAnimationService.generate(
+                                svc.filterOnPitch(team1HasBall ? team1All : team2All, matchStates),
+                                svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates),
+                                header, null,
+                                attackingTeamId, team1HasBall ? teamId2 : teamId1,
+                                teamId1, min, "GOAL");
+                        if (anim != null) goalAnimations.put(min, anim);
+                    }
                 }
             }
         }
@@ -1648,9 +1760,9 @@ public class LiveMatchSession {
 
         LiveMatchData data = new LiveMatchData();
         data.setGoalAnimations(goalAnimations); // legacy minute-keyed map (cosmetics + flag-off goals)
-        // Canonical goals go on the separate ordered boundary; the legacy map is untouched
-        // so a flag-off client sees byte-identical JSON.
-        if (isCanonicalPlanBound()) {
+        // V3 moments use the ordered boundary for every outcome. Keep the property absent
+        // only when neither a canonical plan nor a V3 moment exists (legacy flag-off path).
+        if (isCanonicalPlanBound() || !canonicalAnimations.isEmpty()) {
             data.setCanonicalAnimations(new ArrayList<>(canonicalAnimations));
         }
         data.setHomeTeamId(teamId1);

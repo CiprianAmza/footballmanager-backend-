@@ -491,7 +491,12 @@ public class MatchRoundSimulator {
                     // (scorers, stats, injuries, standings, suspensions, news,
                     // post-match PC) once the user finishes the playback.
                     interactiveMatch = true;
-                    boolean generateGoalAnims = humanManager != null && humanManager.isWatchGoalHighlights();
+                    // Generate the most comprehensive visual boundary once for every watched
+                    // match. In multiplayer/Chairman mode different viewers can have different
+                    // highlight preferences; choosing one team's Manager setting here used to
+                    // delete animations for every other viewer. Clients now filter the shared
+                    // superset locally, so the most general preference always wins safely.
+                    boolean generateGoalAnims = true;
                     // Two-axis engine: derive the live chances from the attack-vs-defense matchup
                     // (same profiles + vectors the instant path uses), and stash them so /commit
                     // resolves any knockout extra time on the same model.

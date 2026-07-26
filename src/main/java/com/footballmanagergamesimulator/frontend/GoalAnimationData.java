@@ -38,9 +38,9 @@ public class GoalAnimationData {
     private TeamKit scoringTeamKit;
     private TeamKit defendingTeamKit;
 
-    // "OPEN_PLAY", "PENALTY", "FREE_KICK"
+    // "OPEN_PLAY", "PENALTY", "FREE_KICK", "CORNER"
     private String animationType;
-    // "GOAL", "SAVE", "MISS"
+    // "GOAL", "SAVE", "MISS", "BLOCKED"
     private String outcome;
 
     // true = home team attacks toward x=100 (right goal), false = home attacks left
@@ -84,7 +84,7 @@ public class GoalAnimationData {
     @Data
     public static class AnimationEvent {
         private int frame;
-        private String type;      // "PASS", "SHOT", "GOAL", "SAVE", "MISS"
+        private String type;      // "PASS", "SHOT", "GOAL", "SAVE", "MISS", "BLOCKED"
         private long fromPlayerId;
         private long toPlayerId;  // 0 for SHOT/GOAL
     }

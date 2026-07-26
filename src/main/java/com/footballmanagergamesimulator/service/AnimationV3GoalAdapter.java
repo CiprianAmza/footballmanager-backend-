@@ -11,6 +11,8 @@ import com.footballmanagergamesimulator.animation.PitchPoint;
 import com.footballmanagergamesimulator.animation.PlayerSnapshot;
 import com.footballmanagergamesimulator.frontend.GoalAnimationData;
 import com.footballmanagergamesimulator.matchplan.Contributor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -27,13 +29,14 @@ import java.util.Optional;
  *
  * <p>This is the single feature-flag seam for V3. It is strictly non-authoritative: it
  * turns already-decided canonical facts (scorer, assister, minute, slot, period, on-pitch
- * lot) into an animation and can never change them. When the flag is off — or when the
- * canonical inputs cannot form a valid {@link MatchMomentSpec}, or the engine cannot render
- * — it returns {@link Optional#empty()} and the caller falls back to the legacy engine, so
- * the existing behaviour is preserved bit-for-bit while the flag is off.
+ * lot) into an animation and can never change them. Flag-off callers may retain the legacy
+ * renderer; while V3 is enabled a render failure is logged and is never hidden by mixing a
+ * different renderer into the same match.
  */
 @Component
 public class AnimationV3GoalAdapter {
+
+    private static final Logger log = LoggerFactory.getLogger(AnimationV3GoalAdapter.class);
 
     private final AnimationV3Settings settings;
     private final AnimationDirector director;
@@ -48,14 +51,14 @@ public class AnimationV3GoalAdapter {
         this.animationContext = animationContext;
     }
 
-    /** Whether the V3 presentation engine is enabled (feature flag, default off). */
+    /** Whether the V3 presentation engine is enabled. */
     public boolean enabled() {
         return settings.enabled();
     }
 
     /**
      * Build a V3 goal animation for one canonical goal slot, or {@link Optional#empty()} when
-     * the flag is off or the moment cannot be rendered (caller then uses the legacy engine).
+     * the flag is off or the moment cannot be rendered.
      *
      * @param attackersOnPitch scoring team's canonical on-pitch contributors (includes the scorer)
      * @param defendersOnPitch defending team's canonical on-pitch contributors (must include a GK)
@@ -67,31 +70,51 @@ public class AnimationV3GoalAdapter {
             String goalType, long scorerId, Long assisterId,
             List<Contributor> attackersOnPitch, List<Contributor> defendersOnPitch,
             Map<Long, Integer> shirtNumbers) {
+        return tryBuildMoment(
+                fixtureKey, slotIndex, planSeed, minute, extraTime,
+                scoringTeamId, defendingTeamId, homeTeamId,
+                phaseFor(goalType), AnimationOutcome.GOAL, scorerId, assisterId,
+                attackersOnPitch, defendersOnPitch, shirtNumbers);
+    }
+
+    /**
+     * Build any visual match moment with Animation Engine V3. This is the common path for
+     * goals, saves, misses and blocked shots; callers must not switch to the legacy renderer
+     * while V3 is enabled because mixing the two engines produces different lineups, pacing
+     * and collision semantics inside the same match.
+     */
+    public Optional<GoalAnimationData> tryBuildMoment(
+            String fixtureKey, int slotIndex, long planSeed, int minute,
+            boolean extraTime, long attackingTeamId, long defendingTeamId, long homeTeamId,
+            AnimationPhase phase, AnimationOutcome outcome, long shooterId, Long assisterId,
+            List<Contributor> attackersOnPitch, List<Contributor> defendersOnPitch,
+            Map<Long, Integer> shirtNumbers) {
         if (!settings.enabled()) return Optional.empty();
         try {
             int firstHalfStoppage = Math.max(0, animationContext.firstHalfStoppage());
             MatchPeriod period = periodFor(extraTime, minute, firstHalfStoppage);
-            AnimationPhase phase = phaseFor(goalType);
 
             List<PlayerSnapshot> onPitch = new ArrayList<>(attackersOnPitch.size() + defendersOnPitch.size());
-            addSnapshots(onPitch, attackersOnPitch, scoringTeamId, shirtNumbers);
+            addSnapshots(onPitch, attackersOnPitch, attackingTeamId, shirtNumbers);
             addSnapshots(onPitch, defendersOnPitch, defendingTeamId, shirtNumbers);
 
             MatchMomentSpec spec = new MatchMomentSpec(
                     fixtureKey, slotIndex, planSeed, AnimationDirector.CURRENT_GENERATOR_VERSION,
                     minute, firstHalfStoppage, period,
-                    scoringTeamId, defendingTeamId, homeTeamId,
-                    phase, AnimationOutcome.GOAL, scorerId, assisterId, onPitch, null);
+                    attackingTeamId, defendingTeamId, homeTeamId,
+                    phase, outcome, shooterId, assisterId, onPitch, null);
 
             AnimationReplay replay = director.direct(spec).replay();
             GoalAnimationData data = toGoalAnimationData(replay, firstHalfStoppage);
-            animationContext.attachKits(data, scoringTeamId, defendingTeamId);
+            animationContext.attachKits(data, attackingTeamId, defendingTeamId);
             data.setFirstHalfStoppage(firstHalfStoppage);
             return Optional.of(data);
         } catch (RuntimeException ex) {
-            // Any invalid canonical input (e.g. a GK sent off so the defending side has no
-            // keeper) or render failure degrades to the legacy engine rather than dropping
-            // the goal's animation. The canonical goal itself is already persisted upstream.
+            log.warn(
+                    "Animation V3 could not render fixture={} slot={} minute={} phase={} outcome={} "
+                            + "attackingTeam={} defendingTeam={} shooter={}",
+                    fixtureKey, slotIndex, minute, phase, outcome,
+                    attackingTeamId, defendingTeamId, shooterId, ex);
             return Optional.empty();
         }
     }
@@ -106,13 +129,13 @@ public class AnimationV3GoalAdapter {
         return minute <= 45 + firstHalfStoppage ? MatchPeriod.FIRST_HALF : MatchPeriod.SECOND_HALF;
     }
 
-    /** Canonical goal type → animation phase. HEADER is an open-play finish; there is no
-     *  canonical corner goal type, so CORNER is never produced here. */
+    /** Match play type → animation phase. HEADER remains an open-play finish. */
     private static AnimationPhase phaseFor(String goalType) {
         if (goalType == null) return AnimationPhase.OPEN_PLAY;
         return switch (goalType) {
             case "PENALTY" -> AnimationPhase.PENALTY;
             case "FREE_KICK" -> AnimationPhase.FREE_KICK;
+            case "CORNER" -> AnimationPhase.CORNER;
             default -> AnimationPhase.OPEN_PLAY; // OPEN_PLAY, HEADER, anything else
         };
     }

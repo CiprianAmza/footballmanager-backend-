@@ -9,16 +9,12 @@ import java.util.Map;
 @Data
 public class LiveMatchData {
 
-    // LEGACY boundary (flag off): goal + cosmetic animations keyed by minute (last one at
-    // a minute wins). Byte-compatible with the existing frontend. Only present when
-    // watchGoalHighlights is enabled.
+    // LEGACY boundary (V3 flag off): goal + cosmetic animations keyed by minute.
     private Map<Integer, GoalAnimationData> goalAnimations;
 
-    // CANONICAL boundary (flag on): the plan's goal animations as an ordered list carrying
-    // (minute, slotIndex, fixtureKey), so the frontend queues by (minute, slotIndex) and
-    // plays same-minute goals in sequence. @JsonInclude(NON_NULL): when the canonical plan
-    // is not bound (flag off) the property is OMITTED entirely, so the serialized JSON is
-    // byte-identical to the legacy contract.
+    // V3 boundary (flag on): every animated shot outcome as an ordered list carrying
+    // (minute, slotIndex, fixtureKey), so the frontend queues same-minute moments instead
+    // of overwriting them. Omitted only on the legacy flag-off path.
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<GoalAnimationData> canonicalAnimations;
 
