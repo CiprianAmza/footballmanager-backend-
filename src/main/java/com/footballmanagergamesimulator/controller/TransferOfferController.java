@@ -60,6 +60,9 @@ public class TransferOfferController {
     @Autowired
     TransferOfferLifecycleService transferOfferLifecycleService;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.ClubActionAuthorizationService clubActionAuthorizationService;
+
     private final Random random = new Random();
 
     @GetMapping("/incoming/{teamId}")
@@ -126,13 +129,12 @@ public class TransferOfferController {
         }
 
         Human player = playerOpt.get();
-        long humanTeamId = userContext.getTeamId(request);
+        var actor = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER);
+        long humanTeamId = actor.teamId();
 
-        if (!coachPermissionService.canBuyPlayers(humanTeamId)) {
-            return ResponseEntity.status(403).body("Restricționat de patron: nu poți cumpăra jucători.");
-        }
         long buyCap = coachPermissionService.transferBudgetCap(humanTeamId);
-        if (buyCap >= 0 && offerAmount > buyCap) {
+        if (!actor.chairman() && buyCap >= 0 && offerAmount > buyCap) {
             return ResponseEntity.status(403).body("Restricționat de patron: oferta depășește plafonul de transfer (" + buyCap + ").");
         }
 
@@ -622,7 +624,8 @@ public class TransferOfferController {
             return ResponseEntity.badRequest().body("Player is not a free agent");
         }
 
-        long humanTeamId = userContext.getTeamId(request);
+        long humanTeamId = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.ACQUISITION).teamId();
         Team team = teamRepository.findById(humanTeamId).orElse(null);
         if (team == null) {
             return ResponseEntity.badRequest().body("Team not found");

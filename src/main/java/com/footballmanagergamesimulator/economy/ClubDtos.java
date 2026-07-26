@@ -80,4 +80,8 @@ public final class ClubDtos {
     public record TransferBudgetRequest(@PositiveOrZero long amount) { }
     public record TransferBudgetView(long teamId, long transferBudget,
                                      long maximumTransferBudget, long clubFinances) { }
+    public record CoachAuthorityRequest(@NotNull Boolean managerTransfersAllowed,
+                                        @NotNull Boolean managerContractsAllowed) { }
+    public record CoachAuthorityView(long teamId, boolean managerTransfersAllowed,
+                                     boolean managerContractsAllowed) { }
 }

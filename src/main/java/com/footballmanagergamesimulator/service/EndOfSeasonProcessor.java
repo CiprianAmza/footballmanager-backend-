@@ -100,6 +100,7 @@ public class EndOfSeasonProcessor {
     @Autowired private TransferOfferLifecycleService transferOfferLifecycleService;
     @Autowired private CompetitionHistorySnapshotService competitionHistorySnapshotService;
     @Autowired private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
+    @Autowired private CoachPermissionService coachPermissionService;
 
     /** Dedup flags — owned by the processor so re-entry protection lives next
      *  to the body that needs it. {@link #reset()} clears them at new-season setup. */
@@ -607,7 +608,7 @@ public class EndOfSeasonProcessor {
                 transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
             } else {
                 // AI team: 50% auto-renew, 50% free agent
-                if (random.nextBoolean()) {
+                if (coachPermissionService.canNegotiateContracts(player.getTeamId()) && random.nextBoolean()) {
                     player.setContractEndSeason(newSeason + random.nextInt(2, 5));
                     player.setWage(WageService.baseWage(player.getRating()));
                     humanRepository.save(player);

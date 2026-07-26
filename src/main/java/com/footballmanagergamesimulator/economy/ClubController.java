@@ -33,6 +33,7 @@ public class ClubController {
     private final ChairmanCommandCentreService commandCentreService;
     private final ChairmanTacticalMandateService tacticalMandateService;
     @Autowired private ChairmanTransferBudgetService transferBudgetService;
+    @Autowired private ChairmanCoachAuthorityService coachAuthorityService;
 
     public ClubController(CurrentUserService currentUserService,
                           PersonProfileService profileService,
@@ -123,6 +124,17 @@ public class ClubController {
     public ClubDtos.TransferBudgetView updateTransferBudget(
             @PathVariable long teamId, @Valid @RequestBody ClubDtos.TransferBudgetRequest request) {
         return transferBudgetService.update(currentProfile(), teamId, request.amount());
+    }
+
+    @GetMapping("/{teamId}/coach-authority")
+    public ClubDtos.CoachAuthorityView coachAuthority(@PathVariable long teamId) {
+        return coachAuthorityService.get(currentProfile(), teamId);
+    }
+
+    @PutMapping("/{teamId}/coach-authority")
+    public ClubDtos.CoachAuthorityView updateCoachAuthority(
+            @PathVariable long teamId, @Valid @RequestBody ClubDtos.CoachAuthorityRequest request) {
+        return coachAuthorityService.update(currentProfile(), teamId, request);
     }
 
     private PersonProfile currentProfile() {

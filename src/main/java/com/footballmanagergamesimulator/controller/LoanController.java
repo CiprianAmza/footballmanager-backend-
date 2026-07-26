@@ -40,6 +40,9 @@ public class LoanController {
     @Autowired
     com.footballmanagergamesimulator.service.FinanceService financeService;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.ClubActionAuthorizationService clubActionAuthorizationService;
+
     /**
      * Get active loans where team is either parent or loan team
      */
@@ -78,6 +81,8 @@ public class LoanController {
         long buyOptionFee = body.containsKey("buyOptionFee") ? ((Number) body.get("buyOptionFee")).longValue() : 0;
         boolean buyObligatory = body.containsKey("buyObligatory") && (boolean) body.get("buyObligatory");
         int parentWageContribution = body.containsKey("parentWageContribution") ? ((Number) body.get("parentWageContribution")).intValue() : 0;
+        long humanTeamId = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER).teamId();
 
         // Check transfer window is open
         if (!competitionController.isTransferWindowOpen()) {
@@ -94,7 +99,7 @@ public class LoanController {
         }
 
         // Cannot loan your own player
-        if (player.getTeamId() == userContext.getTeamId(request)) {
+        if (player.getTeamId() == humanTeamId) {
             return ResponseEntity.badRequest().body("You cannot loan your own player.");
         }
 
@@ -106,7 +111,7 @@ public class LoanController {
 
         // Get teams
         Team parentTeam = teamRepository.findById(player.getTeamId()).orElse(null);
-        Team humanTeam = teamRepository.findById(userContext.getTeamId(request)).orElse(null);
+        Team humanTeam = teamRepository.findById(humanTeamId).orElse(null);
         if (parentTeam == null || humanTeam == null) {
             return ResponseEntity.badRequest().body("Team not found.");
         }
@@ -128,7 +133,7 @@ public class LoanController {
 
         if (feeAcceptable && notInTop15) {
             // Accept the loan
-            player.setTeamId(userContext.getTeamId(request));
+            player.setTeamId(humanTeamId);
             humanRepository.save(player);
 
             // Record loan fee as financial transactions
@@ -151,7 +156,7 @@ public class LoanController {
             loan.setPlayerName(player.getName());
             loan.setParentTeamId(parentTeam.getId());
             loan.setParentTeamName(parentTeam.getName());
-            loan.setLoanTeamId(userContext.getTeamId(request));
+            loan.setLoanTeamId(humanTeamId);
             loan.setLoanTeamName(humanTeam.getName());
             // The normal transfer window is at the end of the current season;
             // the loan therefore belongs to the season that is about to start.
@@ -168,7 +173,7 @@ public class LoanController {
 
             // Send inbox message
             ManagerInbox inbox = new ManagerInbox();
-            inbox.setTeamId(userContext.getTeamId(request));
+            inbox.setTeamId(humanTeamId);
             inbox.setSeasonNumber((int) round.getSeason());
             inbox.setRoundNumber((int) round.getRound());
             inbox.setTitle("Loan Deal Completed");
@@ -198,7 +203,8 @@ public class LoanController {
      * Exercise a buy option on a loaned player.
      */
     @PostMapping("/exerciseBuyOption/{loanId}")
-    public ResponseEntity<?> exerciseBuyOption(HttpServletRequest request, @PathVariable long loanId) {
+    public ResponseEntity<?> exerciseBuyOption(HttpServletRequest request, @PathVariable long loanId,
+                                               @RequestBody(required = false) Map<String, Object> body) {
         Loan loan = loanRepository.findById(loanId).orElse(null);
         if (loan == null || !"active".equals(loan.getStatus())) {
             return ResponseEntity.badRequest().body("Loan not found or not active");
@@ -208,7 +214,9 @@ public class LoanController {
             return ResponseEntity.badRequest().body("This loan has no buy option");
         }
 
-        long humanTeamId = userContext.getTeamId(request);
+        long humanTeamId = clubActionAuthorizationService.authorize(request,
+                body == null ? Map.of() : body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER).teamId();
         if (loan.getLoanTeamId() != humanTeamId) {
             return ResponseEntity.badRequest().body("You can only exercise buy options on your own loans");
         }
