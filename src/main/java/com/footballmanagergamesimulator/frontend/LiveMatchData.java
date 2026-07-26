@@ -42,6 +42,11 @@ public class LiveMatchData {
     private int awayShots;
     private int homeShotsOnTarget;
     private int awayShotsOnTarget;
+    /** Canonical pre-match xG, stored as hundredths just like MatchStats. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer homeXg;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer awayXg;
     private int homeCorners;
     private int awayCorners;
     private int homeFouls;

@@ -52,6 +52,8 @@ public class LiveMatchSimulationService {
     PlayerValueService playerValueService;
     @Autowired
     MatchSimulationService matchSimulationService;
+    @Autowired
+    ShotVolumeModel shotVolumeModel;
     @Autowired @Lazy
     MatchSimulationOrchestrator matchSimulationOrchestrator;
     // Optional: null in the pure-helper unit tests that build the service with `new`.

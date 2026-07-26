@@ -118,6 +118,16 @@ public class LiveMatchSession {
     Set<Integer> homeGoalMinutes, awayGoalMinutes;
     private final boolean pinned;
     final boolean deferPersistenceUntilCommit;
+    // One pre-match shot budget, shared with MatchStatsService.  The maps hold
+    // only non-goal shots; canonical/pinned goals already count as shots.
+    private final double shotPlanHomePower;
+    private final double shotPlanAwayPower;
+    private int plannedHomeShots;
+    private int plannedAwayShots;
+    private final Map<Integer, Integer> homeNonGoalShotsByMinute = new HashMap<>();
+    private final Map<Integer, Integer> awayNonGoalShotsByMinute = new HashMap<>();
+    private Integer plannedHomeXg;
+    private Integer plannedAwayXg;
 
     // --- Canonical MatchPlan binding (null = legacy stochastic narration) ---
     // When bound (feature flag on), the watched match consumes the plan's persisted
@@ -347,6 +357,80 @@ public class LiveMatchSession {
         // Goals are emitted from the slots, not forced by the pinned narration.
         this.homeGoalMinutes = java.util.Collections.emptySet();
         this.awayGoalMinutes = java.util.Collections.emptySet();
+        rebuildShotPlan(snap.slots().stream().mapToInt(slot -> slot.teamId() == teamId1 ? 1 : 0).sum(),
+                snap.slots().stream().mapToInt(slot -> slot.teamId() == teamId2 ? 1 : 0).sum());
+    }
+
+    /**
+     * Attach the canonical pre-match xG produced by the same evaluation that
+     * sampled the score.  Rebuilds the shot split before kickoff; the score is
+     * deliberately not an input except for the invariant floor.
+     */
+    public synchronized void setCanonicalExpectedGoals(double homeXg, double awayXg) {
+        if (!Double.isFinite(homeXg) || homeXg < 0
+                || !Double.isFinite(awayXg) || awayXg < 0) {
+            throw new IllegalArgumentException("canonical xG must be finite and non-negative");
+        }
+        this.plannedHomeXg = (int) Math.round(homeXg * 100);
+        this.plannedAwayXg = (int) Math.round(awayXg * 100);
+        int homeGoals = canonicalPlan != null
+                ? (int) canonicalPlan.slots().stream().filter(slot -> slot.teamId() == teamId1).count()
+                : Math.max(0, targetHomeGoals);
+        int awayGoals = canonicalPlan != null
+                ? (int) canonicalPlan.slots().stream().filter(slot -> slot.teamId() == teamId2).count()
+                : Math.max(0, targetAwayGoals);
+        rebuildShotPlan(homeGoals, awayGoals);
+    }
+
+    private void rebuildShotPlan(int homeGoals, int awayGoals) {
+        ShotVolumeModel.ShotVolume volume;
+        if (svc.shotVolumeModel != null) {
+            volume = svc.shotVolumeModel.plan(
+                    competitionId, season, round, teamId1, teamId2,
+                    shotPlanHomePower, shotPlanAwayPower,
+                    plannedHomeXg == null ? null : plannedHomeXg / 100.0,
+                    plannedAwayXg == null ? null : plannedAwayXg / 100.0,
+                    homeGoals, awayGoals);
+            plannedHomeShots = volume.homeShots();
+            plannedAwayShots = volume.awayShots();
+        } else {
+            // Pure-helper construction without a Spring context.
+            plannedHomeShots = Math.max(homeGoals, 12);
+            plannedAwayShots = Math.max(awayGoals, 12);
+        }
+        homeNonGoalShotsByMinute.clear();
+        awayNonGoalShotsByMinute.clear();
+        scheduleNonGoalShots(homeNonGoalShotsByMinute,
+                Math.max(0, plannedHomeShots - homeGoals), true);
+        scheduleNonGoalShots(awayNonGoalShotsByMinute,
+                Math.max(0, plannedAwayShots - awayGoals), false);
+    }
+
+    private void scheduleNonGoalShots(Map<Integer, Integer> target, int count, boolean home) {
+        if (count <= 0) return;
+        long sideSalt = home ? 0x484f4d455f53484fL : 0x415741595f53484fL;
+        Random scheduleRandom = new Random(ShotVolumeModel.seedFor(
+                competitionId, season, round, teamId1, teamId2) ^ sideSalt);
+        Set<Integer> occupied = new LinkedHashSet<>();
+        if (canonicalPlan != null) {
+            occupied.addAll(home ? homeMinuteToSlots.keySet() : awayMinuteToSlots.keySet());
+        } else {
+            occupied.addAll(home ? homeGoalMinutes : awayGoalMinutes);
+        }
+        int firstMinute = 2;
+        int lastMinute = Math.max(firstMinute, totalMinutes - 1);
+        int available = lastMinute - firstMinute + 1;
+        int distinct = Math.min(count, Math.max(0, available - occupied.size()));
+        int attempts = 0;
+        while (target.size() < distinct && attempts++ < available * 20) {
+            int minute = firstMinute + scheduleRandom.nextInt(available);
+            if (!occupied.contains(minute)) target.putIfAbsent(minute, 1);
+        }
+        int remaining = count - target.values().stream().mapToInt(Integer::intValue).sum();
+        while (remaining-- > 0) {
+            int minute = firstMinute + scheduleRandom.nextInt(available);
+            target.merge(minute, 1, Integer::sum);
+        }
     }
 
     /** Group a side's regular-time slots by their exact minute (slotIndex order within
@@ -830,6 +914,8 @@ public class LiveMatchSession {
         this.generateGoalAnimations = generateGoalAnimations;
         this.random = random;
         this.deferPersistenceUntilCommit = deferPersistenceUntilCommit;
+        this.shotPlanHomePower = power1;
+        this.shotPlanAwayPower = power2;
 
         this.homeTeamName = svc.teamRepository.findNameById(teamId1);
         this.awayTeamName = svc.teamRepository.findNameById(teamId2);
@@ -919,6 +1005,7 @@ public class LiveMatchSession {
             this.homeGoalMinutes = java.util.Collections.emptySet();
             this.awayGoalMinutes = java.util.Collections.emptySet();
         }
+        rebuildShotPlan(Math.max(0, targetHomeGoals), Math.max(0, targetAwayGoals));
 
         // Kickoff event — emitted once at session creation so the timeline
         // is non-empty even before the first advance.
@@ -1107,6 +1194,16 @@ public class LiveMatchSession {
         homeScore = data.getHomeScore(); awayScore = data.getAwayScore();
         homeShots = data.getHomeShots(); awayShots = data.getAwayShots();
         homeShotsOnTarget = data.getHomeShotsOnTarget(); awayShotsOnTarget = data.getAwayShotsOnTarget();
+        plannedHomeXg = data.getHomeXg(); plannedAwayXg = data.getAwayXg();
+        if (plannedHomeXg != null && plannedAwayXg != null) {
+            int homeGoals = canonicalPlan != null
+                    ? (int) canonicalPlan.slots().stream().filter(slot -> slot.teamId() == teamId1).count()
+                    : Math.max(0, targetHomeGoals);
+            int awayGoals = canonicalPlan != null
+                    ? (int) canonicalPlan.slots().stream().filter(slot -> slot.teamId() == teamId2).count()
+                    : Math.max(0, targetAwayGoals);
+            rebuildShotPlan(homeGoals, awayGoals);
+        }
         homeCorners = data.getHomeCorners(); awayCorners = data.getAwayCorners();
         homeFouls = data.getHomeFouls(); awayFouls = data.getAwayFouls();
         homeYellowCards = data.getHomeYellowCards(); awayYellowCards = data.getAwayYellowCards();
@@ -1222,6 +1319,10 @@ public class LiveMatchSession {
         if (isAwayGoalMinute) isHomeBigChance = false;
         boolean forcedGoal = isHomeGoalMinute || isAwayGoalMinute;
         boolean forcedAttack = isHomeBigChance || isAwayBigChance;
+        int plannedHomeNonGoals = homeNonGoalShotsByMinute.getOrDefault(min, 0);
+        int plannedAwayNonGoals = awayNonGoalShotsByMinute.getOrDefault(min, 0);
+        boolean canonicalHomeGoal = isCanonicalPlanBound() && homeMinuteToSlots.containsKey(min);
+        boolean canonicalAwayGoal = isCanonicalPlanBound() && awayMinuteToSlots.containsKey(min);
 
         // Man-advantage adjustment: a short-handed team (red card) sees less
         // of the ball and creates fewer chances. The opponent benefits from
@@ -1235,9 +1336,11 @@ public class LiveMatchSession {
             effectivePossChance = Math.max(0.15, Math.min(0.85, team1PossChance + 0.08 * manDiff));
         }
 
-        boolean team1HasBall = forcedAttack
-                ? isHomeBigChance
-                : random.nextDouble() < effectivePossChance;
+        boolean homeActionDue = isHomeGoalMinute || canonicalHomeGoal || plannedHomeNonGoals > 0;
+        boolean awayActionDue = isAwayGoalMinute || canonicalAwayGoal || plannedAwayNonGoals > 0;
+        boolean team1HasBall = homeActionDue != awayActionDue
+                ? homeActionDue
+                : forcedAttack ? isHomeBigChance : random.nextDouble() < effectivePossChance;
         if (team1HasBall) homePossessionMinutes++;
 
         long attackingTeamId = team1HasBall ? teamId1 : teamId2;
@@ -1247,30 +1350,65 @@ public class LiveMatchSession {
         List<Human> allDefenders = svc.filterOnPitch(team1HasBall ? team2All : team1All, matchStates);
         if (allDefenders.isEmpty()) allDefenders = team1HasBall ? team2All : team1All;
 
-        double roll = random.nextDouble();
-        double currentAttackChance;
-        if (forcedAttack) {
-            currentAttackChance = 1.0;
+        if (pinned) {
+            // The score engine has already decided both score and shot budgets.
+            // Live playback distributes those facts over time; it does not roll
+            // a second, nearly-symmetric attack Bernoulli every minute.
+            boolean emittedAttack = canonicalHomeGoal || canonicalAwayGoal;
+            if (forcedGoal) {
+                tickAttackBranch(min, attackers, attackingTeamId, attackingTeamName,
+                        team1HasBall, true, true, true);
+                emittedAttack = true;
+            }
+            if (plannedHomeNonGoals > 0) {
+                tickScheduledNonGoalShots(min, true, plannedHomeNonGoals);
+                emittedAttack = true;
+            }
+            if (plannedAwayNonGoals > 0) {
+                tickScheduledNonGoalShots(min, false, plannedAwayNonGoals);
+                emittedAttack = true;
+            }
+            if (!emittedAttack) {
+                // Non-shot match texture remains live, but can no longer create
+                // additional shots or goals outside the pre-match plan.
+                double flavor = random.nextDouble();
+                if (flavor < 0.62) {
+                    tickPossessionBranch(min, attackingTeamId, attackingTeamName);
+                } else if (flavor < 0.78) {
+                    tickFoulBranch(min, allDefenders, team1HasBall);
+                } else if (flavor < 0.86) {
+                    tickOffsideBranch(min, attackers, attackingTeamId, attackingTeamName, team1HasBall);
+                } else {
+                    tickBuildupBranch(min, attackingTeamId, attackingTeamName);
+                }
+            }
         } else {
-            double base = team1HasBall ? team1AttackChance : team2AttackChance;
-            int attackerOnPitch = team1HasBall ? team1OnPitch : team2OnPitch;
-            currentAttackChance = base * svc.manAdvantageAttackMultiplier(attackerOnPitch);
-        }
-        double attackEnd     = currentAttackChance;
-        double possessionEnd = attackEnd + 0.38;
-        double foulEnd       = possessionEnd + 0.10;
-        double offsideEnd    = foulEnd + 0.04;
+            double roll = random.nextDouble();
+            double currentAttackChance;
+            if (forcedAttack) {
+                currentAttackChance = 1.0;
+            } else {
+                double base = team1HasBall ? team1AttackChance : team2AttackChance;
+                int attackerOnPitch = team1HasBall ? team1OnPitch : team2OnPitch;
+                currentAttackChance = base * svc.manAdvantageAttackMultiplier(attackerOnPitch);
+            }
+            double attackEnd     = currentAttackChance;
+            double possessionEnd = attackEnd + 0.38;
+            double foulEnd       = possessionEnd + 0.10;
+            double offsideEnd    = foulEnd + 0.04;
 
-        if (roll < attackEnd) {
-            tickAttackBranch(min, attackers, attackingTeamId, attackingTeamName, team1HasBall, forcedAttack, forcedGoal);
-        } else if (roll < possessionEnd) {
-            tickPossessionBranch(min, attackingTeamId, attackingTeamName);
-        } else if (roll < foulEnd) {
-            tickFoulBranch(min, allDefenders, team1HasBall);
-        } else if (roll < offsideEnd) {
-            tickOffsideBranch(min, attackers, attackingTeamId, attackingTeamName, team1HasBall);
-        } else {
-            tickBuildupBranch(min, attackingTeamId, attackingTeamName);
+            if (roll < attackEnd) {
+                tickAttackBranch(min, attackers, attackingTeamId, attackingTeamName,
+                        team1HasBall, forcedAttack, false, false);
+            } else if (roll < possessionEnd) {
+                tickPossessionBranch(min, attackingTeamId, attackingTeamName);
+            } else if (roll < foulEnd) {
+                tickFoulBranch(min, allDefenders, team1HasBall);
+            } else if (roll < offsideEnd) {
+                tickOffsideBranch(min, attackers, attackingTeamId, attackingTeamName, team1HasBall);
+            } else {
+                tickBuildupBranch(min, attackingTeamId, attackingTeamName);
+            }
         }
 
         // Reactive AI substitutions for both sides.
@@ -1300,9 +1438,23 @@ public class LiveMatchSession {
     /** Goal / save / miss / blocked / corner outcomes. Picks the shooter,
      *  rolls the outcome, updates score+shot counters, emits timeline +
      *  dbEvents + (optionally) goal animations. */
+    private void tickScheduledNonGoalShots(int min, boolean home, int count) {
+        List<Human> attackers = svc.filterOnPitch(home ? team1Outfield : team2Outfield, matchStates);
+        if (attackers.isEmpty()) attackers = home ? team1Outfield : team2Outfield;
+        long teamId = home ? teamId1 : teamId2;
+        String teamName = home ? homeTeamName : awayTeamName;
+        boolean bigChance = home
+                ? team1BigChanceMinutes.contains(min) : team2BigChanceMinutes.contains(min);
+        for (int index = 0; index < count; index++) {
+            tickAttackBranch(min, attackers, teamId, teamName,
+                    home, bigChance, false, true);
+        }
+    }
+
     private void tickAttackBranch(int min, List<Human> attackers,
                                    long attackingTeamId, String attackingTeamName,
-                                   boolean team1HasBall, boolean forcedAttack, boolean forcedGoal) {
+                                   boolean team1HasBall, boolean forcedAttack,
+                                   boolean forcedGoal, boolean budgetedShot) {
         if (attackers.isEmpty()) {
             // A pinned goal can't be dropped — if the attacking squad somehow
             // has no eligible outfield player, fall back to the full squad so
@@ -1311,7 +1463,6 @@ public class LiveMatchSession {
             if (attackers.isEmpty()) return;
         }
         Human attacker = svc.pickWeightedAttacker(attackers, matchStates, min, random);
-        if (team1HasBall) homeShots++; else awayShots++;
 
         double attackRoll = random.nextDouble();
         // Pinned mode: this tick MUST score (forcedGoal) or MUST NOT score
@@ -1327,9 +1478,10 @@ public class LiveMatchSession {
         // probability mass across save/miss/blocked/corner so flavor stays varied.
         double saveCutoff    = forcedAttack ? 0.60 : 0.42;
         double missCutoff    = forcedAttack ? 0.85 : 0.70;
-        double blockedCutoff = forcedAttack ? 0.95 : 0.87;
+        double blockedCutoff = budgetedShot ? 1.0 : forcedAttack ? 0.95 : 0.87;
 
         if (attackRoll < goalCutoff) {
+            if (team1HasBall) homeShots++; else awayShots++;
             String playType = svc.pickAttackPlayType("GOAL", random);
             if (team1HasBall) { homeScore++; homeShotsOnTarget++; }
             else { awayScore++; awayShotsOnTarget++; }
@@ -1368,6 +1520,7 @@ public class LiveMatchSession {
             }
 
         } else if (attackRoll < saveCutoff) {
+            if (team1HasBall) homeShots++; else awayShots++;
             String playType = svc.pickAttackPlayType("SAVE", random);
             if (team1HasBall) homeShotsOnTarget++; else awayShotsOnTarget++;
             String saveDesc = LiveMatchSimulationService.SAVE_DESCRIPTIONS[
@@ -1400,6 +1553,7 @@ public class LiveMatchSession {
             }
 
         } else if (attackRoll < missCutoff) {
+            if (team1HasBall) homeShots++; else awayShots++;
             String playType = svc.pickAttackPlayType("MISS", random);
             String missDesc = LiveMatchSimulationService.MISS_DESCRIPTIONS[
                     random.nextInt(LiveMatchSimulationService.MISS_DESCRIPTIONS.length)];
@@ -1428,6 +1582,7 @@ public class LiveMatchSession {
             }
 
         } else if (attackRoll < blockedCutoff) {
+            if (team1HasBall) homeShots++; else awayShots++;
             String blockDesc = LiveMatchSimulationService.BLOCK_DESCRIPTIONS[
                     random.nextInt(LiveMatchSimulationService.BLOCK_DESCRIPTIONS.length)];
             timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "shot_blocked",
@@ -1436,6 +1591,14 @@ public class LiveMatchSession {
             if (goalAnimations != null) {
                 recordVisualMomentV3(
                         min, team1HasBall, attacker, null, AnimationOutcome.BLOCKED, "OPEN_PLAY");
+            }
+            // A blocked effort can go behind. It remains exactly one shot; the
+            // resulting corner is a set piece, not a second synthetic attempt.
+            if (budgetedShot && random.nextDouble() < 0.28) {
+                if (team1HasBall) homeCorners++; else awayCorners++;
+                timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "corner",
+                        "The block sends it behind. Corner kick for " + attackingTeamName + ".",
+                        0, null, attackingTeamId, attackingTeamName));
             }
 
         } else {
@@ -1783,6 +1946,8 @@ public class LiveMatchSession {
         data.setAwayShots(awayShots);
         data.setHomeShotsOnTarget(homeShotsOnTarget);
         data.setAwayShotsOnTarget(awayShotsOnTarget);
+        data.setHomeXg(plannedHomeXg);
+        data.setAwayXg(plannedAwayXg);
         data.setHomeCorners(homeCorners);
         data.setAwayCorners(awayCorners);
         data.setHomeFouls(homeFouls);

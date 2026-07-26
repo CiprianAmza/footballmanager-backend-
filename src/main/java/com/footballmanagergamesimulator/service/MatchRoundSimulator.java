@@ -459,6 +459,15 @@ public class MatchRoundSimulator {
                 // Admin override — if a score has been forced for this match, skip the
                 // live engine entirely and use the instant path with the forced score.
                 int[] adminScore = teamPostMatchService.consumePredeterminedScore(_competitionId, (int) _roundId, teamId1, teamId2);
+                Optional<CanonicalRuntimeScore> humanCanonicalResult = adminScore == null
+                        ? canonicalScoreForHumanFixture(match.getId(), _competitionId,
+                                Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, teamId2)
+                        : Optional.empty();
+                if (humanCanonicalResult.isPresent()) {
+                    CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
+                    teamPower1 = canonical.homePower();
+                    teamPower2 = canonical.awayPower();
+                }
 
                 // Check if any human manager has viewFullMatch enabled
                 boolean useFullMatchEngine = false;
@@ -515,14 +524,20 @@ public class MatchRoundSimulator {
                         liveT1 = teamTacticVector(teamId1, liveP1, personalizedTactic1.orElse(null));
                         liveT2 = teamTacticVector(teamId2, liveP2, personalizedTactic2.orElse(null));
                         liveMatchup = tacticalScoreService.matchup(liveP1, liveT1, liveP2, liveT2);
-                        // Seed off the match identity so the pinned score is reproducible
-                        // for a given (competition, round, fixture) without coupling to the
-                        // session's own RNG (which drives the narration timeline).
+                    }
+                    if (humanCanonicalResult.isPresent()) {
+                        CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
+                        targetHomeGoals = canonical.homeGoals();
+                        targetAwayGoals = canonical.awayGoals();
+                    } else if (liveMatchup != null) {
+                        // Compatibility fallback only when Compartment V1 cannot produce
+                        // a canonical score. The production path above is shared with AI.
                         Random scoreRng = new Random(
                                 _competitionId * 1_000_003L + _roundId * 31L + teamId1 * 17L + teamId2);
-                        List<Integer> pinned = tacticalScoreService.score(liveP1, liveT1, liveP2, liveT2, scoreRng);
-                        targetHomeGoals = pinned.get(0);
-                        targetAwayGoals = pinned.get(1);
+                        List<Integer> fallback = tacticalScoreService.score(
+                                liveP1, liveT1, liveP2, liveT2, scoreRng);
+                        targetHomeGoals = fallback.get(0);
+                        targetAwayGoals = fallback.get(1);
                     }
                     // Canonical knockout (blocker #3): resolve the ET/shootout split BEFORE
                     // kickoff so the whole result and all goal minutes are fixed up front — the
@@ -545,6 +560,10 @@ public class MatchRoundSimulator {
                             generateGoalAnims, liveMatchup, targetHomeGoals, targetAwayGoals,
                             match.getId(), tactic1, tactic2,
                             etHome, etAway, shootoutHome, shootoutAway);
+                    humanCanonicalResult.ifPresent(canonical ->
+                            liveSession.setCanonicalExpectedGoals(
+                                    canonical.evaluation().probability().homeXg(),
+                                    canonical.evaluation().probability().awayXg()));
                     if (liveMatchup != null) {
                         liveSession.setDeferredTwoAxis(liveP1, liveT1, liveP2, liveT2);
                     }
@@ -558,6 +577,12 @@ public class MatchRoundSimulator {
                     if (adminScore != null) {
                         teamScore1 = adminScore[0];
                         teamScore2 = adminScore[1];
+                    } else if (humanCanonicalResult.isPresent()) {
+                        CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
+                        teamScore1 = canonical.homeGoals();
+                        teamScore2 = canonical.awayGoals();
+                        teamPower1 = canonical.homePower();
+                        teamPower2 = canonical.awayPower();
                     } else if (engineConfig.getTacticalModel().isEnabled()) {
                         // Two-axis model: the human's chosen PersonalizedTactic (if any) drives its
                         // tactic vector; the opponent (AI) uses its manager's skill-picked tactic.
@@ -634,10 +659,20 @@ public class MatchRoundSimulator {
                     lineupRatingService.persistPlayerRatings(_competitionId, _season, (int) _roundId, teamId2, tactic2);
 
                     // Generate and persist match stats
-                    matchStatsService.generateAndSaveMatchStats(
-                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
-                            personalizedTactic1.orElse(null), personalizedTactic2.orElse(null));
+                    if (humanCanonicalResult.isPresent()) {
+                        CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
+                        matchStatsService.generateAndSaveCanonicalRuntimeMatchStats(
+                                _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                                teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
+                                personalizedTactic1.orElse(null), personalizedTactic2.orElse(null),
+                                canonical.evaluation().probability().homeXg(),
+                                canonical.evaluation().probability().awayXg());
+                    } else {
+                        matchStatsService.generateAndSaveMatchStats(
+                                _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                                teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
+                                personalizedTactic1.orElse(null), personalizedTactic2.orElse(null));
+                    }
 
                     // Result, Scorer and stats are now persisted in this same (simulateRound)
                     // transaction — mark the plan COMMITTED so it becomes immutable and can
@@ -2198,6 +2233,31 @@ public class MatchRoundSimulator {
             axes = canonicalTacticCache.get(teamId);
         }
         return axes == null ? null : axes.toTactic();
+    }
+
+    /**
+     * Human/watched fixtures use the exact same Compartment V1 request and
+     * deterministic seed as the normal AI-vs-AI path.  Watching a match changes
+     * presentation only; it can no longer select a different scoring engine.
+     */
+    private Optional<CanonicalRuntimeScore> canonicalScoreForHumanFixture(
+            long matchRowId, long competitionId, int season, int round,
+            long homeTeamId, long awayTeamId) {
+        if (!compartmentEngineConfig.isEnabled()) return Optional.empty();
+        // Populate the canonical XI/role caches for human teams as the AI path
+        // already does through getSimpleTeamRating().
+        getSimpleTeamRating(homeTeamId);
+        getSimpleTeamRating(awayTeamId);
+        String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                .competitionFixtureKey(matchRowId);
+        return canonicalRuntimeScoringService.scoreSafely(() ->
+                CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
+                        fixtureKey, competitionId, season, round, homeTeamId, awayTeamId,
+                        canonicalTactic(homeTeamId), canonicalTactic(awayTeamId),
+                        canonicalLineupSlotSources(homeTeamId).stream()
+                                .map(ShadowLineupSlotSource::toRuntimeSlot).toList(),
+                        canonicalLineupSlotSources(awayTeamId).stream()
+                                .map(ShadowLineupSlotSource::toRuntimeSlot).toList()));
     }
 
     private List<ShadowLineupSlotSource> canonicalLineupSlotSources(long teamId) {

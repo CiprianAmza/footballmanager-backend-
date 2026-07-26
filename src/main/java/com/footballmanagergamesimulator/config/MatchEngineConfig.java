@@ -743,6 +743,9 @@ public class MatchEngineConfig {
         private double shotsBase = 5.0;
         private double shotsEdgeScale = 15.0;
         private double shotsControlNoiseSigma = 0.12;
+        /** Unified pre-match shot budget: total volume and nonlinear control split. */
+        private double shotVolumeTotalBase = 24.0;
+        private double shotVolumeSplitExponent = 2.4;
         private double shotsTempoNoiseSigma = 0.22;
         private double shotsTeamNoiseSigma = 0.28;
         private int shotsMax = 40;
@@ -842,6 +845,10 @@ public class MatchEngineConfig {
         public void setShotsEdgeScale(double v) { this.shotsEdgeScale = v; }
         public double getShotsControlNoiseSigma() { return shotsControlNoiseSigma; }
         public void setShotsControlNoiseSigma(double v) { this.shotsControlNoiseSigma = v; }
+        public double getShotVolumeTotalBase() { return shotVolumeTotalBase; }
+        public void setShotVolumeTotalBase(double v) { this.shotVolumeTotalBase = v; }
+        public double getShotVolumeSplitExponent() { return shotVolumeSplitExponent; }
+        public void setShotVolumeSplitExponent(double v) { this.shotVolumeSplitExponent = v; }
         public double getShotsTempoNoiseSigma() { return shotsTempoNoiseSigma; }
         public void setShotsTempoNoiseSigma(double v) { this.shotsTempoNoiseSigma = v; }
         public double getShotsTeamNoiseSigma() { return shotsTeamNoiseSigma; }

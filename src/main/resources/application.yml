@@ -310,6 +310,10 @@ match:
       shots-base: 5.0
       shots-edge-scale: 15.0
       shots-control-noise-sigma: 0.12
+      # One pre-match shot budget shared by instant stats and watched matches.
+      # The split is driven by canonical xG/power, never by the sampled score.
+      shot-volume-total-base: 24.0
+      shot-volume-split-exponent: 2.4
       shots-tempo-noise-sigma: 0.22
       shots-team-noise-sigma: 0.28
       shots-max: 40

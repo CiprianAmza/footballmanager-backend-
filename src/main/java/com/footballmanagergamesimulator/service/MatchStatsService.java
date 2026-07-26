@@ -33,6 +33,8 @@ public class MatchStatsService {
     private MatchStatsRepository matchStatsRepository;
     @Autowired
     private MatchEngineConfig engineConfig;
+    @Autowired
+    private ShotVolumeModel shotVolumeModel;
 
     /**
      * Shared RNG used by stat generators. Held as a field so determinism IT
@@ -65,7 +67,8 @@ public class MatchStatsService {
             double homePower, double awayPower,
             PersonalizedTactic homeTactic, PersonalizedTactic awayTactic) {
         return generateMatchStats(competitionId, season, round, team1Id, team2Id,
-                homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic, this.random);
+                homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic,
+                this.random, null, null);
     }
 
     private MatchStats generateMatchStats(
@@ -74,7 +77,7 @@ public class MatchStatsService {
             int homeGoals, int awayGoals,
             double homePower, double awayPower,
             PersonalizedTactic homeTactic, PersonalizedTactic awayTactic,
-            Random rng) {
+            Random rng, Double homeExpectedGoals, Double awayExpectedGoals) {
 
         // Team power drives the central tendency, while match-control, tempo and
         // team-specific noise create the long tails seen in real matches.
@@ -124,25 +127,21 @@ public class MatchStatsService {
         stats.setAwayPassAccuracy(clamp((int) awayPassAcc, 55, 96));
 
         // --- SHOTS / CHANCE QUALITY ---
-        // Goals no longer add synthetic shots or a hard xG floor. We sample a
-        // match script, then condition each chance on its already-decided outcome.
-        double shotControlShare = clamp(homeRatio + rng.nextGaussian() * sc.getShotsControlNoiseSigma(), 0.03, 0.97);
-        double tempoMultiplier = logNormalMultiplier(rng, sc.getShotsTempoNoiseSigma());
-        double homeShotMean = Math.max(0.2,
-                (sc.getShotsBase() + shotControlShare * sc.getShotsEdgeScale()
-                        + getAttackingMentalityShotBonus(homeTactic))
-                        * tempoMultiplier * logNormalMultiplier(rng, sc.getShotsTeamNoiseSigma()));
-        double awayShotMean = Math.max(0.2,
-                (sc.getShotsBase() + (1 - shotControlShare) * sc.getShotsEdgeScale()
-                        + getAttackingMentalityShotBonus(awayTactic))
-                        * tempoMultiplier * logNormalMultiplier(rng, sc.getShotsTeamNoiseSigma()));
-        int homeShots = Math.max(homeGoals, poisson(rng, homeShotMean, sc.getShotsMax()));
-        int awayShots = Math.max(awayGoals, poisson(rng, awayShotMean, sc.getShotsMax()));
+        // The complete shot budget is decided before kickoff from matchup strength.
+        // It never feeds back from the sampled score (apart from the football floor).
+        ShotVolumeModel.ShotVolume shotVolume = shotVolumeModel.plan(
+                competitionId, season, round, team1Id, team2Id,
+                homePower, awayPower, homeExpectedGoals, awayExpectedGoals,
+                homeGoals, awayGoals);
+        int homeShots = shotVolume.homeShots();
+        int awayShots = shotVolume.awayShots();
         stats.setHomeShots(homeShots);
         stats.setAwayShots(awayShots);
 
-        ChanceLine homeChanceLine = generateChanceLine(homeShots, homeGoals, homeRatio, null, rng);
-        ChanceLine awayChanceLine = generateChanceLine(awayShots, awayGoals, 1 - homeRatio, null, rng);
+        ChanceLine homeChanceLine = generatePreMatchChanceLine(
+                homeShots, homeGoals, shotVolume.controlShare(), null, rng);
+        ChanceLine awayChanceLine = generatePreMatchChanceLine(
+                awayShots, awayGoals, 1 - shotVolume.controlShare(), null, rng);
         int homeSoT = homeChanceLine.shotsOnTarget();
         int awaySoT = awayChanceLine.shotsOnTarget();
         stats.setHomeShotsOnTarget(homeSoT);
@@ -264,6 +263,35 @@ public class MatchStatsService {
         return matchStatsRepository.save(stats);
     }
 
+    /** Replace fallback chance-derived xG with the canonical pre-match means. */
+    public MatchStats applyCanonicalExpectedGoals(
+            MatchStats stats, double homeExpectedGoals, double awayExpectedGoals) {
+        if (stats == null) throw new IllegalArgumentException("stats must not be null");
+        stats.setHomeXg(toHundredths(homeExpectedGoals));
+        stats.setAwayXg(toHundredths(awayExpectedGoals));
+        return matchStatsRepository.save(stats);
+    }
+
+    /**
+     * Canonical runtime variant for a human/instant fixture.  Supplying the
+     * expected-goal pair makes its shot split identical to watched playback.
+     */
+    public MatchStats generateAndSaveCanonicalRuntimeMatchStats(
+            long competitionId, int season, int round,
+            long team1Id, long team2Id,
+            int homeGoals, int awayGoals,
+            double homePower, double awayPower,
+            PersonalizedTactic homeTactic, PersonalizedTactic awayTactic,
+            double homeExpectedGoals, double awayExpectedGoals) {
+        MatchStats stats = generateMatchStats(
+                competitionId, season, round, team1Id, team2Id,
+                homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic,
+                this.random, homeExpectedGoals, awayExpectedGoals);
+        stats.setHomeXg(toHundredths(homeExpectedGoals));
+        stats.setAwayXg(toHundredths(awayExpectedGoals));
+        return matchStatsRepository.save(stats);
+    }
+
     /** Generate and persist a deterministic projection of a persisted canonical decision. */
     public MatchStats generateAndSaveCanonicalMatchStats(
             CanonicalMatchEffectsInput input,
@@ -315,16 +343,25 @@ public class MatchStatsService {
         stats.setAwayPassAccuracy(clamp((int) Math.round(profile.passAccuracyBase()
                 - edge * profile.passAccuracyPowerScale() + rng.nextGaussian() * profile.passAccuracyNoise()), 55, 96));
 
-        double homeShotMean = Math.max(0.2, profile.shotsBase() + edge * profile.shotsPowerScale()
-                + rng.nextGaussian() * profile.shotsNoise());
-        double awayShotMean = Math.max(0.2, profile.shotsBase() - edge * profile.shotsPowerScale()
-                + rng.nextGaussian() * profile.shotsNoise());
-        int homeShots = Math.max(homeGoals, canonicalPoisson(rng, homeShotMean, profile.maxShots()));
-        int awayShots = Math.max(awayGoals, canonicalPoisson(rng, awayShotMean, profile.maxShots()));
+        ShotVolumeModel.ShotVolume shotVolume = shotVolumeModel.plan(
+                competitionId, season, round, input.homeTeamId(), input.awayTeamId(),
+                input.decision().homePower(), input.decision().awayPower(),
+                input.decision().homeXg(), input.decision().awayXg(),
+                homeGoals, awayGoals);
+        int homeShots = shotVolume.homeShots();
+        int awayShots = shotVolume.awayShots();
         stats.setHomeShots(homeShots);
         stats.setAwayShots(awayShots);
-        int homeShotsOnTarget = homeGoals + randomBounded(rng, homeShots - homeGoals, 0.36);
-        int awayShotsOnTarget = awayGoals + randomBounded(rng, awayShots - awayGoals, 0.36);
+        double homeOnTargetRate = clamp(engineConfig.getStats().getShotsOnTargetBase()
+                + (shotVolume.controlShare() - 0.5)
+                * engineConfig.getStats().getShotsOnTargetEdgeSpan(), 0.12, 0.70);
+        double awayOnTargetRate = clamp(engineConfig.getStats().getShotsOnTargetBase()
+                + (0.5 - shotVolume.controlShare())
+                * engineConfig.getStats().getShotsOnTargetEdgeSpan(), 0.12, 0.70);
+        int homeShotsOnTarget = homeGoals + randomBounded(
+                rng, homeShots - homeGoals, homeOnTargetRate);
+        int awayShotsOnTarget = awayGoals + randomBounded(
+                rng, awayShots - awayGoals, awayOnTargetRate);
         stats.setHomeShotsOnTarget(homeShotsOnTarget);
         stats.setAwayShotsOnTarget(awayShotsOnTarget);
         stats.setHomeShotsBlocked(clamp((int) Math.round(homeShots
@@ -528,16 +565,18 @@ public class MatchStatsService {
 
         // Big chances and xG use the same per-shot model as instant matches,
         // while preserving the shot/on-target counts narrated by the live engine.
-        ChanceLine homeChanceLine = generateChanceLine(liveData.getHomeShots(), liveData.getHomeScore(),
+        ChanceLine homeChanceLine = generatePreMatchChanceLine(liveData.getHomeShots(), liveData.getHomeScore(),
                 homeRatio, liveData.getHomeShotsOnTarget(), rng);
-        ChanceLine awayChanceLine = generateChanceLine(liveData.getAwayShots(), liveData.getAwayScore(),
+        ChanceLine awayChanceLine = generatePreMatchChanceLine(liveData.getAwayShots(), liveData.getAwayScore(),
                 1 - homeRatio, liveData.getAwayShotsOnTarget(), rng);
         stats.setHomeBigChances(homeChanceLine.bigChances());
         stats.setAwayBigChances(awayChanceLine.bigChances());
         stats.setHomeBigChancesMissed(homeChanceLine.bigChancesMissed());
         stats.setAwayBigChancesMissed(awayChanceLine.bigChancesMissed());
-        stats.setHomeXg(homeChanceLine.xgHundredths());
-        stats.setAwayXg(awayChanceLine.xgHundredths());
+        stats.setHomeXg(liveData.getHomeXg() != null
+                ? liveData.getHomeXg() : homeChanceLine.xgHundredths());
+        stats.setAwayXg(liveData.getAwayXg() != null
+                ? liveData.getAwayXg() : awayChanceLine.xgHundredths());
 
         // Crosses
         int hc = clamp((int) (18 + rng.nextGaussian() * 4 + liveData.getHomeCorners() * 0.5), 5, 40);
@@ -675,6 +714,41 @@ public class MatchStatsService {
             case "Very Defensive" -> sc.getShotBonusVeryDefensive();
             default -> 0;
         };
+    }
+
+    /**
+     * Chance quality is drawn from the pre-match matchup and shot budget, not
+     * conditioned on the score that happened to be sampled.  A 1-1 upset can
+     * therefore retain (for example) a 2.4-0.4 xG profile.
+     */
+    private ChanceLine generatePreMatchChanceLine(int requestedShots, int goals, double powerShare,
+                                                   Integer fixedShotsOnTarget, Random rng) {
+        MatchEngineConfig.Stats sc = engineConfig.getStats();
+        int shots = Math.max(requestedShots, goals);
+        if (shots == 0) return new ChanceLine(0, 0, 0, 0);
+
+        double bigChanceRate = clamp(sc.getXgBigChanceRate()
+                + (powerShare - 0.5) * sc.getXgBigChancePowerSpan(), 0.02, 0.18);
+        double totalXg = 0;
+        int bigChances = 0;
+        for (int index = 0; index < shots; index++) {
+            ChanceQuality chance = sampleBaseChanceQuality(bigChanceRate, rng);
+            totalXg += chance.xg();
+            if (chance.big()) bigChances++;
+        }
+
+        int shotsOnTarget;
+        if (fixedShotsOnTarget != null) {
+            shotsOnTarget = clamp(fixedShotsOnTarget, goals, shots);
+        } else {
+            double onTargetRate = clamp(sc.getShotsOnTargetBase()
+                    + (powerShare - 0.5) * sc.getShotsOnTargetEdgeSpan()
+                    + rng.nextGaussian() * sc.getShotsOnTargetNoise(), 0.12, 0.70);
+            shotsOnTarget = goals + randomBounded(rng, shots - goals, onTargetRate);
+        }
+        return new ChanceLine(shotsOnTarget, bigChances,
+                Math.max(0, bigChances - Math.min(bigChances, goals)),
+                Math.max(0, (int) Math.round(totalXg * 100)));
     }
 
     private ChanceLine generateChanceLine(int requestedShots, int goals, double powerShare,
