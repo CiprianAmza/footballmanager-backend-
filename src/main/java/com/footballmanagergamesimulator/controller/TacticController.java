@@ -161,7 +161,14 @@ public class TacticController {
             return ResponseEntity.notFound().build();
         }
 
-        List<TacticView> rankedTactics = getAllPossibleTactics(String.valueOf(teamId));
+        List<TacticView> rankedTactics;
+        try {
+            rankedTactics = getAllPossibleTactics(String.valueOf(teamId));
+        } catch (RuntimeException ignored) {
+            // The editor must remain usable when availability/rating data is temporarily
+            // unavailable. Formation names are a static tactical contract, not match state.
+            rankedTactics = formationCatalog(String.valueOf(teamId));
+        }
         String bestTactic = rankedTactics.isEmpty() ? "442" : rankedTactics.get(0).getTacticName();
 
         Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
@@ -178,7 +185,7 @@ public class TacticController {
         PersonalizedTacticView managerView = saved.map(this::toView)
                 .orElseGet(() -> defaultTacticView(teamId, effectiveManagerFormation));
         managerView.setTactic(effectiveManagerFormation);
-        Set<Long> unavailable = matchSimulationOrchestrator.roundUnavailableIds(teamId);
+        Set<Long> unavailable = safeUnavailableIds(teamId);
         managerView = effectiveTacticView(teamId, managerView, unavailable, true);
         List<FormationData> managerFormationData = managerView.getFormationDataList();
         long managerStarters = managerFormationData == null ? 0
@@ -200,6 +207,9 @@ public class TacticController {
         response.put("managerTacticSource", saved.isPresent() ? "SAVED" : "MANAGER_PREFERENCE");
         response.put("managerTactic", managerView);
         response.put("bestPossibleTactic", bestView);
+        EffectiveChairmanMandate chairmanMandate = mandateEnforcement.mandate(teamId);
+        response.put("chairmanRequiredFormation", chairmanMandate.requiredFormation());
+        response.put("chairmanLockedSlots", chairmanMandate.lockedSlots());
         return ResponseEntity.ok(response);
     }
 
@@ -469,6 +479,31 @@ public class TacticController {
                 .stream()
                 .sorted((x, y) -> Double.compare(y.getTotalRating(), x.getTotalRating()))
                 .toList();
+    }
+
+    /**
+     * Lightweight editor catalog. Unlike {@code getAllPossibleTactics}, this endpoint does not
+     * inspect injuries, suspensions, player ratings or match state. A formation picker must not
+     * disappear because an unrelated runtime/read-model query is temporarily unavailable.
+     */
+    @GetMapping("/formationCatalog/{teamId}")
+    public List<TacticView> formationCatalog(@PathVariable(name = "teamId") String teamId) {
+        long parsedTeamId = Long.parseLong(teamId);
+        if (!teamRepository.existsById(parsedTeamId)) {
+            throw new RuntimeException("Team not found.");
+        }
+
+        List<TacticView> result = new ArrayList<>();
+        Set<String> effectiveNames = new LinkedHashSet<>();
+        for (String formation : tacticService.getAllExistingTactics()) {
+            String effective = mandateEnforcement.effectiveFormation(parsedTeamId, formation);
+            if (!effectiveNames.add(effective)) continue;
+            TacticView view = new TacticView();
+            view.setTacticName(effective);
+            view.setTotalRating(0);
+            result.add(view);
+        }
+        return List.copyOf(result);
     }
 
     /** One pitch cell of a formation: the 0..29 grid index and the position label rendered there. */
@@ -919,7 +954,7 @@ public class TacticController {
      */
     private List<StarterSlot> selectStarterSlots(Team team, Map<String, Integer> tacticFormat, String formation) {
 
-        Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(team.getId());
+        Set<Long> unavailableIds = safeUnavailableIds(team.getId());
 
         // The enforcement service owns Chairman -> legacy precedence and exact conflict rules.
         List<StarterSlot> slots = new ArrayList<>();
@@ -1010,7 +1045,7 @@ public class TacticController {
 
     private List<PlayerView> getBestSubstitutions(Team team, Map<String, Integer> substitutionFormat, List<PlayerView> playersInFirstEleven) {
 
-        Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(team.getId());
+        Set<Long> unavailableIds = safeUnavailableIds(team.getId());
         List<Human> allPlayers = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
                 .stream()
                 .filter(player -> !unavailableIds.contains(player.getId()))
@@ -1064,6 +1099,16 @@ public class TacticController {
                                 tacticService.getValueForTacticDisplay(p1.getPosition()),
                                 tacticService.getValueForTacticDisplay(p2.getPosition())))
                 .toList();
+    }
+
+    /** Editor/read-model availability must degrade to an empty exclusion set, never a 500 that
+     * clears the complete tactics screen. Runtime simulation still uses the strict repositories. */
+    private Set<Long> safeUnavailableIds(long teamId) {
+        try {
+            return matchSimulationOrchestrator.roundUnavailableIds(teamId);
+        } catch (RuntimeException ignored) {
+            return Set.of();
+        }
     }
 
     private PlayerView adaptPlayer(Human human, Team team) {
@@ -1230,7 +1275,7 @@ public class TacticController {
 
         String effectiveTactic = mandateEnforcement.effectiveFormation(teamId, tactic);
         return assistantSelection(teamId, effectiveTactic,
-                matchSimulationOrchestrator.roundUnavailableIds(teamId), true);
+                safeUnavailableIds(teamId), true);
     }
 
     private List<FormationData> assistantSelection(long teamId, String effectiveTactic,
