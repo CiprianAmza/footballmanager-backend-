@@ -18,13 +18,16 @@ import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.*;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,9 +52,15 @@ class RoomHumanVsHumanConcurrencyIT {
     private long homeTeam;
     private long awayTeam;
     private String fixtureKey;
+    private CompetitionTeamInfoMatch createdFixture;
+    private String fixtureNamespace;
+    private final List<User> createdUsers = new ArrayList<>();
+    private final List<Human> createdHumans = new ArrayList<>();
+    private final List<Team> createdTeams = new ArrayList<>();
 
     @BeforeEach
     void seed() {
+        fixtureNamespace = UUID.randomUUID().toString().replace("-", "");
         votes.deleteAll();
         cycles.deleteAll();
         members.deleteAll();
@@ -59,14 +68,13 @@ class RoomHumanVsHumanConcurrencyIT {
         plans.deleteAll();
         fixtures.deleteAll();
 
-        Team home = new Team(); home.setName("H2 Home"); home = teams.saveAndFlush(home);
-        Team away = new Team(); away.setName("H2 Away"); away = teams.saveAndFlush(away);
+        Team home = new Team(); home.setName("H2 Home " + fixtureNamespace); home = teams.saveAndFlush(home); createdTeams.add(home);
+        Team away = new Team(); away.setName("H2 Away " + fixtureNamespace); away = teams.saveAndFlush(away); createdTeams.add(away);
         homeTeam = home.getId(); awayTeam = away.getId();
-        User first = managerUser(8101, homeTeam, "h2-home");
-        User second = managerUser(8102, awayTeam, "h2-away");
-        users.save(first); users.saveAndFlush(second);
-        seedManager(homeTeam, "Home manager");
-        seedManager(awayTeam, "Away manager");
+        User first = users.saveAndFlush(managerUser(homeTeam, "h2-home-" + fixtureNamespace)); createdUsers.add(first);
+        User second = users.saveAndFlush(managerUser(awayTeam, "h2-away-" + fixtureNamespace)); createdUsers.add(second);
+        seedManager(homeTeam, "Home manager " + fixtureNamespace);
+        seedManager(awayTeam, "Away manager " + fixtureNamespace);
 
         GameRoom room = new GameRoom();
         room.setHostUserId(first.getId()); room.setPasswordHash("test-only"); room.setStatus(RoomStatus.ACTIVE);
@@ -77,8 +85,22 @@ class RoomHumanVsHumanConcurrencyIT {
 
         CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
         fixture.setCompetitionId(99); fixture.setSeasonNumber("1"); fixture.setRound(7); fixture.setTeam1Id(homeTeam); fixture.setTeam2Id(awayTeam);
-        fixture = fixtures.saveAndFlush(fixture);
+        fixture = fixtures.saveAndFlush(fixture); createdFixture = fixture;
         fixtureKey = MatchPlanService.competitionFixtureKey(fixture.getId());
+    }
+
+    @AfterEach
+    void cleanupFixtureOnly() {
+        // Remove dependants first; never touch the global seed users/people/teams.
+        votes.deleteAll();
+        cycles.deleteAll();
+        members.deleteAll();
+        rooms.deleteAll();
+        plans.deleteAll();
+        if (createdFixture != null) fixtures.delete(createdFixture);
+        humans.deleteAll(createdHumans);
+        users.deleteAll(createdUsers);
+        teams.deleteAll(createdTeams);
     }
 
     @Test
@@ -140,15 +162,16 @@ class RoomHumanVsHumanConcurrencyIT {
         return new Lineup(starters, List.of());
     }
 
-    private User managerUser(int id, long teamId, String suffix) {
-        User user = new User(); user.setId(id); user.setUsername(suffix); user.setEmail(suffix + "@test.invalid"); user.setPassword("test"); user.setTeamId(teamId); user.setActive(true); return user;
+    private User managerUser(long teamId, String suffix) {
+        User user = new User(); user.setUsername(suffix); user.setEmail(suffix + "@test.invalid"); user.setPassword("test"); user.setTeamId(teamId); user.setActive(true); return user;
     }
 
     private void seedManager(long teamId, String name) {
-        Human manager = new Human(); manager.setTeamId(teamId); manager.setTypeId(2); manager.setName(name); manager.setPosition("MANAGER"); humans.saveAndFlush(manager);
-        users.findAllByTeamId(teamId).forEach(user -> { user.setManagerId(manager.getId()); users.save(user); });
+        Human manager = new Human(); manager.setTeamId(teamId); manager.setTypeId(2); manager.setName(name); manager.setPosition("MANAGER"); manager = humans.saveAndFlush(manager); createdHumans.add(manager);
+        long managerId = manager.getId();
+        users.findAllByTeamId(teamId).forEach(user -> { user.setManagerId(managerId); users.save(user); });
         for (int i = 0; i < 11; i++) {
-            Human player = new Human(); player.setTeamId(teamId); player.setTypeId(1); player.setName(name + " player " + i); player.setPosition(i == 0 ? "GK" : "MC"); player.setFitness(100); player.setRating(10); humans.save(player);
+            Human player = new Human(); player.setTeamId(teamId); player.setTypeId(1); player.setName(name + " player " + i); player.setPosition(i == 0 ? "GK" : "MC"); player.setFitness(100); player.setRating(10); createdHumans.add(player); humans.save(player);
         }
         humans.flush();
     }
