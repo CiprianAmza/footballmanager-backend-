@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -31,6 +32,30 @@ class MultiplayerRoomServiceRulesTest {
         service.setFastForward(true, 1);
         assertEquals(3, member.getFastForwardTargetSeason());
         assertEquals(10, member.getFastForwardTargetDay());
+    }
+
+    @Test void lobbyMemberCanLeaveAndRejoinTheSameMembershipRow() {
+        User manager = user(2, CareerRole.MANAGER, 22L); CurrentUserService current = mock(CurrentUserService.class); when(current.requireUser()).thenReturn(manager);
+        GameRoom room = new GameRoom(); room.setId(9L); room.setStatus(RoomStatus.LOBBY); room.setHostUserId(1); room.setPasswordHash("encoded");
+        GameRoomMember member = new GameRoomMember(); member.setRoomId(9L); member.setUserId(2); member.setTeamId(22L); member.setMembershipStatus(MembershipStatus.ACTIVE);
+        GameRoomRepository roomRepo = mock(GameRoomRepository.class); GameRoomMemberRepository memberRepo = mock(GameRoomMemberRepository.class); PasswordEncoder encoder = mock(PasswordEncoder.class);
+        when(memberRepo.findFirstByUserIdAndMembershipStatus(2, MembershipStatus.ACTIVE)).thenReturn(Optional.of(member), Optional.empty()); when(roomRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(room)); when(memberRepo.findActiveForUpdate(9L, 2)).thenReturn(Optional.of(member)); when(memberRepo.findAllByRoomIdAndMembershipStatus(9L, MembershipStatus.ACTIVE)).thenReturn(List.of(member));
+        when(roomRepo.findOpenForUpdate(List.of(RoomStatus.LOBBY, RoomStatus.ACTIVE))).thenReturn(Optional.of(room)); when(memberRepo.findActiveForUpdate(9L)).thenReturn(List.of()); when(memberRepo.findByRoomIdAndUserId(9L, 2)).thenReturn(Optional.of(member)); when(encoder.matches(anyString(), anyString())).thenReturn(true);
+        MultiplayerRoomService service = new MultiplayerRoomService(roomRepo, memberRepo, mock(RoomContinueCycleRepository.class), mock(RoomContinueVoteRepository.class), current, encoder, mock(TeamRepository.class), mock(GameCalendarRepository.class));
+        service.leave(); assertEquals(MembershipStatus.LEFT, member.getMembershipStatus());
+        service.join("secret"); assertEquals(MembershipStatus.ACTIVE, member.getMembershipStatus());
+    }
+
+    @Test void activeRoomRejectsLeaveAndHostLobbyLeaveDeletesRoomForRecreate() {
+        User manager = user(1, CareerRole.MANAGER, 11L); CurrentUserService current = mock(CurrentUserService.class); when(current.requireUser()).thenReturn(manager);
+        GameRoom room = new GameRoom(); room.setId(10L); room.setStatus(RoomStatus.ACTIVE); room.setHostUserId(1);
+        GameRoomMember member = new GameRoomMember(); member.setRoomId(10L); member.setUserId(1); member.setTeamId(11L);
+        GameRoomRepository roomRepo = mock(GameRoomRepository.class); GameRoomMemberRepository memberRepo = mock(GameRoomMemberRepository.class);
+        when(memberRepo.findFirstByUserIdAndMembershipStatus(1, MembershipStatus.ACTIVE)).thenReturn(Optional.of(member)); when(roomRepo.findByIdForUpdate(10L)).thenReturn(Optional.of(room)); when(memberRepo.findActiveForUpdate(10L, 1)).thenReturn(Optional.of(member));
+        MultiplayerRoomService service = new MultiplayerRoomService(roomRepo, memberRepo, mock(RoomContinueCycleRepository.class), mock(RoomContinueVoteRepository.class), current, mock(PasswordEncoder.class), mock(TeamRepository.class), mock(GameCalendarRepository.class));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class, service::leave);
+        room.setStatus(RoomStatus.LOBBY); when(memberRepo.findAllByRoomIdAndMembershipStatus(10L, MembershipStatus.ACTIVE)).thenReturn(List.of()); when(memberRepo.findAllByRoomIdAndMembershipStatus(10L, MembershipStatus.LEFT)).thenReturn(List.of());
+        service.leave(); verify(roomRepo).delete(room);
     }
 
     private MultiplayerRoomService service(CurrentUserService current, User user, GameRoomRepository roomRepo, GameRoomMemberRepository memberRepo) {

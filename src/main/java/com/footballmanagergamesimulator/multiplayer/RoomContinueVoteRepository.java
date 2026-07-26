@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.*;
 
 public interface RoomContinueVoteRepository extends JpaRepository<RoomContinueVote, Long> {
+    void deleteByCycleId(Long cycleId);
     List<RoomContinueVote> findAllByCycleId(Long cycleId);
     Optional<RoomContinueVote> findByCycleIdAndUserId(Long cycleId, int userId);
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -61,6 +61,25 @@ class RoomContinueCoordinatorTest {
         assertNotNull(coordinator.claimExpired()); assertNull(cycle.getMajorityDeadline());
     }
 
+    @Test void allVotesWithForceContinueClaimsForcedAdvance() {
+        room.setForceContinue(true); configureMembers(2); when(votes.countByCycleId(11L)).thenReturn(2L);
+        AdvanceClaim claim = coordinator.claimExpired();
+        assertNotNull(claim); assertTrue(claim.forceContinue());
+    }
+
+    @Test void allVotesWithoutForceContinueKeepsBlockerRespectingNormalAdvance() {
+        room.setForceContinue(false); configureMembers(2); when(votes.countByCycleId(11L)).thenReturn(2L);
+        AdvanceClaim claim = coordinator.claimExpired();
+        assertNotNull(claim); assertFalse(claim.forceContinue());
+    }
+
+    @Test void expiredDeadlineWithForceContinueClaimsForcedAdvance() {
+        room.setForceContinue(true); configureMembers(2); when(votes.countByCycleId(11L)).thenReturn(0L);
+        cycle.setDayDeadline(Instant.now().minusSeconds(1));
+        AdvanceClaim claim = coordinator.claimExpired();
+        assertNotNull(claim); assertTrue(claim.forceContinue());
+    }
+
     @Test void oneOfFourWaitsAndTwoOfFourStartsMajority() {
         configureMembers(4); when(votes.countByCycleId(11L)).thenReturn(1L); assertNull(coordinator.claimExpired());
         cycle.setStatus(CycleStatus.OPEN); cycle.setMajorityDeadline(null); when(votes.countByCycleId(11L)).thenReturn(2L); assertNull(coordinator.claimExpired()); assertNotNull(cycle.getMajorityDeadline());

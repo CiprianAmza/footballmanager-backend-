@@ -90,22 +90,18 @@ public class MultiplayerRoomController {
         out.put("rapidCurrentDay", progress.currentDay()); out.put("rapidTargetSeason", progress.targetSeason());
         out.put("rapidTargetDay", progress.targetDay()); out.put("rapidCancelPending", progress.cancelPending());
 
-        String liveKey = null; boolean liveInteractive = false;
-        for (GameRoomMember member : members) {
-            var session = liveMatches.findAnyUncommittedSessionForTeam(member.getTeamId());
-            if (session != null) {
-                liveKey = com.footballmanagergamesimulator.service.LiveMatchSimulationService.buildKey(
-                        session.getCompetitionId(), session.getSeason(), session.getRound(),
-                        session.getTeamId1(), session.getTeamId2());
-                liveInteractive = !session.isFinished(); break;
-            }
-        }
+        GameRoomMember currentMember = members.stream().filter(m -> m.getUserId() == user.getId()).findFirst().orElse(null);
+        var ownSession = currentMember == null ? null : liveMatches.findAnyUncommittedSessionForTeam(currentMember.getTeamId());
+        String liveKey = ownSession == null ? null : com.footballmanagergamesimulator.service.LiveMatchSimulationService.buildKey(
+                ownSession.getCompetitionId(), ownSession.getSeason(), ownSession.getRound(), ownSession.getTeamId1(), ownSession.getTeamId2());
+        boolean liveInteractive = ownSession != null && !ownSession.isFinished();
+        boolean anyLiveMatch = members.stream().anyMatch(m -> liveMatches.findAnyUncommittedSessionForTeam(m.getTeamId()) != null);
         if (liveKey != null) { out.put("liveMatchKey", liveKey); out.put("liveMatchInteractive", liveInteractive); }
         if (cycle != null) {
             out.put("dayDeadline", cycle.getDayDeadline()); out.put("majorityDeadline", cycle.getMajorityDeadline());
             out.put("effectiveDeadline", effective(cycle));
         }
-        String blockerCode = liveKey != null ? "LIVE_MATCH_PENDING" : room.getBlockerCode();
+        String blockerCode = anyLiveMatch ? "LIVE_MATCH_PENDING" : room.getBlockerCode();
         if (blockerCode == null && cycle != null && cycle.getStatus() == CycleStatus.BLOCKED) blockerCode = "ADVANCE_BLOCKED";
         if (blockerCode == null && cycle != null && cycle.getStatus() == CycleStatus.FAILED) blockerCode = "ADVANCE_FAILED";
         out.put("blocker", Map.of("code", blockerCode == null ? "NONE" : blockerCode,

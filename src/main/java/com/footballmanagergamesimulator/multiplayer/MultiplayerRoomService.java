@@ -67,7 +67,11 @@ public class MultiplayerRoomService {
         if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_ALREADY_STARTED");
         if (members.size() >= room.getMaxPlayers()) throw new ResponseStatusException(HttpStatus.CONFLICT, "ROOM_FULL");
         if (members.stream().anyMatch(m -> m.getTeamId() == user.getTeamId())) conflict("TEAM_ALREADY_IN_ROOM");
-        memberRepository.save(member(room, user)); return room;
+        GameRoomMember previous = memberRepository.findByRoomIdAndUserId(room.getId(), user.getId()).orElse(null);
+        if (previous == null) previous = member(room, user);
+        previous.setTeamId(user.getTeamId()); previous.setMembershipStatus(MembershipStatus.ACTIVE); previous.setReady(false);
+        previous.setFastForwardEnabled(false); previous.setFastForwardTargetSeason(null); previous.setFastForwardTargetDay(null);
+        previous.setLastSeenAt(Instant.now()); memberRepository.save(previous); return room;
     }
 
     @Transactional
@@ -89,9 +93,18 @@ public class MultiplayerRoomService {
         User user = user(); requireManager(user);
         GameRoom room = lockMemberRoom(user.getId());
         GameRoomMember member = memberRepository.findActiveForUpdate(room.getId(), user.getId()).orElseThrow();
-        member.setMembershipStatus(MembershipStatus.LEFT); member.setFastForwardEnabled(false); member.setFastForwardTargetSeason(null); member.setFastForwardTargetDay(null); memberRepository.save(member);
-        if (memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE).isEmpty()) {
-            room.setStatus(RoomStatus.CLOSED); roomRepository.save(room);
+        if (room.getStatus() != RoomStatus.LOBBY) conflict("ROOM_LEAVE_ONLY_IN_LOBBY");
+        member.setMembershipStatus(MembershipStatus.LEFT); member.setReady(false); member.setFastForwardEnabled(false);
+        member.setFastForwardTargetSeason(null); member.setFastForwardTargetDay(null); memberRepository.saveAndFlush(member);
+        if (room.getHostUserId() == user.getId()) {
+            for (RoomContinueCycle cycle : cycleRepository.findAllByRoomId(room.getId())) {
+                voteRepository.deleteByCycleId(cycle.getId());
+            }
+            voteRepository.flush();
+            cycleRepository.deleteAll(cycleRepository.findAllByRoomId(room.getId())); cycleRepository.flush();
+            memberRepository.deleteAll(memberRepository.findAllByRoomIdAndMembershipStatus(room.getId(), MembershipStatus.ACTIVE));
+            memberRepository.delete(member); memberRepository.flush();
+            roomRepository.delete(room); roomRepository.flush();
         }
     }
 

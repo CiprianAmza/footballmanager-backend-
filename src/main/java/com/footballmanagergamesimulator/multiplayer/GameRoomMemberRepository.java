@@ -12,6 +12,8 @@ public interface GameRoomMemberRepository extends JpaRepository<GameRoomMember, 
     @Query("select m from GameRoomMember m where m.roomId = :roomId and m.userId = :userId and m.membershipStatus = 'ACTIVE'")
     Optional<GameRoomMember> findActiveForUpdate(@Param("roomId") Long roomId, @Param("userId") int userId);
     Optional<GameRoomMember> findFirstByUserIdAndMembershipStatus(int userId, MembershipStatus status);
+    Optional<GameRoomMember> findByRoomIdAndUserId(Long roomId, int userId);
+    Optional<GameRoomMember> findByRoomIdAndTeamId(Long roomId, long teamId);
     boolean existsByRoomIdAndTeamIdAndMembershipStatus(Long roomId, long teamId, MembershipStatus status);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from GameRoomMember m where m.roomId = :roomId and m.membershipStatus = 'ACTIVE'")

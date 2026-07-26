@@ -149,7 +149,8 @@ public class RoomContinueCoordinator {
             if (votes < requiredVotes(room, members.size()) && !deadline) return null;
         }
         if (cycle.getStatus() != CycleStatus.OPEN) return null;
-        boolean forceContinue = rapid || (deadline && room.isForceContinue()); String token = UUID.randomUUID().toString(); cycle.setStatus(CycleStatus.ADVANCING); cycle.setAdvanceStartedAt(Instant.now()); cycle.setAdvanceToken(token); cycle.setAdvanceLeaseUntil(Instant.now().plusSeconds(LEASE_SECONDS)); cycle.setAdvanceMode(rapid ? "RAPID" : "NORMAL"); cycle.setAdvanceForceContinue(forceContinue); rooms.cycles().saveAndFlush(cycle); return new AdvanceClaim(cycle.getId(), token, forceContinue);
+        boolean forceContinue = rapid || (room.isForceContinue() && (all || deadline));
+        String token = UUID.randomUUID().toString(); cycle.setStatus(CycleStatus.ADVANCING); cycle.setAdvanceStartedAt(Instant.now()); cycle.setAdvanceToken(token); cycle.setAdvanceLeaseUntil(Instant.now().plusSeconds(LEASE_SECONDS)); cycle.setAdvanceMode(rapid ? "RAPID" : "NORMAL"); cycle.setAdvanceForceContinue(forceContinue); rooms.cycles().saveAndFlush(cycle); return new AdvanceClaim(cycle.getId(), token, forceContinue);
     }
 
     private boolean allFastForward(List<GameRoomMember> members) { return !members.isEmpty() && members.stream().allMatch(GameRoomMember::isFastForwardEnabled); }
@@ -183,6 +184,13 @@ public class RoomContinueCoordinator {
         List<GameRoomMember> active = rooms.membersRepository().findActiveForUpdate(roomId);
         expireReachedTargets(active, cycle);
         return allFastForward(active) && !targetReached(active);
+    }
+
+    /** Used only on scheduler restart to discover the persisted room-scoped rapid job. */
+    @Transactional
+    public Optional<Long> persistedRapidRoom() {
+        GameRoom room = rooms.openRoom();
+        return rapidEligible(room.getId()) ? Optional.of(room.getId()) : Optional.empty();
     }
 
     private void expireReachedTargets(List<GameRoomMember> members, RoomContinueCycle cycle) {

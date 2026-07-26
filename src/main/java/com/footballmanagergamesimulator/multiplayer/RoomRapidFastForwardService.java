@@ -32,6 +32,11 @@ public class RoomRapidFastForwardService {
         });
     }
 
+    public void recoverPersistentWorker() {
+        try { coordinator.persistedRapidRoom().ifPresent(this::start); }
+        catch (RuntimeException ignored) { /* room may be between lifecycle transactions */ }
+    }
+
     private void run(Long roomId) {
         try {
             while (coordinator.rapidEligible(roomId)) {
