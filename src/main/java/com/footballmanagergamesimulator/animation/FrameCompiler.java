@@ -174,10 +174,17 @@ public final class FrameCompiler implements AnimationCompiler {
         List<AnimationEvent> events = compileEvents(spec, touches, index, schedule, shotFrame, shotArrival,
                 players, goalkeeper, blocker);
 
-        // The full array is only a physical scheduling envelope.  Export exactly the action
-        // that occurred and enough frames to see its result; short combinations stay short,
-        // while genuinely long runs retain the time they physically need.
-        int renderedFrames = Math.min(totalFrames, shotArrival + resultTailFrames);
+        // The full array is only a physical scheduling envelope. From version 3 on, export exactly
+        // the action that occurred and enough frames to see its result; short combinations stay
+        // short, while genuinely long runs retain the time they physically need.
+        //
+        // Version 2 is FROZEN and always exported the whole envelope. Dynamic pacing arrived in
+        // commit 4b9c2a1, which applied this truncation to every version and silently shortened
+        // frozen v2 replays (161 -> 59 frames on the version golden), breaking replay of every
+        // persisted v2 recipe. The export length is therefore version-scoped, like applyPacing.
+        int renderedFrames = version >= VERSION
+                ? Math.min(totalFrames, shotArrival + resultTailFrames)
+                : totalFrames;
 
         boolean scoringAttacksRight = spec.scoringTeamAttacksRight();
         boolean mirror = !scoringAttacksRight;
@@ -455,7 +462,11 @@ public final class FrameCompiler implements AnimationCompiler {
             }
         }
 
-        addDefensivePressureTracks(tracks, formation, attackingCount, goalkeeper, schedule, touches);
+        // Version-3 behaviour only. Reactive defending was added in commit 9ce513b without a version
+        // gate, which moved defenders in frozen version-2 replays too. Frozen versions keep their
+        // original uniform retreat.
+        if (version >= VERSION)
+            addDefensivePressureTracks(tracks, formation, attackingCount, goalkeeper, schedule, touches);
 
         // Scorer follow-through after the shot.
         int scorer = index.get(touches.get(finalTouch).playerId());
