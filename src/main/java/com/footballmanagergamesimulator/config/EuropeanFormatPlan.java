@@ -97,7 +97,7 @@ public final class EuropeanFormatPlan {
 
         for (int i = 0; i < p; i++) {
             stages.add(new EuropeanStage(round, round + 1, EuropeanPhase.PRELIMINARY,
-                    prelimFieldSizes.get(i), false, false, true, false, 0));
+                    prelimFieldSizes.get(i), false, false, true, true, 0));
             round++;
         }
         for (int gi = 0; gi < g; gi++) {
@@ -152,9 +152,9 @@ public final class EuropeanFormatPlan {
         int knockoutRounds = Integer.numberOfTrailingZeros(qualifiers);
         List<EuropeanStage> stages = new ArrayList<>(2 + groupRounds + knockoutRounds);
         stages.add(new EuropeanStage(0, 1, EuropeanPhase.PRELIMINARY,
-                firstRoundEntrants, false, false, true, false, 0));
+                firstRoundEntrants, false, false, true, true, 0));
         stages.add(new EuropeanStage(1, 2, EuropeanPhase.PRELIMINARY,
-                secondField, false, false, true, false, 0));
+                secondField, false, false, true, true, 0));
         int round = 2;
         for (int matchday = 0; matchday < groupRounds; matchday++, round++) {
             stages.add(new EuropeanStage(round, round + 1, EuropeanPhase.GROUP, slots,

@@ -29,12 +29,13 @@ class EuropeanFormatPlanTest {
         assertEquals(8, p.knockoutStartRound());
         assertEquals(10, p.finalRound());
 
-        // Preliminary rounds: seeded, single-leg, with the right field sizes.
+        // Preliminary rounds: seeded, home-and-away, with the right field sizes.
         assertEquals(EuropeanPhase.PRELIMINARY, p.stageForRound(0).phase());
         assertEquals(40, p.stageForRound(0).bracketSize());
         assertTrue(p.stageForRound(0).seededDraw());
-        assertFalse(p.stageForRound(0).twoLeg());
+        assertTrue(p.stageForRound(0).twoLeg());
         assertEquals(20, p.stageForRound(1).bracketSize());
+        assertTrue(p.stageForRound(1).twoLeg());
 
         // Group rounds: draw on first, qualify on last.
         assertEquals(EuropeanPhase.GROUP, p.stageForRound(2).phase());

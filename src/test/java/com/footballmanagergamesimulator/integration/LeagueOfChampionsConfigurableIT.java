@@ -83,12 +83,14 @@ class LeagueOfChampionsConfigurableIT {
 
         // Round 0: two clubs play for one place in round 1.
         europeanCompetitionService.drawEuropeanPreliminarySeeded(locId, 0L, slots);
+        assertTwoLegTies(0, 1);
         competitionController.simulateRound(String.valueOf(locId), "0");
         assertEquals(8, participantsAtRound(1L),
                 "round-one winner must join the seven round-two entrants");
 
         // Round 1: eight clubs produce four winners who join 12 direct entrants.
         europeanCompetitionService.drawEuropeanPreliminarySeeded(locId, 1L, slots);
+        assertTwoLegTies(1, 4);
         competitionController.simulateRound(String.valueOf(locId), "1");
         assertEquals(16, participantsAtRound(2L),
                 "after prelim round 1, exactly 16 teams should reach the group-draw round");
@@ -113,6 +115,16 @@ class LeagueOfChampionsConfigurableIT {
         return ctiRepository.findAllBySeasonNumber(1L).stream()
                 .filter(c -> c.getCompetitionId() == locId && c.getRound() == round)
                 .map(CompetitionTeamInfo::getTeamId).distinct().count();
+    }
+
+    private void assertTwoLegTies(long round, int expectedTies) {
+        List<CompetitionTeamInfoMatch> matches = ctimRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(locId, round, "1");
+        assertEquals(expectedTies * 2, matches.size(), "each qualifying tie must have two fixtures");
+        assertEquals(Set.of(1, 2), matches.stream()
+                .map(CompetitionTeamInfoMatch::getLegNumber).collect(Collectors.toSet()));
+        assertEquals(expectedTies, matches.stream().map(CompetitionTeamInfoMatch::getTieId)
+                .filter(tieId -> tieId != 0).distinct().count());
     }
 
     private void seedLocEntry(long teamId, long round) {

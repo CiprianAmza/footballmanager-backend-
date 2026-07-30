@@ -66,6 +66,12 @@ public class InstantMatchExecutor {
      */
     public List<MatchEvent> resolveSlot(MatchPlan plan, GoalSlot slot, List<Contributor> onPitch, MatchContext ctx) {
         List<MatchEvent> events = new ArrayList<>();
+        Long redCardPlayerId = plan.redCardPlayerId(slot.getTeamId());
+        if (redCardPlayerId != null) {
+            onPitch = onPitch.stream()
+                    .filter(contributor -> contributor.playerId() != redCardPlayerId)
+                    .toList();
+        }
         Random rng = new Random(perSlotSeed(plan.getSeed(), slot.getSlotIndex()));
         resolver.resolve(slot, onPitch, rng);
         if (!slot.isResolved() || slot.getScorerId() == null) return events;

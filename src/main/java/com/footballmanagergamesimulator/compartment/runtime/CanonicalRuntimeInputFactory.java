@@ -79,8 +79,20 @@ public final class CanonicalRuntimeInputFactory {
             validateDuty(slot, role, duty);
             double suitability = role == null ? 50.0
                     : roleService.computeRoleSuitability(slot.skills(), slot.usedPosition().code(), role.displayName());
-            Set<PlayerTrait> traits = slot.player().isStayForward()
+            boolean shadow = slot.player().isStayForward() || formation != null && formation.isShadow();
+            if (shadow && !isShadowPosition(slot.usedPosition())) {
+                throw new IllegalArgumentException("SHADOW is available only at AML/ML, AMR/MR, AMC/MC or ST; found "
+                        + slot.usedPosition().code() + " for player " + slot.player().getId());
+            }
+            Set<PlayerTrait> traits = shadow
                     ? EnumSet.of(PlayerTrait.REFUSES_DEFENSIVE_WORK) : EnumSet.noneOf(PlayerTrait.class);
+            String specialRole = formation == null ? null : formation.getSpecialRole();
+            if (specialRole != null && !specialRole.isBlank()) {
+                if (!"SHOOTER".equalsIgnoreCase(specialRole.trim())) {
+                    throw new IllegalArgumentException("unknown special role: " + specialRole);
+                }
+                traits.add(PlayerTrait.SHOOTER);
+            }
             ForwardInstruction instruction = resolveInstruction(formation == null ? null : formation.getInstructions());
             PlayerCapabilitySnapshot capability = Objects.requireNonNull(
                     capabilities.get(slot.player().getId()),
@@ -88,11 +100,19 @@ public final class CanonicalRuntimeInputFactory {
             CanonicalLineupPlayer canonical = new CanonicalLineupPlayer(
                     slot.player().getId(), slot.usedPosition(), slot.occurrence(), role, duty,
                     PlayerAttributeMapping.rawAttributeMap(slot.skills()), slot.player().getFitness(),
-                    slot.player().getMorale(), capability, suitability, traits, instruction);
+                    slot.player().getMorale(), capability, suitability, traits, instruction,
+                    slot.player().getRating());
             lineup.add(canonical);
             contexts.put(canonical.playerId(), tacticalContext(axes, formation));
         }
         return new CanonicalRuntimeTeamInput(axes.mentality(), lineup, contexts);
+    }
+
+    private static boolean isShadowPosition(com.footballmanagergamesimulator.compartment.PlayerPosition position) {
+        return switch (position) {
+            case AML, ML, AMR, MR, AMC, MC, ST -> true;
+            default -> false;
+        };
     }
 
     /**
@@ -163,6 +183,7 @@ public final class CanonicalRuntimeInputFactory {
     private static TacticalContextInput tacticalContext(CanonicalAxes axes, FormationData formation) {
         return new TacticalContextInput(
                 axes.mentalityText(), axes.tempo(), axes.passingType(), axes.defensiveLine(), axes.pressing(), axes.width(),
+                axes.recovery(),
                 formation == null || formation.getInstructions() == null
                         ? List.of() : List.copyOf(formation.getInstructions()));
     }
@@ -175,8 +196,9 @@ public final class CanonicalRuntimeInputFactory {
                 canonicalAxis("tempo", tactic.getTempo(), "Standard", MatchEngineConfig.TacticalModel.TEMPO_OPTIONS),
                 canonicalAxis("passingType", tactic.getPassingType(), "Normal", MatchEngineConfig.TacticalModel.PASSING_OPTIONS),
                 canonicalAxis("defensiveLine", tactic.getDefensiveLine(), "Standard", MatchEngineConfig.TacticalModel.DEFENSIVE_LINE_OPTIONS),
-                canonicalAxis("pressing", tactic.getPressing(), "Standard", MatchEngineConfig.TacticalModel.PRESSING_OPTIONS),
-                canonicalAxis("width", tactic.getWidth(), "Balanced", MatchEngineConfig.TacticalModel.WIDTH_OPTIONS));
+                canonicalPressing(tactic.getPressing()),
+                canonicalAxis("width", tactic.getWidth(), "Balanced", MatchEngineConfig.TacticalModel.WIDTH_OPTIONS),
+                canonicalAxis("recovery", tactic.getRecovery(), "Standard", MatchEngineConfig.TacticalModel.RECOVERY_OPTIONS));
     }
 
     private static String canonicalAxis(String axis, String raw, String fallback, List<String> options) {
@@ -184,6 +206,17 @@ public final class CanonicalRuntimeInputFactory {
         String value = raw.trim();
         return options.stream().filter(option -> option.equalsIgnoreCase(value)).findFirst().orElseThrow(
                 () -> new IllegalArgumentException("unknown " + axis + " value: " + raw));
+    }
+
+    /** Reads pre-migration saves while every newly written tactic uses the five-level scale. */
+    private static String canonicalPressing(String raw) {
+        if (raw != null) {
+            String value = raw.trim();
+            if (value.equalsIgnoreCase("Low")) return "Very Easy";
+            if (value.equalsIgnoreCase("Standard")) return "Normal";
+            if (value.equalsIgnoreCase("High")) return "Very Aggressive";
+        }
+        return canonicalAxis("pressing", raw, "Normal", MatchEngineConfig.TacticalModel.PRESSING_OPTIONS);
     }
 
     private static Mentality resolveMentality(String raw) {
@@ -198,6 +231,6 @@ public final class CanonicalRuntimeInputFactory {
     }
 
     private record CanonicalAxes(Mentality mentality, String mentalityText, String tempo, String passingType,
-                                 String defensiveLine, String pressing, String width) {
+                                 String defensiveLine, String pressing, String width, String recovery) {
     }
 }

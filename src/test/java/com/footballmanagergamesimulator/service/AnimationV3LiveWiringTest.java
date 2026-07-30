@@ -59,7 +59,6 @@ class AnimationV3LiveWiringTest {
     @BeforeEach
     void setUp() throws Exception {
         engineConfig = new MatchEngineConfig();
-        engineConfig.getTacticalModel().setEnabled(true);
         engineConfig.getMatchPlan().setEnabled(true); // canonical plan flag ON
 
         service = new LiveMatchSimulationService();

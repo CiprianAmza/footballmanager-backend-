@@ -31,6 +31,7 @@ public class PersonalizedTacticView {
     private String tempoFragmentation;
     private String widePlay;
     private String transition;
+    private String recovery;
 
     // Set piece takers
     private Long penaltyTakerId;

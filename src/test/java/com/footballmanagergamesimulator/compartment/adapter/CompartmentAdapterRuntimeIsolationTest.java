@@ -13,62 +13,13 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Negative audit: no production source <em>outside</em> the {@code compartment} package may reference
- * the pure adapter or the pure calculators/formulas. This guarantees Phase&nbsp;2 adds no runtime
- * wiring into any match/scoring path &mdash; the adapter remains reachable only from tests.
- */
+/** Static architecture checks for the authoritative canonical scoring boundary. */
 class CompartmentAdapterRuntimeIsolationTest {
-
-    private static final List<String> GUARDED_TYPES = List.of(
-            "CompartmentDomainAdapter",
-            "DomainSnapshotFactory",
-            "DomainPlayerSnapshot",
-            "PlayerAttributeMapping",
-            "ContextCoefficientMapper",
-            "TacticalContextInput",
-            "ContextCoefficientMapping",
-            "ContextualPlayerRatingCalculator",
-            "DefensiveExposureFormula",
-            "GoalProbabilityFormula",
-            "CompartmentMath",
-            "CanonicalMatchEvaluation",
-            "CanonicalMatchEvaluationAdapter",
-            "OutcomeProbability",
-            "MatchVenue");
 
     private static final List<String> PHASE6_FORBIDDEN_REFERENCES = List.of(
             "Repository", "jakarta.persistence", "org.springframework", "Human", "PlayerSkills",
             "FormationData", "MatchPlan", "TacticalScoreService", "MatchRoundSimulator", "LiveMatch",
             "java.util.Random", "ThreadLocalRandom");
-
-    @Test
-    void noRuntimeCallsiteReferencesTheAdapterOrPureCalculators() {
-        Path root = Path.of("src", "main", "java");
-        assertThat(root).exists();
-
-        Map<String, List<String>> offenders = new TreeMap<>();
-        try (Stream<Path> files = Files.walk(root)) {
-            files.filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> !p.toString().replace('\\', '/').contains("/compartment/"))
-                    .forEach(p -> {
-                        String content = read(p);
-                        for (String type : GUARDED_TYPES) {
-                            if (containsIdentifier(content, type)) {
-                                offenders.computeIfAbsent(root.relativize(p).toString(), k -> new java.util.ArrayList<>())
-                                        .add(type);
-                            }
-                        }
-                    });
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-
-        assertThat(offenders)
-                .as("no production file outside the compartment package may reference the adapter/calculators")
-                .isEmpty();
-    }
 
     @Test
     void phaseSixBridgeRemainsDomainFreeAndRuntimeIsolated() {
@@ -98,17 +49,13 @@ class CompartmentAdapterRuntimeIsolationTest {
     }
 
     @Test
-    void phaseNineAllowsOnlyTheShadowServiceFrontier() {
+    void productionContainsNoShadowScoringFrontier() {
         Path root = Path.of("src", "main", "java");
         Path simulator = root.resolve("com/footballmanagergamesimulator/service/MatchRoundSimulator.java");
-        assertThat(read(simulator)).contains("CompartmentShadowEvaluationService")
-                .contains("evaluateSafely(() ->");
         Map<String, List<String>> offenders = new TreeMap<>();
         try (Stream<Path> files = Files.walk(root)) {
             files.filter(Files::isRegularFile)
                     .filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> !p.equals(simulator))
-                    .filter(p -> !p.toString().replace('\\', '/').contains("/compartment/"))
                     .forEach(p -> {
                         if (containsIdentifier(read(p), "CompartmentShadowEvaluationService")) {
                             offenders.computeIfAbsent(root.relativize(p).toString(), k -> new java.util.ArrayList<>())
@@ -118,41 +65,22 @@ class CompartmentAdapterRuntimeIsolationTest {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        assertThat(offenders).as("only MatchRoundSimulator may reference the shadow service").isEmpty();
-        String simulatorSource = read(simulator);
-        for (String forbidden : List.of("CanonicalMatchEvaluationAdapter", "CanonicalRuntimeInputFactory",
-                "CanonicalTeamEvaluationAdapter", "GoalProbabilityFormula", "PlayerCapabilityService")) {
-            assertThat(containsIdentifier(simulatorSource, forbidden))
-                    .as("MatchRoundSimulator must not reference " + forbidden).isFalse();
-        }
+        assertThat(offenders).as("the retired shadow scorer must not exist in production").isEmpty();
+        assertThat(read(simulator))
+                .doesNotContain("CompartmentShadowEvaluationService", "scoreSafely",
+                        "TWO_AXIS_FALLBACK", "SCALAR_FALLBACK");
     }
 
     @Test
-    void phaseElevenHasOneAiCutoverHookAndLeavesLegacyBoundariesInPlace() {
+    void authoritativeRuntimeHasNoFallbackCutover() {
         String simulator = read(Path.of("src", "main", "java", "com", "footballmanagergamesimulator",
                 "service", "MatchRoundSimulator.java"));
-        assertThat(count(simulator, "canonicalRuntimeScoringService.scoreSafely")).isEqualTo(1);
-
-        int aiStart = simulator.indexOf("aiMatches++");
-        int admin = simulator.indexOf("readPredeterminedScore(", aiStart);
-        int cutover = simulator.indexOf("canonicalRuntimeScoringService.scoreSafely");
-        int twoAxisFallback = simulator.indexOf("TwoAxisResult r = twoAxisScores(teamId1, null, teamId2, null)", cutover);
-        assertThat(admin).isGreaterThanOrEqualTo(0).isLessThan(cutover);
-        int persistedLookup = simulator.indexOf("findPersistedScoringPlan", aiStart);
-        assertThat(persistedLookup).isGreaterThanOrEqualTo(0).isLessThan(cutover);
-        assertThat(simulator).contains("boolean durablePlan = persistedScoreDecision.isPresent() || matchPlanService.isEnabled()")
-                .contains("if (durablePlan)")
-                .contains("isPlanCommitted(aiFixtureKey)");
-        assertThat(twoAxisFallback).isGreaterThan(cutover);
-        assertThat(simulator).contains("compartmentEngineConfig.isShadowEnabled() && !compartmentEngineConfig.isEnabled()");
-        int humanStart = simulator.indexOf("if (isHumanMatch)");
-        assertThat(humanStart).isGreaterThanOrEqualTo(0).isLessThan(cutover);
-        assertThat(simulator.substring(humanStart, cutover)).doesNotContain("canonicalRuntimeScoringService");
-
-        int standalone = simulator.indexOf("public MatchOutcome scoreStandaloneMatch");
-        assertThat(standalone).isGreaterThanOrEqualTo(0);
-        assertThat(simulator.substring(standalone)).doesNotContain("canonicalRuntimeScoringService");
-        assertThat(simulator).contains("if (isHumanMatch)").contains("if (knockout)");
+        assertThat(simulator)
+                .contains("canonicalScoreForHumanFixture")
+                .contains("canonicalScoreForAiFixture")
+                .contains("canonicalRuntimeScoringService.score(")
+                .doesNotContain("scoreSafely", "TWO_AXIS_FALLBACK", "SCALAR_FALLBACK",
+                        "twoAxisScores(", "scoreStandaloneMatch(", "CompartmentShadowEvaluationService");
     }
 
     @Test

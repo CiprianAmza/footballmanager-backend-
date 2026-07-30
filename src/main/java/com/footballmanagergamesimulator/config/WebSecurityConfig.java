@@ -25,15 +25,21 @@ import java.util.List;
 @Configuration
 public class WebSecurityConfig {
 
+    /** Face Lab endpoints, opened up only while the dev flag below is set. */
+    private static final String FACE_LAB_PATHS = "/api/dev/facelab/**";
+
     private final UserDetailsServiceImpl userDetailsService;
     private final boolean chairmanEnabled;
+    private final boolean faceLabEnabled;
     private final List<String> allowedOrigins;
 
     public WebSecurityConfig(UserDetailsServiceImpl userDetailsService,
                              ChairmanModeProperties chairmanModeProperties,
-                             @Value("${cors.allowed-origins:http://localhost:4200}") List<String> allowedOrigins) {
+                             @Value("${cors.allowed-origins:http://localhost:4200}") List<String> allowedOrigins,
+                             @Value("${facelab.enabled:false}") boolean faceLabEnabled) {
         this.userDetailsService = userDetailsService;
         this.chairmanEnabled = chairmanModeProperties.isEnabled();
+        this.faceLabEnabled = faceLabEnabled;
         this.allowedOrigins = allowedOrigins;
     }
 
@@ -81,9 +87,13 @@ public class WebSecurityConfig {
         http
                 .authenticationProvider(authProvider())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(csrf -> csrf
-                        .csrfTokenRepository(csrfRepository)
-                        .csrfTokenRequestHandler(csrfHandler))
+                .csrf(csrf -> {
+                    csrf.csrfTokenRepository(csrfRepository)
+                        .csrfTokenRequestHandler(csrfHandler);
+                    // The Face Lab gallery posts without a session, so there is no CSRF
+                    // token to present. Only reachable while facelab.enabled is set.
+                    if (faceLabEnabled) csrf.ignoringRequestMatchers(FACE_LAB_PATHS);
+                })
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         .sessionFixation(fixation -> fixation.changeSessionId()))
@@ -119,6 +129,13 @@ public class WebSecurityConfig {
                                 "/api/club-cash-transfers",
                                 "/api/assets/**", "/api/wealth-rankings/**").authenticated();
                     }
+                    // DEV-ONLY Face Lab. `facelab.enabled` lives in the local
+                    // application.properties and is absent from the packaged
+                    // application.yml, so in a production boot this branch never runs AND
+                    // DevFaceLabController is not even instantiated (@ConditionalOnProperty).
+                    // The gallery deliberately renders outside the login shell, so it has
+                    // no session to authenticate with.
+                    if (faceLabEnabled) requests.requestMatchers(FACE_LAB_PATHS).permitAll();
                     requests.requestMatchers("/admin/login").permitAll();
                     requests.requestMatchers("/admin/**").hasRole("ADMIN");
                     requests.anyRequest().authenticated();

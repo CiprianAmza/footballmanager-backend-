@@ -1150,42 +1150,13 @@ public class LiveMatchSimulationService {
     }
 
     CommitOutcome resolveCommitOutcome(LiveMatchSession session) {
-        if (!session.hasManualSubstitutions()) {
-            return new CommitOutcome(
-                    session.getHomeScore(), session.getAwayScore(),
-                    session.getDeferredTeamPower1(), session.getDeferredTeamPower2(),
-                    session.getDeferredProfile1(), session.getDeferredProfile2(),
-                    false);
-        }
-
-        TacticalScoreService.TeamProfile homeProfile = currentOnPitchProfile(session, true);
-        TacticalScoreService.TeamProfile awayProfile = currentOnPitchProfile(session, false);
-        double homePower = homeProfile != null
-                ? homeProfile.attack() + homeProfile.defense()
-                : session.getDeferredTeamPower1();
-        double awayPower = awayProfile != null
-                ? awayProfile.attack() + awayProfile.defense()
-                : session.getDeferredTeamPower2();
-
-        if (engineConfig.getTacticalModel().isEnabled()
-                && homeProfile != null
-                && awayProfile != null
-                && session.getDeferredVector1() != null
-                && session.getDeferredVector2() != null) {
-            Random scoreRng = new Random(commitScoreSeed(session));
-            List<Integer> score = tacticalScoreService.score(
-                    homeProfile, session.getDeferredVector1(),
-                    awayProfile, session.getDeferredVector2(),
-                    scoreRng);
-            return new CommitOutcome(score.get(0), score.get(1),
-                    homePower, awayPower, homeProfile, awayProfile, true);
-        }
-
-        Random scoreRng = new Random(commitScoreSeed(session));
-        double homeEffective = homePower * engineConfig.getPower().getHomeAdvantage();
-        List<Integer> score = matchSimulationService.calculateScores(homeEffective, awayPower, scoreRng);
-        return new CommitOutcome(score.get(0), score.get(1),
-                homePower, awayPower, homeProfile, awayProfile, true);
+        // The authoritative canonical score is fixed before kickoff and persisted in the
+        // MatchPlan. A manual substitution may change participants and event attribution,
+        // but it must never switch the fixture to the removed two-axis/scalar scorer at commit.
+        return new CommitOutcome(
+                session.getHomeScore(), session.getAwayScore(),
+                session.getDeferredTeamPower1(), session.getDeferredTeamPower2(),
+                null, null, false);
     }
 
     private TacticalScoreService.TeamProfile currentOnPitchProfile(LiveMatchSession session, boolean home) {

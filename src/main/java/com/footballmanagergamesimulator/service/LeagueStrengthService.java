@@ -36,7 +36,7 @@ public class LeagueStrengthService {
 
     public LeagueStrengthTable calculate(int season) {
         Map<Long, Competition> leagues = competitionRepository.findAll().stream()
-                .filter(competition -> competition.getTypeId() == 1 || competition.getTypeId() == 3)
+                .filter(Competition::isLeague)
                 .collect(Collectors.toMap(Competition::getId, competition -> competition));
 
         Map<Long, Set<Long>> teamIdsByLeague = new HashMap<>();
@@ -100,6 +100,7 @@ public class LeagueStrengthService {
                     row.competition().getId(),
                     row.competition().getName(),
                     (int) row.competition().getTypeId(),
+                    row.competition().getTier(),
                     round(row.rating(), 2),
                     multiplier,
                     row.teams().size(),
@@ -135,8 +136,9 @@ public class LeagueStrengthService {
 
     public record RankMultiplierTier(int maximumRank, double multiplier) {}
     public record TeamStrength(long teamId, String teamName, double topElevenRating, int ratedPlayerCount) {}
+    /** {@code tier} is the level within the nation: 1 is the top flight, 2 the division below. */
     public record LeagueStrengthEntry(int rank, long competitionId, String competitionName,
-                                      int competitionTypeId, double averageTopElevenRating,
+                                      int competitionTypeId, int tier, double averageTopElevenRating,
                                       double multiplier, int teamCount, int completeTeamCount,
                                       List<TeamStrength> teams) {}
     public record LeagueStrengthTable(int season, int topPlayersPerTeam, double defaultMultiplier,

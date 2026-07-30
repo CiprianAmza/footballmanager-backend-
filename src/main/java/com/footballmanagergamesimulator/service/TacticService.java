@@ -40,6 +40,9 @@ public class TacticService {
         FORMATIONS.put("541",  Map.of("GK", 1, "DL", 1, "DC", 3, "DR", 1, "ML", 1, "MC", 2, "MR", 1, "ST", 1));
         // 3-5-1-1: back three + wing-backs + three central mids + an AMC behind the striker.
         FORMATIONS.put("3511", Map.of("GK", 1, "DC", 3, "WBL", 1, "WBR", 1, "MC", 3, "AMC", 1, "ST", 1));
+        // 3-1-4-1-1: back three, one DM, a flat midfield four, AMC and lone striker.
+        FORMATIONS.put("31411", Map.of("GK", 1, "DC", 3, "DM", 1,
+                "ML", 1, "MC", 2, "MR", 1, "AMC", 1, "ST", 1));
 
         // Substitution formats (1 per position that's used in the formation)
         Map<String, Integer> defaultSubs = Map.of("DL", 1, "DC", 1, "DR", 1, "ML", 1, "MC", 1, "MR", 1, "ST", 1);
@@ -76,6 +79,20 @@ public class TacticService {
 
     public List<String> getAllExistingTactics() {
         return new ArrayList<>(FORMATIONS.keySet());
+    }
+
+    /** Resolve the formation that exactly matches a persisted kickoff XI. */
+    public String inferFormation(Collection<String> positions, String fallback) {
+        if (positions == null || positions.isEmpty()) return fallback;
+        Map<String, Integer> counts = new HashMap<>();
+        for (String position : positions) {
+            if (position != null) counts.merge(position, 1, Integer::sum);
+        }
+        if (fallback != null && counts.equals(FORMATIONS.get(fallback))) return fallback;
+        for (Map.Entry<String, Map<String, Integer>> entry : FORMATIONS.entrySet()) {
+            if (counts.equals(entry.getValue())) return entry.getKey();
+        }
+        return fallback;
     }
 
     /**
@@ -135,7 +152,7 @@ public class TacticService {
         FORMATION_GRID_INDICES.put("5-2-1-2 WB",   new int[]{1, 3, 7, 11, 13, 15, 19, 21, 22, 23, 27});
         FORMATION_GRID_INDICES.put("4-2-4",        new int[]{1, 3, 5, 9, 11, 13, 20, 21, 23, 24, 27});
 
-        // --- All 15 production formation KEYS (pitch layout on the 5×6 grid; labels via
+        // --- All production formation KEYS (pitch layout on the 5×6 grid; labels via
         //     getPositionFromIndex). Lets the frontend offer every formation the engine/AI use. ---
         FORMATION_GRID_INDICES.put("442",  new int[]{1, 3, 10, 11, 13, 14, 20, 21, 23, 24, 27});
         FORMATION_GRID_INDICES.put("433",  new int[]{1, 2, 3, 10, 12, 14, 20, 21, 23, 24, 27});
@@ -152,6 +169,7 @@ public class TacticService {
         FORMATION_GRID_INDICES.put("5212", new int[]{1, 3, 7, 12, 17, 20, 21, 22, 23, 24, 27});
         FORMATION_GRID_INDICES.put("541",  new int[]{2, 10, 11, 13, 14, 20, 21, 22, 23, 24, 27});
         FORMATION_GRID_INDICES.put("3511", new int[]{2, 7, 11, 12, 13, 15, 19, 21, 22, 23, 27});
+        FORMATION_GRID_INDICES.put("31411", new int[]{2, 7, 10, 11, 13, 14, 17, 21, 22, 23, 27});
     }
 
     public int[] getFormationGridIndices(String formationName) {

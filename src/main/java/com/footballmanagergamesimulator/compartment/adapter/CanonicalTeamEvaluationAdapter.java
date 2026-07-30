@@ -51,9 +51,15 @@ public final class CanonicalTeamEvaluationAdapter {
 
         Map<Long, CanonicalPlayerEvaluation> evaluationsById = new LinkedHashMap<>();
         List<TeamCompartmentAggregator.PlayerCompartmentInput> inputs = new ArrayList<>();
+        Set<String> passingValues = new java.util.LinkedHashSet<>();
+        Set<String> pressingValues = new java.util.LinkedHashSet<>();
+        Set<String> recoveryValues = new java.util.LinkedHashSet<>();
         for (CanonicalLineupPlayer player : orderedLineup) {
             TacticalContextInput context = tacticalContextByPlayerId.get(player.playerId());
             if (context == null) throw new IllegalArgumentException("tactical context cannot be null");
+            pressingValues.add(context.pressing());
+            passingValues.add(context.passingType());
+            recoveryValues.add(context.recovery());
             CanonicalPlayerEvaluation evaluation = playerAdapter.evaluate(player, context);
             evaluationsById.put(player.playerId(), evaluation);
             inputs.add(new TeamCompartmentAggregator.PlayerCompartmentInput(
@@ -61,10 +67,31 @@ public final class CanonicalTeamEvaluationAdapter {
                     new TeamCompartmentAggregator.LineupSlot(player.usedPosition(), player.occurrence()),
                     evaluation.rating(),
                     new ArrayList<>(player.traits()),
-                    player.forwardInstruction()));
+                    player.forwardInstruction(),
+                    player.overallRating(),
+                    requiredAttribute(player, com.footballmanagergamesimulator.compartment.PlayerAttribute.LONG_SHOTS),
+                    requiredAttribute(player, com.footballmanagergamesimulator.compartment.PlayerAttribute.POSITIONING),
+                    requiredAttribute(player, com.footballmanagergamesimulator.compartment.PlayerAttribute.FINISHING),
+                    requiredAttribute(player, com.footballmanagergamesimulator.compartment.PlayerAttribute.PACE),
+                    requiredAttribute(player, com.footballmanagergamesimulator.compartment.PlayerAttribute.BALL_RECOVERY),
+                    requiredAttribute(player, com.footballmanagergamesimulator.compartment.PlayerAttribute.TACKLING)));
         }
 
-        TeamCompartmentAggregator.TeamAggregationResult team = aggregator.aggregate(mentality, inputs);
+        if (passingValues.size() != 1 || pressingValues.size() != 1 || recoveryValues.size() != 1) {
+            throw new IllegalArgumentException("all players must share the same team tactic axes");
+        }
+        TeamCompartmentAggregator.TeamAggregationResult team = aggregator.aggregate(
+                mentality, passingValues.iterator().next(), pressingValues.iterator().next(),
+                recoveryValues.iterator().next(), inputs);
         return new CanonicalTeamEvaluation(new ArrayList<>(evaluationsById.values()), team);
+    }
+
+    private static int requiredAttribute(CanonicalLineupPlayer player,
+                                         com.footballmanagergamesimulator.compartment.PlayerAttribute attribute) {
+        Integer value = player.attributes().get(attribute);
+        if (value == null) {
+            throw new IllegalArgumentException("missing " + attribute + " for player " + player.playerId());
+        }
+        return value;
     }
 }

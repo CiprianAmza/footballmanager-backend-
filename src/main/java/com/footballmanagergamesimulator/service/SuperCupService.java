@@ -45,7 +45,7 @@ public class SuperCupService {
         List<Competition> all = competitionRepository.findAll();
         List<Competition> additions = new ArrayList<>();
         for (Competition league : all) {
-            if (league.getTypeId() != 1) continue;
+            if (!league.isTopFlight()) continue;
             boolean exists = all.stream().anyMatch(c -> c.getTypeId() == 6
                     && c.getNationId() == league.getNationId());
             if (exists) continue;
@@ -53,6 +53,7 @@ public class SuperCupService {
             superCup.setNationId(league.getNationId());
             superCup.setPrizesId(league.getPrizesId());
             superCup.setTypeId(6);
+            superCup.setTier(1); // one Super Cup per nation, so there is no level below it
             superCup.setName(countryName(league.getName()) + " Super Cup");
             additions.add(superCup);
         }
@@ -71,7 +72,7 @@ public class SuperCupService {
         List<Competition> all = competitionRepository.findAll();
         for (Competition superCup : all) {
             if (superCup.getTypeId() != 6) continue;
-            Competition league = all.stream().filter(c -> c.getTypeId() == 1
+            Competition league = all.stream().filter(c -> c.isTopFlight()
                     && c.getNationId() == superCup.getNationId()).findFirst().orElse(null);
             Competition cup = all.stream().filter(c -> c.getTypeId() == 2
                     && c.getNationId() == superCup.getNationId()).findFirst().orElse(null);

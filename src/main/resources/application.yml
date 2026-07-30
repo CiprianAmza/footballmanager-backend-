@@ -107,13 +107,37 @@ awards:
       assist-weight: 1.0
 
 # =============================================================
-# Match Engine Configuration
+# League prize pools
 # =============================================================
-# Single source of truth for every numeric constant that
-# influences a match outcome. Sweep these via fuzz tests
-# (-Pfuzz) or override per profile / @TestPropertySource.
-# Defaults match the hardcoded values in MatchEngineConfig.java
-# so behaviour is unchanged unless explicitly overridden.
+# Each championship receives a season pool set by its rank in the
+# league-strength table (average best eleven), NOT by the European
+# coefficient — depth is what an audience watches, and a newly added
+# championship is ranked from day one instead of waiting years for a
+# coefficient to form. Ranks restart at 1 per competition type, so a
+# country's second division never outranks its own top flight.
+# The pool is shared out across the final table; the last club keeps
+# (1 - position-spread) of the champion's share.
+finance:
+  league-prize:
+    total-pool: 5000000000
+    # 1 = raw proportional, which is nearly flat because ratings have no zero:
+    # measured league averages span 98-191, under 2:1. 3 gives ~7:1 best to
+    # worst, 4 gives ~14:1. The single dial for how unequal the world is.
+    strength-exponent: 4.0
+    # Inclusive rank ceilings, as elsewhere: 1 => the top division only.
+    rank-bonuses:
+      1: 1.15
+      2: 1.07
+    default-rank-bonus: 1.0
+    second-league-fraction: 0.10
+    position-spread: 0.8
+
+# =============================================================
+# Match effects and presentation configuration
+# =============================================================
+# Score generation is NOT configured here. Compartment V1 reads its only
+# scoring catalogue from compartment-scoring-weights-v1.yml. The settings
+# below control persistence, morale, events, presentation and post-match effects.
 
 match:
   animation:
@@ -127,18 +151,6 @@ match:
     # Canonical MatchPlan is the durable boundary required by authoritative Compartment scoring.
     match-plan:
       enabled: true
-
-    # Authoritative Compartment Engine V1 rollout. Shadow stays mutually exclusive/off.
-    compartment:
-      enabled: true
-      shadow-enabled: false
-    power:
-      ratio-exponent: 2.0          # Math.pow(ratio, X). Higher = stronger dominates more.
-      expected-goals-total: 3.0    # Total ~goals/match, split by adjusted ratio.
-      max-goals-per-team: 7        # Hard cap to prevent Poisson tail blowups.
-      morale-floor: 0.8            # morale=0 → power ×0.8 (tuner value).
-      morale-spread: 0.4           # morale=100 → power ×1.2 (floor+spread).
-      home-advantage: 1.08         # home side power ×1.08 (~+8%, tuner value).
 
     morale:
       tier-big-diff: 500           # Power-diff thresholds for outcome tiers.
@@ -262,6 +274,7 @@ match:
       goal-minute-min: 1
       goal-minute-max: 91
       assist-probability: 0.7
+      perfect-passing-assist-probability: 0.7
       substitutions-per-team: 3
       substitution-minute-min: 46
       substitution-minute-max: 86

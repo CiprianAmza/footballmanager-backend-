@@ -316,8 +316,9 @@ public class HumanService {
             }
 
             if (random.nextDouble() < baseChance) {
+                if (currentVal == 20) continue; // exceptional, hand-authored and stable
                 int newVal = (int) Math.round(currentVal + baseAmount);
-                newVal = Math.max(1, Math.min(20, newVal));
+                newVal = Math.max(1, Math.min(19, newVal));
                 if (newVal != currentVal) {
                     PlayerSkillsService.SETTER_MAP.get(attrName).accept(skills, newVal);
                     anyChanged = true;

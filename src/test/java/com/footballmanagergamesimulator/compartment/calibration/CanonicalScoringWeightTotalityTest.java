@@ -12,7 +12,7 @@ class CanonicalScoringWeightTotalityTest {
         var catalog = CanonicalScoringWeightCatalog.from(profile.compartment(), profile.match());
         var harness = new ScoringSensitivityHarness(profile.compartment(), profile.match(), new CanonicalScoreSampler());
 
-        assertThat(catalog.leafWeights()).hasSize(731);
+        assertThat(catalog.leafWeights()).hasSize(727);
         for (CanonicalScoringWeightKey leaf : catalog.leafWeights()) {
             var scenario = CalibrationScenarioFactory.forWeightSmoke(leaf);
             assertThat(scenario.seasons()).as("smoke duration for %s", leaf.path()).isEqualTo(1);

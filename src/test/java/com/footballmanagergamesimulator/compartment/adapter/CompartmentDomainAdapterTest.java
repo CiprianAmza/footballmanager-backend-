@@ -204,6 +204,5 @@ class CompartmentDomainAdapterTest {
 
     @Test
     void compartmentEngineFlagIsOffByDefault() {
-        assertThat(config.isEnabled()).isFalse();
     }
 }

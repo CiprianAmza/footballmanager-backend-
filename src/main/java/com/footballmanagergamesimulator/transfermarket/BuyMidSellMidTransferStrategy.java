@@ -1,115 +1,46 @@
 package com.footballmanagergamesimulator.transfermarket;
 
 import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.service.TacticService;
-import com.footballmanagergamesimulator.util.TypeNames;
-import org.apache.commons.lang3.tuple.ImmutablePair;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.Comparator;
 
+/**
+ * The club without a plan — and the market's liquidity provider.
+ *
+ * <p>Its job is <b>not</b> to trade mid-quality players; it is to make sure as many
+ * clubs as possible trade at all. So it draws from the whole squad at random rather
+ * than skimming the XI or clearing the bench, and it is the most permissive buyer:
+ * every acceptance path open, the widest step-up tolerance, no age limit. Expect it
+ * to say yes more often than any other strategy.
+ *
+ * <p>Because the pick is random, its sold set tracks the squad mean <i>in
+ * expectation</i> — that is a statistical property over many draws, not a per-window
+ * guarantee, and assertions should be written accordingly.
+ */
 public class BuyMidSellMidTransferStrategy extends AbstractTransferStrategy {
 
-    private Random random = new Random();
+  @Override
+  protected SellSource sellSource() {
+    return SellSource.WHOLE_SQUAD;
+  }
 
-    @Override
-    public void setRandom(Random random) {
-      this.random = random;
-    }
+  @Override
+  protected Comparator<Human> sellOrder() {
+    return null; // shuffle — no preference is the point
+  }
 
-    @Override
-    public List<PlayerTransferView> playersToSell(Team team, HumanRepository humanRepository, HashMap<String, Integer> minimumPositionNeeded) {
+  @Override
+  protected int maxBuyAge() {
+    return 40;
+  }
 
-      HashMap<String, Integer> currentPositionAllocated = new HashMap<>();
+  @Override
+  protected double stepUpGap() {
+    return 80;
+  }
 
-      List<Human> players = new ArrayList<>(humanRepository
-        .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
-        .stream()
-        .toList());
-
-      Collections.shuffle(players, random);
-
-      for (Human player : players) {
-        String basePos = TacticService.getBasePosition(player.getPosition());
-        currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) + 1);
-      }
-
-      List<Human> validThatCouldBeSold = new ArrayList<>();
-      for (Human player : players) {
-        if (player.isWillNeverLeave()) continue;
-        String basePos = TacticService.getBasePosition(player.getPosition());
-        if (minimumPositionNeeded.getOrDefault(basePos, 0) < currentPositionAllocated.getOrDefault(basePos, 0)) {
-          validThatCouldBeSold.add(player);
-          currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) - 1);
-        }
-      }
-
-      // shuffled order → head = random ("mid"/no-preference) selection
-      List<Human> playersForSale =
-        validThatCouldBeSold.subList(0, Math.min(random.nextInt(3, 6), validThatCouldBeSold.size()));
-
-      return fromHumanToPlayerTransferView(team, playersForSale);
-    }
-
-    private List<PlayerTransferView> fromHumanToPlayerTransferView(Team team, List<Human> players) {
-
-      return players.stream()
-        .map(player -> new PlayerTransferView(player.getId(), team.getId(), team.getReputation(),
-                player.getRating(), TacticService.getBasePosition(player.getPosition()), player.getAge(),
-                player.isWillNeverLeave()))
-        .collect(Collectors.toList());
-    }
-
-    @Override
-    public BuyPlanTransferView playersToBuy(Team team, HumanRepository humanRepository, HashMap<String, Integer> maximumPositionsAllowed) {
-
-      List<ImmutablePair<String, Double>> positionsToBuy = new ArrayList<>();
-      List<TransferPlayer> positions = new ArrayList<>();
-
-      List<Human> allPlayers = humanRepository
-        .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
-      Map<String, Integer> positionsDisplay =
-        new HashMap<>(Map.of("GK", 0, "DL", 0, "DC", 0, "DR", 0, "ML", 0, "MC", 0, "MR", 0, "ST", 0));
-      for (Human player : allPlayers) {
-        String basePos = TacticService.getBasePosition(player.getPosition());
-        positionsDisplay.put(basePos, positionsDisplay.getOrDefault(basePos, 0) + 1);
-      }
-
-      for (Map.Entry<String, Integer> entry : positionsDisplay.entrySet()) {
-        int maxPlayers = Math.max(0, maximumPositionsAllowed.get(entry.getKey()) - entry.getValue());
-        double minRating = allPlayers
-          .stream()
-          .filter(human -> TacticService.getBasePosition(human.getPosition()).equals(entry.getKey()))
-          .map(Human::getRating)
-          .max(Double::compareTo)
-          .orElse(0D);
-
-        for (int i = 0; i < maxPlayers; i++)
-          positionsToBuy.add(new ImmutablePair<>(entry.getKey(), minRating));
-      }
-
-      Collections.shuffle(positionsToBuy, random);
-      int nrOfPlayersToBeBuy = random.nextInt(3, 5);
-
-      for (int i = 0; i < Math.min(nrOfPlayersToBeBuy, positionsToBuy.size()); i++) {
-        ImmutablePair<String, Double> pair = positionsToBuy.get(i);
-        TransferPlayer transferPlayer = new TransferPlayer();
-        transferPlayer.setPosition(pair.getKey());
-        transferPlayer.setMinRating(pair.getValue());
-        positions.add(transferPlayer);
-      }
-
-      BuyPlanTransferView buyPlanTransferView = new BuyPlanTransferView();
-      buyPlanTransferView.setPositions(positions);
-      buyPlanTransferView.setTeamReputation(team.getReputation());
-      buyPlanTransferView.setMaxWage(100000L); // To be modified
-      buyPlanTransferView.setTransferBudget(100000000L); // to be modified
-      buyPlanTransferView.setMaxAge(40); // max age
-      buyPlanTransferView.setTeamId(team.getId());
-
-      return buyPlanTransferView;
-    }
+  @Override
+  protected double depthTolerance() {
+    return 60; // the liquidity provider takes almost anyone useful
+  }
 }
-

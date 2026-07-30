@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.compartment.runtime;
 
 import com.footballmanagergamesimulator.compartment.Mentality;
 import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.compartment.PlayerTrait;
 import com.footballmanagergamesimulator.compartment.TacticalContextInput;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalLineupPlayer;
 
@@ -53,6 +54,10 @@ public record CanonicalRuntimeTeamInput(
         }
         if (goalkeepers != 1) {
             throw new IllegalArgumentException("lineup must contain exactly one goalkeeper");
+        }
+        long shooters = ordered.stream().filter(player -> player.traits().contains(PlayerTrait.SHOOTER)).count();
+        if (shooters > 1) {
+            throw new IllegalArgumentException("lineup may contain at most one SHOOTER");
         }
         if (!tacticalContexts.keySet().equals(playerIds)) {
             throw new IllegalArgumentException("tactical context keys must match lineup player ids");

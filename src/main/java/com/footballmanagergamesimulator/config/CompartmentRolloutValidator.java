@@ -5,27 +5,20 @@ import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
-/** Rejects a hidden authoritative path that cannot persist its decision. */
+/** Rejects an authoritative scoring path that cannot persist its decision. */
 @Component
 public final class CompartmentRolloutValidator {
-    private final CompartmentEngineConfig compartmentConfig;
     private final MatchEngineConfig matchConfig;
 
-    public CompartmentRolloutValidator(CompartmentEngineConfig compartmentConfig,
-                                       MatchEngineConfig matchConfig) {
-        this.compartmentConfig = Objects.requireNonNull(compartmentConfig, "compartmentConfig");
+    public CompartmentRolloutValidator(MatchEngineConfig matchConfig) {
         this.matchConfig = Objects.requireNonNull(matchConfig, "matchConfig");
     }
 
     @PostConstruct
     public void validateAtStartup() {
-        if (compartmentConfig.isEnabled() && compartmentConfig.isShadowEnabled()) {
+        if (!matchConfig.getMatchPlan().isEnabled()) {
             throw new IllegalStateException(
-                    "match.engine.compartment.enabled and shadow-enabled are mutually exclusive");
-        }
-        if (compartmentConfig.isEnabled() && !matchConfig.getMatchPlan().isEnabled()) {
-            throw new IllegalStateException(
-                    "match.engine.compartment.enabled requires match.engine.match-plan.enabled");
+                    "the authoritative compartment engine requires match.engine.match-plan.enabled");
         }
     }
 }

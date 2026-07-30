@@ -97,11 +97,40 @@ public class MatchPlanService {
                                             int homeScore90, int awayScore90,
                                             int homeScoreET, int awayScoreET,
                                             int homeShootout, int awayShootout) {
+        return buildAndPersistWithDecision(fixtureKey, competitionId, season, round,
+                homeTeamId, awayTeamId, homeTactic, awayTactic,
+                homeScore90, awayScore90, homeScoreET, awayScoreET, homeShootout, awayShootout, null);
+    }
+
+    /** Same instant pipeline, carrying the canonical score decomposition into its event plan. */
+    @Transactional
+    public List<MatchEvent> buildAndPersistCanonical(String fixtureKey, long competitionId, int season, int round,
+                                                     long homeTeamId, long awayTeamId,
+                                                     String homeTactic, String awayTactic,
+                                                     int homeScore90, int awayScore90,
+                                                     int homeScoreET, int awayScoreET,
+                                                     int homeShootout, int awayShootout,
+                                                     MatchScoringDecision decision) {
+        if (decision == null || !fixtureKey.equals(decision.fixtureKey())
+                || homeScore90 != decision.homeScore90() || awayScore90 != decision.awayScore90()) {
+            throw new IllegalArgumentException("canonical decision must match fixture and regular-time score");
+        }
+        return buildAndPersistWithDecision(fixtureKey, competitionId, season, round,
+                homeTeamId, awayTeamId, homeTactic, awayTactic,
+                homeScore90, awayScore90, homeScoreET, awayScoreET, homeShootout, awayShootout, decision);
+    }
+
+    private List<MatchEvent> buildAndPersistWithDecision(
+            String fixtureKey, long competitionId, int season, int round,
+            long homeTeamId, long awayTeamId, String homeTactic, String awayTactic,
+            int homeScore90, int awayScore90, int homeScoreET, int awayScoreET,
+            int homeShootout, int awayShootout, MatchScoringDecision decision) {
         PlanStep step = getOrCreatePlan(fixtureKey, competitionId, season, round, homeTeamId, awayTeamId,
                 homeScore90, awayScore90, homeScoreET, awayScoreET, homeShootout, awayShootout);
         if (step.reusedEvents() != null) {
             return step.reusedEvents();
         }
+        if (decision != null) step.plan().applyScoreDecision(decision);
 
         // INSTANT / AI path: the squads come from the adapter (auto XI + deterministic
         // AI subs, or a user team's saved XI). Mode is decided from the authoritative
@@ -477,7 +506,9 @@ public class MatchPlanService {
         }
         int duration = plan.hadExtraTime() ? 120 : 90;
         return java.util.Optional.of(new LivePlanSnapshot(fixtureKey, plan.getSeed(),
-                plan.getHomeTeamId(), plan.getAwayTeamId(), plan.getStatus(), duration,
+                plan.getHomeTeamId(), plan.getAwayTeamId(),
+                plan.getHomePassingControl(), plan.getAwayPassingControl(),
+                plan.getStatus(), duration,
                 plan.getHomeShootout(), plan.getAwayShootout(),
                 slots, participants, subs));
     }
@@ -594,6 +625,10 @@ public class MatchPlanService {
     private List<MatchEvent> resolveAndPersist(MatchPlan plan, Lineup home, Lineup away,
                                                String fixtureKey, long competitionId, int season, int round,
                                                long homeTeamId, long awayTeamId) {
+        home = applyWholeMatchSpecialRules(home, plan.getHomeRedCardPlayerId(),
+                plan.getHomeShooterPlayerId(), plan.getHomePassingPlayerId());
+        away = applyWholeMatchSpecialRules(away, plan.getAwayRedCardPlayerId(),
+                plan.getAwayShooterPlayerId(), plan.getAwayPassingPlayerId());
         int duration = plan.hadExtraTime() ? 120 : 90;
         MatchTimelineValidator.validate(home, duration);
         MatchTimelineValidator.validate(away, duration);
@@ -608,6 +643,29 @@ public class MatchPlanService {
         persistTimeline(plan, home, homeTeamId, duration);
         persistTimeline(plan, away, awayTeamId, duration);
         return events;
+    }
+
+    /**
+     * V1 resolves both a red card and the SHOOTER commitment for the whole match.
+     * Consequently an AI substitution may not replace either the eliminated player
+     * (which would incorrectly restore an eleventh player) or the designated SHOOTER,
+     * whose whole-match attempts and reduced collective contribution are already sampled.
+     */
+    private Lineup applyWholeMatchSpecialRules(Lineup lineup, Long redCardPlayerId, Long shooterPlayerId,
+                                               Long passingPlayerId) {
+        if (redCardPlayerId == null && shooterPlayerId == null && passingPlayerId == null) return lineup;
+        List<Lineup.SubMove> retained = new ArrayList<>();
+        for (Lineup.SubMove move : lineup.getSubs()) {
+            if ((redCardPlayerId != null && move.offPlayerId() == redCardPlayerId)
+                    || (shooterPlayerId != null && move.offPlayerId() == shooterPlayerId)) {
+                continue;
+            }
+            if (passingPlayerId != null && move.offPlayerId() == passingPlayerId) {
+                continue;
+            }
+            retained.add(new Lineup.SubMove(retained.size(), move.minute(), move.offPlayerId(), move.on()));
+        }
+        return new Lineup(lineup.getStartingXI(), lineup.getBench(), retained);
     }
 
     /** Either a reuse hit ({@code reusedEvents != null}) or a fresh plan to resolve

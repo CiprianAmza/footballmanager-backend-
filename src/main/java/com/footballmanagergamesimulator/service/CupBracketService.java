@@ -286,7 +286,7 @@ public class CupBracketService {
     public List<Team> seedTeams(long nationId, int season) {
         // All leagues/second-leagues in this nation
         List<Competition> leaguesInNation = competitionRepository.findAll().stream()
-                .filter(c -> c.getNationId() == nationId && (c.getTypeId() == 1L || c.getTypeId() == 3L))
+                .filter(c -> c.getNationId() == nationId && c.isLeague())
                 .sorted(Comparator
                         .comparingLong(Competition::getTypeId)         // typeId 1 (first league) before 3
                         .thenComparingLong(Competition::getId))

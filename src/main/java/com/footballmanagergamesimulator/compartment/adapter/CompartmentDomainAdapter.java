@@ -89,7 +89,8 @@ public final class CompartmentDomainAdapter {
         for (PlayerAttribute attribute : PlayerAttribute.values()) {
             Integer raw = snapshot.attributes().get(attribute);
             int value = raw == null ? rating.getAttributeMin() : raw;
-            attributes.put(attribute, clampInt(value, rating.getAttributeMin(), rating.getAttributeMax()));
+            attributes.put(attribute, clampInt(value, rating.getAttributeMin(),
+                    rating.getExceptionalAttributeValue()));
         }
 
         String position = firstNonBlank(snapshot.usedPosition(), snapshot.naturalPosition(), UNKNOWN_POSITION);

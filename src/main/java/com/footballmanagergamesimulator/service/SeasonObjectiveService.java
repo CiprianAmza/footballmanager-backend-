@@ -17,6 +17,7 @@ import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -59,9 +60,15 @@ public class SeasonObjectiveService {
         List<TeamCompetitionDetail> allDetails = teamCompetitionDetailRepository.findAll();
         List<CompetitionTeamInfo> allCompTeamInfos = competitionTeamInfoRepository.findAll();
 
+        // One read for every club's existing objectives, grouped by team — this used
+        // to be a query per club, right after four bulk findAll() calls above it.
+        Map<Long, List<SeasonObjective>> existingByTeam = seasonObjectiveRepository.findAll().stream()
+                .filter(objective -> objective.getSeasonNumber() == season)
+                .collect(Collectors.groupingBy(SeasonObjective::getTeamId));
+        List<SeasonObjective> generated = new ArrayList<>();
+
         for (Team team : allTeams) {
-            List<SeasonObjective> teamObjectives = seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(team.getId(), season);
-            if (!teamObjectives.isEmpty()) continue;
+            if (!existingByTeam.getOrDefault(team.getId(), List.of()).isEmpty()) continue;
 
             // Find which competitions this team is in (via CompetitionTeamInfo for current season, or TeamCompetitionDetail)
             Set<Long> teamCompIds = allCompTeamInfos.stream()
@@ -108,7 +115,7 @@ public class SeasonObjectiveService {
                 if (numTeams == 0) numTeams = 12;
                 int predicted = predictedPositionByComp.getOrDefault(comp.getId(), numTeams / 2);
 
-                if (comp.getTypeId() == 1) { // First League — has relegation
+                if (comp.isTopFlight()) { // top flight — has relegation
                     objective.setObjectiveType("league_position");
                     objective.setImportance("critical");
                     int target = Math.min(predicted + 2, numTeams);
@@ -123,7 +130,7 @@ public class SeasonObjectiveService {
                         objective.setDescription("Finish in position " + target + " or higher");
                     }
                     objective.setTargetValue(target);
-                } else if (comp.getTypeId() == 3) { // Second League — promotion target, no relegation
+                } else if (comp.isBelowTopFlight()) { // below the top flight — promotion target, no relegation
                     objective.setObjectiveType("league_position");
                     objective.setImportance("critical");
                     int target = Math.min(predicted + 2, numTeams);
@@ -206,9 +213,10 @@ public class SeasonObjectiveService {
                     continue; // Unknown competition type
                 }
 
-                seasonObjectiveRepository.save(objective);
+                generated.add(objective);
             }
         }
+        if (!generated.isEmpty()) seasonObjectiveRepository.saveAll(generated);
         System.out.println("=== SEASON OBJECTIVES GENERATED FOR SEASON " + season + " ===");
     }
 
@@ -223,51 +231,76 @@ public class SeasonObjectiveService {
         List<TeamCompetitionDetail> allDetails = teamCompetitionDetailRepository.findAll();
         List<CompetitionTeamInfo> allCompTeamInfos = competitionTeamInfoRepository.findAll();
 
+        // Everything below used to be recomputed per objective: the whole standings
+        // table was re-filtered and re-sorted for each one, and the round each team
+        // reached was re-scanned across every CompetitionTeamInfo row. With an
+        // objective per club per competition that is hundreds of full passes over the
+        // same two lists. Both are now built once.
+        Map<Long, Map<Long, Integer>> positionByTeamPerCompetition = new HashMap<>();
+        allDetails.stream()
+                .collect(Collectors.groupingBy(TeamCompetitionDetail::getCompetitionId))
+                .forEach((competitionId, details) -> {
+                    Map<Long, Integer> positionByTeam = new HashMap<>();
+                    int position = 1;
+                    for (TeamCompetitionDetail detail : details.stream()
+                            .sorted((o1, o2) -> {
+                                if (o1.getPoints() != o2.getPoints()) return o2.getPoints() - o1.getPoints();
+                                if (o1.getGoalDifference() != o2.getGoalDifference()) return o2.getGoalDifference() - o1.getGoalDifference();
+                                return o2.getGoalsFor() - o1.getGoalsFor();
+                            })
+                            .toList()) {
+                        positionByTeam.putIfAbsent(detail.getTeamId(), position);
+                        position++;
+                    }
+                    positionByTeamPerCompetition.put(competitionId, positionByTeam);
+                });
+
+        Map<String, Integer> maxRoundByTeamAndCompetition = new HashMap<>();
+        for (CompetitionTeamInfo info : allCompTeamInfos) {
+            if (info.getSeasonNumber() != season) continue;
+            maxRoundByTeamAndCompetition.merge(
+                    info.getTeamId() + ":" + info.getCompetitionId(), (int) info.getRound(), Math::max);
+        }
+
+        // Cup-final lookups are per competition, not per objective.
+        Map<Long, Integer> cupFinalRoundByCompetition = new HashMap<>();
+        Map<Long, List<CompetitionTeamInfoDetail>> cupDetailsByCompetition = new HashMap<>();
+        List<SeasonObjective> evaluated = new ArrayList<>();
+
         for (SeasonObjective objective : allObjectives) {
             if ("league_position".equals(objective.getObjectiveType())) {
-                List<TeamCompetitionDetail> leagueDetails = allDetails.stream()
-                        .filter(d -> d.getCompetitionId() == objective.getCompetitionId())
-                        .sorted((o1, o2) -> {
-                            if (o1.getPoints() != o2.getPoints()) return o2.getPoints() - o1.getPoints();
-                            if (o1.getGoalDifference() != o2.getGoalDifference()) return o2.getGoalDifference() - o1.getGoalDifference();
-                            return o2.getGoalsFor() - o1.getGoalsFor();
-                        })
-                        .toList();
-
-                int position = 1;
-                for (TeamCompetitionDetail detail : leagueDetails) {
-                    if (detail.getTeamId() == objective.getTeamId()) {
-                        objective.setActualValue(position);
-                        objective.setStatus(position <= objective.getTargetValue() ? "achieved" : "failed");
-                        break;
-                    }
-                    position++;
+                Integer position = positionByTeamPerCompetition
+                        .getOrDefault(objective.getCompetitionId(), Map.of())
+                        .get(objective.getTeamId());
+                if (position != null) {
+                    objective.setActualValue(position);
+                    objective.setStatus(position <= objective.getTargetValue() ? "achieved" : "failed");
                 }
             } else if ("cup_round".equals(objective.getObjectiveType()) || "european_round".equals(objective.getObjectiveType())) {
                 // Highest round reached: each round advancement inserts a new CTI row,
                 // so take the MAX round across this team's rows for the competition —
                 // findFirst() could pick the team's starting (earliest) round and
                 // falsely report a deep run / early-eliminated achievement.
-                Integer roundReached = allCompTeamInfos.stream()
-                        .filter(i -> i.getTeamId() == objective.getTeamId()
-                                && i.getCompetitionId() == objective.getCompetitionId()
-                                && i.getSeasonNumber() == season)
-                        .map(i -> (int) i.getRound())
-                        .max(Integer::compareTo)
-                        .orElse(null);
+                Integer roundReached = maxRoundByTeamAndCompetition
+                        .get(objective.getTeamId() + ":" + objective.getCompetitionId());
 
                 if (roundReached != null) {
                     objective.setActualValue(roundReached);
                     if ("cup_round".equals(objective.getObjectiveType())
                             && objective.getDescription().toLowerCase().contains("win")) {
-                        int finalRound = competitionTeamInfoMatchRepository
-                                .findDistinctRoundsByCompetitionIdAndSeasonNumber(
-                                        objective.getCompetitionId(), String.valueOf(season))
-                                .stream().mapToInt(Long::intValue).max()
-                                .orElse(objective.getTargetValue());
-                        boolean wonFinal = competitionTeamInfoDetailRepository
-                                .findAllByCompetitionIdAndSeasonNumber(
-                                        objective.getCompetitionId(), season)
+                        Integer cachedFinalRound = cupFinalRoundByCompetition.computeIfAbsent(
+                                objective.getCompetitionId(), competitionId ->
+                                        competitionTeamInfoMatchRepository
+                                                .findDistinctRoundsByCompetitionIdAndSeasonNumber(
+                                                        competitionId, String.valueOf(season))
+                                                .stream().mapToInt(Long::intValue).max()
+                                                .orElse(Integer.MIN_VALUE));
+                        int finalRound = cachedFinalRound == Integer.MIN_VALUE
+                                ? objective.getTargetValue() : cachedFinalRound;
+                        boolean wonFinal = cupDetailsByCompetition.computeIfAbsent(
+                                objective.getCompetitionId(), competitionId ->
+                                        competitionTeamInfoDetailRepository
+                                                .findAllByCompetitionIdAndSeasonNumber(competitionId, season))
                                 .stream()
                                 .filter(detail -> detail.getRoundId() == finalRound)
                                 .map(CompetitionTeamInfoDetail::getWinnerTeamId)
@@ -282,8 +315,9 @@ public class SeasonObjectiveService {
                     objective.setStatus("failed");
                 }
             }
-            seasonObjectiveRepository.save(objective);
+            evaluated.add(objective);
         }
+        if (!evaluated.isEmpty()) seasonObjectiveRepository.saveAll(evaluated);
 
         // Manager history record + firing decisions live in ManagerCareerService
         // (cross-cutting end-of-season concerns: ManagerHistory, User.fired, GameCalendar).

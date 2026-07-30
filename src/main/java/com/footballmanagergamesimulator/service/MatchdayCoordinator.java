@@ -7,6 +7,8 @@ import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.model.Round;
+import com.footballmanagergamesimulator.matchplan.Lineup;
+import com.footballmanagergamesimulator.matchplan.LivePlanSnapshot;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
@@ -44,7 +46,6 @@ public class MatchdayCoordinator {
     @Autowired private RoundRepository roundRepository;
 
     @Autowired private LiveMatchSimulationService liveMatchSimulationService;
-    @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private MatchStatsService matchStatsService;
     @Autowired private TeamPostMatchService teamPostMatchService;
     @Autowired private LineupRatingService lineupRatingService;
@@ -55,14 +56,12 @@ public class MatchdayCoordinator {
     @Autowired private UserContext userContext;
     @Autowired private MatchRoundSimulator matchRoundSimulator;
     @Autowired private com.footballmanagergamesimulator.config.CompetitionFormatConfig competitionFormat;
-    @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
     @Autowired private CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private CupBracketService cupBracketService;
     @Autowired private GameStateService gameStateService;
     @Autowired private EuropeanFixturePreparationService europeanFixturePreparationService;
-    // Optional: absent in unit contexts. Guarded by session.isCanonicalPlanBound().
-    @Autowired(required = false)
+    @Autowired
     private com.footballmanagergamesimulator.matchplan.MatchPlanService matchPlanService;
 
     // ============================================================
@@ -134,8 +133,15 @@ public class MatchdayCoordinator {
         // === LoC (typeId 4) ===
         if (typeId == 4) {
             if (fmt.isPreliminaryRound(round)) {
-                matchRoundSimulator.simulateRound(compIdStr, roundStr);
-                europeanCompetitionService.assignLocLosersToStarsCup(competitionId, round);
+                // Preliminary rounds use the same home-and-away lifecycle as the
+                // main knockout: leg 1 records only its own score; leg 2 resolves
+                // the aggregate. Eliminated clubs may enter Stars Cup only after
+                // that aggregate winner is known.
+                simulateKnockoutRound(
+                        compIdStr, competitionId, roundStr, round, matchday, season, fmt, legNumber);
+                if (legNumber == null || legNumber == 2) {
+                    europeanCompetitionService.assignLocLosersToStarsCup(competitionId, round);
+                }
                 return;
             }
             if (fmt.isGroupRound(round)) {
@@ -225,26 +231,6 @@ public class MatchdayCoordinator {
      * team via position+rating weighting (mirrors the live-sim attacker pick)
      * and writes the goal at minute 120.
      */
-    /**
-     * Resolve a deferred (live-commit) knockout tie's tiebreak. When the session carries two-axis
-     * profiles + vectors (production model), the extra time runs on the attack-vs-defense engine;
-     * otherwise it falls back to the scalar powers. {@code team1IsA} maps the session's team1/team2
-     * onto the resolver's A/B sides so the deferred profiles line up with the aggregates.
-     */
-    private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver.TieDecision decideTie(
-            LiveMatchSession session, boolean team1IsA, double powerA, double powerB, int aggA, int aggB) {
-        var p1 = session.getDeferredProfile1();
-        var p2 = session.getDeferredProfile2();
-        if (p1 != null && p2 != null) {
-            var v1 = session.getDeferredVector1();
-            var v2 = session.getDeferredVector2();
-            return team1IsA
-                    ? tieResolver.decide(p1, v1, p2, v2, aggA, aggB, new Random())
-                    : tieResolver.decide(p2, v2, p1, v1, aggA, aggB, new Random());
-        }
-        return tieResolver.decide(powerA, powerB, aggA, aggB, new Random());
-    }
-
     /**
      * Reconstruct a knockout tiebreak decision for a CANONICAL live match from the plan's
      * pre-decided ET/shootout (blocker #3: decided before kickoff and played live to 120'),
@@ -440,8 +426,10 @@ public class MatchdayCoordinator {
         long _competitionId = session.getCompetitionId();
         long _roundId = session.getRound();
         int season = session.getSeason();
-        boolean canonical = session.isCanonicalPlanBound() && matchPlanService != null;
-        String canonicalFixtureKey = canonical ? session.getCanonicalFixtureKey() : null;
+        if (!session.isCanonicalPlanBound()) {
+            throw new IllegalStateException("live session has no authoritative canonical MatchPlan");
+        }
+        String canonicalFixtureKey = session.getCanonicalFixtureKey();
 
         // Register rollback recovery BEFORE the first side effect.  Registering this only at
         // the bottom is too late: any exception between persistDeferredArtifacts() and that
@@ -463,24 +451,22 @@ public class MatchdayCoordinator {
         // (this whole method is @Transactional, so the lock is held until the tx commits/rolls
         // back), and honour durable idempotency — a plan already COMMITTED means the commit
         // already succeeded, so the loser / a retry returns without re-running the side effects.
-        if (canonical) {
-            matchPlanService.lockFixture(canonicalFixtureKey);
-            if (matchPlanService.isPlanCommitted(canonicalFixtureKey)) {
-                session.markCommitted();
-                Map<String, Object> already = new LinkedHashMap<>();
-                already.put("alreadyCommitted", true);
-                already.put("homeScore", session.getHomeScore());
-                already.put("awayScore", session.getAwayScore());
-                return already;
-            }
+        matchPlanService.lockFixture(canonicalFixtureKey);
+        if (matchPlanService.isPlanCommitted(canonicalFixtureKey)) {
+            session.markCommitted();
+            Map<String, Object> already = new LinkedHashMap<>();
+            already.put("alreadyCommitted", true);
+            already.put("homeScore", session.getHomeScore());
+            already.put("awayScore", session.getAwayScore());
+            return already;
         }
 
         var commitOutcome = liveMatchSimulationService.resolveCommitOutcome(session);
         // Canonical: the score is FIXED by the prepared plan — a manual substitution only
         // changes which on-pitch player receives a future goal, it must NEVER recalculate
         // the score. Use the session's canonical score, not the rescore.
-        int teamScore1 = canonical ? session.getHomeScore() : commitOutcome.homeGoals();
-        int teamScore2 = canonical ? session.getAwayScore() : commitOutcome.awayGoals();
+        int teamScore1 = session.getHomeScore();
+        int teamScore2 = session.getAwayScore();
         double teamPower1 = commitOutcome.homePower();
         double teamPower2 = commitOutcome.awayPower();
         String tactic1 = session.getDeferredTactic1();
@@ -489,16 +475,7 @@ public class MatchdayCoordinator {
         int legNumber = session.getDeferredLegNumber();
         long tieId = session.getDeferredTieId();
         int matchIndex = session.getDeferredMatchIndex();
-        // Canonical mode never rescores at commit; only a knockout ET decider (below) may
-        // legitimately adjust the score.
-        boolean resultAdjustedAtCommit = !canonical && commitOutcome.recalculated();
-
         session.applyCommitScore(teamScore1, teamScore2);
-        if (commitOutcome.homeProfile() != null && commitOutcome.awayProfile() != null) {
-            session.setDeferredTwoAxis(
-                    commitOutcome.homeProfile(), session.getDeferredVector1(),
-                    commitOutcome.awayProfile(), session.getDeferredVector2());
-        }
 
         // Knockout progression — the AI/batch path runs this inline in
         // MatchRoundSimulator; for interactive matches it is deferred to here.
@@ -549,15 +526,12 @@ public class MatchdayCoordinator {
                     // the aggregate already covers extra time (no post-hoc add).
                     int aggA = leg1Row.getTeam1Score() + teamScore2;
                     int aggB = leg1Row.getTeam2Score() + teamScore1;
-                    var d = canonical
-                            ? canonicalTie(session, false, aggA, aggB)
-                            : decideTie(session, false, teamPower2, teamPower1, aggA, aggB);
+                    var d = canonicalTie(session, false, aggA, aggB);
                     winnerId = d.teamAWon() ? teamId2 : teamId1;
                     teamScore1 += d.etB();
                     teamScore2 += d.etA();
                     if (d.etA() != 0 || d.etB() != 0) {
                         session.applyCommitScore(teamScore1, teamScore2);
-                        resultAdjustedAtCommit = true;
                     }
                     aggregateTeam1Score = aggB + d.etB();
                     aggregateTeam2Score = aggA + d.etA();
@@ -580,15 +554,12 @@ public class MatchdayCoordinator {
                             + " advance " + winnerAgg + "-" + loserAgg + " on aggregate" + tail;
                 } else {
                     // Lost leg-1 record — decide on this match alone (defensive).
-                    var d = canonical
-                            ? canonicalTie(session, true, teamScore1, teamScore2)
-                            : decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
+                    var d = canonicalTie(session, true, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
                     teamScore1 += d.etA();
                     teamScore2 += d.etB();
                     if (d.etA() != 0 || d.etB() != 0) {
                         session.applyCommitScore(teamScore1, teamScore2);
-                        resultAdjustedAtCommit = true;
                     }
                     if (d.penalties()) {
                         penaltyTeam1Score = d.penaltyA();
@@ -607,19 +578,15 @@ public class MatchdayCoordinator {
                 // Canonical: the tiebreak (ET/pens) was decided before kickoff and played
                 // live, so enter the tiebreak branch whenever the plan had ET or a shootout —
                 // even if extra-time goals have since made the football score differ.
-                boolean canonicalTiebreak = canonical
-                        && (session.isCanonicalExtraTime() || session.isCanonicalShootout());
+                boolean canonicalTiebreak = session.isCanonicalExtraTime() || session.isCanonicalShootout();
                 if (teamScore1 == teamScore2 || canonicalTiebreak) {
-                    var d = canonical
-                            ? canonicalTie(session, true, teamScore1, teamScore2)
-                            : decideTie(session, true, teamPower1, teamPower2, teamScore1, teamScore2);
+                    var d = canonicalTie(session, true, teamScore1, teamScore2);
                     winnerId = d.teamAWon() ? teamId1 : teamId2;
                     decidedBy = d.penalties() ? "PENALTIES" : "EXTRA_TIME";
                     teamScore1 += d.etA();
                     teamScore2 += d.etB();
                     if (d.etA() != 0 || d.etB() != 0) {
                         session.applyCommitScore(teamScore1, teamScore2);
-                        resultAdjustedAtCommit = true;
                     }
                     if (d.penalties()) {
                         penaltyTeam1Score = d.penaltyA();
@@ -650,67 +617,67 @@ public class MatchdayCoordinator {
                     cti.setSeasonNumber((long) season);
                     competitionTeamInfoRepository.save(cti);
                 }
+
+                int competitionType = competitionRepository.findById(_competitionId)
+                        .map(competition -> (int) competition.getTypeId()).orElse(0);
+                com.footballmanagergamesimulator.config.CompetitionFormat format =
+                        competitionFormat.get(competitionType);
+                if (competitionType == 4 && format.isPreliminaryRound(_roundId)
+                        && (legNumber == 0 || legNumber == 2)) {
+                    europeanCompetitionService.assignLocLosersToStarsCup(_competitionId, (int) _roundId);
+                }
             }
         }
 
         // Canonical live match: the goal/assist events were resolved + persisted per slot
         // during /advance (displayed == persisted), so here we persist only the cosmetic
         // events (never re-building goals — that would duplicate the canonical rows).
-        // (`canonical` / `canonicalFixtureKey` computed at the top of this method.)
         // A canonical knockout's extra time is now decided BEFORE kickoff and PLAYED LIVE
         // (blocker #3), so the ET goal slots are already resolved in the plan — there is
         // nothing to append at commit; the commit only finalizes the plan.
-        if (canonical) {
-            session.persistDeferredArtifacts(); // cosmetics only; canonical goals already persisted
-        } else if (resultAdjustedAtCommit) {
-            List<MatchEvent> commitEvents = session.nonGoalDbEvents();
-            commitEvents.addAll(matchSimulationService.buildGoalAndAssistEvents(
-                    _competitionId, season, (int) _roundId,
-                    teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2));
-            commitEvents.sort(java.util.Comparator.comparingInt(MatchEvent::getMinute)
-                    .thenComparing(MatchEvent::getEventType));
-            session.persistDeferredArtifacts(commitEvents);
-        } else {
-            session.persistDeferredArtifacts();
-        }
+        session.persistDeferredArtifacts(); // cosmetics only; canonical goals already persisted
 
         // Scorer tracking. Canonical: project the leaderboard from the persisted canonical
-        // events (single source of truth — the same scorers the user saw, incl. ET goals
-        // already resolved live). Legacy: RNG.
-        if (canonical) {
-            List<MatchEvent> canonicalEvents = matchEventRepository.findByFixtureKey(canonicalFixtureKey);
-            lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1,
-                    _competitionId, (int) _roundId, tallyCanonicalGoals(canonicalEvents, teamId1));
-            lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2,
-                    _competitionId, (int) _roundId, tallyCanonicalGoals(canonicalEvents, teamId2));
-        } else {
-            lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId);
-            lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId);
-        }
+        // events (single source of truth — the same scorers the user saw, incl. ET goals).
+        List<MatchEvent> canonicalEvents = matchEventRepository.findByFixtureKey(canonicalFixtureKey);
+        LivePlanSnapshot lineupSnapshot = matchPlanService.loadLivePlanSnapshot(canonicalFixtureKey).orElseThrow();
+        Lineup canonicalHomeLineup = lineupSnapshot.rebuildLineup(teamId1);
+        Lineup canonicalAwayLineup = lineupSnapshot.rebuildLineup(teamId2);
+        List<com.footballmanagergamesimulator.model.Scorer> canonicalHomeScorers =
+                lineupRatingService.getScorersForTeam(
+                teamId1, teamId2, teamScore1, teamScore2, tactic1,
+                _competitionId, (int) _roundId, tallyCanonicalGoals(canonicalEvents, teamId1),
+                canonicalHomeLineup);
+        List<com.footballmanagergamesimulator.model.Scorer> canonicalAwayScorers =
+                lineupRatingService.getScorersForTeam(
+                teamId2, teamId1, teamScore2, teamScore1, tactic2,
+                _competitionId, (int) _roundId, tallyCanonicalGoals(canonicalEvents, teamId2),
+                canonicalAwayLineup);
         // Per-player lineup ratings for the match statistics view (canonical final tactics).
-        lineupRatingService.persistPlayerRatings(_competitionId, season, (int) _roundId, teamId1, tactic1);
-        lineupRatingService.persistPlayerRatings(_competitionId, season, (int) _roundId, teamId2, tactic2);
-        if (resultAdjustedAtCommit) {
-            matchStatsService.generateAndSaveMatchStats(
-                    _competitionId, season, (int) _roundId, teamId1, teamId2,
-                    teamScore1, teamScore2, teamPower1, teamPower2,
-                    session.getDeferredPersonalizedTactic1(), session.getDeferredPersonalizedTactic2());
-        } else {
-            matchStatsService.persistLiveMatchStats(
-                    _competitionId, season, (int) _roundId, teamId1, teamId2,
-                    session.asLiveMatchData(), teamPower1, teamPower2);
-        }
+        lineupRatingService.persistPlayerRatings(
+                _competitionId, season, (int) _roundId, teamId1, tactic1,
+                canonicalHomeLineup, canonicalHomeScorers);
+        lineupRatingService.persistPlayerRatings(
+                _competitionId, season, (int) _roundId, teamId2, tactic2,
+                canonicalAwayLineup, canonicalAwayScorers);
+        com.footballmanagergamesimulator.matchplan.MatchScoringDecision scoringDecision =
+                matchPlanService.findScoreDecision(canonicalFixtureKey).orElseThrow();
+        matchStatsService.persistLiveMatchStats(
+                _competitionId, season, (int) _roundId, teamId1, teamId2,
+                session.asLiveMatchData(), teamPower1, teamPower2,
+                scoringDecision.homeShooterShots() + scoringDecision.homePassingOpportunities(),
+                scoringDecision.awayShooterShots() + scoringDecision.awayPassingOpportunities(),
+                scoringDecision.homeShooterGoals() + scoringDecision.homePassingGoals(),
+                scoringDecision.awayShooterGoals() + scoringDecision.awayPassingGoals());
 
         // Finalize the canonical plan to COMPLETED (derives appearances/minutes from the
         // actual kickoff snapshot + recorded subs; never regenerates the schedule). The
         // whole finalize runs in ONE transaction (this method is @Transactional), and
         // markCommitted (the immutability flip) is deferred to the very end so COMMITTED is
         // the last write — a crash can never leave an immutable, partially-persisted match.
-        if (canonical) {
-            // All goal slots (regular time + any pre-decided ET played live) are resolved,
-            // so finalize verifies the invariants and derives appearances/minutes.
-            matchPlanService.finishLivePlan(canonicalFixtureKey);
-        }
+        // All goal slots (regular time + any pre-decided ET played live) are resolved,
+        // so finalize verifies the invariants and derives appearances/minutes.
+        matchPlanService.finishLivePlan(canonicalFixtureKey);
 
         // Same post-match work the legacy path runs inline
         matchRoundSimulator.processInjuriesForTeam(teamId1);
@@ -759,9 +726,7 @@ public class MatchdayCoordinator {
 
         // COMMITTED last: every result/event/scorer/stat/detail write above is now durable in
         // this single transaction; flipping the plan immutable is the final DB step.
-        if (canonical) {
-            matchPlanService.markCommitted(canonicalFixtureKey);
-        }
+        matchPlanService.markCommitted(canonicalFixtureKey);
 
         // The in-memory session flags mirror durable state, so flip them ONLY after the
         // transaction actually commits — and reset them if it rolls back, so a retry re-runs
@@ -787,7 +752,7 @@ public class MatchdayCoordinator {
         result.put("aggregateTeam1Score", aggregateTeam1Score);
         result.put("aggregateTeam2Score", aggregateTeam2Score);
         result.put("manualSubstitutionsApplied", session.hasManualSubstitutions());
-        result.put("resultAdjustedAtCommit", resultAdjustedAtCommit);
+        result.put("resultAdjustedAtCommit", false);
         // The post-match PC + suspensions + news are wired up by the caller
         // (MatchController) so this method stays purely "finalize the engine
         // state" without coupling to GameAdvanceService internals.

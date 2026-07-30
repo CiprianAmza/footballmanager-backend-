@@ -36,7 +36,7 @@ public class FriendlyMatchService {
     private TrainingService trainingService;
     @Autowired
     @Lazy
-    private MatchRoundSimulator matchRoundSimulator;
+    private TacticSimulationService tacticSimulationService;
 
     private static final int PRE_SEASON_START = 1;
     private static final int PRE_SEASON_END = 30;
@@ -292,9 +292,9 @@ public class FriendlyMatchService {
         long homeId = match.getHomeTeamId();
         long awayId = match.getAwayTeamId();
 
-        // Score through the SAME engine as competitive matches (two-axis when enabled): squad value,
-        // tactics and the Strat-2 axes all apply — no divergent scalar copy here.
-        MatchRoundSimulator.MatchOutcome outcome = matchRoundSimulator.scoreStandaloneMatch(homeId, awayId);
+        // Score through the same authoritative Compartment V1 path as competitive matches.
+        TacticSimulationService.CanonicalStandaloneScore outcome = tacticSimulationService.scoreCanonicalMatch(
+                homeId, awayId, "FRIENDLY:" + match.getId(), 0L, match.getSeason(), match.getDay());
         int homeGoals = outcome.homeGoals();
         int awayGoals = outcome.awayGoals();
         double homePower = outcome.homePower();

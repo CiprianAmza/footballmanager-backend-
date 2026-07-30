@@ -41,7 +41,21 @@ public final class TeamCompartmentAggregator {
     }
 
     public TeamAggregationResult aggregate(Mentality mentality, Collection<PlayerCompartmentInput> lineup) {
+        return aggregate(mentality, "Normal", "Normal", "Standard", lineup);
+    }
+
+    public TeamAggregationResult aggregate(Mentality mentality, String pressing,
+                                           Collection<PlayerCompartmentInput> lineup) {
+        return aggregate(mentality, "Normal", pressing, "Standard", lineup);
+    }
+
+    public TeamAggregationResult aggregate(Mentality mentality, String passingType, String pressing,
+                                           String recovery, Collection<PlayerCompartmentInput> lineup) {
         Objects.requireNonNull(mentality, "mentality");
+        if (passingType == null || passingType.isBlank() || pressing == null || pressing.isBlank()
+                || recovery == null || recovery.isBlank()) {
+            throw new IllegalArgumentException("team tactic axes must not be blank");
+        }
         List<PlayerCompartmentInput> ordered = normalizeAndValidate(lineup);
         MentalityRule rule = Objects.requireNonNull(config.getMentalities().get(mentality),
                 "Missing mentality rule for " + mentality);
@@ -77,6 +91,13 @@ public final class TeamCompartmentAggregator {
                 playerBreakdowns.stream().map(PlayerBreakdown::zoneEngagement).mapToDouble(ZoneEngagementBreakdown::weightedExposure).sum(),
                 coverage.totalCoverage());
 
+        ShooterProfile shooter = ordered.stream()
+                .filter(player -> player.traits().contains(PlayerTrait.SHOOTER))
+                .map(player -> new ShooterProfile(player.playerId(), player.longShots(), player.positioning()))
+                .findFirst().orElse(null);
+
+        PassingStyleProfile passingStyle = passingStyle(passingType, pressing, recovery, ordered);
+
         return new TeamAggregationResult(
                 mentality,
                 rule.getOpenness(),
@@ -108,7 +129,41 @@ public final class TeamCompartmentAggregator {
                         exposure.finalAttackProtection()),
                 playerBreakdowns,
                 attackBeforeExposure,
-                exposure.finalAttackProtection());
+                exposure.finalAttackProtection(),
+                passingType,
+                pressing,
+                recovery,
+                shooter,
+                passingStyle);
+    }
+
+    private PassingStyleProfile passingStyle(String passingType, String pressing, String recovery,
+                                             List<PlayerCompartmentInput> ordered) {
+        List<PassingMidfielder> midfielders = ordered.stream()
+                .filter(player -> isPassingMidfielder(player.slot().position()))
+                .map(player -> new PassingMidfielder(player.playerId(), player.pace(),
+                        player.ballRecovery(), player.tackling()))
+                .toList();
+        double average = midfielders.isEmpty() ? 0.0 : midfielders.stream()
+                .mapToInt(player -> player.ballRecovery() + player.tackling()).sum()
+                / (midfielders.size() * 2.0);
+        List<PassingStriker> strikers = ordered.stream()
+                .filter(player -> player.slot().position() == PlayerPosition.ST)
+                .map(player -> new PassingStriker(player.playerId(), player.finishing(), player.pace()))
+                .toList();
+        boolean active = "Short".equalsIgnoreCase(passingType)
+                && "Aggressive".equalsIgnoreCase(pressing)
+                && ("Very Fast".equalsIgnoreCase(recovery) || "Instantly".equalsIgnoreCase(recovery))
+                && average >= config.getPassingStyle().getMidfieldThreshold()
+                && !strikers.isEmpty();
+        return new PassingStyleProfile(active, average, midfielders, strikers);
+    }
+
+    private static boolean isPassingMidfielder(PlayerPosition position) {
+        return position == PlayerPosition.DM || position == PlayerPosition.MC
+                || position == PlayerPosition.AMC || position == PlayerPosition.ML
+                || position == PlayerPosition.AML || position == PlayerPosition.MR
+                || position == PlayerPosition.AMR;
     }
 
     private List<PlayerCompartmentInput> normalizeAndValidate(Collection<PlayerCompartmentInput> lineup) {
@@ -124,6 +179,7 @@ public final class TeamCompartmentAggregator {
         Set<LineupSlot> seenSlots = new HashSet<>();
         Map<PlayerPosition, List<Integer>> occurrences = new EnumMap<>(PlayerPosition.class);
         int goalkeepers = 0;
+        int shooters = 0;
 
         for (PlayerCompartmentInput input : ordered) {
             if (!seenPlayers.add(input.playerId())) {
@@ -138,12 +194,16 @@ public final class TeamCompartmentAggregator {
             if (input.slot().position() == PlayerPosition.GK) {
                 goalkeepers++;
             }
+            if (input.traits().contains(PlayerTrait.SHOOTER)) shooters++;
             occurrences.computeIfAbsent(input.slot().position(), ignored -> new ArrayList<>())
                     .add(input.slot().occurrence());
         }
 
         if (goalkeepers != 1) {
             throw new IllegalArgumentException("lineup must contain exactly one goalkeeper");
+        }
+        if (shooters > 1) {
+            throw new IllegalArgumentException("lineup may contain at most one SHOOTER");
         }
 
         for (Map.Entry<PlayerPosition, List<Integer>> entry : occurrences.entrySet()) {
@@ -165,8 +225,17 @@ public final class TeamCompartmentAggregator {
         var midfield = compartment(input.rating(), Compartment.MIDFIELD);
         var defense = compartment(input.rating(), Compartment.DEFENSE);
         var behavior = exposureFormula.resolveWorkBehavior(new LinkedHashSet<>(input.traits()), input.instruction(), false);
-        double adjustedAttack = attack.finalScore() * behavior.attackMultiplier();
-        double normalizedDefense = clamp01(defense.finalScore() / config.getRating().getScoreScale());
+        boolean shooter = input.traits().contains(PlayerTrait.SHOOTER);
+        double adjustedAttack = shooter
+                ? input.overallRating() * config.getShooter().getAttackContribution()
+                : attack.finalScore() * behavior.attackMultiplier();
+        double adjustedMidfield = shooter
+                ? input.overallRating() * config.getShooter().getMidfieldContribution()
+                : midfield.finalScore();
+        double adjustedDefense = shooter
+                ? input.overallRating() * config.getShooter().getDefenseContribution()
+                : defense.finalScore();
+        double normalizedDefense = clamp01(adjustedDefense / config.getRating().getScoreScale());
         double cbRecoveryPace = input.slot().position().isCenterBack() ? paceNormalization(input.rating()) : 0.0;
         ZoneEngagementBreakdown zoneEngagement = new ZoneEngagementBreakdown(
                 exposureZone(input.slot().position()),
@@ -178,8 +247,8 @@ public final class TeamCompartmentAggregator {
                 input,
                 attack.finalScore(),
                 adjustedAttack,
-                midfield.finalScore(),
-                defense.finalScore(),
+                adjustedMidfield,
+                adjustedDefense,
                 normalizedDefense,
                 cbRecoveryPace,
                 behavior,
@@ -422,7 +491,26 @@ public final class TeamCompartmentAggregator {
                                          LineupSlot slot,
                                          ContextualPlayerRating rating,
                                          List<PlayerTrait> traits,
-                                         ForwardInstruction instruction) {
+                                         ForwardInstruction instruction,
+                                         double overallRating,
+                                         int longShots,
+                                         int positioning,
+                                         int finishing,
+                                         int pace,
+                                         int ballRecovery,
+                                         int tackling) {
+        public PlayerCompartmentInput(long playerId, LineupSlot slot, ContextualPlayerRating rating,
+                                      List<PlayerTrait> traits, ForwardInstruction instruction,
+                                      double overallRating, int longShots, int positioning) {
+            this(playerId, slot, rating, traits, instruction, overallRating, longShots, positioning,
+                    1, 1, 1, 1);
+        }
+
+        public PlayerCompartmentInput(long playerId, LineupSlot slot, ContextualPlayerRating rating,
+                                      List<PlayerTrait> traits, ForwardInstruction instruction) {
+            this(playerId, slot, rating, traits, instruction, 100.0, 1, 1, 1, 1, 1, 1);
+        }
+
         public PlayerCompartmentInput {
             if (playerId <= 0) {
                 throw new IllegalArgumentException("playerId must be positive");
@@ -431,6 +519,17 @@ public final class TeamCompartmentAggregator {
             Objects.requireNonNull(rating, "rating");
             traits = immutableOrderedTraits(traits);
             instruction = instruction == null ? ForwardInstruction.DEFAULT : instruction;
+            if (!Double.isFinite(overallRating) || overallRating < 0.0) {
+                throw new IllegalArgumentException("overallRating must be finite and non-negative");
+            }
+            if (traits.contains(PlayerTrait.SHOOTER)
+                    && (longShots < 1 || longShots > 20 || positioning < 1 || positioning > 20)) {
+                throw new IllegalArgumentException("SHOOTER Long Shots and Positioning must be in [1,20]");
+            }
+            if (finishing < 1 || finishing > 20 || pace < 1 || pace > 20
+                    || ballRecovery < 1 || ballRecovery > 20 || tackling < 1 || tackling > 20) {
+                throw new IllegalArgumentException("passing-style attributes must be in [1,20]");
+            }
         }
     }
 
@@ -518,10 +617,61 @@ public final class TeamCompartmentAggregator {
             ExposureBreakdown exposure,
             List<PlayerBreakdown> players,
             double attack,
-            double attackProtection) {
+            double attackProtection,
+            String passingType,
+            String pressing,
+            String recovery,
+            ShooterProfile shooter,
+            PassingStyleProfile passingStyle) {
+        public TeamAggregationResult(Mentality mentality, double openness, RawTotals rawTotals,
+                                     MentalityRedistribution mentalityRedistribution,
+                                     Map<WideChannel, ChannelBreakdown> channelBreakdown,
+                                     CoverageBreakdown coverage, ExposureBreakdown exposure,
+                                     List<PlayerBreakdown> players, double attack, double attackProtection) {
+            this(mentality, openness, rawTotals, mentalityRedistribution, channelBreakdown, coverage,
+                    exposure, players, attack, attackProtection, "Normal", "Normal", "Standard", null, null);
+        }
+
+        /** Compatibility constructor for pre-PASSING STYLE sampler fixtures. */
+        public TeamAggregationResult(Mentality mentality, double openness, RawTotals rawTotals,
+                                     MentalityRedistribution mentalityRedistribution,
+                                     Map<WideChannel, ChannelBreakdown> channelBreakdown,
+                                     CoverageBreakdown coverage, ExposureBreakdown exposure,
+                                     List<PlayerBreakdown> players, double attack, double attackProtection,
+                                     String pressing, ShooterProfile shooter) {
+            this(mentality, openness, rawTotals, mentalityRedistribution, channelBreakdown, coverage,
+                    exposure, players, attack, attackProtection, "Normal", pressing, "Standard", shooter, null);
+        }
+
         public TeamAggregationResult {
             channelBreakdown = immutableOrderedMap(channelBreakdown);
             players = List.copyOf(players);
+            if (passingType == null || passingType.isBlank() || pressing == null || pressing.isBlank()
+                    || recovery == null || recovery.isBlank()) {
+                throw new IllegalArgumentException("team tactic axes must not be blank");
+            }
+        }
+    }
+
+    public record ShooterProfile(long playerId, int longShots, int positioning) {
+        public ShooterProfile {
+            if (playerId <= 0) throw new IllegalArgumentException("shooter playerId must be positive");
+            if (longShots < 1 || longShots > 20 || positioning < 1 || positioning > 20) {
+                throw new IllegalArgumentException("shooter attributes must be in [1,20]");
+            }
+        }
+    }
+
+    public record PassingMidfielder(long playerId, int pace, int ballRecovery, int tackling) {}
+
+    public record PassingStriker(long playerId, int finishing, int pace) {}
+
+    public record PassingStyleProfile(boolean active, double midfieldAverage,
+                                      List<PassingMidfielder> midfielders,
+                                      List<PassingStriker> strikers) {
+        public PassingStyleProfile {
+            midfielders = List.copyOf(midfielders);
+            strikers = List.copyOf(strikers);
         }
     }
 

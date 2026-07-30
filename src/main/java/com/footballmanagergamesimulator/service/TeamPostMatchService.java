@@ -342,7 +342,7 @@ public class TeamPostMatchService {
         if (opponentTeamId == 0) return false;
 
         Competition comp = competitionRepository.findById(competitionId).orElse(null);
-        if (comp == null || (comp.getTypeId() != 1 && comp.getTypeId() != 3)) return false;
+        if (comp == null || !comp.isLeague()) return false;
 
         if (derbyRivalsCache == null) {
             derbyRivalsCache = new HashMap<>();

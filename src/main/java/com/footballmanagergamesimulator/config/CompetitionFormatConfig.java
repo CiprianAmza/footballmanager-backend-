@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.config;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -42,7 +43,8 @@ public class CompetitionFormatConfig {
         // groups/qualifyPerGroup adapts the whole format in one place. With the
         // 21-team tiered entry, 4 groups of 4 and top 2 → knockout: qualifiers
         // 0-1, groups 2-7, 8 QF,
-        // 9 SF, 10 Final; QF + SF two-leg; qualifying draws coefficient-seeded.
+        // 9 SF, 10 Final; every qualifying and knockout tie except the final is
+        // two-leg; qualifying draws are coefficient-seeded.
         // 3rd → Stars Cup playoff (type 5, round 7); preliminary/qualifying losers
         // drop to Stars Cup groups (type 5, round 1).
         byType.put(4, CompetitionFormat.builder(4, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
@@ -80,7 +82,7 @@ public class CompetitionFormatConfig {
      * (winners + playoff winners), which must be a power of two.
      * <pre>
      *   groups   : 1 .. G            where G = (groupSize - 1) * 2
-     *   playoff  : G + 1             (seeded draw, single-leg)
+     *   playoff  : G + 1             (seeded draw, two-leg)
      *   knockout : G + 2 .. G + 1 + K   where K = log2(2 * groupCount)
      * </pre>
      * With 4 groups of 4: G=6, K=3 → groups 1-6, playoff 7, QF/SF/Final 8-10.
@@ -100,6 +102,10 @@ public class CompetitionFormatConfig {
         }
         int knockoutRounds = Integer.numberOfTrailingZeros(knockoutEntrants); // log2
         int finalRound = playoff + knockoutRounds;
+        Set<Integer> twoLegRounds = new HashSet<>();
+        for (int round = playoff; round < finalRound; round++) {
+            twoLegRounds.add(round);
+        }
 
         return CompetitionFormat.builder(5, CompetitionFormat.Kind.GROUPS_THEN_KNOCKOUT)
                 .matchdayToRoundDelta(0)
@@ -113,6 +119,7 @@ public class CompetitionFormatConfig {
                 .finalRound(finalRound)
                 .playoffRound(playoff)
                 .seededKnockoutDrawRounds(Set.of(playoff))
+                .twoLegRounds(twoLegRounds)
                 .build();
     }
 

@@ -87,7 +87,6 @@ class CanonicalInstantLiveE2ETest {
     @BeforeEach
     void setUp() {
         engineConfig.getMatchPlan().setEnabled(true);
-        engineConfig.getTacticalModel().setEnabled(true);
 
         homeLineup = lineup(100L);
         awayLineup = lineup(200L);

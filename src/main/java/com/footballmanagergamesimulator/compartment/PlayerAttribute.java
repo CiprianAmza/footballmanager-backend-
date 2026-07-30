@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.compartment;
 /** Stable configuration keys for the attributes used by the V1 rating contract. */
 public enum PlayerAttribute {
     FINISHING,
+    LONG_SHOTS,
     OFF_THE_BALL,
     DRIBBLING,
     PASSING,
@@ -19,6 +20,7 @@ public enum PlayerAttribute {
     POSITIONING,
     ANTICIPATION,
     TACKLING,
+    BALL_RECOVERY,
     MARKING,
     CONCENTRATION,
     STRENGTH,

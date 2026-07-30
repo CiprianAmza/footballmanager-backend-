@@ -199,7 +199,15 @@ public class TrainingService {
         if (updateRatings) {
             // Training recomputed player ratings — drop this team's cached AI base
             // rating so its match power reflects the new values from the next match.
-            matchSimulationOrchestrator.invalidateRatingCache(teamId);
+            //
+            // Squad-level only: training changes what the players are worth, not which
+            // formation the manager prefers. Re-deriving that ranks every formation
+            // against the squad and costs over a second per club, and this runs ~88
+            // times a season per team. It is also what made the AI transfer window take
+            // two minutes: the window trains everyone and then immediately reads all
+            // 106 best XIs. The manager's choice is refreshed at the season boundary
+            // via invalidateAllRatingCaches().
+            matchSimulationOrchestrator.invalidateSquadCaches(teamId);
         }
     }
 
@@ -279,8 +287,9 @@ public class TrainingService {
             }
 
             if (random.nextDouble() < changeChance) {
+                if (currentVal == 20) continue; // exceptional, hand-authored and stable
                 int newVal = (int) Math.round(currentVal + changeAmount);
-                newVal = Math.max(1, Math.min(20, newVal));
+                newVal = Math.max(1, Math.min(19, newVal));
                 if (newVal != currentVal) {
                     PlayerSkillsService.SETTER_MAP.get(attrName).accept(skills, newVal);
                     anyChanged = true;

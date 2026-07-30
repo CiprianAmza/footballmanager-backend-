@@ -8,4 +8,7 @@ public class TransferStrategyUtil {
   public static final long TRANSFER_STRATEGY_BUY_MID_SELL_MID = 4L;
 
   public static final long TRANSFER_STRATEGY_BUY_TOP_SELL_WORST = 5L;
+
+  /** Elite club: buys at the top, sells a key man only at its own price. */
+  public static final long TRANSFER_STRATEGY_BUY_TOP_SELL_TOP = 6L;
 }

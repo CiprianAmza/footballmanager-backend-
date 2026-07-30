@@ -149,9 +149,15 @@ public class GameSaveImportService {
             new TableSpec("chairmanTacticalMandateSlots", "CHAIRMAN_TACTICAL_MANDATE_SLOT", SAVE_VERSION_11)
     );
 
-    /** Account/security rows and migration metadata are installation state, never save state. */
+    /**
+     * Account/security rows and migration metadata are installation state, never save state.
+     * The multiplayer room tables belong to the same class: every row is keyed by a USERS id
+     * (host, member, voter) and USERS is deliberately outside a portable world save, so
+     * exporting them would only ever produce dangling references on import.
+     */
     private static final Set<String> PRESERVED_TABLES = Set.of(
-            "USERS", "PERSON_PROFILE", "FLYWAY_SCHEMA_HISTORY");
+            "USERS", "PERSON_PROFILE", "FLYWAY_SCHEMA_HISTORY",
+            "GAME_ROOM", "GAME_ROOM_MEMBER", "ROOM_CONTINUE_CYCLE", "ROOM_CONTINUE_VOTE");
 
     private static final List<NamedSequence> NAMED_SEQUENCES = List.of(
             new NamedSequence("CTI_SEQ", "COMPETITION_TEAM_INFO"),
@@ -215,6 +221,10 @@ public class GameSaveImportService {
         Set<String> tables = new java.util.TreeSet<>();
         MANIFEST.forEach(spec -> tables.add(spec.tableName()));
         return Set.copyOf(tables);
+    }
+
+    static Set<String> preservedTableNames() {
+        return PRESERVED_TABLES;
     }
 
     /**

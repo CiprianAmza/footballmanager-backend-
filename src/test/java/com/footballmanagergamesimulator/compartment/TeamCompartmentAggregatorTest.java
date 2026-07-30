@@ -38,15 +38,15 @@ class TeamCompartmentAggregatorTest {
         double rawDefense = 285.0;
 
         assertMentality(lineup, Mentality.VERY_ATTACKING, rawAttack, rawMidfield, rawDefense,
-                0.90, 0.10, Compartment.DEFENSE, Compartment.ATTACK, 0.20, 1.15);
+                0.90, 0.10, Compartment.DEFENSE, Compartment.ATTACK, 0.20, 3.10);
         assertMentality(lineup, Mentality.ATTACKING, rawAttack, rawMidfield, rawDefense,
-                0.70, 0.30, Compartment.DEFENSE, Compartment.ATTACK, 0.08, 1.07);
+                0.70, 0.30, Compartment.DEFENSE, Compartment.ATTACK, 0.08, 2.89);
         assertMentality(lineup, Mentality.BALANCED, rawAttack, rawMidfield, rawDefense,
-                0.50, 0.50, null, null, 0.00, 1.00);
+                0.50, 0.50, null, null, 0.00, 2.70);
         assertMentality(lineup, Mentality.DEFENSIVE, rawAttack, rawMidfield, rawDefense,
-                0.25, 0.75, Compartment.ATTACK, Compartment.DEFENSE, 0.08, 0.90);
+                0.25, 0.75, Compartment.ATTACK, Compartment.DEFENSE, 0.08, 2.43);
         assertMentality(lineup, Mentality.VERY_DEFENSIVE, rawAttack, rawMidfield, rawDefense,
-                0.10, 0.90, Compartment.ATTACK, Compartment.DEFENSE, 0.20, 0.78);
+                0.10, 0.90, Compartment.ATTACK, Compartment.DEFENSE, 0.20, 2.11);
     }
 
     @Test
@@ -160,9 +160,100 @@ class TeamCompartmentAggregatorTest {
 
         PlayerBreakdown striker = breakdown(result, 2);
         assertThat(striker.engagement()).isEqualTo(0.08);
-        assertThat(striker.attackMultiplier()).isEqualTo(1.15);
-        assertThat(striker.adjustedAttack()).isCloseTo(striker.baseAttack() * 1.15, within(1e-12));
+        assertThat(striker.attackMultiplier()).isEqualTo(10.0);
+        assertThat(striker.adjustedAttack()).isCloseTo(striker.baseAttack() * 10.0, within(1e-12));
         assertThat(striker.traits()).containsExactly(PlayerTrait.REFUSES_DEFENSIVE_WORK);
+    }
+
+    @Test
+    void shooterContributesTwentyPercentAttackZeroMidfieldAndTenPercentDefense() {
+        PlayerCompartmentInput shooter = new PlayerCompartmentInput(
+                2L, new LineupSlot(PlayerPosition.ML, 1),
+                rating("ML", 80, 75, 60, 0.7),
+                List.of(PlayerTrait.SHOOTER), ForwardInstruction.DEFAULT,
+                100.0, 20, 20);
+        TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED, "Normal", List.of(
+                player(1, PlayerPosition.GK, 1, 5, 5, 40, 0.0), shooter));
+
+        PlayerBreakdown breakdown = breakdown(result, 2L);
+        assertThat(breakdown.adjustedAttack()).isEqualTo(20.0);
+        assertThat(breakdown.midfield()).isZero();
+        assertThat(breakdown.defense()).isEqualTo(10.0);
+        assertThat(result.shooter()).isEqualTo(new TeamCompartmentAggregator.ShooterProfile(2L, 20, 20));
+        assertThat(result.pressing()).isEqualTo("Normal");
+    }
+
+    @Test
+    void passingStyleActivatesOnlyForExactTacticAndMidfieldAverageAtLeast19() {
+        List<PlayerCompartmentInput> lineup = List.of(
+                passingPlayer(1, PlayerPosition.GK, 1, 10, 10, 10),
+                passingPlayer(2, PlayerPosition.DM, 1, 19, 19, 20),
+                passingPlayer(3, PlayerPosition.MC, 1, 19, 19, 19),
+                passingPlayer(4, PlayerPosition.AMC, 1, 19, 19, 19),
+                passingPlayer(5, PlayerPosition.ML, 1, 20, 19, 20),
+                passingPlayer(6, PlayerPosition.AMR, 1, 20, 20, 20),
+                passingPlayer(7, PlayerPosition.ST, 1, 10, 10, 20));
+
+        TeamAggregationResult active = aggregator.aggregate(Mentality.BALANCED,
+                "Short", "Aggressive", "Instantly", lineup);
+        TeamAggregationResult wrongRecovery = aggregator.aggregate(Mentality.BALANCED,
+                "Short", "Aggressive", "Standard", lineup);
+
+        assertThat(active.passingStyle().active()).isTrue();
+        assertThat(active.passingStyle().midfieldAverage()).isEqualTo(19.3);
+        assertThat(active.passingStyle().midfielders()).hasSize(5);
+        assertThat(active.passingStyle().strikers()).extracting(TeamCompartmentAggregator.PassingStriker::playerId)
+                .containsExactly(7L);
+        assertThat(wrongRecovery.passingStyle().active()).isFalse();
+    }
+
+    @Test
+    void passingStyleDoesNotActivateForExactTacticWhenMidfieldAverageIsBelow19() {
+        List<PlayerCompartmentInput> lineup = List.of(
+                passingPlayer(1, PlayerPosition.GK, 1, 10, 10, 10),
+                passingPlayer(2, PlayerPosition.DM, 1, 19, 19, 20),
+                passingPlayer(3, PlayerPosition.MC, 1, 19, 19, 20),
+                passingPlayer(4, PlayerPosition.AMC, 1, 19, 19, 20),
+                passingPlayer(5, PlayerPosition.ML, 1, 19, 19, 20),
+                passingPlayer(6, PlayerPosition.AMR, 1, 18, 19, 20),
+                passingPlayer(7, PlayerPosition.ST, 1, 10, 10, 20));
+
+        TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED,
+                "Short", "Aggressive", "Instantly", lineup);
+
+        assertThat(result.passingStyle().midfieldAverage()).isEqualTo(18.9);
+        assertThat(result.passingStyle().midfielders()).hasSize(5);
+        assertThat(result.passingStyle().strikers()).extracting(TeamCompartmentAggregator.PassingStriker::playerId)
+                .containsExactly(7L);
+        assertThat(result.passingStyle().active()).isFalse();
+    }
+
+    @Test
+    void passingStyleActivatesAtAttributeAverage19EvenWhenEveryMidfielderHasOnlyPace19() {
+        List<PlayerCompartmentInput> lineup = List.of(
+                passingPlayer(1, PlayerPosition.GK, 1, 10, 10, 10),
+                passingPlayer(2, PlayerPosition.DM, 1, 19, 19, 19),
+                passingPlayer(3, PlayerPosition.MC, 1, 19, 19, 19),
+                passingPlayer(4, PlayerPosition.MC, 2, 19, 19, 19),
+                passingPlayer(5, PlayerPosition.AMC, 1, 19, 19, 19),
+                passingPlayer(6, PlayerPosition.ML, 1, 19, 19, 19),
+                passingPlayer(7, PlayerPosition.MR, 1, 19, 19, 19),
+                passingPlayer(8, PlayerPosition.ST, 1, 10, 10, 19));
+
+        TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED,
+                "Short", "Aggressive", "Instantly", lineup);
+
+        assertThat(result.passingStyle().midfieldAverage()).isEqualTo(19.0);
+        assertThat(result.passingStyle().midfielders()).hasSize(6)
+                .allSatisfy(player -> assertThat(player.pace()).isEqualTo(19));
+        assertThat(result.passingStyle().active()).isTrue();
+    }
+
+    private PlayerCompartmentInput passingPlayer(long id, PlayerPosition position, int occurrence,
+                                                  int ballRecovery, int tackling, int pace) {
+        return new PlayerCompartmentInput(id, new LineupSlot(position, occurrence),
+                rating(position.code(), 30, 30, 30, 0.5), List.of(), ForwardInstruction.DEFAULT,
+                100.0, 10, 10, 20, pace, ballRecovery, tackling);
     }
 
     @Test

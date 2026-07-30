@@ -145,6 +145,18 @@ public class PrebuiltDataService {
      * after additive entity changes without regenerating 2.9 MB of deterministic seed data.
      */
     private static void migrateSnapshotSchema(Statement st) throws SQLException {
+        // Competition kind and competition level used to be conflated: TYPE_ID=3 meant
+        // "second league". Current code models every domestic league as TYPE_ID=1 and
+        // stores its level independently in TIER. A restored full-database snapshot has
+        // already replaced Hibernate's current schema, so Flyway cannot add this entity-only
+        // column when the snapshot's schema history is already current. Upgrade it here,
+        // before any repository is allowed to read Competition.
+        st.execute("ALTER TABLE COMPETITION ADD COLUMN IF NOT EXISTS TIER INTEGER");
+        st.execute("UPDATE COMPETITION SET TIER = 2, TYPE_ID = 1 WHERE TYPE_ID = 3");
+        st.execute("UPDATE COMPETITION SET TIER = 1 WHERE TIER IS NULL");
+        st.execute("ALTER TABLE COMPETITION ALTER COLUMN TIER SET DEFAULT 1");
+        st.execute("ALTER TABLE COMPETITION ALTER COLUMN TIER SET NOT NULL");
+
         st.execute("""
                 ALTER TABLE TEAM
                 ADD COLUMN IF NOT EXISTS LAST_MID_SEASON_MANAGER_CHANGE_SEASON

@@ -39,7 +39,6 @@ class LiveMatchPinnedScorelineTest {
     @BeforeEach
     void setUp() throws Exception {
         engineConfig = new MatchEngineConfig();
-        engineConfig.getTacticalModel().setEnabled(true);
 
         service = new LiveMatchSimulationService();
         HumanRepository humanRepository = mock(HumanRepository.class);

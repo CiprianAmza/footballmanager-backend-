@@ -51,6 +51,9 @@ public class PlayerSkills {
   private int penaltyTaking;
   @Column(columnDefinition = "int default 10")
   private int tackling;
+  /** Ability to win the loose ball immediately after possession is lost. */
+  @Column(columnDefinition = "int default 10")
+  private int ballRecovery;
   @Column(columnDefinition = "int default 10")
   private int technique;
 

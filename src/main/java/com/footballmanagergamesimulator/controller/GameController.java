@@ -206,7 +206,7 @@ public class GameController {
     @GetMapping("/availableTeams")
     public List<Map<String, Object>> getAvailableTeams() {
         List<Competition> competitions = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1 || c.getTypeId() == 3) // leagues only
+                .filter(Competition::isLeague)
                 .sorted(Comparator.comparingLong(Competition::getId))
                 .toList();
 
@@ -665,7 +665,7 @@ public class GameController {
                 .toList();
 
         Set<Long> leagueCompIds = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1 || c.getTypeId() == 3)
+                .filter(Competition::isLeague)
                 .map(Competition::getId)
                 .collect(Collectors.toSet());
 

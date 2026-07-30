@@ -66,7 +66,7 @@ public final class CompetitionFormat {
     // ---- round sets ----
     private final Set<Integer> preliminaryRounds;        // LoC: {0, 1}
     private final Set<Integer> seededKnockoutDrawRounds; // LoC: {0, 1}; SC: {7}
-    private final Set<Integer> twoLegRounds;             // LoC: {8, 9}
+    private final Set<Integer> twoLegRounds;             // Explicit formats, e.g. Stars Cup: {7, 8, 9}
 
     /** Derived round plan (preliminary/group/knockout structure); null unless a sized group stage. */
     private final EuropeanFormatPlan europeanPlan;

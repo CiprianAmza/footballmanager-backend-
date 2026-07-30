@@ -1253,7 +1253,7 @@ public class AwardService {
         Map<Long, Team> teams = teamRepository.findAll().stream()
                 .collect(Collectors.toMap(Team::getId, team -> team));
         Set<Long> leagueIds = competitionRepository.findAll().stream()
-                .filter(competition -> competition.getTypeId() == 1 || competition.getTypeId() == 3)
+                .filter(Competition::isLeague)
                 .map(Competition::getId)
                 .collect(Collectors.toSet());
         Map<Long, List<TeamCompetitionDetail>> tables = teamCompetitionDetailRepository.findAll().stream()

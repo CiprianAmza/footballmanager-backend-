@@ -246,8 +246,9 @@ public class CalendarEventDispatcher {
             case "MATCH_CUP":
             case "MATCH_EUROPEAN":
                 if (event.getCompetitionId() != null && event.getMatchday() > 0) {
+                    Integer leg = event.getLegNumber() == 0 ? null : event.getLegNumber();
                     matchSimulationOrchestrator.simulateMatchday(
-                            event.getCompetitionId(), event.getMatchday(), event.getSeason());
+                            event.getCompetitionId(), event.getMatchday(), event.getSeason(), leg);
                     result.put("details", "Match simulated: " + event.getTitle());
                     // Fetch match results for ALL human teams
                     List<Long> htIds = userContext.getAllHumanTeamIds();

@@ -25,7 +25,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @TestPropertySource(properties = {
-        "match.engine.tactical-model.enabled=true",
         "bootstrap.seed=20260528"
 })
 @DisplayName("MatchPlayerRating — per-player rating persists + reads back per match")

@@ -1,5 +1,11 @@
 package com.footballmanagergamesimulator.nameGenerator;
 
+/**
+ * @deprecated These constants never matched the real nation ids (Eleven is nation 7,
+ * Dong is nation 2) and fed a registry keyed by whatever callers passed in.
+ * {@link CompositeNameGenerator} now resolves competitionId → nationId itself.
+ */
+@Deprecated
 public class NameGeneratorUtil {
 
     public static final long ELEVEN_NAME_GENERATOR_STRATEGY = 1L;

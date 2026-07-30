@@ -40,6 +40,8 @@ public class GoalSlot {
 
     private Long scorerId;
     private Long assistId;
+    /** Persisted scorer for a goal produced by an explicit individual mechanic (SHOOTER). */
+    private Long forcedScorerId;
     private boolean resolved;
 
     protected GoalSlot() {} // JPA
@@ -62,7 +64,16 @@ public class GoalSlot {
     public String getGoalType() { return goalType; }
     public Long getScorerId() { return scorerId; }
     public Long getAssistId() { return assistId; }
+    public Long getForcedScorerId() { return forcedScorerId; }
     public boolean isResolved() { return resolved; }
+
+    /** Bind a precomputed individual goal to its actual player before event resolution. */
+    public void forceScorer(long playerId, String forcedGoalType) {
+        if (resolved) throw new IllegalStateException("cannot force an already resolved goal slot");
+        if (playerId <= 0) throw new IllegalArgumentException("forced scorer id must be positive");
+        this.forcedScorerId = playerId;
+        this.goalType = forcedGoalType;
+    }
 
     /** Record the resolved contributors and mark the slot done. Idempotent-safe:
      *  callers must check {@link #isResolved()} before re-resolving. */

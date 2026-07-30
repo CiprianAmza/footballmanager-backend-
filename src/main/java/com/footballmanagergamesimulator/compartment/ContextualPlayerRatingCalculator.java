@@ -53,7 +53,7 @@ public final class ContextualPlayerRatingCalculator {
             if (raw == null) {
                 throw new IllegalArgumentException("Missing configured attribute: " + attribute);
             }
-            double normalized = normalizeAttribute(raw, rating.getAttributeMin(), rating.getAttributeMax());
+            double normalized = normalizeEngineAttribute(raw, rating);
             double requestedK = input.contextCoefficients().getOrDefault(attribute, 0.0);
             if (!Double.isFinite(requestedK)) {
                 throw new IllegalArgumentException("Context coefficient must be finite: " + attribute);
@@ -122,6 +122,19 @@ public final class ContextualPlayerRatingCalculator {
             throw new IllegalArgumentException("attribute must be in [" + min + "," + max + "]: " + attribute);
         }
         return (attribute - min) / (double) (max - min);
+    }
+
+    /**
+     * Attribute 20 is a marker for explicit exceptional mechanics, not another linear
+     * step in the ordinary rating curve. Generic compartments therefore value it like
+     * 19; the SHOOTER mechanic supplies the discontinuity separately.
+     */
+    private static double normalizeEngineAttribute(int attribute, Rating rating) {
+        int exceptional = rating.getExceptionalAttributeValue();
+        if (attribute == exceptional) {
+            return normalizeAttribute(rating.getAttributeMax(), rating.getAttributeMin(), rating.getAttributeMax());
+        }
+        return normalizeAttribute(attribute, rating.getAttributeMin(), rating.getAttributeMax());
     }
 
     public static double contextFactor(double normalizedAttribute, double contextCoefficient,

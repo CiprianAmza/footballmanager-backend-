@@ -1,17 +1,28 @@
 package com.footballmanagergamesimulator.transfermarket;
 
 import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.repository.HumanRepository;
 
-import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 public interface TransferStrategy {
 
-    List<PlayerTransferView> playersToSell(Team team, HumanRepository humanRepository, HashMap<String, Integer> minimumPositionNeeded);
+    /**
+     * Which squad members this club puts up for sale, drawn from the starters /
+     * reserves split in the depth chart.
+     */
+    List<PlayerTransferView> playersToSell(Team team,
+                                           SquadDepthChart depthChart,
+                                           Map<String, Integer> minimumPositionNeeded);
 
-    BuyPlanTransferView playersToBuy(Team team, HumanRepository humanRepository, HashMap<String, Integer> maximumPositionsAllowed);
+    /**
+     * Which positions this club wants to strengthen, ranked by how far each drags
+     * its XI down. {@code null} means the club sits the window out.
+     */
+    BuyPlanTransferView playersToBuy(Team team,
+                                     SquadDepthChart depthChart,
+                                     Map<String, Integer> maximumPositionsAllowed);
 
     /**
      * Test-only seam: swap the RNG so fuzz/integration tests get reproducible

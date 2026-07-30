@@ -27,9 +27,9 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 class CanonicalRuntimeScoringServiceTest {
@@ -46,30 +46,20 @@ class CanonicalRuntimeScoringServiceTest {
     }
 
     @Test
-    void flagOffDoesNotInvokeSupplierOrAttempt() {
+    void invalidCanonicalInputFailsClosedAndCountsOnce() {
         CompartmentEngineConfig config = new CompartmentEngineConfig();
         CanonicalRuntimeScoringService service = service(config);
-        AtomicBoolean invoked = new AtomicBoolean();
-        assertThat(service.scoreSafely(() -> {
-            invoked.set(true);
-            return null;
-        })).isEmpty();
-        assertThat(invoked).isFalse();
-        assertThat(service.telemetrySnapshot()).isEqualTo(new CompartmentRuntimeScoringTelemetrySnapshot(0, 0, 0));
-    }
-
-    @Test
-    void supplierAndInvalidInputFailOpenAndCountOnce() {
-        CompartmentEngineConfig config = enabledConfig();
-        CanonicalRuntimeScoringService service = service(config);
-        assertThat(service.scoreSafely(() -> { throw new IllegalStateException("boom"); })).isEmpty();
-        assertThat(service.scoreSafely(() -> null)).isEmpty();
+        assertThatThrownBy(() -> service.score(() -> { throw new IllegalStateException("boom"); }))
+                .isInstanceOf(IllegalStateException.class).hasMessage("boom");
+        assertThatThrownBy(() -> service.score(() -> null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("request must not be null");
         assertThat(service.telemetrySnapshot()).isEqualTo(new CompartmentRuntimeScoringTelemetrySnapshot(2, 0, 2));
     }
 
     @Test
     void successfulEvaluationUsesValidCanonicalInputAndDeterministicBoundedScore() {
-        CompartmentEngineConfig config = enabledConfig();
+        CompartmentEngineConfig config = new CompartmentEngineConfig();
         CanonicalMatchEvaluation evaluation = evaluation();
         var request = CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
                 "fixture", 7, 2026, 3, 11, 22,
@@ -79,12 +69,12 @@ class CanonicalRuntimeScoringServiceTest {
                 (home, away, venue) -> evaluation,
                 new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
 
-        var first = service.scoreSafely(() -> request).orElseThrow();
+        var first = service.score(() -> request);
         var secondService = new CanonicalRuntimeScoringService(config,
                 (tactic, slots) -> canonicalTeam(slots.get(0).player().getId()),
                 (home, away, venue) -> evaluation,
                 new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
-        var second = secondService.scoreSafely(() -> request).orElseThrow();
+        var second = secondService.score(() -> request);
         assertThat(first.homeGoals()).isBetween(0, 2);
         assertThat(first.awayGoals()).isBetween(0, 2);
         assertThat(second).isEqualTo(first);
@@ -99,7 +89,7 @@ class CanonicalRuntimeScoringServiceTest {
                 (tactic, slots) -> canonicalTeam(slots.get(0).player().getId()),
                 (home, away, venue) -> evaluation,
                 new CanonicalScoreSampler(), new CompartmentRuntimeScoringTelemetry());
-        var third = thirdService.scoreSafely(() -> differentFixture).orElseThrow();
+        var third = thirdService.score(() -> differentFixture);
         assertThat(third.homeGoals()).isBetween(0, 2);
         assertThat(third.awayGoals()).isBetween(0, 2);
     }
@@ -108,13 +98,6 @@ class CanonicalRuntimeScoringServiceTest {
     void springConstructorIsTheOnlyPublicConstructor() {
         assertThat(java.util.Arrays.stream(CanonicalRuntimeScoringService.class.getDeclaredConstructors())
                 .filter(c -> Modifier.isPublic(c.getModifiers())).count()).isEqualTo(1);
-    }
-
-    @Test
-    void bothRolloutFlagsRemainOffByDefault() {
-        CompartmentEngineConfig config = new CompartmentEngineConfig();
-        assertThat(config.isEnabled()).isFalse();
-        assertThat(config.isShadowEnabled()).isFalse();
     }
 
     @Test
@@ -134,12 +117,6 @@ class CanonicalRuntimeScoringServiceTest {
                         mock(com.footballmanagergamesimulator.service.PlayerRoleService.class)),
                 new CanonicalScoreSampler(), new CanonicalMatchEvaluationAdapter(config, new MatchEngineConfig()),
                 new CompartmentRuntimeScoringTelemetry());
-    }
-
-    private static CompartmentEngineConfig enabledConfig() {
-        CompartmentEngineConfig config = new CompartmentEngineConfig();
-        config.setEnabled(true);
-        return config;
     }
 
     private static List<RuntimeLineupSlot> slots(long offset) {

@@ -81,7 +81,7 @@ public class EuropeanDisplayService {
         Map<String, Object> summary = new LinkedHashMap<>();
 
         // LoC allocation totals
-        int numLeagues = (int) competitionRepository.findAll().stream().filter(c -> c.getTypeId() == 1).count();
+        int numLeagues = (int) competitionRepository.findAll().stream().filter(Competition::isTopFlight).count();
         int totalRanks = Math.min(numLeagues, 7);
 
         int totalDirect = 0, totalQualifying = 0, totalPreliminary = 0;
@@ -275,7 +275,7 @@ public class EuropeanDisplayService {
     public List<Map<String, Object>> getCountryCoefficients() {
         int curSeason = Integer.parseInt(currentSeason());
         List<Competition> firstLeagues = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1).toList();
+                .filter(Competition::isTopFlight).toList();
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (Competition league : firstLeagues) {

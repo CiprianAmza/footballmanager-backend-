@@ -100,8 +100,14 @@ public class HumanController {
         PlayerView playerView = new PlayerView();
         Team team;
 
-        if (player.getTeamId() == null) { // player is retired
-            playerView.setTeamName("N/A");
+        // Being clubless no longer means retired: an expired contract drops a player
+        // into free agency, and the old "teamId == null => retired" shorthand labelled
+        // those players N/A as though their careers were over.
+        playerView.setRetired(player.isRetired());
+        playerView.setFreeAgent(player.getTeamId() == null && !player.isRetired());
+
+        if (player.getTeamId() == null) {
+            playerView.setTeamName(player.isRetired() ? "Retired" : "Free Agent");
         } else {
             Optional<Team> possibleTeam = teamRepository.findById(player.getTeamId());
             team = possibleTeam.get();

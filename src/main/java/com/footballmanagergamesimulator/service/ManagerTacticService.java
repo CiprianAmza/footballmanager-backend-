@@ -92,7 +92,7 @@ public class ManagerTacticService {
         // "Standard line / Low press" default (Deep|High × Standard|High). The advisor's full
         // enumeration still offers every value for the human to explore.
         List<String> lines = committed(TacticalModel.DEFENSIVE_LINE_OPTIONS, "Standard");
-        List<String> presses = committed(TacticalModel.PRESSING_OPTIONS, "Low");
+        List<String> presses = committed(TacticalModel.PRESSING_OPTIONS, "Normal");
         List<Combo> combos = new ArrayList<>(lines.size() * presses.size());
         for (String line : lines) {
             for (String press : presses) {
@@ -150,7 +150,8 @@ public class ManagerTacticService {
             new InstructionAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, "Medium", PersonalizedTactic::setFoulHardness),
             new InstructionAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, "Normal", PersonalizedTactic::setTempoFragmentation),
             new InstructionAxis(TacticalModel.WIDE_PLAY_OPTIONS, "Shoot", PersonalizedTactic::setWidePlay),
-            new InstructionAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::setTransition));
+            new InstructionAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::setTransition),
+            new InstructionAxis(TacticalModel.RECOVERY_OPTIONS, "Standard", PersonalizedTactic::setRecovery));
 
     /**
      * Stamp every non-grid axis onto a base tactic for advisor / simulation suggestions: defensive line
@@ -200,14 +201,15 @@ public class ManagerTacticService {
      *  {@code orDefault} tokens, i.e. the value that maps to 0 in the config axis maps). */
     private static final List<NewAxis> NEW_AXES = List.of(
             new NewAxis(TacticalModel.DEFENSIVE_LINE_OPTIONS, "Standard", PersonalizedTactic::getDefensiveLine, PersonalizedTactic::setDefensiveLine),
-            new NewAxis(TacticalModel.PRESSING_OPTIONS, "Low", PersonalizedTactic::getPressing, PersonalizedTactic::setPressing),
+            new NewAxis(TacticalModel.PRESSING_OPTIONS, "Normal", PersonalizedTactic::getPressing, PersonalizedTactic::setPressing),
             new NewAxis(TacticalModel.WIDTH_OPTIONS, "Balanced", PersonalizedTactic::getWidth, PersonalizedTactic::setWidth),
             new NewAxis(TacticalModel.DRIBBLING_OPTIONS, "Standard", PersonalizedTactic::getDribbling, PersonalizedTactic::setDribbling),
             new NewAxis(TacticalModel.FOUL_FREQUENCY_OPTIONS, "Normal", PersonalizedTactic::getFoulFrequency, PersonalizedTactic::setFoulFrequency),
             new NewAxis(TacticalModel.FOUL_HARDNESS_OPTIONS, "Medium", PersonalizedTactic::getFoulHardness, PersonalizedTactic::setFoulHardness),
             new NewAxis(TacticalModel.TEMPO_FRAGMENTATION_OPTIONS, "Normal", PersonalizedTactic::getTempoFragmentation, PersonalizedTactic::setTempoFragmentation),
             new NewAxis(TacticalModel.WIDE_PLAY_OPTIONS, "Shoot", PersonalizedTactic::getWidePlay, PersonalizedTactic::setWidePlay),
-            new NewAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::getTransition, PersonalizedTactic::setTransition));
+            new NewAxis(TacticalModel.TRANSITION_OPTIONS, "Balanced", PersonalizedTactic::getTransition, PersonalizedTactic::setTransition),
+            new NewAxis(TacticalModel.RECOVERY_OPTIONS, "Standard", PersonalizedTactic::getRecovery, PersonalizedTactic::setRecovery));
 
     /**
      * Advisor enumeration for ONE formation with <b>NO default values</b> on the 9 new axes — the AI's
@@ -282,6 +284,7 @@ public class ManagerTacticService {
         t.setTempoFragmentation(s.getTempoFragmentation());
         t.setWidePlay(s.getWidePlay());
         t.setTransition(s.getTransition());
+        t.setRecovery(s.getRecovery());
         return t;
     }
 }

@@ -45,7 +45,6 @@ class LiveMatchCommitRescoreTest {
     @BeforeEach
     void setUp() throws Exception {
         MatchEngineConfig engineConfig = new MatchEngineConfig();
-        engineConfig.getTacticalModel().setEnabled(true);
 
         liveService = new LiveMatchSimulationService();
         matchSimulationService = new MatchSimulationService();

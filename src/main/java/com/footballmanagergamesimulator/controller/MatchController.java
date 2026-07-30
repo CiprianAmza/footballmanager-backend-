@@ -563,7 +563,7 @@ public class MatchController {
     /** Nation name = first word of that nation's League competition name; "International" fallback. */
     private String resolveNationName(long nationId) {
         return competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1 && c.getNationId() == nationId)
+                .filter(c -> c.isTopFlight() && c.getNationId() == nationId)
                 .findFirst()
                 .map(c -> c.getName().split(" ")[0])
                 .orElse("International");

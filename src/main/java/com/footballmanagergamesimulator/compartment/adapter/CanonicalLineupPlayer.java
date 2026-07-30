@@ -27,7 +27,18 @@ public record CanonicalLineupPlayer(
         PlayerCapabilitySnapshot capability,
         double roleSuitability,
         Set<PlayerTrait> traits,
-        ForwardInstruction forwardInstruction) {
+        ForwardInstruction forwardInstruction,
+        double overallRating) {
+
+    /** Compatibility constructor for pure tests/calibration fixtures that have no Human entity. */
+    public CanonicalLineupPlayer(long playerId, PlayerPosition usedPosition, int occurrence,
+                                 PlayerRole role, Duty duty, Map<PlayerAttribute, Integer> attributes,
+                                 double fitness, double morale, PlayerCapabilitySnapshot capability,
+                                 double roleSuitability, Set<PlayerTrait> traits,
+                                 ForwardInstruction forwardInstruction) {
+        this(playerId, usedPosition, occurrence, role, duty, attributes, fitness, morale, capability,
+                roleSuitability, traits, forwardInstruction, 100.0);
+    }
 
     public CanonicalLineupPlayer {
         if (playerId <= 0) throw new IllegalArgumentException("playerId must be positive");
@@ -42,6 +53,8 @@ public record CanonicalLineupPlayer(
         requireFinite(fitness, "fitness");
         requireFinite(morale, "morale");
         requireFinite(roleSuitability, "roleSuitability");
+        requireFinite(overallRating, "overallRating");
+        if (overallRating < 0.0) throw new IllegalArgumentException("overallRating must be non-negative");
         if (roleSuitability < 0.0 || roleSuitability > 100.0) {
             throw new IllegalArgumentException("roleSuitability must be in [0,100]");
         }

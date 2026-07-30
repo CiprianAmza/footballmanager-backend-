@@ -1,9 +1,11 @@
 package com.footballmanagergamesimulator.integration;
 
+import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.service.TransferMarketService;
 import com.footballmanagergamesimulator.testutil.MarkdownTable;
@@ -11,6 +13,7 @@ import com.footballmanagergamesimulator.testutil.TransferMarketDiagnostics;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
+import com.footballmanagergamesimulator.transfermarket.SquadDepthChart;
 import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.transfermarket.TransferStrategyUtil;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -31,12 +34,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates that each AI transfer strategy honours its named selling/buying
- * criterion and never sells below {@link TacticService#getMinimumPositionNeeded()}.
+ * Validates that each AI transfer strategy honours its named intent and never
+ * sells below {@link TacticService#getMinimumPositionNeeded()}.
  *
  * <p>Calls the strategies <b>directly</b> via {@link CompositeTransferStrategy}
  * (bypassing the residual non-determinism in {@code EndOfSeasonProcessor}) with a
@@ -44,13 +49,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 100% reproducible. Fast (no season is simulated) → runs in the default
  * {@code mvn verify} gate.
  *
- * <p>These tests pin the fix for the inverted-sell bug: before the fix each
- * strategy sold the <i>tail</i> of its sorted candidate list (the opposite of
- * its intent); after the fix it sells the <i>head</i>. The directional
- * assertions below validate the strongest feasible selection after positional
- * minimums and protected-player constraints are applied. They deliberately do
- * not compare SellHigh against the whole-squad average: indispensable players
- * are not legal sale candidates, so that average is not a valid strategy oracle.
+ * <p>The strategies now choose a <b>set</b> — the club's best XI or its reserves —
+ * and then an order within it. That makes most assertions here membership tests
+ * rather than comparisons of average ratings: "Academy sold a starter" is an exact
+ * property, where "Academy's sold average beat the squad average" only held on
+ * average and was a coin flip on any single seed.
  */
 @SpringBootTest
 @TestPropertySource(properties = "bootstrap.seed=20260528")
@@ -62,7 +65,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // below depend on, regardless of IT execution order.
 @org.springframework.test.annotation.DirtiesContext(
         classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.BEFORE_CLASS)
-@DisplayName("Transfer strategies: sell/buy criterion + minimum-position invariant")
+@DisplayName("Transfer strategies: sell/buy intent + minimum-position invariant")
 class TransferStrategyIT {
 
     @Autowired private CompositeTransferStrategy strategy;
@@ -70,6 +73,8 @@ class TransferStrategyIT {
     @Autowired private TeamRepository teamRepository;
     @Autowired private TacticService tacticService;
     @Autowired private TransferMarketService transferMarketService;
+    @Autowired private MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired private MatchEngineConfig matchEngineConfig;
 
     private static final long SEED = 20260528L;
 
@@ -78,12 +83,14 @@ class TransferStrategyIT {
             TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH, "BuyYoungSellHigh",
             TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH, "BuyFreeSellHigh",
             TransferStrategyUtil.TRANSFER_STRATEGY_BUY_MID_SELL_MID, "BuyMidSellMid",
-            TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST, "BuyTopSellWorst"));
+            TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST, "BuyTopSellWorst",
+            TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_TOP, "BuyTopSellTop"));
 
     private Team team;                       // the team with the largest squad (most sell surplus)
     private List<Human> squad;               // its players
-    private HashMap<String, Integer> minPos; // minimum per-position coverage
-    private HashMap<String, Integer> maxPos; // per-position roster caps
+    private SquadDepthChart depthChart;      // its best XI + reserves, from the match engine
+    private Map<String, Integer> minPos;     // minimum per-position coverage
+    private Map<String, Integer> maxPos;     // per-position roster caps
 
     @BeforeEach
     void pickFullestSquadTeam() {
@@ -95,10 +102,15 @@ class TransferStrategyIT {
                         humanRepository.findAllByTeamIdAndTypeId(t.getId(), TypeNames.PLAYER_TYPE).size()))
                 .orElseThrow(() -> new IllegalStateException("No teams — bootstrap didn't run?"));
         squad = humanRepository.findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
+        depthChart = TransferMarketDiagnostics.depthChartFor(
+                team, humanRepository, matchSimulationOrchestrator, matchEngineConfig);
 
         assertThat(squad.size())
                 .as("fullest squad must be large enough to expose sell surplus")
                 .isGreaterThanOrEqualTo(16);
+        assertThat(depthChart.starters())
+                .as("the match engine must be able to field an XI for the fullest squad")
+                .hasSize(11);
     }
 
     @AfterEach
@@ -107,13 +119,13 @@ class TransferStrategyIT {
     }
 
     // ============================================================
-    //  Req #1 — selling criterion per strategy
+    //  Selling intent — which SET each strategy draws from
     // ============================================================
 
     @Test
-    @DisplayName("Academy sells its TOP-rated players; BuyTopSellWorst sells its WORST")
-    void academySellsTops_buyTopSellWorstSellsWorst() {
-        double squadAvgRating = squad.stream().mapToDouble(Human::getRating).average().orElseThrow();
+    @DisplayName("Academy sells starters; BuyTopSellWorst sells reserves")
+    void sellSourcesAreDisjointForTheOpinionatedStrategies() {
+        Set<Long> starterIds = depthChart.starterIds();
 
         List<PlayerTransferView> academySold = sell(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY);
         List<PlayerTransferView> worstSold = sell(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST);
@@ -121,25 +133,84 @@ class TransferStrategyIT {
         assertThat(academySold).as("Academy must pick players to sell").isNotEmpty();
         assertThat(worstSold).as("BuyTopSellWorst must pick players to sell").isNotEmpty();
 
-        double academyAvg = academySold.stream().mapToDouble(PlayerTransferView::getRating).average().orElseThrow();
-        double worstAvg = worstSold.stream().mapToDouble(PlayerTransferView::getRating).average().orElseThrow();
-
-        assertThat(academyAvg)
-                .as("Academy sells peaks → its sold set must out-rate BuyTopSellWorst's (sold avg: academy=%.1f worst=%.1f)",
-                        academyAvg, worstAvg)
-                .isGreaterThan(worstAvg);
-        assertThat(academyAvg)
-                .as("Academy sold avg rating (%.1f) must exceed squad avg (%.1f)", academyAvg, squadAvgRating)
-                .isGreaterThan(squadAvgRating);
-        assertThat(worstAvg)
-                .as("BuyTopSellWorst sold avg rating (%.1f) must be below squad avg (%.1f)", worstAvg, squadAvgRating)
-                .isLessThan(squadAvgRating);
+        assertThat(academySold)
+                .as("Academy cashes in on the players it develops — every sale comes from the XI")
+                .allMatch(sold -> starterIds.contains(sold.getPlayerId()))
+                .allMatch(PlayerTransferView::isStarter);
+        assertThat(worstSold)
+                .as("BuyTopSellWorst clears the bench — no sale may come from the XI")
+                .noneMatch(sold -> starterIds.contains(sold.getPlayerId()))
+                .noneMatch(PlayerTransferView::isStarter);
     }
 
     @Test
-    @DisplayName("BuyYoungSellHigh & BuyFreeSellHigh sell their HIGHEST transfer-value players")
+    @DisplayName("Academy sells its BEST starters, BuyTopSellWorst its WORST reserves")
+    void orderingWithinTheSetIsHonoured() {
+        // Compared against an exact oracle, not against the set mean. The positional
+        // minimum can force a strategy to skip the very player it wants most — if the
+        // squad has only two centre-backs it may not sell either, however highly it
+        // rates them — so "sold average beats the set average" is not something the
+        // algorithm guarantees. What it does guarantee is that, among the players it
+        // was legally allowed to move, it took them in its stated order.
+        List<PlayerTransferView> academySold = sell(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY);
+        List<PlayerTransferView> worstSold = sell(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST);
+
+        assertThat(ratingSum(academySold))
+                .as("Academy must take the highest-rated legally sellable starters")
+                .isEqualTo(optimalSellSum(depthChart.starters(),
+                        Comparator.comparingDouble(Human::getRating).reversed(),
+                        academySold.size()), org.assertj.core.data.Offset.offset(0.001));
+
+        assertThat(ratingSum(worstSold))
+                .as("BuyTopSellWorst must take the lowest-rated legally sellable reserves")
+                .isEqualTo(optimalSellSum(depthChart.reserves(),
+                        Comparator.comparingDouble(Human::getRating),
+                        worstSold.size()), org.assertj.core.data.Offset.offset(0.001));
+
+        // And the two must still point in opposite directions.
+        assertThat(avgRating(academySold))
+                .as("Academy skims peaks, BuyTopSellWorst dumps dregs")
+                .isGreaterThan(avgRating(worstSold));
+    }
+
+    /**
+     * What the strategy *should* have listed: walk the source set in its stated
+     * order, taking each player only while his base position still has surplus over
+     * {@link TacticService#getMinimumPositionNeeded()} — the same capacity rule the
+     * production loop applies, measured against the whole squad.
+     */
+    private double optimalSellSum(List<Human> source, Comparator<Human> order, int count) {
+        Map<String, Integer> capacity = new HashMap<>();
+        depthChart.squadCountsByBasePosition().forEach((position, players) ->
+                capacity.put(position, Math.max(0, players - minPos.getOrDefault(position, 0))));
+
+        double total = 0;
+        int selected = 0;
+        for (Human candidate : source.stream()
+                .filter(player -> !player.isWillNeverLeave())
+                .sorted(order)
+                .toList()) {
+            if (selected == count) break;
+            String position = TacticService.getBasePosition(candidate.getPosition());
+            int remaining = capacity.getOrDefault(position, 0);
+            if (remaining == 0) continue;
+            capacity.put(position, remaining - 1);
+            total += candidate.getRating();
+            selected++;
+        }
+        return total;
+    }
+
+    private static double ratingSum(List<PlayerTransferView> views) {
+        return views.stream().mapToDouble(PlayerTransferView::getRating).sum();
+    }
+
+    @Test
+    @DisplayName("SellHigh strategies list their most valuable starters, in descending value")
     void sellHighStrategiesSellTopValue() {
         long[] controlledSeeds = {0L, 1L, 2L, 3L, 4L, 42L, SEED, Long.MAX_VALUE};
+        Set<Long> starterIds = depthChart.starterIds();
+
         for (long stratId : new long[]{
                 TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH,
                 TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH}) {
@@ -162,6 +233,16 @@ class TransferStrategyIT {
                         .as("strategy %d seed %d must pick players to sell", stratId, seed)
                         .isNotEmpty()
                         .doesNotHaveDuplicates();
+                // BuyFreeSellHigh still skims the XI. BuyYoungSellHigh draws from the
+                // whole squad: restricting it to starters made an expensive prospect on
+                // the bench unsellable at any price, which is the opposite of cashing in
+                // on value. Ordering by transfer value keeps the prime assets first
+                // either way, so the sell-high character is unchanged.
+                if (stratId == TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH) {
+                    assertThat(soldIds)
+                            .as("strategy %d seed %d sells high — from the XI, not the bench", stratId, seed)
+                            .allMatch(starterIds::contains);
+                }
                 assertThat(repeatedIds)
                         .as("strategy %d seed %d must be reproducible", stratId, seed)
                         .containsExactlyElementsOf(soldIds);
@@ -170,204 +251,49 @@ class TransferStrategyIT {
                         .isSortedAccordingTo(Comparator.reverseOrder());
                 assertThat(soldValues.stream().mapToLong(Long::longValue).sum())
                         .as("strategy %d seed %d must maximize total feasible sale value", stratId, seed)
-                        .isEqualTo(optimalSellHighValue(soldIds.size()));
+                        .isEqualTo(optimalSellHighValue(soldIds.size(),
+                                stratId == TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH
+                                        ? depthChart.starters() : depthChart.wholeSquad()));
                 assertMinimumPositionCoverageAfterSales(soldIds, stratId, seed);
             }
         }
     }
 
     @Test
-    @DisplayName("BuyMidSellMid sells from the middle — not the squad's top, not its bottom")
-    void buyMidSellMidSellsMidRange() {
+    @DisplayName("BuyMidSellMid draws at random from the WHOLE squad — its job is liquidity, not quality")
+    void buyMidSellMidIsUnopinionated() {
+        // It is the market's liquidity provider: it must be able to reach both the XI
+        // and the bench, and over many draws its picks track the squad mean. That is a
+        // statistical property, so it is asserted across seeds — a single seed says
+        // nothing, which is exactly why the previous strict betweenness assertion held
+        // only for the one seed it was written against.
         double squadAvgRating = squad.stream().mapToDouble(Human::getRating).average().orElseThrow();
+        Set<Long> starterIds = depthChart.starterIds();
 
-        double academyAvg = avgRating(sell(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY));
-        double worstAvg = avgRating(sell(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST));
-        List<PlayerTransferView> midSold = sell(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_MID_SELL_MID);
-        double midAvg = avgRating(midSold);
+        int seeds = 40;
+        double soldTotal = 0;
+        int soldCount = 0;
+        boolean touchedStarter = false;
+        boolean touchedReserve = false;
 
-        assertThat(midSold).as("BuyMidSellMid must pick players to sell").isNotEmpty();
-        // The shuffled "mid" pick must not deliberately skim the peaks (Academy) nor
-        // dump only the dregs (BuyTopSellWorst): it sits strictly between them.
-        assertThat(midAvg)
-                .as("BuyMidSellMid sold avg rating (%.1f) must be below Academy's peak-skimming avg (%.1f)",
-                        midAvg, academyAvg)
-                .isLessThan(academyAvg);
-        assertThat(midAvg)
-                .as("BuyMidSellMid sold avg rating (%.1f) must be above BuyTopSellWorst's dregs avg (%.1f)",
-                        midAvg, worstAvg)
-                .isGreaterThan(worstAvg);
-        // And it should land near the squad average (within a generous band) — it is
-        // an un-opinionated random pick, so it tracks the mean, not the extremes.
-        assertThat(midAvg)
-                .as("BuyMidSellMid sold avg rating (%.1f) should sit near the squad mean (%.1f)",
-                        midAvg, squadAvgRating)
-                .isCloseTo(squadAvgRating, org.assertj.core.data.Offset.offset(squadAvgRating * 0.35 + 5));
-    }
-
-    // ============================================================
-    //  Req #2 — per-strategy sell-direction report (descriptive, target/)
-    // ============================================================
-
-    @Test
-    @DisplayName("Report: each strategy's sold-vs-squad rating/value drift → target/transfer-strategy-sell-direction.md")
-    void emitSellDirectionReport() throws IOException {
-        double squadAvgRating = squad.stream().mapToDouble(Human::getRating).average().orElseThrow();
-        double squadAvgValue = squad.stream().mapToLong(Human::getTransferValue).average().orElseThrow();
-        Map<Long, Long> valueById = new HashMap<>();
-        for (Human h : squad) valueById.put(h.getId(), h.getTransferValue());
-
-        MarkdownTable table = new MarkdownTable(
-                List.of("Strategy", "#Sold", "Sold avg rating", "Δ vs squad rating",
-                        "Sold avg value", "Δ vs squad value", "Direction"),
-                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
-                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
-                        MarkdownTable.Align.LEFT));
-
-        for (Map.Entry<Long, String> e : STRATEGY_NAME.entrySet()) {
-            List<PlayerTransferView> sold = sell(e.getKey());
-            double rAvg = sold.isEmpty() ? 0 : avgRating(sold);
-            double vAvg = sold.isEmpty() ? 0 : sold.stream()
-                    .mapToLong(v -> valueById.getOrDefault(v.getPlayerId(), 0L)).average().orElse(0);
-            String direction;
-            if (sold.isEmpty()) direction = "—";
-            else if (rAvg > squadAvgRating + 2) direction = "sells HIGH (skims peaks)";
-            else if (rAvg < squadAvgRating - 2) direction = "sells LOW (dumps dregs)";
-            else direction = "sells MID (near mean)";
-            table.addRow(
-                    e.getValue() + " (" + e.getKey() + ")",
-                    String.valueOf(sold.size()),
-                    String.format("%.1f", rAvg),
-                    String.format("%+.1f", rAvg - squadAvgRating),
-                    String.format("%,.0f", vAvg),
-                    String.format("%+,.0f", vAvg - squadAvgValue),
-                    direction);
-        }
-
-        StringBuilder md = new StringBuilder();
-        md.append("# Transfer strategy sell-direction report\n\n");
-        md.append("- seed: ").append(SEED).append('\n');
-        md.append("- sample team: id=").append(team.getId())
-                .append(" (").append(team.getName()).append("), squad=").append(squad.size()).append('\n');
-        md.append("- squad avg rating: ").append(String.format("%.1f", squadAvgRating))
-                .append(", squad avg value: ").append(String.format("%,.0f", squadAvgValue)).append("\n\n");
-        md.append("Each strategy is asked, on the *same* squad with the *same* seed, which players it\n");
-        md.append("would put up for sale. The drift columns show how its sold set deviates from the\n");
-        md.append("squad mean — proving the strategy honours its named intent.\n\n");
-        md.append(table.render());
-
-        Path report = Path.of("target", "transfer-strategy-sell-direction.md");
-        Files.createDirectories(report.getParent());
-        Files.writeString(report, md.toString());
-        System.out.println(md);
-
-        // Sanity: at least the opinionated strategies must list someone.
-        assertThat(sell(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY)).isNotEmpty();
-    }
-
-    // ============================================================
-    //  Req #3 — deterministic per-team no-transfer diagnostic
-    //  (uses the SAME gates as EndOfSeasonProcessor: strategy intent +
-    //   TransferMarketService.canBeTransfered + budget)
-    // ============================================================
-
-    @Test
-    @DisplayName("Diagnose & report why teams make NO transfers → target/transfer-no-trade-causes.md")
-    void diagnoseNoTransferCauses() throws IOException {
-        List<Team> allTeams = teamRepository.findAll().stream()
-                .sorted(Comparator.comparingLong(Team::getId)).toList();
-
-        // 1. Assign a deterministic strategy to every team (round-robin 1..5).
-        int s = 0;
-        for (Team t : allTeams) t.setStrategy((long) ((s++ % 5) + 1));
-
-        // 2. Snapshot the real strategy intents under a fixed seed, then classify
-        //    no-transfer teams using an ACTUAL match on either side of the market
-        //    (eligible buyer+budget or eligible seller+budget). Merely being listed
-        //    for sale is no longer treated as a live transfer opportunity.
-        strategy.setRandomForTesting(new Random(SEED));
-        Map<Long, TransferMarketDiagnostics.TeamIntent> intents = TransferMarketDiagnostics.snapshotTeamIntents(
-                allTeams, strategy, humanRepository, tacticService);
-        List<TransferMarketDiagnostics.TeamNoTransferDiagnostic> diagnostics =
-                TransferMarketDiagnostics.classifyNoTransferTeams(intents, transferMarketService);
-
-        Map<String, Integer> causeTally = new LinkedHashMap<>();
-        Map<String, Integer> perStrategyTraders = new LinkedHashMap<>();
-        Map<Long, TransferMarketDiagnostics.TeamNoTransferDiagnostic> diagnosticByTeam = new HashMap<>();
-        for (TransferMarketDiagnostics.TeamNoTransferDiagnostic diagnostic : diagnostics) {
-            diagnosticByTeam.put(diagnostic.intent().teamId(), diagnostic);
-            causeTally.merge(diagnostic.cause().code(), 1, Integer::sum);
-        }
-        for (Team teamIt : allTeams) {
-            if (!diagnosticByTeam.containsKey(teamIt.getId())) {
-                perStrategyTraders.merge(
-                        STRATEGY_NAME.getOrDefault(teamIt.getStrategy(), "Unmapped"),
-                        1,
-                        Integer::sum);
+        for (int seed = 0; seed < seeds; seed++) {
+            List<PlayerTransferView> sold = sell(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_MID_SELL_MID, seed);
+            assertThat(sold).as("seed %d must pick players to sell", seed).isNotEmpty();
+            for (PlayerTransferView view : sold) {
+                soldTotal += view.getRating();
+                soldCount++;
+                if (starterIds.contains(view.getPlayerId())) touchedStarter = true;
+                else touchedReserve = true;
             }
         }
 
-        MarkdownTable byCause = new MarkdownTable(
-                List.of("No-transfer cause", "Teams"),
-                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
-        causeTally.forEach((c, n) -> byCause.addRow(c, String.valueOf(n)));
-
-        MarkdownTable byStrat = new MarkdownTable(
-                List.of("Strategy", "Teams with a live opportunity"),
-                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
-        STRATEGY_NAME.values().forEach(n ->
-                byStrat.addRow(n, String.valueOf(perStrategyTraders.getOrDefault(n, 0))));
-
-        MarkdownTable detail = new MarkdownTable(
-                List.of("Team", "Strategy", "Cause", "#Sell", "#Buy", "Budget blocked"),
-                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
-                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT));
-        diagnostics.forEach(diagnostic -> detail.addRow(
-                diagnostic.intent().teamName(),
-                STRATEGY_NAME.getOrDefault(diagnostic.intent().strategyId(), "Unmapped"),
-                diagnostic.cause().code(),
-                String.valueOf(diagnostic.intent().sellCandidates().size()),
-                String.valueOf(diagnostic.intent().buyPlan() == null || diagnostic.intent().buyPlan().getPositions() == null
-                        ? 0
-                        : diagnostic.intent().buyPlan().getPositions().size()),
-                diagnostic.budgetBlocked() ? "yes" : "no"));
-
-        StringBuilder md = new StringBuilder();
-        md.append("# No-transfer diagnostic (deterministic, pre-pipeline)\n\n");
-        md.append("- seed: ").append(SEED).append('\n');
-        md.append("- teams analysed: ").append(allTeams.size())
-                .append(" (strategies round-robined 1..5)\n\n");
-        md.append("Classification mirrors `EndOfSeasonProcessor`'s gate order: strategy intent →\n");
-        md.append("`TransferMarketService.canBeTransfered` (age/reputation/position/rating) → budget\n");
-        md.append("(`fee > transferBudget`). A team is flagged only if it has NO actual transfer match on\n");
-        md.append("either side of the market; just listing a seller no longer counts as a live opportunity.\n\n");
-        md.append("## Why teams cannot trade\n\n").append(byCause.render());
-        md.append("\n## Live opportunities by strategy\n\n").append(byStrat.render());
-        if (!diagnostics.isEmpty()) {
-            md.append("\n## Flagged teams\n\n").append(detail.render());
-        }
-
-        Path report = Path.of("target", "transfer-no-trade-causes.md");
-        Files.createDirectories(report.getParent());
-        Files.writeString(report, md.toString());
-        System.out.println(md);
-
-        // The diagnostic must be total: every flagged team has exactly one cause.
-        int flagged = causeTally.values().stream().mapToInt(Integer::intValue).sum();
-        int traders = perStrategyTraders.values().stream().mapToInt(Integer::intValue).sum();
-        assertThat(flagged + traders)
-                .as("every team must be classified as either a trader or a single no-trade cause")
-                .isEqualTo(allTeams.size());
-
-        assertThat(diagnostics.stream()
-                .filter(diagnostic -> diagnostic.intent().strategyId() == TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY)
-                .map(diagnostic -> diagnostic.cause().code()))
-                .as("Academy teams that cannot trade should fail because they do not buy")
-                .allMatch(code -> code.equals(TransferMarketDiagnostics.NoTransferCause.NO_BUY_TARGETS.code()));
-    }
-
-    private static double avgRating(List<PlayerTransferView> views) {
-        return views.stream().mapToDouble(PlayerTransferView::getRating).average().orElse(0);
+        assertThat(touchedStarter)
+                .as("across %d seeds it must reach the XI at least once", seeds).isTrue();
+        assertThat(touchedReserve)
+                .as("across %d seeds it must reach the bench at least once", seeds).isTrue();
+        assertThat(soldTotal / soldCount)
+                .as("its aggregate pick should sit near the squad mean (%.1f)", squadAvgRating)
+                .isCloseTo(squadAvgRating, org.assertj.core.data.Offset.offset(squadAvgRating * 0.20));
     }
 
     @Test
@@ -376,7 +302,7 @@ class TransferStrategyIT {
         Map<String, Integer> have = new HashMap<>();
         for (Human h : squad) have.merge(TacticService.getBasePosition(h.getPosition()), 1, Integer::sum);
 
-        for (long stratId : new long[]{1L, 2L, 3L, 4L, 5L}) {
+        for (long stratId : new long[]{1L, 2L, 3L, 4L, 5L, 6L}) {
             Map<String, Integer> sold = new HashMap<>();
             for (PlayerTransferView v : sell(stratId)) sold.merge(v.getPosition(), 1, Integer::sum);
 
@@ -392,19 +318,52 @@ class TransferStrategyIT {
     }
 
     // ============================================================
-    //  Req #1 — buying criterion per strategy
+    //  Buying intent
     // ============================================================
 
     @Test
-    @DisplayName("Buy plans target under-filled positions; BuyYoung caps age at 24, others at 40; Academy never buys")
+    @DisplayName("Buy plans rank the weakest positions first and carry the club's own bar")
     void buyPlansAreWellFormed() {
-        assertThat(buy(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY))
-                .as("Academy develops youth — it must not buy").isNull();
-
         assertBuyPlan(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH, 24);
         assertBuyPlan(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH, 40);
         assertBuyPlan(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_MID_SELL_MID, 40);
         assertBuyPlan(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST, 40);
+    }
+
+    @Test
+    @DisplayName("Academy buys — but only what costs nothing")
+    void academyBuysFreeAgentsOnly() {
+        // It used to return no plan at all, which removed a fifth of the market's
+        // demand. Real academy clubs still sign released players to cover positions
+        // the youth intake missed; they just never pay a fee.
+        BuyPlanTransferView plan = buy(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY);
+
+        assertThat(plan).as("Academy must take part in the window").isNotNull();
+        assertThat(plan.getPositions())
+                .as("Academy shops for 1-2 gaps, not a rebuild")
+                .isNotEmpty()
+                .hasSizeLessThanOrEqualTo(2);
+        assertThat(plan.getSpendingCap())
+                .as("Academy may not spend a penny — free agents only")
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("Strategies differ on how far below their bar they will sign squad depth")
+    void stepUpGapsDifferentiateBuyers() {
+        double top = buy(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST).getStepUpGap();
+        double young = buy(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH).getStepUpGap();
+        double free = buy(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH).getStepUpGap();
+        double mid = buy(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_MID_SELL_MID).getStepUpGap();
+
+        // Before this change all four buy plans were byte-identical bar one max-age
+        // constant, so "strategy" meant nothing on the buying side.
+        assertThat(top)
+                .as("the ambitious club wants upgrades, not filler — narrowest tolerance")
+                .isLessThan(young).isLessThan(free).isLessThan(mid);
+        assertThat(mid)
+                .as("the liquidity provider says yes most often — widest tolerance")
+                .isGreaterThan(free).isGreaterThan(young);
     }
 
     private void assertBuyPlan(long stratId, int expectedMaxAge) {
@@ -412,26 +371,33 @@ class TransferStrategyIT {
         assertThat(plan).as("strategy %d must produce a buy plan", stratId).isNotNull();
         assertThat(plan.getMaxAge()).as("strategy %d max age", stratId).isEqualTo(expectedMaxAge);
         assertThat(plan.getTeamId()).as("strategy %d buy plan team id", stratId).isEqualTo(team.getId());
+        assertThat(plan.getXiAverage())
+                .as("strategy %d must carry the club's own level", stratId)
+                .isEqualTo(depthChart.xiAverage());
 
-        // At most nextInt(3,5) == {3,4} positions are requested.
         assertThat(plan.getPositions().size())
                 .as("strategy %d must request at most 4 positions", stratId)
                 .isLessThanOrEqualTo(4);
 
-        Map<String, Integer> have = new HashMap<>();
-        for (Human h : squad) have.merge(TacticService.getBasePosition(h.getPosition()), 1, Integer::sum);
-        for (TransferPlayer p : plan.getPositions()) {
-            String basePos = TacticService.getBasePosition(p.getPosition());
-            assertThat(have.getOrDefault(basePos, 0))
-                    .as("strategy %d must only buy for under-filled position %s (have %d, cap %d)",
-                            stratId, basePos, have.getOrDefault(basePos, 0),
+        assertThat(plan.getPositions().stream().map(TransferPlayer::getDeficit).toList())
+                .as("strategy %d must shop for its weakest positions first", stratId)
+                .isSortedAccordingTo(Comparator.reverseOrder());
+
+        for (TransferPlayer slot : plan.getPositions()) {
+            String basePos = slot.getPosition();
+            assertThat(depthChart.squadCount(basePos))
+                    .as("strategy %d must only buy for a position under its roster cap %s (have %d, cap %d)",
+                            stratId, basePos, depthChart.squadCount(basePos),
                             maxPos.getOrDefault(basePos, 0))
                     .isLessThan(maxPos.getOrDefault(basePos, Integer.MAX_VALUE));
+            assertThat(slot.getIncumbentRating())
+                    .as("strategy %d slot %s must carry the incumbent it has to beat", stratId, basePos)
+                    .isEqualTo(depthChart.incumbentRating(basePos));
         }
     }
 
     // ============================================================
-    //  Determinism + robustness (Req #4 core)
+    //  Determinism + robustness
     // ============================================================
 
     @Test
@@ -456,18 +422,163 @@ class TransferStrategyIT {
             team.setStrategy(badStrategy);
             strategy.setRandomForTesting(new Random(SEED));
 
-            assertThat(strategy.playersToSell(team, humanRepository, minPos))
+            assertThat(strategy.playersToSell(team, depthChart, minPos))
                     .as("strategy=%s must sell nobody", badStrategy)
                     .isEmpty();
-            assertThat(strategy.playersToBuy(team, humanRepository, maxPos))
+            assertThat(strategy.playersToBuy(team, depthChart, maxPos))
                     .as("strategy=%s must have no buy plan", badStrategy)
                     .isNull();
         }
     }
 
     // ============================================================
+    //  Descriptive reports (target/)
+    // ============================================================
+
+    @Test
+    @DisplayName("Report: each strategy's sell source + drift → target/transfer-strategy-sell-direction.md")
+    void emitSellDirectionReport() throws IOException {
+        double squadAvgRating = squad.stream().mapToDouble(Human::getRating).average().orElseThrow();
+        double squadAvgValue = squad.stream().mapToLong(Human::getTransferValue).average().orElseThrow();
+        Map<Long, Long> valueById = new HashMap<>();
+        for (Human h : squad) valueById.put(h.getId(), h.getTransferValue());
+        Set<Long> starterIds = depthChart.starterIds();
+
+        MarkdownTable table = new MarkdownTable(
+                List.of("Strategy", "#Sold", "From XI", "Sold avg rating", "Δ vs squad rating",
+                        "Sold avg value", "Δ vs squad value"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.RIGHT));
+
+        for (Map.Entry<Long, String> e : STRATEGY_NAME.entrySet()) {
+            List<PlayerTransferView> sold = sell(e.getKey());
+            double rAvg = sold.isEmpty() ? 0 : avgRating(sold);
+            double vAvg = sold.isEmpty() ? 0 : sold.stream()
+                    .mapToLong(v -> valueById.getOrDefault(v.getPlayerId(), 0L)).average().orElse(0);
+            long fromXi = sold.stream().filter(v -> starterIds.contains(v.getPlayerId())).count();
+            table.addRow(
+                    e.getValue() + " (" + e.getKey() + ")",
+                    String.valueOf(sold.size()),
+                    fromXi + "/" + sold.size(),
+                    String.format("%.1f", rAvg),
+                    String.format("%+.1f", rAvg - squadAvgRating),
+                    String.format("%,.0f", vAvg),
+                    String.format("%+,.0f", vAvg - squadAvgValue));
+        }
+
+        StringBuilder md = new StringBuilder();
+        md.append("# Transfer strategy sell-direction report\n\n");
+        md.append("- seed: ").append(SEED).append('\n');
+        md.append("- sample team: id=").append(team.getId())
+                .append(" (").append(team.getName()).append("), squad=").append(squad.size())
+                .append(", XI average=").append(String.format("%.1f", depthChart.xiAverage())).append('\n');
+        md.append("- squad avg rating: ").append(String.format("%.1f", squadAvgRating))
+                .append(", squad avg value: ").append(String.format("%,.0f", squadAvgValue)).append("\n\n");
+        md.append("Each strategy is asked, on the *same* squad with the *same* seed, which players it\n");
+        md.append("would put up for sale. \"From XI\" shows which set it drew from — the club's best\n");
+        md.append("eleven or its reserves — which is what now distinguishes the strategies.\n\n");
+        md.append(table.render());
+
+        Path report = Path.of("target", "transfer-strategy-sell-direction.md");
+        Files.createDirectories(report.getParent());
+        Files.writeString(report, md.toString());
+        System.out.println(md);
+
+        assertThat(sell(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY)).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("Diagnose & report why teams make NO transfers → target/transfer-no-trade-causes.md")
+    void diagnoseNoTransferCauses() throws IOException {
+        List<Team> allTeams = teamRepository.findAll().stream()
+                .sorted(Comparator.comparingLong(Team::getId)).toList();
+
+        int s = 0;
+        for (Team t : allTeams) t.setStrategy((long) ((s++ % 6) + 1));
+
+        strategy.setRandomForTesting(new Random(SEED));
+        Map<Long, TransferMarketDiagnostics.TeamIntent> intents = TransferMarketDiagnostics.snapshotTeamIntents(
+                allTeams, strategy, humanRepository, tacticService,
+                matchSimulationOrchestrator, matchEngineConfig);
+        List<TransferMarketDiagnostics.TeamNoTransferDiagnostic> diagnostics =
+                TransferMarketDiagnostics.classifyNoTransferTeams(intents, transferMarketService);
+
+        Map<String, Integer> causeTally = new LinkedHashMap<>();
+        Map<String, Integer> perStrategyTraders = new LinkedHashMap<>();
+        Map<Long, TransferMarketDiagnostics.TeamNoTransferDiagnostic> diagnosticByTeam = new HashMap<>();
+        for (TransferMarketDiagnostics.TeamNoTransferDiagnostic diagnostic : diagnostics) {
+            diagnosticByTeam.put(diagnostic.intent().teamId(), diagnostic);
+            causeTally.merge(diagnostic.cause().code(), 1, Integer::sum);
+        }
+        for (Team teamIt : allTeams) {
+            if (!diagnosticByTeam.containsKey(teamIt.getId())) {
+                perStrategyTraders.merge(
+                        STRATEGY_NAME.getOrDefault(teamIt.getStrategy(), "Unmapped"), 1, Integer::sum);
+            }
+        }
+
+        MarkdownTable byCause = new MarkdownTable(
+                List.of("No-transfer cause", "Teams"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
+        causeTally.forEach((c, n) -> byCause.addRow(c, String.valueOf(n)));
+
+        MarkdownTable byStrat = new MarkdownTable(
+                List.of("Strategy", "Teams with a live opportunity"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.RIGHT));
+        STRATEGY_NAME.values().forEach(n ->
+                byStrat.addRow(n, String.valueOf(perStrategyTraders.getOrDefault(n, 0))));
+
+        MarkdownTable detail = new MarkdownTable(
+                List.of("Team", "Strategy", "Cause", "#Sell", "#Buy", "XI avg", "Budget blocked"),
+                List.of(MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
+                        MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
+                        MarkdownTable.Align.LEFT));
+        diagnostics.forEach(diagnostic -> detail.addRow(
+                diagnostic.intent().teamName(),
+                STRATEGY_NAME.getOrDefault(diagnostic.intent().strategyId(), "Unmapped"),
+                diagnostic.cause().code(),
+                String.valueOf(diagnostic.intent().sellCandidates().size()),
+                String.valueOf(diagnostic.intent().buyPlan() == null || diagnostic.intent().buyPlan().getPositions() == null
+                        ? 0
+                        : diagnostic.intent().buyPlan().getPositions().size()),
+                String.format("%.1f", diagnostic.intent().depthChart().xiAverage()),
+                diagnostic.budgetBlocked() ? "yes" : "no"));
+
+        StringBuilder md = new StringBuilder();
+        md.append("# No-transfer diagnostic (deterministic, pre-pipeline)\n\n");
+        md.append("- seed: ").append(SEED).append('\n');
+        md.append("- teams analysed: ").append(allTeams.size())
+                .append(" (strategies round-robined 1..5)\n\n");
+        md.append("Classification mirrors `EndOfSeasonProcessor`'s gate order: strategy intent →\n");
+        md.append("`TransferMarketService.canBeTransfered` (age/position/incumbent/step-up) → budget.\n");
+        md.append("A team is flagged only if it has NO actual transfer match on either side of the\n");
+        md.append("market; just listing a seller does not count as a live opportunity.\n\n");
+        md.append("## Why teams cannot trade\n\n").append(byCause.render());
+        md.append("\n## Live opportunities by strategy\n\n").append(byStrat.render());
+        if (!diagnostics.isEmpty()) {
+            md.append("\n## Flagged teams\n\n").append(detail.render());
+        }
+
+        Path report = Path.of("target", "transfer-no-trade-causes.md");
+        Files.createDirectories(report.getParent());
+        Files.writeString(report, md.toString());
+        System.out.println(md);
+
+        int flagged = causeTally.values().stream().mapToInt(Integer::intValue).sum();
+        int traders = perStrategyTraders.values().stream().mapToInt(Integer::intValue).sum();
+        assertThat(flagged + traders)
+                .as("every team must be classified as either a trader or a single no-trade cause")
+                .isEqualTo(allTeams.size());
+    }
+
+    // ============================================================
     //  helpers — always re-seed so each strategy draws the same counts
     // ============================================================
+
+    private static double avgRating(List<PlayerTransferView> views) {
+        return views.stream().mapToDouble(PlayerTransferView::getRating).average().orElse(0);
+    }
 
     private List<PlayerTransferView> sell(long stratId) {
         return sell(stratId, SEED);
@@ -476,32 +587,26 @@ class TransferStrategyIT {
     private List<PlayerTransferView> sell(long stratId, long seed) {
         team.setStrategy(stratId);
         strategy.setRandomForTesting(new Random(seed));
-        return strategy.playersToSell(team, humanRepository, minPos);
+        return strategy.playersToSell(team, depthChart, minPos);
     }
 
     /**
-     * Independent oracle for the SellHigh contract. A position may contribute
-     * at most {@code squadCount - minimumRequired} sale slots. Greedily taking
-     * the globally highest-value legal player is optimal for these independent
-     * per-position capacities; protected players remain in the squad and are
-     * never candidates.
+     * Independent oracle for the SellHigh contract. Candidates are the club's
+     * starters (that is the set the strategy draws from); a position may contribute
+     * at most {@code squadCount - minimumRequired} sale slots. Greedily taking the
+     * highest-value legal starter is optimal for these independent per-position
+     * capacities; protected players are never candidates.
      */
-    private long optimalSellHighValue(int count) {
-        Map<String, Integer> squadCount = new HashMap<>();
-        for (Human player : squad) {
-            squadCount.merge(TacticService.getBasePosition(player.getPosition()), 1, Integer::sum);
-        }
-
+    private long optimalSellHighValue(int count, List<Human> pool) {
         Map<String, Integer> saleCapacity = new HashMap<>();
-        squadCount.forEach((position, players) -> saleCapacity.put(
+        depthChart.squadCountsByBasePosition().forEach((position, players) -> saleCapacity.put(
                 position,
                 Math.max(0, players - minPos.getOrDefault(position, 0))));
 
-        List<Human> candidates = squad.stream()
+        List<Human> candidates = pool.stream()
                 .filter(player -> !player.isWillNeverLeave())
-                .sorted(Comparator.comparingLong(Human::getTransferValue)
-                        .reversed())
-                .toList();
+                .sorted(Comparator.comparingLong(Human::getTransferValue).reversed())
+                .collect(Collectors.toList());
 
         long optimalValue = 0;
         int selected = 0;
@@ -532,7 +637,7 @@ class TransferStrategyIT {
     private BuyPlanTransferView buy(long stratId) {
         team.setStrategy(stratId);
         strategy.setRandomForTesting(new Random(SEED));
-        return strategy.playersToBuy(team, humanRepository, maxPos);
+        return strategy.playersToBuy(team, depthChart, maxPos);
     }
 
     private List<String> buyPositions(long stratId) {

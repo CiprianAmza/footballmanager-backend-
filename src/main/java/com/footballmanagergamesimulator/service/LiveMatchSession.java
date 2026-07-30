@@ -98,7 +98,7 @@ public class LiveMatchSession {
     int homeLastSubMin = -10, awayLastSubMin = -10;
 
     // --- Pre-computed schedules ---
-    final double team1PossChance;
+    double team1PossChance;
     final double team1AttackChance, team2AttackChance;
     final Set<Integer> team1BigChanceMinutes, team2BigChanceMinutes;
     int firstHalfStoppage, secondHalfStoppage, halfTimeMinute;
@@ -337,6 +337,10 @@ public class LiveMatchSession {
     synchronized void bindCanonicalPlan(LivePlanSnapshot snap, String fixtureKey) {
         this.canonicalPlan = snap;
         this.canonicalFixtureKey = fixtureKey;
+        if (snap.homePassingControl() > 0.0 || snap.awayPassingControl() > 0.0) {
+            this.team1PossChance = passingPossessionShare(
+                    snap.homePassingControl(), snap.awayPassingControl());
+        }
         homeMinuteToSlots.clear();
         awayMinuteToSlots.clear();
         slotByIndex.clear();
@@ -363,6 +367,18 @@ public class LiveMatchSession {
         this.awayGoalMinutes = java.util.Collections.emptySet();
         rebuildShotPlan(snap.slots().stream().mapToInt(slot -> slot.teamId() == teamId1 ? 1 : 0).sum(),
                 snap.slots().stream().mapToInt(slot -> slot.teamId() == teamId2 ? 1 : 0).sum());
+    }
+
+    private static double passingPossessionShare(double homeControl, double awayControl) {
+        double share;
+        if (homeControl > 0.0 && awayControl > 0.0) {
+            share = homeControl / (homeControl + awayControl);
+        } else if (homeControl > 0.0) {
+            share = homeControl;
+        } else {
+            share = 1.0 - awayControl;
+        }
+        return Math.max(0.05, Math.min(0.95, share));
     }
 
     /**

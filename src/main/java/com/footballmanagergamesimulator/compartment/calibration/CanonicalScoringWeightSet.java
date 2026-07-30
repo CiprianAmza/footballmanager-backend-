@@ -260,10 +260,9 @@ public final class CanonicalScoringWeightSet {
     private static CompartmentEngineConfig copyCompartment(CompartmentEngineConfig source) {
         if (source == null) throw new NullPointerException("compartment");
         CompartmentEngineConfig target = new CompartmentEngineConfig();
-        target.setEnabled(source.isEnabled());
-        target.setShadowEnabled(source.isShadowEnabled());
         target.getRating().setAttributeMin(source.getRating().getAttributeMin());
         target.getRating().setAttributeMax(source.getRating().getAttributeMax());
+        target.getRating().setExceptionalAttributeValue(source.getRating().getExceptionalAttributeValue());
         target.getRating().setScoreScale(source.getRating().getScoreScale());
         target.getRating().setContextFactorMin(source.getRating().getContextFactorMin());
         target.getRating().setContextFactorMax(source.getRating().getContextFactorMax());
@@ -327,7 +326,24 @@ public final class CanonicalScoringWeightSet {
         target.getProbability().setIntervalLowerQuantile(source.getProbability().getIntervalLowerQuantile());
         target.getProbability().setIntervalUpperQuantile(source.getProbability().getIntervalUpperQuantile());
         target.getAggregation().setWideRedistributionShare(source.getAggregation().getWideRedistributionShare());
+        copyShooter(source.getShooter(), target.getShooter());
         return target;
+    }
+
+    private static void copyShooter(CompartmentEngineConfig.Shooter source,
+                                    CompartmentEngineConfig.Shooter target) {
+        target.setAttackContribution(source.getAttackContribution());
+        target.setMidfieldContribution(source.getMidfieldContribution());
+        target.setDefenseContribution(source.getDefenseContribution());
+        target.setRegularLongShotsCeiling(source.getRegularLongShotsCeiling());
+        target.setRegularLongShotsExponent(source.getRegularLongShotsExponent());
+        target.setStandardShotDistribution(new java.util.ArrayList<>(source.getStandardShotDistribution()));
+        target.setExceptionalPositioningShotDistribution(
+                new java.util.ArrayList<>(source.getExceptionalPositioningShotDistribution()));
+        Map<String, CompartmentEngineConfig.PressingRule> pressing = new LinkedHashMap<>();
+        source.getPressing().forEach((key, rule) -> pressing.put(key,
+                new CompartmentEngineConfig.PressingRule(rule.getShotReduction(), rule.getRedCardChance())));
+        target.setPressing(pressing);
     }
 
     private static CompartmentEngineConfig.WorkRule copyWorkRule(CompartmentEngineConfig.WorkRule source) {

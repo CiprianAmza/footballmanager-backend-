@@ -20,6 +20,7 @@ import com.footballmanagergamesimulator.testutil.TransferMarketDiagnostics;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
 import com.footballmanagergamesimulator.transfermarket.CompositeTransferStrategy;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
+import com.footballmanagergamesimulator.transfermarket.SquadDepthChart;
 import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.transfermarket.TransferStrategyUtil;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -88,6 +89,8 @@ class TransferEconomyFuzzIT {
     @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private TacticService tacticService;
     @Autowired private TransferMarketService transferMarketService;
+    @Autowired private com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig matchEngineConfig;
 
     private static final long BASE_SEED = 20260528L;
     private static final int SEASONS = 1;          // one full transfer campaign; keeps fuzz practical locally
@@ -115,7 +118,7 @@ class TransferEconomyFuzzIT {
         Map<Long, Long> strategyByTeam = new HashMap<>();
         int s = 0;
         for (Team t : allTeams.stream().sorted(Comparator.comparingLong(Team::getId)).toList()) {
-            long strat = (s++ % 5) + 1L;
+            long strat = (s++ % 6) + 1L;
             t.setStrategy(strat);
             strategyByTeam.put(t.getId(), strat);
         }
@@ -145,7 +148,9 @@ class TransferEconomyFuzzIT {
                                 teamRepository.findAll(),
                                 strategy,
                                 humanRepository,
-                                tacticService),
+                                tacticService,
+                                matchSimulationOrchestrator,
+                                matchEngineConfig),
                         transferMarketService);
             }
 
@@ -192,10 +197,15 @@ class TransferEconomyFuzzIT {
                 .isGreaterThan(0L);
         assertThat(statsByStrategy.keySet())
                 .as("every strategy must be represented among the teams")
-                .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L);
-        assertThat(statsByStrategy.getOrDefault(TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY, new StrategyEconomyStats()).incomingCount)
-                .as("Academy must not complete incoming transfers")
-                .isZero();
+                .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L, 6L);
+        // Academy now takes part in the window, but only at zero cost: it signs free
+        // agents to cover gaps the youth intake missed and never pays a fee.
+        assertThat(transferRepository.findAll().stream()
+                .filter(t -> strategyByTeam.get(t.getBuyTeamId())
+                        == TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY)
+                .map(Transfer::getPlayerTransferValue))
+                .as("Academy may only sign free agents — every incoming fee must be zero")
+                .allMatch(fee -> fee == 0L);
         StrategyEconomyStats buyYoungStats =
                 statsByStrategy.getOrDefault(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH, new StrategyEconomyStats());
         if (buyYoungStats.incomingCount > 0) {
@@ -215,7 +225,7 @@ class TransferEconomyFuzzIT {
         HashMap<String, Integer> minPos = tacticService.getMinimumPositionNeeded();
         HashMap<String, Integer> maxPos = tacticService.getMaximumPositionAllowed();
         List<Team> teams = teamRepository.findAll();
-        Set<Long> mapped = Set.of(1L, 2L, 3L, 4L, 5L);
+        Set<Long> mapped = Set.of(1L, 2L, 3L, 4L, 5L, 6L);
 
         int iterations = 400;
         for (int i = 0; i < iterations; i++) {
@@ -223,11 +233,13 @@ class TransferEconomyFuzzIT {
             strategy.setRandomForTesting(new Random(BASE_SEED + i));
 
             Team team = teams.get(rng.nextInt(teams.size()));
-            long stratId = rng.nextInt(-3, 12); // spans invalid (<1, >5) and valid (1..5)
+            long stratId = rng.nextInt(-3, 13); // spans invalid (<1, >5) and valid (1..5)
             team.setStrategy(stratId);
 
-            List<PlayerTransferView> sold = strategy.playersToSell(team, humanRepository, minPos);
-            BuyPlanTransferView plan = strategy.playersToBuy(team, humanRepository, maxPos);
+            SquadDepthChart chart = TransferMarketDiagnostics.depthChartFor(
+                    team, humanRepository, matchSimulationOrchestrator, matchEngineConfig);
+            List<PlayerTransferView> sold = strategy.playersToSell(team, chart, minPos);
+            BuyPlanTransferView plan = strategy.playersToBuy(team, chart, maxPos);
 
             assertThat(sold).as("seed %d strat %d: sell list must never be null", i, stratId).isNotNull();
 

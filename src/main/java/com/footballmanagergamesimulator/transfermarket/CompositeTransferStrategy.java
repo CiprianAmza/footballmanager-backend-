@@ -1,7 +1,6 @@
 package com.footballmanagergamesimulator.transfermarket;
 
 import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.repository.HumanRepository;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 
@@ -24,28 +23,33 @@ public class CompositeTransferStrategy implements TransferStrategy {
     _transferStrategies.put(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH, new BuyFreeSellHighTransferStrategy());
     _transferStrategies.put(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_MID_SELL_MID, new BuyMidSellMidTransferStrategy());
     _transferStrategies.put(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST, new BuyTopSellWorstTransferStrategy());
+    _transferStrategies.put(TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_TOP, new BuyTopSellTopTransferStrategy());
   }
 
   @Override
-  public List<PlayerTransferView> playersToSell(Team team, HumanRepository humanRepository, HashMap<String, Integer> minimumPositionNeeded) {
+  public List<PlayerTransferView> playersToSell(Team team,
+                                                SquadDepthChart depthChart,
+                                                Map<String, Integer> minimumPositionNeeded) {
 
     TransferStrategy transferStrategy = _transferStrategies.get(team.getStrategy());
 
     if (transferStrategy == null) // if there is no available strategy
       return new ArrayList<>(); // then no players will be sold
 
-    return transferStrategy.playersToSell(team, humanRepository, minimumPositionNeeded);
+    return transferStrategy.playersToSell(team, depthChart, minimumPositionNeeded);
   }
 
   @Override
-  public BuyPlanTransferView playersToBuy(Team team, HumanRepository humanRepository, HashMap<String, Integer> maximumPositionsAllowed) {
+  public BuyPlanTransferView playersToBuy(Team team,
+                                          SquadDepthChart depthChart,
+                                          Map<String, Integer> maximumPositionsAllowed) {
 
     TransferStrategy transferStrategy = _transferStrategies.get(team.getStrategy());
 
     if (transferStrategy == null) // if there is no available strategy
-      return null; // then no players will be sold
+      return null; // then no players will be bought
 
-    return transferStrategy.playersToBuy(team, humanRepository, maximumPositionsAllowed);
+    return transferStrategy.playersToBuy(team, depthChart, maximumPositionsAllowed);
   }
 
   /**

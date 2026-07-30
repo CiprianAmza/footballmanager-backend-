@@ -1,10 +1,13 @@
 package com.footballmanagergamesimulator.matchplan;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.model.MatchEvent;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Random;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -17,6 +20,11 @@ class MatchPlanFoundationTest {
 
     private Contributor player(long id, String pos) {
         return new Contributor(id, "P" + id, pos, 15.0, 15, 15, 15, 100.0, false, false);
+    }
+
+    private Contributor player(long id, String pos, int passing) {
+        return new Contributor(id, "P" + id, pos, 15.0, 15, passing, 15,
+                100.0, false, false);
     }
 
     // ---------------- planning ----------------
@@ -159,6 +167,118 @@ class MatchPlanFoundationTest {
     }
 
     @Test
+    void everyShooterGoalGetsAPassingWeightedAssistFromAnotherOnPitchPlayer() {
+        List<Contributor> onPitch = List.of(player(1L, "GK"), player(2L, "ML"), player(3L, "MC"));
+        Set<Long> assisters = new HashSet<>();
+        Random rng = new Random(7);
+
+        for (int i = 0; i < 100; i++) {
+            GoalSlot slot = new GoalSlot(10L, 20 + i % 70, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
+            slot.forceScorer(2L, "SHOOTER");
+            resolver.resolve(slot, onPitch, rng);
+
+            assertEquals(2L, slot.getScorerId());
+            assertNotNull(slot.getAssistId(), "every SHOOTER goal must have an assist");
+            assertNotEquals(2L, slot.getAssistId(), "the SHOOTER cannot assist himself");
+            assisters.add(slot.getAssistId());
+        }
+
+        assertEquals(Set.of(1L, 3L), assisters, "all other team-mates remain eligible");
+    }
+
+    @Test
+    void passingTwentyGetsSeventyPercentOfAllNonPenaltyGoalsWhenNotTheScorer() {
+        config.getEvents().setAssistProbability(0.0);
+        config.getEvents().setPerfectPassingAssistProbability(0.70);
+        List<Contributor> onPitch = List.of(
+                player(1L, "GK", 10),
+                player(2L, "ST", 12),
+                player(3L, "MC", 20),
+                player(4L, "ML", 19),
+                player(5L, "DC", 5));
+        Random rng = new Random(20260730L);
+        int samples = 20_000;
+        int perfectPasserAssists = 0;
+
+        for (int i = 0; i < samples; i++) {
+            GoalSlot slot = new GoalSlot(10L, 1 + i % 90, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
+            slot.forceScorer(2L, "OPEN_PLAY");
+            resolver.resolve(slot, onPitch, rng);
+            assertNotNull(slot.getAssistId(), "Passing 20 makes every eligible goal assisted");
+            if (Long.valueOf(3L).equals(slot.getAssistId())) perfectPasserAssists++;
+        }
+
+        double share = perfectPasserAssists / (double) samples;
+        assertEquals(0.70, share, 0.015, "Passing 20 must own 70% of the goals");
+    }
+
+    @Test
+    void multiplePerfectPassersShareTheSameSeventyPercentPool() {
+        config.getEvents().setAssistProbability(0.0);
+        config.getEvents().setPerfectPassingAssistProbability(0.70);
+        List<Contributor> onPitch = List.of(
+                player(1L, "GK", 10),
+                player(2L, "ST", 12),
+                player(3L, "MC", 20),
+                player(4L, "AMC", 20),
+                player(5L, "ML", 19));
+        Random rng = new Random(20260801L);
+        int samples = 20_000;
+        int firstPerfect = 0;
+        int secondPerfect = 0;
+
+        for (int i = 0; i < samples; i++) {
+            GoalSlot slot = new GoalSlot(10L, 1 + i % 90, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
+            slot.forceScorer(2L, "OPEN_PLAY");
+            resolver.resolve(slot, onPitch, rng);
+            if (Long.valueOf(3L).equals(slot.getAssistId())) firstPerfect++;
+            if (Long.valueOf(4L).equals(slot.getAssistId())) secondPerfect++;
+        }
+
+        assertEquals(0.70, (firstPerfect + secondPerfect) / (double) samples, 0.015,
+                "all Passing 20 players must collectively own one 70% pool");
+        assertEquals(0.50, firstPerfect / (double) (firstPerfect + secondPerfect), 0.02,
+                "equal perfect passers must divide that pool equally");
+    }
+
+    @Test
+    void remainingAssistShareIsWeightedOnlyByPassing() {
+        config.getEvents().setAssistProbability(1.0);
+        List<Contributor> onPitch = List.of(
+                player(1L, "GK", 20),
+                player(2L, "ST", 12),
+                player(3L, "DC", 19),
+                player(4L, "AMC", 1));
+        Random rng = new Random(20260731L);
+        int samples = 20_000;
+        int passing19Assists = 0;
+
+        for (int i = 0; i < samples; i++) {
+            GoalSlot slot = new GoalSlot(10L, 1 + i % 90, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
+            slot.forceScorer(2L, "OPEN_PLAY");
+            resolver.resolve(slot, onPitch, rng);
+            if (Long.valueOf(3L).equals(slot.getAssistId())) passing19Assists++;
+        }
+
+        // Goalkeeper is ineligible for ordinary goals. The DC with Passing 19
+        // must therefore receive 19/(19+1) = 95%, despite AMC's positional role.
+        assertEquals(0.95, passing19Assists / (double) samples, 0.015);
+    }
+
+    @Test
+    void passingTwentyHasNoSpecialAssistChanceWhenHeIsTheScorer() {
+        config.getEvents().setAssistProbability(0.0);
+        List<Contributor> onPitch = List.of(
+                player(2L, "ST", 20), player(3L, "MC", 19), player(4L, "DC", 10));
+        GoalSlot slot = new GoalSlot(10L, 20, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
+        slot.forceScorer(2L, "OPEN_PLAY");
+
+        resolver.resolve(slot, onPitch, new Random(1L));
+
+        assertNull(slot.getAssistId(), "the scorer cannot trigger his own Passing-20 rule");
+    }
+
+    @Test
     void resolvedSlot_isNotReResolved() {
         List<Contributor> onPitch = List.of(player(2L, "ST"), player(3L, "MC"));
         GoalSlot slot = new GoalSlot(10L, 40, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
@@ -166,5 +286,35 @@ class MatchPlanFoundationTest {
         Long firstScorer = slot.getScorerId();
         resolver.resolve(slot, List.of(player(3L, "MC")), new Random(2));
         assertEquals(firstScorer, slot.getScorerId(), "replay must not change a resolved slot");
+    }
+
+    @Test
+    void shooterGoalsAreForcedToShooterAndRedCardPlayerCannotScore() {
+        MatchPlan plan = planning.plan("CTIM:1", 42L, 10L, 20L, 3, 0);
+        MatchScoringDecision decision = new MatchScoringDecision(
+                "CTIM:1", 42L, ScoreEngineKind.COMPARTMENT_V1,
+                ScoreEngineKind.COMPARTMENT_V1.algorithmVersion(),
+                "a".repeat(64), "b".repeat(64),
+                3, 0, 100, 100, 2.0, 1.0,
+                1, 0, 2L, null, 2, 0, 3L, null);
+        plan.applyScoreDecision(decision);
+
+        List<GoalSlot> homeSlots = plan.getGoalSlots().stream()
+                .filter(slot -> slot.getTeamId() == 10L).toList();
+        assertEquals(2L, homeSlots.stream().filter(slot -> Long.valueOf(2L)
+                .equals(slot.getForcedScorerId())).count());
+
+        InstantMatchExecutor executor = new InstantMatchExecutor(resolver);
+        Lineup home = new Lineup(List.of(player(1L, "GK"), player(2L, "ML"),
+                player(3L, "MC"), player(4L, "ST")), List.of());
+        Lineup away = new Lineup(List.of(player(11L, "GK"), player(12L, "DC")), List.of());
+        List<MatchEvent> events = executor.execute(plan, home, away,
+                new InstantMatchExecutor.MatchContext("CTIM:1", 1L, 2026, 1));
+
+        assertEquals(3L, events.stream().filter(event -> "goal".equals(event.getEventType())).count());
+        assertEquals(2L, events.stream().filter(event -> "goal".equals(event.getEventType())
+                && event.getPlayerId() == 2L && "SHOOTER".equals(event.getDetails())).count());
+        assertFalse(events.stream().anyMatch(event -> event.getPlayerId() == 3L),
+                "the player eliminated before collective scoring must never receive a goal/assist");
     }
 }

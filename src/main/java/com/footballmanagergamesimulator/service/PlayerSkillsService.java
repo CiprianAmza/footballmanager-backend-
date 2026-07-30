@@ -18,7 +18,7 @@ public class PlayerSkillsService {
     public static final List<String> TECHNICAL = List.of(
             "Corners", "Crossing", "Dribbling", "Finishing", "First Touch", "Free Kick",
             "Heading", "Long Shots", "Long Throws", "Marking", "Passing", "Penalty Taking",
-            "Tackling", "Technique");
+            "Tackling", "Ball Recovery", "Technique");
 
     public static final List<String> MENTAL = List.of(
             "Aggression", "Anticipation", "Bravery", "Composure", "Concentration",
@@ -47,6 +47,7 @@ public class PlayerSkillsService {
         GETTER_MAP.put("Passing", PlayerSkills::getPassing);
         GETTER_MAP.put("Penalty Taking", PlayerSkills::getPenaltyTaking);
         GETTER_MAP.put("Tackling", PlayerSkills::getTackling);
+        GETTER_MAP.put("Ball Recovery", PlayerSkills::getBallRecovery);
         GETTER_MAP.put("Technique", PlayerSkills::getTechnique);
 
         // Mental
@@ -97,6 +98,7 @@ public class PlayerSkillsService {
         SETTER_MAP.put("Passing", PlayerSkills::setPassing);
         SETTER_MAP.put("Penalty Taking", PlayerSkills::setPenaltyTaking);
         SETTER_MAP.put("Tackling", PlayerSkills::setTackling);
+        SETTER_MAP.put("Ball Recovery", PlayerSkills::setBallRecovery);
         SETTER_MAP.put("Technique", PlayerSkills::setTechnique);
 
         // Setters - Mental
@@ -146,7 +148,19 @@ public class PlayerSkillsService {
     public static double computeOverallRating(PlayerSkills skills) {
         String pos = skills.getPosition();
         if (pos == null) pos = "MC";
-        pos = TacticService.getBasePosition(pos); // fine positions rate as their base archetype
+        pos = pos.trim().toUpperCase(java.util.Locale.ROOT);
+
+        // Rating is the engine's own valuation, read back through the weights that decide
+        // matches. It used to be a separate hand-written table per position, so a player
+        // could rate 250 and be worth much more or less than another 250 once the
+        // compartments were applied — the transfer market optimised one number while the
+        // league table was settled by the other.
+        PositionAttributeImportance table = PositionAttributeImportance.current();
+        if (table != null && table.knows(pos)) {
+            return engineWeightedRating(skills, pos, table);
+        }
+
+        pos = TacticService.getBasePosition(pos);
 
         double weighted;
 
@@ -166,6 +180,44 @@ public class PlayerSkillsService {
     }
 
     /**
+     * Weighted average of the attributes this position is scored on, mapped to 1&ndash;300.
+     *
+     * <p>Dividing by the position's shape factor is what makes this the exact inverse of
+     * generation. A generated profile sets each attribute to {@code level x importance},
+     * so its weighted average sits below the level by a factor that depends on how peaked
+     * the position's profile is; without dividing it back out, a striker asked for 300
+     * came back as 223 and a keeper as 251 — the same request producing a different
+     * player depending on where he played.
+     */
+    private static double engineWeightedRating(PlayerSkills skills, String position,
+                                               PositionAttributeImportance table) {
+        Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double> importance =
+                table.importance(position);
+        double weightTotal = 0;
+        double weightedValue = 0;
+        int attributeMin = table.attributeMin();
+        int attributeMax = table.attributeMax();
+        double span = attributeMax - attributeMin;
+        for (Map.Entry<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double> entry
+                : importance.entrySet()) {
+            double weight = entry.getValue();
+            if (weight <= 0) continue;
+            weightTotal += weight;
+            int raw = com.footballmanagergamesimulator.compartment.adapter.PlayerAttributeMapping
+                    .rawValue(skills, entry.getKey());
+            // 20 is an exceptional marker. Ordinary overall rating treats it exactly as
+            // 19; only the explicitly selected special role can unlock its discontinuity.
+            int ordinaryValue = Math.min(raw, attributeMax);
+            weightedValue += weight * ((ordinaryValue - attributeMin) / span);
+        }
+        if (weightTotal <= 0) return 1;
+
+        double average = weightedValue / weightTotal;
+        double shape = Math.max(table.shapeFactor(position), 0.0001);
+        return Math.max(1, Math.min(300, (average / shape) * 300));
+    }
+
+    /**
      * Moves only attributes that contribute to the positional overall until the
      * computed value is as close as the integer 1-20 attribute scale permits.
      * Non-relevant attributes are left unchanged, preserving the position profile.
@@ -173,13 +225,15 @@ public class PlayerSkillsService {
     public static double calibrateOverallRating(PlayerSkills skills, double targetRating) {
         double target = Math.max(1, Math.min(300, targetRating));
         double current = computeOverallRating(skills);
-        int direction = Double.compare(target, current);
-        if (direction == 0) return current;
+        if (Double.compare(target, current) == 0) return current;
 
         double currentError = Math.abs(target - current);
-        int maxSteps = SETTER_MAP.size() * 20;
+        int ordinaryMax = PositionAttributeImportance.current() == null
+                ? 19 : PositionAttributeImportance.current().attributeMax();
+        int maxSteps = SETTER_MAP.size() * ordinaryMax;
 
         for (int step = 0; step < maxSteps && currentError > 0.000001; step++) {
+            int direction = Double.compare(target, current);
             String bestAttribute = null;
             int bestValue = 0;
             double bestRating = current;
@@ -188,8 +242,11 @@ public class PlayerSkillsService {
             for (Map.Entry<String, Function<PlayerSkills, Integer>> entry : GETTER_MAP.entrySet()) {
                 String attribute = entry.getKey();
                 int originalValue = entry.getValue().apply(skills);
+                // Never create or erase a hand-authored exceptional ability while
+                // calibrating the ordinary overall rating.
+                if (originalValue == 20) continue;
                 int candidateValue = originalValue + direction;
-                if (candidateValue < 1 || candidateValue > 20) continue;
+                if (candidateValue < 1 || candidateValue > ordinaryMax) continue;
 
                 BiConsumer<PlayerSkills, Integer> setter = SETTER_MAP.get(attribute);
                 setter.accept(skills, candidateValue);

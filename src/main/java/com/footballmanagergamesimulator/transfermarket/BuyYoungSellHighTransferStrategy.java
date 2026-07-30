@@ -1,113 +1,43 @@
 package com.footballmanagergamesimulator.transfermarket;
 
 import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.service.TacticService;
-import com.footballmanagergamesimulator.util.TypeNames;
-import org.apache.commons.lang3.tuple.ImmutablePair;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.Comparator;
 
-public class BuyYoungSellHighTransferStrategy implements TransferStrategy {
-
-  private Random random = new Random();
+/** Trades on resale value: sells whoever is worth the most, buys only youth. */
+public class BuyYoungSellHighTransferStrategy extends AbstractTransferStrategy {
 
   @Override
-  public void setRandom(Random random) {
-    this.random = random;
+  protected SellSource sellSource() {
+    // Anyone with a price, not just the XI. Drawing only from the starters made
+    // an expensive prospect on the bench unsellable at any price, which is the
+    // opposite of a sell-high club: it cashes in on value, wherever it sits.
+    // Ordering by transfer value keeps the prime assets at the head regardless.
+    return SellSource.WHOLE_SQUAD;
   }
 
   @Override
-  public List<PlayerTransferView> playersToSell(Team team, HumanRepository humanRepository, HashMap<String, Integer> minimumPositionNeeded) {
-
-    HashMap<String, Integer> currentPositionAllocated = new HashMap<>();
-
-    List<Human> players = humanRepository
-      .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
-      .stream()
-      .sorted(Comparator.comparing(Human::getTransferValue).reversed())
-      .toList();
-
-    for (Human player : players) {
-      String basePos = TacticService.getBasePosition(player.getPosition());
-      currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) + 1);
-    }
-
-    List<Human> validThatCouldBeSold = new ArrayList<>();
-    for (Human player : players) {
-      if (player.isWillNeverLeave()) continue;
-      String basePos = TacticService.getBasePosition(player.getPosition());
-      if (minimumPositionNeeded.getOrDefault(basePos, 0) < currentPositionAllocated.getOrDefault(basePos, 0)) {
-        validThatCouldBeSold.add(player);
-        currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) - 1);
-      }
-    }
-
-    // sorted by transferValue DESC → head = highest-value players (sell high)
-    List<Human> playersForSale =
-      validThatCouldBeSold.subList(0, Math.min(random.nextInt(3, 6), validThatCouldBeSold.size()));
-
-    return fromHumanToPlayerTransferView(team, playersForSale);
+  protected Comparator<Human> sellOrder() {
+    return Comparator.comparingLong(Human::getTransferValue).reversed();
   }
 
-  private List<PlayerTransferView> fromHumanToPlayerTransferView(Team team, List<Human> players) {
-
-    return players.stream()
-      .map(player -> new PlayerTransferView(player.getId(), team.getId(), team.getReputation(),
-              player.getRating(), TacticService.getBasePosition(player.getPosition()), player.getAge(),
-              player.isWillNeverLeave()))
-      .collect(Collectors.toList());
+  @Override
+  protected int maxBuyAge() {
+    return 24;
   }
 
-  public BuyPlanTransferView playersToBuy(Team team, HumanRepository humanRepository, HashMap<String, Integer> maximumPositionsAllowed) {
-
-    List<ImmutablePair<String, Double>> positionsToBuy = new ArrayList<>();
-    List<TransferPlayer> positions = new ArrayList<>();
-
-    List<Human> allPlayers = humanRepository
-      .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE);
-    Map<String, Integer> positionsDisplay =
-      new HashMap<>(Map.of("GK", 0, "DL", 0, "DC", 0, "DR", 0, "ML", 0, "MC", 0, "MR", 0, "ST", 0));
-    for (Human player : allPlayers) {
-      String basePos = TacticService.getBasePosition(player.getPosition());
-      positionsDisplay.put(basePos, positionsDisplay.getOrDefault(basePos, 0) + 1);
-    }
-
-    for (Map.Entry<String, Integer> entry : positionsDisplay.entrySet()) {
-      int maxPlayers = Math.max(0, maximumPositionsAllowed.get(entry.getKey()) - entry.getValue());
-      double minRating = allPlayers
-        .stream()
-        .filter(human -> TacticService.getBasePosition(human.getPosition()).equals(entry.getKey()))
-        .map(Human::getRating)
-        .max(Double::compareTo)
-        .orElse(0D);
-
-      for (int i = 0; i < maxPlayers; i++)
-        positionsToBuy.add(new ImmutablePair<>(entry.getKey(), minRating));
-    }
-
-    Collections.shuffle(positionsToBuy, random);
-    int nrOfPlayersToBeBuy = random.nextInt(3, 5);
-
-    for (int i = 0; i < Math.min(nrOfPlayersToBeBuy, positionsToBuy.size()); i++) {
-      ImmutablePair<String, Double> pair = positionsToBuy.get(i);
-      TransferPlayer transferPlayer = new TransferPlayer();
-      transferPlayer.setPosition(pair.getKey());
-      transferPlayer.setMinRating(pair.getValue());
-      positions.add(transferPlayer);
-    }
-
-    BuyPlanTransferView buyPlanTransferView = new BuyPlanTransferView();
-    buyPlanTransferView.setPositions(positions);
-    buyPlanTransferView.setTeamReputation(team.getReputation());
-    buyPlanTransferView.setMaxWage(100000L); // To be modified
-    buyPlanTransferView.setTransferBudget(100000000L); // to be modified
-    buyPlanTransferView.setMaxAge(24); // max age
-    buyPlanTransferView.setTeamId(team.getId());
-
-    return buyPlanTransferView;
+  @Override
+  protected double stepUpGap() {
+    return 45; // a promising youngster is worth a bench seat
   }
 
+  @Override
+  protected boolean protectsStarters() {
+    return false; // sell-high means selling the players it relies on
+  }
+
+  @Override
+  protected double depthTolerance() {
+    return 35; // a prospect must already be close to the incumbent
+  }
 }

@@ -73,7 +73,7 @@ class ContextualPlayerRatingCalculatorTest {
     }
 
     @Test
-    void fitnessMoraleFamiliarityAndRoleSuitabilityAreMultiplicativeAndBounded() {
+    void fitnessAndMoraleAreNeutralWhileFamiliarityAndRoleSuitabilityRemainActive() {
         Map<PlayerAttribute, Integer> attributes = CompartmentConfigFixture.attributes(config, 15);
         var healthy = calculator.rate(new PlayerRatingInput("DC", "Central Defender", Duty.DEFEND,
                 attributes, Map.of(), 1.0, 100, 70, 100))
@@ -83,8 +83,8 @@ class ContextualPlayerRatingCalculatorTest {
                 .compartments().get(Compartment.DEFENSE);
 
         assertThat(limited.familiarityFactor()).isEqualTo(0.5);
-        assertThat(limited.fitnessFactor()).isEqualTo(0.70);
-        assertThat(limited.moraleFactor()).isEqualTo(0.972);
+        assertThat(limited.fitnessFactor()).isEqualTo(1.0);
+        assertThat(limited.moraleFactor()).isEqualTo(1.0);
         assertThat(limited.roleFit()).isEqualTo(0.85);
         assertThat(limited.finalScore()).isLessThan(healthy.finalScore());
     }

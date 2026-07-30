@@ -60,6 +60,7 @@ final class AdapterTestFixture {
         s.setPositioning(value);
         s.setAnticipation(value);
         s.setTackling(value);
+        s.setBallRecovery(value);
         s.setMarking(value);
         s.setConcentration(value);
         s.setStrength(value);
@@ -85,6 +86,7 @@ final class AdapterTestFixture {
         Map<PlayerAttribute, Integer> expected = new EnumMap<>(PlayerAttribute.class);
         int base = 101;
         s.setFinishing(base + 1);        expected.put(PlayerAttribute.FINISHING, base + 1);
+        s.setLongShots(base + 30);       expected.put(PlayerAttribute.LONG_SHOTS, base + 30);
         s.setOffTheBall(base + 2);       expected.put(PlayerAttribute.OFF_THE_BALL, base + 2);
         s.setDribbling(base + 3);        expected.put(PlayerAttribute.DRIBBLING, base + 3);
         s.setPassing(base + 4);          expected.put(PlayerAttribute.PASSING, base + 4);
@@ -101,6 +103,7 @@ final class AdapterTestFixture {
         s.setPositioning(base + 15);     expected.put(PlayerAttribute.POSITIONING, base + 15);
         s.setAnticipation(base + 16);    expected.put(PlayerAttribute.ANTICIPATION, base + 16);
         s.setTackling(base + 17);        expected.put(PlayerAttribute.TACKLING, base + 17);
+        s.setBallRecovery(base + 31);    expected.put(PlayerAttribute.BALL_RECOVERY, base + 31);
         s.setMarking(base + 18);         expected.put(PlayerAttribute.MARKING, base + 18);
         s.setConcentration(base + 19);   expected.put(PlayerAttribute.CONCENTRATION, base + 19);
         s.setStrength(base + 20);        expected.put(PlayerAttribute.STRENGTH, base + 20);

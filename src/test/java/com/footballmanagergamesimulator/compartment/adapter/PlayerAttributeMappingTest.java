@@ -43,7 +43,7 @@ class PlayerAttributeMappingTest {
 
     @Test
     void distinctSentinelsHaveNoAccidentalFieldSwap() {
-        // The fixture uses 29 distinct sentinels; a swap between two fields would collide detection.
+        // The fixture uses distinct sentinels; a swap between two fields would collide detection.
         Map<PlayerAttribute, Integer> expected = AdapterTestFixture.skillsWithDistinctAttributes().getValue();
         assertThat(expected.values()).doesNotHaveDuplicates();
     }

@@ -83,7 +83,11 @@ public class PlayerCardService {
             if (entry.getValue() <= 0.0) {
                 continue;
             }
-            Function<PlayerSkills, Integer> getter = PlayerSkillsService.GETTER_MAP.get(entry.getKey());
+            Function<PlayerSkills, Integer> getter = PlayerSkillsService.GETTER_MAP.entrySet().stream()
+                    .filter(candidate -> normalizeAttribute(candidate.getKey())
+                            .equals(normalizeAttribute(entry.getKey())))
+                    .map(Map.Entry::getValue)
+                    .findFirst().orElse(null);
             if (getter == null) {
                 throw new IllegalArgumentException("Unknown PlayerSkills attribute in player.card config: " + entry.getKey());
             }
@@ -97,6 +101,11 @@ public class PlayerCardService {
 
         double weightedAverage = weightedSum / totalWeight;
         return playerCardConfig.getAttributeScale().scaleToInt(weightedAverage);
+    }
+
+    private static String normalizeAttribute(String attribute) {
+        return attribute == null ? "" : attribute.replace(" ", "").replace("-", "")
+                .replace("_", "").toUpperCase(java.util.Locale.ROOT);
     }
 
     int computeOverall(PlayerSkills skills) {

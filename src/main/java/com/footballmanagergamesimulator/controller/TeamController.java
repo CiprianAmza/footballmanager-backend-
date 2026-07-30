@@ -206,9 +206,9 @@ public class TeamController {
         int leaguePosition = 0;
 
         for (Competition comp : allComps) {
-            if (comp.getTypeId() != 1 && comp.getTypeId() != 3) continue;
+            if (!comp.isLeague()) continue;
 
-            long leagueBase = (comp.getTypeId() == 1) ? 1_500_000L : 400_000L;
+            long leagueBase = comp.isTopFlight() ? 1_500_000L : 400_000L;
 
             List<TeamCompetitionDetail> standings = allDetails.stream()
                     .filter(d -> d.getCompetitionId() == comp.getId())

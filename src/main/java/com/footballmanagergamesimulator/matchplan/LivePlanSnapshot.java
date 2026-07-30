@@ -21,6 +21,8 @@ public record LivePlanSnapshot(
         long seed,
         long homeTeamId,
         long awayTeamId,
+        double homePassingControl,
+        double awayPassingControl,
         MatchPlan.Status status,
         int durationMinutes,
         int homeShootout,
@@ -28,6 +30,16 @@ public record LivePlanSnapshot(
         List<SlotView> slots,
         List<ParticipantView> participants,
         List<SubView> substitutions) {
+
+    /** Compatibility constructor for tests and legacy callers without canonical control data. */
+    public LivePlanSnapshot(String fixtureKey, long seed, long homeTeamId, long awayTeamId,
+                            MatchPlan.Status status, int durationMinutes,
+                            int homeShootout, int awayShootout,
+                            List<SlotView> slots, List<ParticipantView> participants,
+                            List<SubView> substitutions) {
+        this(fixtureKey, seed, homeTeamId, awayTeamId, 0.0, 0.0, status, durationMinutes,
+                homeShootout, awayShootout, slots, participants, substitutions);
+    }
 
     /** True when the plan carries a shootout result (knockout decided on penalties). */
     public boolean hadShootout() { return homeShootout >= 0 && awayShootout >= 0; }

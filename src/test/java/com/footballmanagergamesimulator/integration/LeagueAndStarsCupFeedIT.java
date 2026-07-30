@@ -26,6 +26,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -159,7 +160,11 @@ class LeagueAndStarsCupFeedIT {
 
         List<CompetitionTeamInfoMatch> playoffMatches = ctimRepository
                 .findAllByCompetitionIdAndRoundAndSeasonNumber(scId, scFmt.playoffRound(), "1");
-        assertTrue(playoffMatches.size() >= 1, "the Stars Cup playoff draw must produce ties");
+        assertEquals(8, playoffMatches.size(), "four Stars Cup playoff ties must produce eight fixtures");
+        assertEquals(Set.of(1, 2), playoffMatches.stream()
+                .map(CompetitionTeamInfoMatch::getLegNumber).collect(Collectors.toSet()));
+        assertEquals(4, playoffMatches.stream().map(CompetitionTeamInfoMatch::getTieId)
+                .filter(tieId -> tieId != 0).distinct().count());
 
         Set<Long> pairedTeams = new HashSet<>();
         for (CompetitionTeamInfoMatch m : playoffMatches) {

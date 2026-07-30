@@ -144,7 +144,7 @@ public class HistoryController {
                         Optional<Competition> competition = competitionRepository.findById(competitionHistory.getCompetitionId());
                         if (competition.isPresent()) {
                             Competition comp = competition.get();
-                            if (comp.getTypeId() == 1) {
+                            if (comp.isTopFlight()) {
                                 leaderboardView.setChampionships(leaderboardView.getChampionships() + 1);
                                 if (comp.getId() == 1 || comp.getId() == 3)
                                     leaderboardView.setTotalPoints(leaderboardView.getTotalPoints() + 50);

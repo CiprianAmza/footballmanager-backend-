@@ -102,6 +102,7 @@ public class FaceGenerator {
             1L, "eleftamide",   // Gallactick
             2L, "rokykario",    // Dong
             3L, "saurian",      // Khess
+            4L, "aquanimenti",  // FootieCup
             5L, "crystalline",  // Cards
             6L, "monument");    // Literature
 

@@ -14,7 +14,10 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class GameLock {
 
-    private final ReentrantLock lock = new ReentrantLock();
+    // Calendar fast-forward releases and reacquires this lock for every day.
+    // Fair ordering lets a waiting Admin write run between days instead of the
+    // fast-forward request repeatedly barging ahead of it.
+    private final ReentrantLock lock = new ReentrantLock(true);
 
     public void lock() {
         lock.lock();

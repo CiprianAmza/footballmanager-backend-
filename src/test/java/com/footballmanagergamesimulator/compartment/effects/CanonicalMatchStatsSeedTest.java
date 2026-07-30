@@ -29,7 +29,7 @@ class CanonicalMatchStatsSeedTest {
                 "a".repeat(64), "b".repeat(64)), split)).isNotEqualTo(seed);
         assertThat(CanonicalMatchStatsSeed.derive(decision("CTIM:1", 8L, ScoreEngineKind.COMPARTMENT_V1,
                 "a".repeat(64), "b".repeat(64)), split)).isNotEqualTo(seed);
-        assertThat(CanonicalMatchStatsSeed.derive(decision("CTIM:1", 7L, ScoreEngineKind.SCALAR_FALLBACK,
+        assertThat(CanonicalMatchStatsSeed.derive(decision("CTIM:1", 7L, ScoreEngineKind.ADMIN_OVERRIDE,
                 "a".repeat(64), "b".repeat(64)), split)).isNotEqualTo(seed);
         assertThat(CanonicalMatchStatsSeed.derive(decision("CTIM:1", 7L, ScoreEngineKind.COMPARTMENT_V1,
                 "c".repeat(64), "b".repeat(64)), split)).isNotEqualTo(seed);

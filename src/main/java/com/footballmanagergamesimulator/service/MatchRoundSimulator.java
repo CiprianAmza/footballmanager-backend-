@@ -5,13 +5,14 @@ import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
 import com.footballmanagergamesimulator.chairman.mandate.EffectiveChairmanMandate;
-import com.footballmanagergamesimulator.compartment.shadow.CompartmentShadowEvaluationService;
-import com.footballmanagergamesimulator.compartment.shadow.ShadowLineupSlotSource;
+import com.footballmanagergamesimulator.compartment.runtime.CanonicalLineupSlotSource;
 import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectEvent;
 import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectsInput;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScoringService;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeScore;
+import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoreSampler;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoringFingerprintService;
+import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.matchplan.MatchScoringDecision;
 import com.footballmanagergamesimulator.matchplan.ScoreEngineKind;
 import com.footballmanagergamesimulator.controller.TacticController;
@@ -63,6 +64,7 @@ import jakarta.persistence.FlushModeType;
 import jakarta.persistence.PersistenceContext;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import com.footballmanagergamesimulator.model.MatchEvent;
@@ -123,14 +125,11 @@ public class MatchRoundSimulator {
     @Autowired private TacticService tacticService;
     @Autowired private ChairmanTacticalMandateEnforcementService mandateEnforcement;
     @Autowired private PlayerValueService playerValueService;
-    @Autowired private PlayerRoleService playerRoleService;
     @Autowired private PlayerCapabilityService playerCapabilityService;
-    @Autowired private PlayerInstructionService playerInstructionService;
     @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired private CoachPermissionService coachPermissionService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private TacticalScoreService tacticalScoreService;
-    @Autowired private ManagerTacticService managerTacticService;
     @Autowired private PlayerMatchStatService playerMatchStatService;
     @Autowired private UserContext userContext;
     @Autowired private UserRepository userRepository;
@@ -138,8 +137,23 @@ public class MatchRoundSimulator {
     @Autowired private GameStateService gameStateService;
     @Autowired private MatchEngineConfig engineConfig;
     @Autowired private CompartmentEngineConfig compartmentEngineConfig;
-    @Autowired private CompartmentShadowEvaluationService compartmentShadowEvaluationService;
     @Autowired private CanonicalRuntimeScoringService canonicalRuntimeScoringService;
+    @Autowired private CanonicalScoreSampler canonicalScoreSampler;
+
+    /** How many authoritative/admin scores were produced since the last reset. */
+    private static final java.util.Map<com.footballmanagergamesimulator.matchplan.ScoreEngineKind, java.util.concurrent.atomic.AtomicInteger>
+            SCORE_ENGINE_TALLY = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static java.util.Map<String, Integer> scoreEngineTally() {
+        java.util.Map<String, Integer> snapshot = new java.util.LinkedHashMap<>();
+        SCORE_ENGINE_TALLY.forEach((kind, count) -> snapshot.put(kind.name(), count.get()));
+        return snapshot;
+    }
+
+    public static void resetScoreEngineTally() {
+        SCORE_ENGINE_TALLY.clear();
+    }
+
     @Autowired private CanonicalScoringFingerprintService canonicalScoringFingerprintService;
     @Autowired(required = false) private GameplayFeatureConfig gameplayFeatures;
     @Autowired private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver tieResolver;
@@ -183,13 +197,7 @@ public class MatchRoundSimulator {
     private final Map<Long, List<PlayerView>> bestElevenCache = new ConcurrentHashMap<>();
     private final Map<Long, List<TacticController.StarterSlot>> starterSlotsCache = new ConcurrentHashMap<>();
     private final Map<Long, List<PlayerView>> substitutionsCache = new ConcurrentHashMap<>();
-    // Two-axis tactical-model caches (only populated when tactical-model.enabled): a team's coached
-    // attack/defense profile and the tactic its manager picked for the season.
-    private final Map<Long, TacticalScoreService.TeamProfile> profileCache = new ConcurrentHashMap<>();
-    private final Map<Long, TacticalScoreService.TacticVector> tacticVectorCache = new ConcurrentHashMap<>();
     private final Map<Long, ShadowTacticAxes> canonicalTacticCache = new ConcurrentHashMap<>();
-    // XI value share in wide positions, for the AI's squad-shape width identity (see teamTacticVector).
-    private final Map<Long, Double> wideShareCache = new ConcurrentHashMap<>();
     // Formation ranking used to rebuild the full UI-oriented PlayerView squad for every candidate
     // shape. Keep a compact, batch-loaded evaluation squad and the resulting values instead.
     private final Map<Long, FormationEvaluationSquad> formationSquadCache = new ConcurrentHashMap<>();
@@ -383,12 +391,10 @@ public class MatchRoundSimulator {
         entityManager.setFlushMode(FlushModeType.COMMIT);
         try {
 
-        if (compartmentEngineConfig.isEnabled() || compartmentEngineConfig.isShadowEnabled()) {
-            // Canonical input for every match in this competition reuses one immutable
-            // four-query capability preload instead of querying positions/roles/feet
-            // separately for both teams of every fixture.
-            playerCapabilityService.preloadForCurrentThread(roundPlayerIds);
-        }
+        // Canonical input for every match in this competition reuses one immutable
+        // four-query capability preload instead of querying positions/roles/feet
+        // separately for both teams of every fixture.
+        playerCapabilityService.preloadForCurrentThread(roundPlayerIds);
 
         for (CompetitionTeamInfoMatch match : matches) {
             long teamId1 = match.getTeam1Id();
@@ -436,38 +442,17 @@ public class MatchRoundSimulator {
                 teamPower1 = lineupRatingService.getBestElevenRatingByTactic(teamId1, tactic1);
                 teamPower2 = lineupRatingService.getBestElevenRatingByTactic(teamId2, tactic2);
 
-                // When the two-axis model is the engine, use its scalar total (attack+defense of the
-                // team-talk-scaled coached profile) so the live/interactive match and its deferred
-                // post-match work stay consistent with the instant two-axis scoreline.
-                if (engineConfig.getTacticalModel().isEnabled()) {
-                    teamPower1 = twoAxisScalarPower(teamId1);
-                    teamPower2 = twoAxisScalarPower(teamId2);
-                }
-
                 Optional<PersonalizedTactic> personalizedTactic1 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId1);
                 Optional<PersonalizedTactic> personalizedTactic2 = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId2);
-
-                // The old additive tactical adjustment is the SCALAR engine's tactic lever; the
-                // two-axis model handles tactics itself (via the tactic vector), so skip it when enabled.
-                if (!engineConfig.getTacticalModel().isEnabled()) {
-                    if (personalizedTactic1.isPresent())
-                        teamPower1 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower1, teamPower2, personalizedTactic1.get());
-                    if (personalizedTactic2.isPresent())
-                        teamPower2 = lineupRatingService.adjustTeamPowerByTacticalProperties(teamPower2, teamPower1, personalizedTactic2.get());
-                }
 
                 // Admin override — if a score has been forced for this match, skip the
                 // live engine entirely and use the instant path with the forced score.
                 int[] adminScore = teamPostMatchService.consumePredeterminedScore(_competitionId, (int) _roundId, teamId1, teamId2);
-                Optional<CanonicalRuntimeScore> humanCanonicalResult = adminScore == null
-                        ? canonicalScoreForHumanFixture(match.getId(), _competitionId,
-                                Integer.parseInt(getCurrentSeason()), (int) _roundId, teamId1, teamId2)
-                        : Optional.empty();
-                if (humanCanonicalResult.isPresent()) {
-                    CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
-                    teamPower1 = canonical.homePower();
-                    teamPower2 = canonical.awayPower();
-                }
+                CanonicalRuntimeScore humanCanonicalScore = canonicalScoreForHumanFixture(
+                        match.getId(), _competitionId, Integer.parseInt(getCurrentSeason()),
+                        (int) _roundId, teamId1, teamId2);
+                teamPower1 = humanCanonicalScore.homePower();
+                teamPower2 = humanCanonicalScore.awayPower();
 
                 // Check if any human manager has viewFullMatch enabled
                 boolean useFullMatchEngine = false;
@@ -506,39 +491,13 @@ public class MatchRoundSimulator {
                     // delete animations for every other viewer. Clients now filter the shared
                     // superset locally, so the most general preference always wins safely.
                     boolean generateGoalAnims = true;
-                    // Two-axis engine: derive the live chances from the attack-vs-defense matchup
-                    // (same profiles + vectors the instant path uses), and stash them so /commit
-                    // resolves any knockout extra time on the same model.
+                    // The live narration is pinned to the authoritative canonical score.
+                    // A null presentation matchup makes the session derive possession/chance
+                    // flavour from the canonical powers; it never generates another scoreline.
                     TacticalScoreService.Matchup liveMatchup = null;
-                    TacticalScoreService.TeamProfile liveP1 = null, liveP2 = null;
-                    TacticalScoreService.TacticVector liveT1 = null, liveT2 = null;
-                    // Engine unification: when the two-axis model is on, predetermine the
-                    // scoreline with the SAME instant engine the AI/instant path uses, on
-                    // the SAME profiles + tactic vectors. The live narration is then pinned
-                    // to this result (forced/capped goal minutes) so "it's the same game":
-                    // watching live yields exactly the score the instant path would have.
                     int targetHomeGoals = -1, targetAwayGoals = -1;
-                    if (engineConfig.getTacticalModel().isEnabled()) {
-                        liveP1 = scaleProfile(teamTacticalProfile(teamId1), teamTalkFactor(teamId1));
-                        liveP2 = scaleProfile(teamTacticalProfile(teamId2), teamTalkFactor(teamId2));
-                        liveT1 = teamTacticVector(teamId1, liveP1, personalizedTactic1.orElse(null));
-                        liveT2 = teamTacticVector(teamId2, liveP2, personalizedTactic2.orElse(null));
-                        liveMatchup = tacticalScoreService.matchup(liveP1, liveT1, liveP2, liveT2);
-                    }
-                    if (humanCanonicalResult.isPresent()) {
-                        CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
-                        targetHomeGoals = canonical.homeGoals();
-                        targetAwayGoals = canonical.awayGoals();
-                    } else if (liveMatchup != null) {
-                        // Compatibility fallback only when Compartment V1 cannot produce
-                        // a canonical score. The production path above is shared with AI.
-                        Random scoreRng = new Random(
-                                _competitionId * 1_000_003L + _roundId * 31L + teamId1 * 17L + teamId2);
-                        List<Integer> fallback = tacticalScoreService.score(
-                                liveP1, liveT1, liveP2, liveT2, scoreRng);
-                        targetHomeGoals = fallback.get(0);
-                        targetAwayGoals = fallback.get(1);
-                    }
+                    targetHomeGoals = adminScore == null ? humanCanonicalScore.homeGoals() : adminScore[0];
+                    targetAwayGoals = adminScore == null ? humanCanonicalScore.awayGoals() : adminScore[1];
                     // Canonical knockout (blocker #3): resolve the ET/shootout split BEFORE
                     // kickoff so the whole result and all goal minutes are fixed up front — the
                     // user watches (and can substitute during) minutes 91-120, and shootout kicks
@@ -548,7 +507,8 @@ public class MatchRoundSimulator {
                     if (knockout && matchPlanService.isEnabled() && targetHomeGoals >= 0) {
                         KnockoutMatchResolution pre = resolveKnockoutMatch(
                                 match, teamId1, teamPower1, teamId2, teamPower2,
-                                targetHomeGoals, targetAwayGoals, firstLegScores);
+                                targetHomeGoals, targetAwayGoals, firstLegScores,
+                                humanCanonicalScore.evaluation());
                         etHome = pre.et1() == null ? -1 : pre.et1();
                         etAway = pre.et2() == null ? -1 : pre.et2();
                         shootoutHome = pre.penalty1() == null ? -1 : pre.penalty1();
@@ -560,13 +520,9 @@ public class MatchRoundSimulator {
                             generateGoalAnims, liveMatchup, targetHomeGoals, targetAwayGoals,
                             match.getId(), tactic1, tactic2,
                             etHome, etAway, shootoutHome, shootoutAway);
-                    humanCanonicalResult.ifPresent(canonical ->
-                            liveSession.setCanonicalExpectedGoals(
-                                    canonical.evaluation().probability().homeXg(),
-                                    canonical.evaluation().probability().awayXg()));
-                    if (liveMatchup != null) {
-                        liveSession.setDeferredTwoAxis(liveP1, liveT1, liveP2, liveT2);
-                    }
+                    liveSession.setCanonicalExpectedGoals(
+                            humanCanonicalScore.evaluation().probability().homeXg(),
+                            humanCanonicalScore.evaluation().probability().awayXg());
                     // Placeholder score — /commit overwrites with the real one
                     // after the user finishes the live playback.
                     teamScore1 = 0;
@@ -577,35 +533,13 @@ public class MatchRoundSimulator {
                     if (adminScore != null) {
                         teamScore1 = adminScore[0];
                         teamScore2 = adminScore[1];
-                    } else if (humanCanonicalResult.isPresent()) {
-                        CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
+                    } else {
+                        CanonicalRuntimeScore canonical = java.util.Objects.requireNonNull(
+                                humanCanonicalScore, "authoritative canonical score");
                         teamScore1 = canonical.homeGoals();
                         teamScore2 = canonical.awayGoals();
                         teamPower1 = canonical.homePower();
                         teamPower2 = canonical.awayPower();
-                    } else if (engineConfig.getTacticalModel().isEnabled()) {
-                        // Two-axis model: the human's chosen PersonalizedTactic (if any) drives its
-                        // tactic vector; the opponent (AI) uses its manager's skill-picked tactic.
-                        // Replace teamPower with the two-axis total for consistent stats/morale/events.
-                        TwoAxisResult r = twoAxisScores(
-                                teamId1, personalizedTactic1.orElse(null),
-                                teamId2, personalizedTactic2.orElse(null));
-                        teamScore1 = r.score1();
-                        teamScore2 = r.score2();
-                        teamPower1 = r.power1();
-                        teamPower2 = r.power2();
-                    } else {
-                        // All match scoring goes through the config-driven, tuned engine
-                        // (MatchSimulationService). Per-player morale + fitness are already
-                        // baked into teamPower (LineupRatingService → PlayerValueService); here
-                        // we apply only the team-level modifiers — team talk + home advantage
-                        // (team1 is the home side). Knockout ties are broken later (extra time /
-                        // penalties, aggregate for two-leg).
-                        List<Integer> scores = matchSimulationService.calculateScores(
-                                matchSimulationService.effectiveTeamPower(teamPower1, teamTalkFactor(teamId1), true),
-                                matchSimulationService.effectiveTeamPower(teamPower2, teamTalkFactor(teamId2), false));
-                        teamScore1 = scores.get(0);
-                        teamScore2 = scores.get(1);
                     }
 
                     // The regular-time (90') score, captured before resolveKnockoutMatch
@@ -620,7 +554,8 @@ public class MatchRoundSimulator {
                     if (knockout) {
                         knockoutResolution = resolveKnockoutMatch(
                                 match, teamId1, teamPower1, teamId2, teamPower2,
-                                teamScore1, teamScore2, firstLegScores);
+                                teamScore1, teamScore2, firstLegScores,
+                                humanCanonicalScore.evaluation());
                         teamScore1 = knockoutResolution.score1();
                         teamScore2 = knockoutResolution.score2();
 
@@ -637,17 +572,43 @@ public class MatchRoundSimulator {
                     // leaderboard from it so they can never disagree. Flag off: the legacy
                     // independent RNG distributions run (scorers, then synthetic faze).
                     int _season = Integer.parseInt(getCurrentSeason());
+                    Lineup canonicalHomeLineup = null;
+                    Lineup canonicalAwayLineup = null;
+                    List<Scorer> canonicalHomeScorers = null;
+                    List<Scorer> canonicalAwayScorers = null;
                     if (matchPlanService.isEnabled()) {
                         String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                                 .competitionFixtureKey(match.getId());
-                        List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersist(
-                                fixtureKey, _competitionId, _season, (int) _roundId,
-                                teamId1, teamId2, tactic1, tactic2,
-                                planSplit.score90Home(), planSplit.score90Away(),
-                                planSplit.etHome(), planSplit.etAway(),
-                                planSplit.shootoutHome(), planSplit.shootoutAway());
-                        lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId, tallyForTeam(canonicalEvents, teamId1));
-                        lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId, tallyForTeam(canonicalEvents, teamId2));
+                        List<MatchEvent> canonicalEvents;
+                        if (adminScore == null) {
+                            MatchScoringDecision decision = canonicalDecision(fixtureKey, _competitionId,
+                                    _season, (int) _roundId, teamId1, teamId2, humanCanonicalScore);
+                            canonicalEvents = matchPlanService.buildAndPersistCanonical(
+                                    fixtureKey, _competitionId, _season, (int) _roundId,
+                                    teamId1, teamId2, tactic1, tactic2,
+                                    planSplit.score90Home(), planSplit.score90Away(),
+                                    planSplit.etHome(), planSplit.etAway(),
+                                    planSplit.shootoutHome(), planSplit.shootoutAway(), decision);
+                        } else {
+                            canonicalEvents = matchPlanService.buildAndPersist(
+                                    fixtureKey, _competitionId, _season, (int) _roundId,
+                                    teamId1, teamId2, tactic1, tactic2,
+                                    planSplit.score90Home(), planSplit.score90Away(),
+                                    planSplit.etHome(), planSplit.etAway(),
+                                    planSplit.shootoutHome(), planSplit.shootoutAway());
+                        }
+                        com.footballmanagergamesimulator.matchplan.LivePlanSnapshot snapshot =
+                                matchPlanService.loadLivePlanSnapshot(fixtureKey).orElseThrow();
+                        canonicalHomeLineup = snapshot.rebuildLineup(teamId1);
+                        canonicalAwayLineup = snapshot.rebuildLineup(teamId2);
+                        canonicalHomeScorers = lineupRatingService.getScorersForTeam(
+                                teamId1, teamId2, teamScore1, teamScore2,
+                                tactic1, _competitionId, (int) _roundId,
+                                tallyForTeam(canonicalEvents, teamId1), canonicalHomeLineup);
+                        canonicalAwayScorers = lineupRatingService.getScorersForTeam(
+                                teamId2, teamId1, teamScore2, teamScore1,
+                                tactic2, _competitionId, (int) _roundId,
+                                tallyForTeam(canonicalEvents, teamId2), canonicalAwayLineup);
                     } else {
                         lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId);
                         lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId);
@@ -655,18 +616,32 @@ public class MatchRoundSimulator {
                                 teamId1, teamId2, teamScore1, teamScore2, tactic1, tactic2);
                     }
                     // Per-player lineup ratings for the match statistics view
-                    lineupRatingService.persistPlayerRatings(_competitionId, _season, (int) _roundId, teamId1, tactic1);
-                    lineupRatingService.persistPlayerRatings(_competitionId, _season, (int) _roundId, teamId2, tactic2);
+                    if (canonicalHomeLineup != null) {
+                        lineupRatingService.persistPlayerRatings(
+                                _competitionId, _season, (int) _roundId, teamId1, tactic1,
+                                canonicalHomeLineup, canonicalHomeScorers);
+                        lineupRatingService.persistPlayerRatings(
+                                _competitionId, _season, (int) _roundId, teamId2, tactic2,
+                                canonicalAwayLineup, canonicalAwayScorers);
+                    } else {
+                        lineupRatingService.persistPlayerRatings(
+                                _competitionId, _season, (int) _roundId, teamId1, tactic1);
+                        lineupRatingService.persistPlayerRatings(
+                                _competitionId, _season, (int) _roundId, teamId2, tactic2);
+                    }
 
                     // Generate and persist match stats
-                    if (humanCanonicalResult.isPresent()) {
-                        CanonicalRuntimeScore canonical = humanCanonicalResult.orElseThrow();
+                    if (humanCanonicalScore != null) {
+                        CanonicalRuntimeScore canonical = humanCanonicalScore;
                         matchStatsService.generateAndSaveCanonicalRuntimeMatchStats(
                                 _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
                                 teamId1, teamId2, teamScore1, teamScore2, teamPower1, teamPower2,
                                 personalizedTactic1.orElse(null), personalizedTactic2.orElse(null),
-                                canonical.evaluation().probability().homeXg(),
-                                canonical.evaluation().probability().awayXg());
+                                canonical.homeXg(), canonical.awayXg(),
+                                canonical.homeShooterShots() + canonical.homePassingOpportunities(),
+                                canonical.awayShooterShots() + canonical.awayPassingOpportunities(),
+                                canonical.homeShooterGoals() + canonical.homePassingGoals(),
+                                canonical.awayShooterGoals() + canonical.awayPassingGoals());
                     } else {
                         matchStatsService.generateAndSaveMatchStats(
                                 _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
@@ -741,6 +716,7 @@ public class MatchRoundSimulator {
                 MatchScoringDecision adoptedDecision = persistedScoreDecision.orElse(null);
                 ScoreEngineKind selectedScoreEngine;
                 CanonicalRuntimeScore canonicalScore = null;
+                CanonicalMatchEvaluation canonicalEvaluation = null;
                 int[] adminScoreAi = null;
                 com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit planSplit =
                         com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit.regularOnly(0, 0);
@@ -774,6 +750,12 @@ public class MatchRoundSimulator {
                 } else {
                     // Discovery is non-locking. Durable candidates claim only after
                     // persist-or-load and fixture lock; MatchPlan OFF claims immediately.
+                    CanonicalRuntimeScore preparedCanonical = canonicalScoreForAiFixture(
+                            aiFixtureKey, _competitionId, Integer.parseInt(getCurrentSeason()),
+                            (int) _roundId, teamId1, teamId2);
+                    canonicalEvaluation = preparedCanonical.evaluation();
+                    teamPower1 = preparedCanonical.homePower();
+                    teamPower2 = preparedCanonical.awayPower();
                     adminScoreAi = teamPostMatchService.readPredeterminedScore(
                             _competitionId, (int) _roundId, teamId1, teamId2);
                     if (adminScoreAi != null) {
@@ -789,52 +771,12 @@ public class MatchRoundSimulator {
                         }
                     }
                     } else {
-                    final long canonicalHomeTeamId = teamId1;
-                    final long canonicalAwayTeamId = teamId2;
-                    final int canonicalSeason = Integer.parseInt(getCurrentSeason());
-                    Optional<CanonicalRuntimeScore> canonicalResult = canonicalRuntimeScoringService.scoreSafely(() -> {
-                                PersonalizedTactic homeTactic = canonicalTactic(canonicalHomeTeamId);
-                                PersonalizedTactic awayTactic = canonicalTactic(canonicalAwayTeamId);
-                                List<com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot> homeSlots =
-                                        canonicalLineupSlotSources(canonicalHomeTeamId).stream()
-                                                .map(ShadowLineupSlotSource::toRuntimeSlot).toList();
-                                List<com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot> awaySlots =
-                                        canonicalLineupSlotSources(canonicalAwayTeamId).stream()
-                                                .map(ShadowLineupSlotSource::toRuntimeSlot).toList();
-                                return CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
-                                        aiFixtureKey, _competitionId, canonicalSeason, (int) _roundId,
-                                        canonicalHomeTeamId, canonicalAwayTeamId,
-                                        homeTactic, awayTactic, homeSlots, awaySlots);
-                            });
-                    if (canonicalResult.isPresent()) {
-                        canonicalScore = canonicalResult.orElseThrow();
-                        CanonicalRuntimeScore score = canonicalScore;
-                        teamScore1 = score.homeGoals();
-                        teamScore2 = score.awayGoals();
-                        teamPower1 = score.homePower();
-                        teamPower2 = score.awayPower();
-                        selectedScoreEngine = ScoreEngineKind.COMPARTMENT_V1;
-                    } else if (engineConfig.getTacticalModel().isEnabled()) {
-                        // Two-axis model: attack/defense + coaching + each manager's skill-picked tactic.
-                        // Replace the scalar teamPower with the two-axis total so stats/morale/knockout stay consistent.
-                        TwoAxisResult r = twoAxisScores(teamId1, null, teamId2, null);
-                        teamScore1 = r.score1();
-                        teamScore2 = r.score2();
-                        teamPower1 = r.power1();
-                        teamPower2 = r.power2();
-                        selectedScoreEngine = ScoreEngineKind.TWO_AXIS_FALLBACK;
-                    } else {
-                        // All scoring via the tuned, config-driven engine (same as the tests).
-                        // Per-player morale + fitness are already inside teamPower (PlayerValueService);
-                        // only team talk + home advantage are applied here (team1 = home side).
-                        List<Integer> scores = matchSimulationService.calculateScores(
-                                matchSimulationService.effectiveTeamPower(teamPower1, teamTalkFactor(teamId1), true),
-                                matchSimulationService.effectiveTeamPower(teamPower2, teamTalkFactor(teamId2), false),
-                                random);
-                        teamScore1 = scores.get(0);
-                        teamScore2 = scores.get(1);
-                        selectedScoreEngine = ScoreEngineKind.SCALAR_FALLBACK;
-                    }
+                    canonicalScore = preparedCanonical;
+                    teamScore1 = canonicalScore.homeGoals();
+                    teamScore2 = canonicalScore.awayGoals();
+                    teamPower1 = canonicalScore.homePower();
+                    teamPower2 = canonicalScore.awayPower();
+                    selectedScoreEngine = ScoreEngineKind.COMPARTMENT_V1;
                 }
                 }
 
@@ -850,7 +792,9 @@ public class MatchRoundSimulator {
                 if (knockout && persistedScoreDecision.isEmpty()) {
                     knockoutResolution = resolveKnockoutMatch(
                             match, teamId1, teamPower1, teamId2, teamPower2,
-                            teamScore1, teamScore2, firstLegScores);
+                            teamScore1, teamScore2, firstLegScores,
+                            java.util.Objects.requireNonNull(canonicalEvaluation,
+                                    "canonical knockout evaluation"));
                     teamScore1 = knockoutResolution.score1();
                     teamScore2 = knockoutResolution.score2();
 
@@ -874,39 +818,39 @@ public class MatchRoundSimulator {
                     long decisionSeed = com.footballmanagergamesimulator.matchplan.MatchPlanService.seedFor(
                             aiFixtureKey, _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
                             teamId1, teamId2);
+                    SCORE_ENGINE_TALLY.computeIfAbsent(selectedScoreEngine,
+                            kind -> new java.util.concurrent.atomic.AtomicInteger()).incrementAndGet();
                     String configFingerprint = canonicalScore != null
                             ? canonicalScore.configFingerprint()
-                            : selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE
-                            ? canonicalScoringFingerprintService.adminOverrideConfigFingerprint()
-                            : canonicalScoringFingerprintService.fallbackConfigFingerprint(engineConfig, selectedScoreEngine);
+                            : canonicalScoringFingerprintService.adminOverrideConfigFingerprint();
                     String inputFingerprint = canonicalScore == null
-                            ? selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE
                             ? canonicalScoringFingerprintService.adminOverrideInputFingerprint(
                                     aiFixtureKey, score90Home, score90Away)
-                            : canonicalScoringFingerprintService.fallbackInputFingerprint(
-                                    aiFixtureKey, teamId1, teamId2, teamPower1, teamPower2,
-                                    selectedScoreEngine == ScoreEngineKind.SCALAR_FALLBACK
-                                            ? matchSimulationService.effectiveTeamPower(
-                                                    teamPower1, teamTalkFactor(teamId1), true) : teamPower1,
-                                    selectedScoreEngine == ScoreEngineKind.SCALAR_FALLBACK
-                                            ? matchSimulationService.effectiveTeamPower(
-                                                    teamPower2, teamTalkFactor(teamId2), false) : teamPower2,
-                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
-                                            ? scaleProfile(teamTacticalProfile(teamId1), teamTalkFactor(teamId1)) : null,
-                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
-                                            ? scaleProfile(teamTacticalProfile(teamId2), teamTalkFactor(teamId2)) : null,
-                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
-                                            ? tacticVectorCache.get(teamId1) : null,
-                                    selectedScoreEngine == ScoreEngineKind.TWO_AXIS_FALLBACK
-                                            ? tacticVectorCache.get(teamId2) : null,
-                                    teamTalkFactor(teamId1), teamTalkFactor(teamId2), selectedScoreEngine)
                             : canonicalScore.inputFingerprint();
                     MatchScoringDecision decision = new MatchScoringDecision(
                             aiFixtureKey, decisionSeed, selectedScoreEngine,
                             selectedScoreEngine.algorithmVersion(), configFingerprint, inputFingerprint,
                             score90Home, score90Away, teamPower1, teamPower2,
-                            canonicalScore == null ? null : canonicalScore.evaluation().probability().homeXg(),
-                            canonicalScore == null ? null : canonicalScore.evaluation().probability().awayXg());
+                            canonicalScore == null ? null : canonicalScore.homeXg(),
+                            canonicalScore == null ? null : canonicalScore.awayXg(),
+                            canonicalScore == null ? score90Home : canonicalScore.homeCollectiveGoals(),
+                            canonicalScore == null ? score90Away : canonicalScore.awayCollectiveGoals(),
+                            canonicalScore == null ? null : canonicalScore.homeShooterPlayerId(),
+                            canonicalScore == null ? null : canonicalScore.awayShooterPlayerId(),
+                            canonicalScore == null ? 0 : canonicalScore.homeShooterGoals(),
+                            canonicalScore == null ? 0 : canonicalScore.awayShooterGoals(),
+                            canonicalScore == null ? null : canonicalScore.homeRedCardPlayerId(),
+                            canonicalScore == null ? null : canonicalScore.awayRedCardPlayerId(),
+                            canonicalScore == null ? 0 : canonicalScore.homeShooterShots(),
+                            canonicalScore == null ? 0 : canonicalScore.awayShooterShots(),
+                            canonicalScore == null ? null : canonicalScore.homePassingPlayerId(),
+                            canonicalScore == null ? null : canonicalScore.awayPassingPlayerId(),
+                            canonicalScore == null ? 0 : canonicalScore.homePassingGoals(),
+                            canonicalScore == null ? 0 : canonicalScore.awayPassingGoals(),
+                            canonicalScore == null ? 0 : canonicalScore.homePassingOpportunities(),
+                            canonicalScore == null ? 0 : canonicalScore.awayPassingOpportunities(),
+                            canonicalScore == null ? 0.0 : canonicalScore.homePassingControl(),
+                            canonicalScore == null ? 0.0 : canonicalScore.awayPassingControl());
                     com.footballmanagergamesimulator.matchplan.PersistedScoringPlan adopted =
                             matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2, planSplit);
                     AdoptedScoring adoptedScoring = adoptScoringPlan(adopted, match, teamId1, teamId2,
@@ -938,23 +882,6 @@ public class MatchRoundSimulator {
                             continue;
                         }
                     }
-                }
-
-                // Shadow is an observation of the adopted decision and must run only
-                // after persist-or-load has selected the immutable winner.
-                if (compartmentEngineConfig.isShadowEnabled() && !compartmentEngineConfig.isEnabled()) {
-                    final boolean shadowAdminForced = selectedScoreEngine == ScoreEngineKind.ADMIN_OVERRIDE;
-                    final boolean shadowTacticalEnabled = engineConfig.getTacticalModel().isEnabled();
-                    final int shadowHomeScore = planSplit.score90Home();
-                    final int shadowAwayScore = planSplit.score90Away();
-                    compartmentShadowEvaluationService.evaluateSafely(() ->
-                            CompartmentShadowEvaluationService.ShadowEvaluationRequest.home(
-                                    aiFixtureKey, teamId1, teamId2, shadowHomeScore, shadowAwayScore, true,
-                                    shadowAdminForced, shadowTacticalEnabled,
-                                    shadowAdminForced || !shadowTacticalEnabled ? null : canonicalTactic(teamId1),
-                                    shadowAdminForced || !shadowTacticalEnabled ? null : canonicalTactic(teamId2),
-                                    shadowAdminForced || !shadowTacticalEnabled ? List.of() : canonicalLineupSlotSources(teamId1),
-                                    shadowAdminForced || !shadowTacticalEnabled ? List.of() : canonicalLineupSlotSources(teamId2)));
                 }
 
                 String aiTactic1 = getManagerTacticCached(teamId1);
@@ -1542,91 +1469,6 @@ public class MatchRoundSimulator {
      * team's squad or ratings change mid-session (training, transfers) so AI base
      * power actually evolves over a simulated season instead of staying frozen.
      */
-    // ============================================================
-    //  Two-axis tactical model (production path; only when tactical-model.enabled)
-    // ============================================================
-
-    /** Coached attack/defense profile for a team (best 11 → positional split → manager coaching),
-     *  cached per round like the scalar rating. */
-    private TacticalScoreService.TeamProfile teamTacticalProfile(long teamId) {
-        TacticalScoreService.TeamProfile cached = profileCache.get(teamId);
-        if (cached != null) return cached;
-
-        String tactic = getManagerTacticCached(teamId);
-        double[] coach = coachAbilities(teamId);
-        List<TacticalScoreService.StarterValue> starters = starterValues(teamId, tactic);
-        TacticalScoreService.TeamProfile coached = tacticalScoreService.coachedProfile(
-                tacticalScoreService.profile(starters), coach[0], coach[1]);
-        profileCache.put(teamId, coached);
-        wideShareCache.put(teamId, wideShare(starters));
-        return coached;
-    }
-
-    private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");
-
-    /** Share of the XI's match value sitting in wide positions (for the AI width identity). */
-    private static double wideShare(List<TacticalScoreService.StarterValue> starters) {
-        double total = 0, wide = 0;
-        for (TacticalScoreService.StarterValue s : starters) {
-            total += s.value();
-            if (WIDE_POSITIONS.contains(s.usedPosition())) wide += s.value();
-        }
-        return total <= 0 ? 0 : wide / total;
-    }
-
-    /** Evaluate the best-eleven match values for a team under a given formation (used position kept
-     *  for position familiarity). Shared by the profile build and the formation ranking. */
-    private List<TacticalScoreService.StarterValue> starterValues(long teamId, String formation) {
-        List<TacticController.StarterSlot> starters = starterSlotsCache.get(teamId);
-        FormationEvaluationSquad evaluationSquad = formationSquadCache.computeIfAbsent(
-                teamId, this::loadFormationEvaluationSquad);
-        if (starters == null) {
-            starters = selectFormationStarters(evaluationSquad, formation).stream()
-                    .map(starter -> new TacticController.StarterSlot(
-                            toMatchPlayerView(starter.player()), starter.usedPosition()))
-                    .toList();
-            starterSlotsCache.put(teamId, starters);
-            bestElevenCache.put(teamId, starters.stream()
-                    .map(TacticController.StarterSlot::player).toList());
-        }
-        Map<Long, PlayerSkills> skillsById = evaluationSquad.skillsByPlayerId();
-        // §D: per-player role + instructions from the saved tactic count in the two-axis value too.
-        Map<Long, FormationData> savedById = savedRoleData(teamId);
-
-        List<TacticalScoreService.StarterValue> values = new ArrayList<>();
-        for (TacticController.StarterSlot slot : starters) {
-            PlayerView pv = slot.player();
-            String natural = pv.getPosition(), used = slot.usedPosition();
-            PlayerSkills sk = skillsById.get(pv.getId());
-            double v = sk != null
-                    ? playerValueService.evaluatePlayer(sk, natural, used, pv.getMorale(), pv.getFitness())
-                    : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
-            v *= roleInstructionFactor(savedById.get(pv.getId()), sk, used);
-            double[] apt = TacticalScoreService.playerAptitudes(sk, pv.getFitness());
-            values.add(new TacticalScoreService.StarterValue(used, v, apt[0], apt[1], apt[2]));
-        }
-        return values;
-    }
-
-    /** Combined role-suitability × instruction multiplier for a starter, from the team's saved tactic.
-     *  Mirrors {@code LineupRatingService}: role (when set) blends into the positional base via
-     *  {@code computeEffectiveRating}; instructions give a small ±multiplier. Returns 1.0 when no saved
-     *  role/instructions (so AI teams + unset humans are unchanged → determinism preserved). */
-    private double roleInstructionFactor(FormationData fd, PlayerSkills sk, String used) {
-        if (fd == null) return 1.0;
-        String usedBase = TacticService.getBasePosition(used);
-        double factor = 1.0;
-        if (sk != null && fd.getRole() != null && !fd.getRole().isEmpty()) {
-            double positional = playerValueService.computePositionalValue(sk, usedBase);
-            if (positional > 0) {
-                double effective = playerRoleService.computeEffectiveRating(sk, fd.getRole(), positional);
-                factor *= effective / positional;
-            }
-        }
-        factor *= playerInstructionService.computeInstructionMultiplier(fd.getInstructions(), usedBase, "general");
-        return factor;
-    }
-
     /** playerId → saved FormationData (role/duty/instructions) parsed from the team's PersonalizedTactic
      *  {@code first11} JSON. Empty when no saved tactic (AI teams). */
     private Map<Long, FormationData> savedRoleData(long teamId) {
@@ -1644,68 +1486,6 @@ public class MatchRoundSimulator {
     }
 
     private final ObjectMapper roleObjectMapper = new ObjectMapper();
-
-    /** The tactic vector a team plays: a human's chosen {@code PersonalizedTactic} when present,
-     *  otherwise the AI manager's skill-ranked pick (cached per round). */
-    private TacticalScoreService.TacticVector teamTacticVector(long teamId,
-            TacticalScoreService.TeamProfile profile, PersonalizedTactic personalized) {
-        if (personalized != null) {
-            return tacticalScoreService.vector(personalized);
-        }
-        TacticalScoreService.TacticVector cached = tacticVectorCache.get(teamId);
-        if (cached != null) return cached;
-        double[] coach = coachAbilities(teamId);
-        double pickAbility = alwaysUseBestPossibleTactic(teamId)
-                ? 100.0
-                : (coach[0] + coach[1]) / 2.0;
-        // AI optimizes against a mirror of its own coached profile (an even, representative matchup).
-        PersonalizedTactic chosen = managerTacticService.chooseTactic(profile, profile, pickAbility);
-        // Width is a squad-shape identity (invisible against a width-neutral panel), set from the XI shape.
-        Double ws = wideShareCache.get(teamId);
-        if (ws != null) chosen.setWidth(managerTacticService.widthIdentity(ws));
-        canonicalTacticCache.put(teamId, ShadowTacticAxes.from(chosen));
-        TacticalScoreService.TacticVector v = tacticalScoreService.vector(chosen);
-        tacticVectorCache.put(teamId, v);
-        return v;
-    }
-
-    /** Two-axis match result: scoreline + the scalar "team power" (attack+defense of the
-     *  team-talk-scaled coached profile) so downstream consumers (match stats, morale power-diff,
-     *  knockout tie resolution, live deferred context) stay consistent with the new model. */
-    private record TwoAxisResult(int score1, int score2, double power1, double power2) {}
-
-    /** Score a match with the two-axis model (team1 = home). Applies the manager-reputation team
-     *  talk by scaling each side's profile, and uses the simulator's seeded RNG for determinism. */
-    private TwoAxisResult twoAxisScores(long teamId1, PersonalizedTactic pt1, long teamId2, PersonalizedTactic pt2) {
-        TacticalScoreService.TeamProfile p1 = scaleProfile(teamTacticalProfile(teamId1), teamTalkFactor(teamId1));
-        TacticalScoreService.TeamProfile p2 = scaleProfile(teamTacticalProfile(teamId2), teamTalkFactor(teamId2));
-        List<Integer> scores = tacticalScoreService.score(
-                p1, teamTacticVector(teamId1, p1, pt1),
-                p2, teamTacticVector(teamId2, p2, pt2),
-                threadRandom.get());
-        return new TwoAxisResult(scores.get(0), scores.get(1),
-                p1.attack() + p1.defense(), p2.attack() + p2.defense());
-    }
-
-    private static TacticalScoreService.TeamProfile scaleProfile(TacticalScoreService.TeamProfile p, double k) {
-        return new TacticalScoreService.TeamProfile(p.attack() * k, p.defense() * k,
-                p.pressingMult(), p.disciplineMult(), p.staminaMult());
-    }
-
-    /** Public scoreline for a standalone match (e.g. a friendly) using the SAME engine as competitive
-     *  matches: the two-axis model when enabled (so squad value + tactics + the new axes apply), else
-     *  the scalar fallback. Avoids a divergent scalar copy in {@code FriendlyMatchService}. */
-    public record MatchOutcome(int homeGoals, int awayGoals, double homePower, double awayPower) {}
-
-    public MatchOutcome scoreStandaloneMatch(long homeTeamId, long awayTeamId) {
-        if (engineConfig.getTacticalModel().isEnabled()) {
-            TwoAxisResult r = twoAxisScores(homeTeamId, null, awayTeamId, null);
-            return new MatchOutcome(r.score1(), r.score2(), r.power1(), r.power2());
-        }
-        double hp = getSimpleTeamRating(homeTeamId), ap = getSimpleTeamRating(awayTeamId);
-        List<Integer> s = matchSimulationService.calculateScores(hp, ap, threadRandom.get());
-        return new MatchOutcome(s.get(0), s.get(1), hp, ap);
-    }
 
     /** Canonical knockout result, already aligned to the displayed team1/team2 row. */
     /** Per-player [goals, assists] for one team, projected from canonical MatchPlan events. */
@@ -1805,7 +1585,8 @@ public class MatchRoundSimulator {
     private KnockoutMatchResolution resolveKnockoutMatch(
             CompetitionTeamInfoMatch match,
             long teamId1, double teamPower1, long teamId2, double teamPower2,
-            int score1, int score2, Map<Long, int[]> firstLegScores) {
+            int score1, int score2, Map<Long, int[]> firstLegScores,
+            CanonicalMatchEvaluation canonicalEvaluation) {
         int legNumber = match.getLegNumber();
         long tieId = match.getTieId();
 
@@ -1836,7 +1617,8 @@ public class MatchRoundSimulator {
             // team1 hosts leg 2 (= side B), team2 was the leg-1 host (= side A).
             int aggregateA = leg1[0] + score2;
             int aggregateB = leg1[1] + score1;
-            var decision = decideTie(teamId2, teamPower2, teamId1, teamPower1, aggregateA, aggregateB);
+            var decision = decideTie(match, teamPower2, teamPower1, aggregateA, aggregateB,
+                    canonicalEvaluation, false);
 
             // Extra-time goals are part of the second-leg football score and aggregate.
             score1 += decision.etB();
@@ -1861,7 +1643,8 @@ public class MatchRoundSimulator {
         }
 
         // Single-leg knockout, including the defensive fallback for a missing leg 1.
-        var decision = decideTie(teamId1, teamPower1, teamId2, teamPower2, score1, score2);
+        var decision = decideTie(match, teamPower1, teamPower2, score1, score2,
+                canonicalEvaluation, true);
         score1 += decision.etA();
         score2 += decision.etB();
         Long winner = decision.teamAWon() ? teamId1 : teamId2;
@@ -1879,29 +1662,24 @@ public class MatchRoundSimulator {
                 penalty1, penalty2, null, null, et1, et2);
     }
 
-    /** Resolve a knockout tie's tiebreak (extra time + penalties). Under the two-axis model the
-     *  extra-time mini-match runs on the attack-vs-defense engine (rebuilding each side's team-talk
-     *  scaled profile + tactic vector, as used to score the match); otherwise it falls back to the
-     *  scalar resolver. "A" is the side whose aggregate is {@code aggA}. */
+    /** Resolve extra time with the same canonical evaluation that produced the 90-minute score. */
     private com.footballmanagergamesimulator.service.knockout.KnockoutTieResolver.TieDecision decideTie(
-            long teamIdA, double powerA, long teamIdB, double powerB, int aggA, int aggB) {
+            CompetitionTeamInfoMatch match, double powerA, double powerB, int aggA, int aggB,
+            CanonicalMatchEvaluation evaluation, boolean evaluationHomeIsA) {
         Random random = threadRandom.get();
-        if (engineConfig.getTacticalModel().isEnabled()) {
-            TacticalScoreService.TeamProfile pA = scaleProfile(teamTacticalProfile(teamIdA), teamTalkFactor(teamIdA));
-            TacticalScoreService.TeamProfile pB = scaleProfile(teamTacticalProfile(teamIdB), teamTalkFactor(teamIdB));
-            PersonalizedTactic ptA = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamIdA).orElse(null);
-            PersonalizedTactic ptB = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamIdB).orElse(null);
-            return tieResolver.decide(pA, teamTacticVector(teamIdA, pA, ptA),
-                    pB, teamTacticVector(teamIdB, pB, ptB), aggA, aggB, random);
+        if (aggA != aggB) {
+            return tieResolver.decideCanonical(powerA, powerB, aggA, aggB, 0, 0, random);
         }
-        return tieResolver.decide(powerA, powerB, aggA, aggB, random);
-    }
-
-    /** Two-axis-consistent scalar "team power" (attack+defense of the team-talk-scaled coached
-     *  profile) — used where the scalar engine fed a single power (live match, stats, morale). */
-    private double twoAxisScalarPower(long teamId) {
-        TacticalScoreService.TeamProfile p = scaleProfile(teamTacticalProfile(teamId), teamTalkFactor(teamId));
-        return p.attack() + p.defense();
+        long seed = com.footballmanagergamesimulator.matchplan.MatchPlanService.seedFor(
+                "ET:" + match.getId(), match.getCompetitionId(),
+                Integer.parseInt(match.getSeasonNumber()), (int) match.getRound(),
+                match.getTeam1Id(), match.getTeam2Id());
+        CanonicalScoreSampler.GoalSample extra = canonicalScoreSampler.sampleScaled(
+                evaluation, seed, compartmentEngineConfig.getProbability().getExtraTimeScale(),
+                compartmentEngineConfig);
+        int etA = evaluationHomeIsA ? extra.homeGoals() : extra.awayGoals();
+        int etB = evaluationHomeIsA ? extra.awayGoals() : extra.homeGoals();
+        return tieResolver.decideCanonical(powerA, powerB, aggA, aggB, etA, etB, random);
     }
 
     private double[] coachAbilities(long teamId) {
@@ -1928,31 +1706,112 @@ public class MatchRoundSimulator {
         return manager != null && manager.isAlwaysUseBestPossibleTactic();
     }
 
+    /**
+     * The best XI the AI would actually field for this team, with the slot each
+     * starter occupies. Read-only: it warms the same caches matchday uses and
+     * runs the identical {@code selectFormationStarters} path, so transfer
+     * planning and match simulation can never disagree about who is a starter.
+     *
+     * <p>Consumed by the AI transfer market to split a squad into starters vs
+     * reserves and to derive the per-position incumbent it must beat.
+     */
+    public List<TacticController.StarterSlot> startersFor(long teamId) {
+        List<TacticController.StarterSlot> cached = starterSlotsCache.get(teamId);
+        if (cached != null) return cached;
+
+        // Deliberately the whole matchday path, not a trimmed version of it. Skipping
+        // the bench selection and the match valuation was measured and saved nothing
+        // (~0.3s across 106 clubs, inside the noise), so the trimmed variant bought a
+        // subtly different cache state for no gain. The cost is the formation work
+        // below it, not what surrounds it.
+        getSimpleTeamRating(teamId);
+        return starterSlotsCache.getOrDefault(teamId, List.of());
+    }
+
+    /**
+     * Load the squads of many clubs in two queries instead of two per club.
+     *
+     * <p>{@link #loadFormationEvaluationSquad} already avoids per-team round trips on
+     * matchday by reading the preloaded {@code RoundContext}; nothing outside a round
+     * had that benefit. The AI transfer window reads the best XI of every club in the
+     * game back to back, which meant 106 squad queries plus 106 skill queries and made
+     * database access the single largest cost of the window.
+     *
+     * <p>Only clubs not already cached are fetched, and the result is identical to
+     * what the per-team path builds — this is a prefetch, not a second code path.
+     */
+    public void warmFormationSquads(Collection<Long> teamIds) {
+        List<Long> missing = teamIds.stream()
+                .filter(id -> !formationSquadCache.containsKey(id))
+                .distinct()
+                .toList();
+        if (missing.isEmpty()) return;
+
+        Map<Long, List<Human>> squadsByTeam = humanRepository
+                .findAllByTeamIdInAndTypeIdAndRetiredFalse(missing, TypeNames.PLAYER_TYPE)
+                .stream()
+                .filter(player -> player.getTeamId() != null)
+                .collect(Collectors.groupingBy(Human::getTeamId));
+
+        List<Long> allPlayerIds = squadsByTeam.values().stream()
+                .flatMap(List::stream)
+                .map(Human::getId)
+                .toList();
+        Map<Long, PlayerSkills> allSkills = allPlayerIds.isEmpty()
+                ? Map.of()
+                : playerSkillsRepository.findAllByPlayerIdIn(allPlayerIds).stream()
+                        .collect(Collectors.toMap(PlayerSkills::getPlayerId, skills -> skills, (a, b) -> a));
+
+        for (Long teamId : missing) {
+            List<Human> squad = squadsByTeam.getOrDefault(teamId, List.of());
+            Map<Long, PlayerSkills> skillsByPlayerId = new HashMap<>();
+            for (Human player : squad) {
+                PlayerSkills skills = allSkills.get(player.getId());
+                if (skills != null) skillsByPlayerId.put(player.getId(), skills);
+            }
+            formationSquadCache.put(teamId, new FormationEvaluationSquad(
+                    teamId, squad, skillsByPlayerId,
+                    List.copyOf(coachPermissionService.lockedSlots(teamId))));
+        }
+    }
+
+    /**
+     * The squad changed but the manager's tactical preference did not — drop
+     * everything derived from squad membership and keep the tactic decision.
+     *
+     * <p>Sits between {@link #invalidateRatingCache(long)}, which also re-derives the
+     * manager's formation, and {@link #invalidateMatchdayLineupCaches(long)}, which
+     * keeps the loaded squad. Choosing a formation costs over a second per club
+     * (it ranks every formation against the squad), so a caller that has changed
+     * squads en masse and then immediately reads all their XIs — the AI transfer
+     * window does exactly that for every club in the game — pays two minutes for a
+     * decision that has not changed. The full re-derivation still happens at the
+     * real season boundary via {@link #invalidateAllRatingCaches()}.
+     */
+    public void invalidateSquadCaches(long teamId) {
+        simpleRatingCache.remove(teamId);
+        bestElevenCache.remove(teamId);
+        starterSlotsCache.remove(teamId);
+        substitutionsCache.remove(teamId);
+        formationSquadCache.remove(teamId);
+        formationValueCache.remove(teamId);
+    }
+
     public void invalidateRatingCache(long teamId) {
         simpleRatingCache.remove(teamId);
         bestElevenCache.remove(teamId);
         starterSlotsCache.remove(teamId);
         substitutionsCache.remove(teamId);
         managerTacticCache.remove(teamId);
-        profileCache.remove(teamId);
         formationSquadCache.remove(teamId);
         formationValueCache.remove(teamId);
-        wideShareCache.remove(teamId);
-        // Deliberately KEEP tacticVectorCache: the AI manager's tactic choice is
-        // stable across a season — it
-        // does not need re-deriving after every training session (~88×/season). These are cleared only
-        // at season transition via invalidateAllRatingCaches(). Match strength still refreshes because
-        // the rating/profile caches above are dropped.
     }
 
     /**
-     * A manager-editor change must refresh both formation and two-axis tactic
-     * choices immediately, without turning ordinary training invalidations into
-     * an expensive full tactical recalculation.
+     * A manager-editor change must refresh the formation and canonical tactic policy.
      */
     public void invalidateManagerTacticPolicy(long teamId) {
         managerTacticCache.remove(teamId);
-        tacticVectorCache.remove(teamId);
         canonicalTacticCache.remove(teamId);
     }
 
@@ -1967,8 +1826,6 @@ public class MatchRoundSimulator {
         bestElevenCache.remove(teamId);
         starterSlotsCache.remove(teamId);
         substitutionsCache.remove(teamId);
-        profileCache.remove(teamId);
-        wideShareCache.remove(teamId);
     }
 
     /** Drop ALL cached AI ratings — used at season transition (ageing + mass
@@ -1979,10 +1836,7 @@ public class MatchRoundSimulator {
         starterSlotsCache.clear();
         substitutionsCache.clear();
         managerTacticCache.clear();
-        profileCache.clear();
-        tacticVectorCache.clear();
         canonicalTacticCache.clear();
-        wideShareCache.clear();
         formationSquadCache.clear();
         formationValueCache.clear();
     }
@@ -1992,6 +1846,12 @@ public class MatchRoundSimulator {
      *  production code. */
     public double aiBaseRatingForTest(long teamId) {
         return getSimpleTeamRating(teamId);
+    }
+
+    /** Test-only: the exact players and fine-grained slots selected by the AI fast path. */
+    public List<TacticController.StarterSlot> aiStarterSlotsForTest(long teamId) {
+        getSimpleTeamRating(teamId);
+        return List.copyOf(starterSlotsCache.getOrDefault(teamId, List.of()));
     }
 
     /** Test-only: the AI formation chosen for a team (value-ranked, skill-picked). */
@@ -2015,10 +1875,20 @@ public class MatchRoundSimulator {
      * Pick a team's formation. A human-managed team keeps the manager's chosen
      * {@code tacticStyle}. An AI manager with the editor trait enabled always takes
      * the value-maximal formation. Other AI managers keep the preferred formation
-     * in the scalar fallback or pick a value rank according to coaching skill in
-     * the two-axis model.
+     * or picks a formation-value rank according to coaching skill.
      */
     private String chooseFormation(long teamId) {
+        // A formation saved against the club wins, for AI sides too. The ranking below
+        // orders shapes by formationBaseValue — where the highest-rated eleven fits — which
+        // is not the same question as which shape wins matches, and the gap is large: the
+        // searched formation moved one club from a mean finish of 2.62 to 1.20 with no
+        // change of players. Human sides already had a say; AI sides had none.
+        PersonalizedTactic saved = personalizedTacticRepository
+                .findPersonalizedTacticByTeamId(teamId).orElse(null);
+        if (saved != null && saved.getTactic() != null && !saved.getTactic().isBlank()) {
+            return mandateEnforcement.effectiveFormation(teamId, saved.getTactic());
+        }
+
         Human manager = tacticalManager(teamId);
         String preferred = manager != null && manager.getTacticStyle() != null
                 ? manager.getTacticStyle() : "442";
@@ -2033,7 +1903,6 @@ public class MatchRoundSimulator {
                         .sorted(Comparator.comparingDouble((String f) -> formationBaseValue(teamId, f)).reversed())
                         .toList();
                 if (manager != null && manager.isAlwaysUseBestPossibleTactic()) candidate = ranked.get(0);
-                else if (!engineConfig.getTacticalModel().isEnabled()) candidate = preferred;
                 else {
                     double[] coach = coachAbilities(teamId);
                     double skill = Math.max(0, Math.min(100, (coach[0] + coach[1]) / 2.0));
@@ -2103,39 +1972,101 @@ public class MatchRoundSimulator {
                 .filter(player -> !unavailableIds.contains(player.getId()))
                 .collect(Collectors.toCollection(ArrayList::new));
         List<FormationEvaluationStarter> selected = new ArrayList<>();
-        List<String> unfilledSlots = new ArrayList<>();
+        Map<Long, FormationData> savedRoles = savedRoleData(squad.teamId());
 
-        // Chairman locks have priority over legacy owner/board XI locks.
-        Set<Long> chairmanLockedIds = new HashSet<>();
+        // Chairman locks have priority over legacy owner/board XI locks and retain
+        // their exact fine-grained position (DM/AMC etc.), not merely its base family.
         for (EffectiveChairmanMandate.Slot lock : mandateEnforcement.resolvedLockedSlots(
                 squad.teamId(), effectiveFormation, squad.legacyLockedSlots(), unavailableIds)) {
             Human lockedPlayer = remaining.stream().filter(player -> player.getId() == lock.playerId()).findFirst().orElse(null);
             if (lockedPlayer == null) continue;
+            String usedPosition = tacticService.getPositionFromIndex(lock.positionIndex());
+            if (!requiredSlots.remove(usedPosition)) {
+                throw new IllegalStateException("Mandated slot " + lock.positionIndex()
+                        + " does not belong to formation " + effectiveFormation);
+            }
             remaining.remove(lockedPlayer);
-            String usedPosition = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
             selected.add(new FormationEvaluationStarter(lockedPlayer, usedPosition));
-            requiredSlots.remove(usedPosition);
-            chairmanLockedIds.add(lock.playerId());
         }
 
-        for (String slot : requiredSlots) {
-            Human bestNatural = remaining.stream()
-                    .filter(player -> slot.equals(player.getPosition()))
-                    .max(Comparator.comparingDouble(this::formationAptness))
-                    .orElse(null);
-            if (bestNatural == null) {
-                unfilledSlots.add(slot);
-            } else {
-                remaining.remove(bestNatural);
-                selected.add(new FormationEvaluationStarter(bestNatural, slot));
+        // A saved SHADOW is a player assignment, not merely a flag that may follow the
+        // player into whichever central-midfield slot the greedy selector reaches first.
+        // Pin saved shadows to their exact fine-grained slots before filling the rest of
+        // the XI. Without this, DM/MC/AMC family equivalence put Saviola (natural AMC) at
+        // DM, after which the canonical engine correctly rejected the invalid SHADOW.
+        savedRoles.values().stream()
+                .filter(row -> row.getPositionIndex() < 30)
+                .sorted(Comparator.comparingInt(FormationData::getPositionIndex))
+                .forEach(row -> {
+                    Human shadow = remaining.stream()
+                            .filter(player -> player.getId() == row.getPlayerId())
+                            .filter(player -> player.isStayForward() || row.isShadow())
+                            .findFirst().orElse(null);
+                    if (shadow == null) return;
+                    String shadowSlot = tacticService.getPositionFromIndex(row.getPositionIndex());
+                    if (!isShadowSlot(shadowSlot) || !requiredSlots.remove(shadowSlot)) return;
+                    remaining.remove(shadow);
+                    selected.add(new FormationEvaluationStarter(shadow, shadowSlot));
+                });
+
+        // An explicitly designated SHOOTER is part of the tactic, not a hint to the
+        // automatic XI selector. Pin him into his saved starter slot before filling the
+        // remaining places by rating; otherwise the fast season path could bench him and
+        // silently run the match with no SHOOTER at all.
+        FormationData savedShooter = savedRoles.values().stream()
+                .filter(row -> row.getPositionIndex() < 30)
+                .filter(row -> "SHOOTER".equalsIgnoreCase(row.getSpecialRole()))
+                .findFirst().orElse(null);
+        if (savedShooter != null && !unavailableIds.contains(savedShooter.getPlayerId())) {
+            boolean alreadySelected = selected.stream()
+                    .anyMatch(starter -> starter.player().getId() == savedShooter.getPlayerId());
+            if (!alreadySelected) {
+                Human shooter = remaining.stream()
+                        .filter(player -> player.getId() == savedShooter.getPlayerId())
+                        .findFirst().orElseThrow(() -> new IllegalStateException(
+                                "Saved SHOOTER is not available for team " + squad.teamId()));
+                String shooterSlot = TacticService.getBasePosition(
+                        tacticService.getPositionFromIndex(savedShooter.getPositionIndex()));
+                if (!requiredSlots.remove(shooterSlot)) {
+                    throw new IllegalStateException("Saved SHOOTER slot " + shooterSlot
+                            + " is not available in formation " + effectiveFormation);
+                }
+                remaining.remove(shooter);
+                selected.add(new FormationEvaluationStarter(shooter, shooterSlot));
             }
         }
 
-        remaining.sort(Comparator.comparingDouble(this::formationAptness).reversed());
-        for (int i = 0; i < unfilledSlots.size() && i < remaining.size(); i++) {
-            selected.add(new FormationEvaluationStarter(remaining.get(i), unfilledSlots.get(i)));
+        // Every slot considers every remaining player, scored on rating and how well he
+        // fits that slot. Nothing else.
+        //
+        // This used to demand an exact position-string match, and only slots that no
+        // natural occupant claimed were filled from the leftovers — paired by list index,
+        // with position ignored entirely. Two things followed, both wrong. A weak natural
+        // holder blocked a far better player out of the eleven: a 94-rated left-back kept
+        // a 115-rated team-mate on the bench, because the 115 was not literally a "DL".
+        // And selling that left-back let the 115 in, so a club could strengthen its XI by
+        // selling players — which is what exposed this.
+        for (String slot : requiredSlots) {
+            Human best = remaining.stream()
+                    .filter(player -> automaticSlotSupportsSavedRole(player, slot, savedRoles))
+                    .max(Comparator.comparingDouble(player -> slotAptness(player, slot)))
+                    .orElse(null);
+            if (best == null) break; // squad exhausted
+            remaining.remove(best);
+            selected.add(new FormationEvaluationStarter(best, slot));
         }
         return selected.stream().limit(11).toList();
+    }
+
+    private static boolean automaticSlotSupportsSavedRole(Human player, String slot,
+                                                           Map<Long, FormationData> savedRoles) {
+        FormationData saved = savedRoles.get(player.getId());
+        boolean shadow = player.isStayForward() || saved != null && saved.isShadow();
+        return !shadow || isShadowSlot(slot);
+    }
+
+    private static boolean isShadowSlot(String position) {
+        return Set.of("AML", "ML", "AMR", "MR", "AMC", "MC", "ST").contains(position);
     }
 
     private List<PlayerView> selectMatchSubstitutes(
@@ -2215,8 +2146,44 @@ public class MatchRoundSimulator {
                 teamId, squad, skillsByPlayerId, legacyLockedSlots);
     }
 
+    /**
+     * Who gets picked, ranked on rating alone.
+     *
+     * <p>Fitness used to scale this, which meant the XI was chosen by who happened to
+     * be freshest rather than by who is better. It showed up worst at the season
+     * boundary: fitness is not reset to 80 until {@code processNewSeasonSetup}, so
+     * during the transfer window every squad is exhausted and a 241-rated midfielder
+     * on 20 fitness lost his place to a 212 — both to the market planning against that
+     * XI, and to anyone reading it.
+     *
+     * <p>Fitness still shapes what a player is worth once the match is running
+     * ({@link PlayerValueService}); it no longer decides whether he takes the field.
+     * Availability (injuries, bans) is filtered separately by the caller.
+     */
     private double formationAptness(Human player) {
-        return player.getRating() * playerValueService.fitnessFactor(player.getFitness());
+        return player.getRating();
+    }
+
+    /**
+     * What this player is worth in this particular slot: his rating, scaled by how well
+     * his natural position fits it. A centre-back can cover left-back at a discount; he
+     * cannot keep goal. Rating and position, nothing else — no morale, no fitness, no
+     * attributes.
+     */
+    private double slotAptness(Human player, String slot) {
+        // Full rating inside the base family. TacticService.getBasePosition already
+        // declares AMC/MC/DM the same position, and AMR/MR, and WBL/DL — so an AMC in
+        // an MC slot is not improvising and must not be discounted. Discounting him
+        // here while the transfer market valued him at full rating is what made clubs
+        // buy players the engine then refused to pick: 58 signings were agreed as
+        // starters and only 9 actually started.
+        //
+        // Across families the engine's own curve still applies: a centre-back can
+        // cover left-back at a cost, and cannot keep goal at all.
+        String playerBase = TacticService.getBasePosition(player.getPosition());
+        String slotBase = TacticService.getBasePosition(slot);
+        if (playerBase != null && playerBase.equals(slotBase)) return player.getRating();
+        return player.getRating() * playerValueService.familiarityFactor(player.getPosition(), slot);
     }
 
     private record FormationEvaluationSquad(
@@ -2226,13 +2193,11 @@ public class MatchRoundSimulator {
             List<CoachPermissionService.LockedSlot> legacyLockedSlots) {}
 
     private PersonalizedTactic canonicalTactic(long teamId) {
-        ShadowTacticAxes axes = canonicalTacticCache.get(teamId);
-        if (axes == null) {
-            TacticalScoreService.TeamProfile profile = teamTacticalProfile(teamId);
-            teamTacticVector(teamId, profile, null);
-            axes = canonicalTacticCache.get(teamId);
-        }
-        return axes == null ? null : axes.toTactic();
+        ShadowTacticAxes axes = canonicalTacticCache.computeIfAbsent(teamId, ignored ->
+                personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
+                        .map(ShadowTacticAxes::from)
+                        .orElseGet(() -> ShadowTacticAxes.from(new PersonalizedTactic())));
+        return axes.toTactic();
     }
 
     /**
@@ -2240,27 +2205,61 @@ public class MatchRoundSimulator {
      * deterministic seed as the normal AI-vs-AI path.  Watching a match changes
      * presentation only; it can no longer select a different scoring engine.
      */
-    private Optional<CanonicalRuntimeScore> canonicalScoreForHumanFixture(
+    private CanonicalRuntimeScore canonicalScoreForHumanFixture(
             long matchRowId, long competitionId, int season, int round,
             long homeTeamId, long awayTeamId) {
-        if (!compartmentEngineConfig.isEnabled()) return Optional.empty();
         // Populate the canonical XI/role caches for human teams as the AI path
         // already does through getSimpleTeamRating().
         getSimpleTeamRating(homeTeamId);
         getSimpleTeamRating(awayTeamId);
         String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                 .competitionFixtureKey(matchRowId);
-        return canonicalRuntimeScoringService.scoreSafely(() ->
+        return canonicalRuntimeScoringService.score(() ->
                 CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
                         fixtureKey, competitionId, season, round, homeTeamId, awayTeamId,
                         canonicalTactic(homeTeamId), canonicalTactic(awayTeamId),
                         canonicalLineupSlotSources(homeTeamId).stream()
-                                .map(ShadowLineupSlotSource::toRuntimeSlot).toList(),
+                                .map(CanonicalLineupSlotSource::toRuntimeSlot).toList(),
                         canonicalLineupSlotSources(awayTeamId).stream()
-                                .map(ShadowLineupSlotSource::toRuntimeSlot).toList()));
+                                .map(CanonicalLineupSlotSource::toRuntimeSlot).toList()));
     }
 
-    private List<ShadowLineupSlotSource> canonicalLineupSlotSources(long teamId) {
+    private CanonicalRuntimeScore canonicalScoreForAiFixture(
+            String fixtureKey, long competitionId, int season, int round,
+            long homeTeamId, long awayTeamId) {
+        return canonicalRuntimeScoringService.score(() ->
+                CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
+                        fixtureKey, competitionId, season, round, homeTeamId, awayTeamId,
+                        canonicalTactic(homeTeamId), canonicalTactic(awayTeamId),
+                        canonicalLineupSlotSources(homeTeamId).stream()
+                                .map(CanonicalLineupSlotSource::toRuntimeSlot).toList(),
+                        canonicalLineupSlotSources(awayTeamId).stream()
+                                .map(CanonicalLineupSlotSource::toRuntimeSlot).toList()));
+    }
+
+    private MatchScoringDecision canonicalDecision(String fixtureKey, long competitionId,
+                                                    int season, int round,
+                                                    long homeTeamId, long awayTeamId,
+                                                    CanonicalRuntimeScore score) {
+        long seed = com.footballmanagergamesimulator.matchplan.MatchPlanService.seedFor(
+                fixtureKey, competitionId, season, round, homeTeamId, awayTeamId);
+        return new MatchScoringDecision(fixtureKey, seed, ScoreEngineKind.COMPARTMENT_V1,
+                ScoreEngineKind.COMPARTMENT_V1.algorithmVersion(),
+                score.configFingerprint(), score.inputFingerprint(),
+                score.homeGoals(), score.awayGoals(), score.homePower(), score.awayPower(),
+                score.homeXg(), score.awayXg(),
+                score.homeCollectiveGoals(), score.awayCollectiveGoals(),
+                score.homeShooterPlayerId(), score.awayShooterPlayerId(),
+                score.homeShooterGoals(), score.awayShooterGoals(),
+                score.homeRedCardPlayerId(), score.awayRedCardPlayerId(),
+                score.homeShooterShots(), score.awayShooterShots(),
+                score.homePassingPlayerId(), score.awayPassingPlayerId(),
+                score.homePassingGoals(), score.awayPassingGoals(),
+                score.homePassingOpportunities(), score.awayPassingOpportunities(),
+                score.homePassingControl(), score.awayPassingControl());
+    }
+
+    private List<CanonicalLineupSlotSource> canonicalLineupSlotSources(long teamId) {
         RoundContext context = roundContext.get();
         FormationEvaluationSquad squad = formationSquadCache.get(teamId);
         List<TacticController.StarterSlot> starters = starterSlotsCache.get(teamId);
@@ -2270,7 +2269,7 @@ public class MatchRoundSimulator {
         Map<Long, PlayerSkills> skills = squad.skillsByPlayerId();
         Map<Long, FormationData> saved = savedRoleData(teamId);
         Map<com.footballmanagergamesimulator.compartment.PlayerPosition, Integer> occurrences = new HashMap<>();
-        List<ShadowLineupSlotSource> result = new ArrayList<>();
+        List<CanonicalLineupSlotSource> result = new ArrayList<>();
         for (TacticController.StarterSlot starter : starters) {
             Human player = players.get(starter.player().getId());
             PlayerSkills playerSkills = skills.get(starter.player().getId());
@@ -2282,7 +2281,7 @@ public class MatchRoundSimulator {
             }
             int occurrence = occurrences.merge(position, 1, Integer::sum);
             if (player == null || playerSkills == null) return List.of();
-            result.add(new ShadowLineupSlotSource(player, playerSkills, saved.get(player.getId()),
+            result.add(new CanonicalLineupSlotSource(player, playerSkills, saved.get(player.getId()),
                     position.code(), occurrence));
         }
         return result;
@@ -2308,24 +2307,6 @@ public class MatchRoundSimulator {
     }
 
     private record FormationEvaluationStarter(Human player, String usedPosition) {}
-
-    /** Team-level team-talk multiplier (centered on 1.0): a better man-manager rallies the squad
-     *  to extract a little more team power. Quality is read from the manager's reputation and
-     *  mapped via {@code MatchEngineConfig.TeamTalk}. Deterministic; neutral 1.0 when the team has
-     *  no manager or team talk is disabled. */
-    private double teamTalkFactor(long teamId) {
-        RoundContext context = roundContext.get();
-        List<Human> managers = context != null
-                ? context.managersByTeam().getOrDefault(teamId, List.of())
-                : humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
-        double reputation = managers
-                .stream()
-                .filter(m -> !m.isRetired())
-                .findFirst()
-                .map(m -> (double) m.getManagerReputation())
-                .orElse(engineConfig.getTeamTalk().getNeutralReputation());
-        return engineConfig.getTeamTalk().multiplier(reputation);
-    }
 
     /**
      * Optimized scorer tracking for AI vs AI matches.

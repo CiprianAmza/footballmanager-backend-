@@ -123,7 +123,7 @@ class MatchPlanConcurrencyTest {
                 ScoreEngineKind.COMPARTMENT_V1, MatchScoringDecision.ALGORITHM_VERSION,
                 "a".repeat(64), "b".repeat(64), 2, 1, 40, 34, 1.2, 0.8);
         MatchScoringDecision secondDecision = new MatchScoringDecision(fixtureKey, 100L,
-                ScoreEngineKind.TWO_AXIS_FALLBACK, ScoreEngineKind.TWO_AXIS_FALLBACK.algorithmVersion(),
+                ScoreEngineKind.COMPARTMENT_V1, ScoreEngineKind.COMPARTMENT_V1.algorithmVersion(),
                 "c".repeat(64), "d".repeat(64), 0, 3, 31, 46, null, null);
         TestTransaction.flagForCommit();
         TestTransaction.end();

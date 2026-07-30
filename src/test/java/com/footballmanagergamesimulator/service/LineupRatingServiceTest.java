@@ -8,8 +8,11 @@ import com.footballmanagergamesimulator.chairman.mandate.MandateSlot;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.frontend.PlayerView;
+import com.footballmanagergamesimulator.matchplan.Contributor;
+import com.footballmanagergamesimulator.matchplan.Lineup;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchPlayerRatingRepository;
@@ -36,6 +39,78 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class LineupRatingServiceTest {
+    @Test
+    void canonicalRatingSnapshotUsesTheExactMatchPlanSquad() {
+        LineupRatingService service = spy(new LineupRatingService());
+        ReflectionTestUtils.setField(service, "tacticService", new TacticService());
+        doNothing().when(service).persistPlayerRatings(
+                anyLong(), anyInt(), anyInt(), anyLong(), anyString(), anyList(), anyList());
+        Contributor actualStarter = contributor(501L, "MC");
+        Contributor actualBench = contributor(502L, "ST");
+        Lineup exact = new Lineup(List.of(actualStarter), List.of(actualBench), List.of());
+
+        service.persistPlayerRatings(1L, 2, 3, 10L, "541", exact);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<TacticController.StarterSlot>> starters =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<PlayerView>> bench =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(service).persistPlayerRatings(eq(1L), eq(2), eq(3), eq(10L), eq("541"),
+                starters.capture(), bench.capture());
+        assertThat(starters.getValue()).extracting(slot -> slot.player().getId())
+                .containsExactly(501L);
+        assertThat(starters.getValue()).extracting(TacticController.StarterSlot::usedPosition)
+                .containsExactly("MC");
+        assertThat(bench.getValue()).extracting(PlayerView::getId).containsExactly(502L);
+    }
+
+    @Test
+    void canonicalScorersContainOnlyPlayersWhoActuallyAppearedInMatchPlan() {
+        CompetitionRepository competitions = mock(CompetitionRepository.class);
+        TeamRepository teams = mock(TeamRepository.class);
+        PersonalizedTacticRepository tactics = mock(PersonalizedTacticRepository.class);
+        HumanRepository humans = mock(HumanRepository.class);
+        ScorerRepository scorers = mock(ScorerRepository.class);
+        GameStateService gameState = mock(GameStateService.class);
+        MatchSimulationService simulation = mock(MatchSimulationService.class);
+        PlayerMatchStatService playerStats = mock(PlayerMatchStatService.class);
+        when(competitions.findTypeIdById(1L)).thenReturn(1L);
+        when(tactics.findPersonalizedTacticByTeamId(10L)).thenReturn(Optional.empty());
+        when(humans.findById(anyLong())).thenReturn(Optional.empty());
+        when(gameState.currentSeason()).thenReturn(2);
+
+        LineupRatingService service = new LineupRatingService();
+        ReflectionTestUtils.setField(service, "competitionRepository", competitions);
+        ReflectionTestUtils.setField(service, "teamRepository", teams);
+        ReflectionTestUtils.setField(service, "personalizedTacticRepository", tactics);
+        ReflectionTestUtils.setField(service, "humanRepository", humans);
+        ReflectionTestUtils.setField(service, "scorerRepository", scorers);
+        ReflectionTestUtils.setField(service, "scorerLeaderboardRepository", mock(ScorerLeaderboardRepository.class));
+        ReflectionTestUtils.setField(service, "competitionService", mock(CompetitionService.class));
+        ReflectionTestUtils.setField(service, "matchSimulationService", simulation);
+        ReflectionTestUtils.setField(service, "gameStateService", gameState);
+        ReflectionTestUtils.setField(service, "playerMatchStatService", playerStats);
+
+        Contributor starter = contributor(501L, "MC");
+        Contributor playedSub = contributor(502L, "ST");
+        Contributor unusedSub = contributor(503L, "DC");
+        Lineup exact = new Lineup(List.of(starter), List.of(playedSub, unusedSub),
+                List.of(new Lineup.SubMove(0, 60, starter.playerId(), playedSub)));
+
+        service.getScorersForTeam(10L, 20L, 0, 0, "541", 1L, 3,
+                Map.of(), exact);
+
+        org.mockito.ArgumentCaptor<Scorer> persisted = org.mockito.ArgumentCaptor.forClass(Scorer.class);
+        verify(scorers, times(2)).save(persisted.capture());
+        assertThat(persisted.getAllValues()).extracting(Scorer::getPlayerId)
+                .containsExactlyInAnyOrder(501L, 502L)
+                .doesNotContain(503L);
+        assertThat(persisted.getAllValues()).filteredOn(Scorer::isSubstitute)
+                .extracting(Scorer::getPlayerId).containsExactly(502L);
+    }
+
     @Test
     void absentMandateWithoutSavedLineupUsesLegacyBestElevenSlotsNotAssistant() {
         PersonalizedTacticRepository tactics = mock(PersonalizedTacticRepository.class);
@@ -227,5 +302,10 @@ class LineupRatingServiceTest {
         player.setPosition("MC");
         player.setRating(10);
         return player;
+    }
+
+    private static Contributor contributor(long id, String position) {
+        return new Contributor(id, "P" + id, position, 100, 10, 10, 10,
+                100, false, false);
     }
 }

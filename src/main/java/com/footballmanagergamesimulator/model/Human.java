@@ -9,8 +9,12 @@ import java.sql.Date;
 @Entity
 @Data
 @Table(name="human", indexes = {
-        @Index(name = "idx_human_team_type", columnList = "teamId,typeId"),
-        @Index(name = "idx_human_type_retired", columnList = "typeId,retired")
+        // Third column added for the AI transfer market: it reads whole squads
+        // (team+type+active) and the free-agent pool (type+active+no team) once
+        // per club per window, and the retired/regen population grows without
+        // bound across a long save.
+        @Index(name = "idx_human_team_type", columnList = "teamId,typeId,retired"),
+        @Index(name = "idx_human_type_retired", columnList = "typeId,retired,teamId")
 })
 public class Human {
 

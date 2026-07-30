@@ -21,14 +21,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 /**
- * The two-axis production engine picks an AI manager's formation by ranking all formations by the
+ * Formation selection ranks all formations by the
  * base value they yield for his squad, then selecting at a rank set by his skill. An elite manager
  * must land the value-maximal formation; a hopeless one the value-minimal — so the formation is
  * coupled to squad value + coaching skill, not a random kit.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
-        "match.engine.tactical-model.enabled=true",
         "bootstrap.seed=20260528"
 })
 @DisplayName("AI formation selection — value-ranked, skill-picked")

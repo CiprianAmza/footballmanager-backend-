@@ -55,7 +55,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @TestPropertySource(properties = {
-        "match.engine.compartment.enabled=true",
         "bootstrap.seed=20260528"
 })
 @DisplayName("League outcome 2 — 200 seasons with production Compartment V1 scoring")
@@ -90,7 +89,6 @@ class LeagueOutcome2IT {
     void simulateAllLeaguesAndReportWithCanonicalScorer() throws Exception {
         List<Long> availableLeagues = availableLeagues();
         int season = gameState.currentSeason();
-        assertThat(compartmentConfig.isEnabled()).isTrue();
 
         StringBuilder combined = new StringBuilder("# League Outcome 2 — All Leagues\n\n")
                 .append("Leagues: ").append(availableLeagues).append('\n')
@@ -252,12 +250,7 @@ class LeagueOutcome2IT {
                         var request = CanonicalRuntimeScoringService.RuntimeScoringRequest.home(
                                 fixtureKey, competitionId, season, round, home.id, away.id,
                                 home.tactic, away.tactic, home.slots, away.slots);
-                        var scored = scoringService.scoreSafely(() -> request);
-                        if (scored.isEmpty()) {
-                            canonicalFailures++;
-                            continue;
-                        }
-                        CanonicalRuntimeScore score = scored.orElseThrow();
+                        CanonicalRuntimeScore score = scoringService.score(() -> request);
                         applyResult(homeIndex(home, teams), awayIndex(away, teams), score.homeGoals(),
                                 score.awayGoals(), points, goalsFor, goalsAgainst, wins, draws, losses);
                         matchesScored++;

@@ -57,6 +57,22 @@ class CompetitionFormatConfigTest {
         assertEquals(16, plan.stageForRound(2).bracketSize(), "twelve direct plus four winners enter groups");
         assertEquals(2, plan.groupStartRound());
         assertEquals(10, plan.finalRound());
+        assertTrue(format.isTwoLeg(0), "first preliminary round is home-and-away");
+        assertTrue(format.isTwoLeg(1), "second preliminary round is home-and-away");
+        assertFalse(format.isTwoLeg(2), "group matches remain individual fixtures");
+        assertTrue(format.isTwoLeg(8), "quarter-final is home-and-away");
+        assertTrue(format.isTwoLeg(9), "semi-final is home-and-away");
+        assertFalse(format.isTwoLeg(10), "final remains a single match");
+    }
+
+    @Test
+    void starsCupUsesTwoLegPlayoffAndKnockoutUntilTheFinal() {
+        CompetitionFormat format = config.get(5);
+        assertFalse(format.isTwoLeg(6), "group stage remains unchanged");
+        assertTrue(format.isTwoLeg(7), "playoff is home-and-away");
+        assertTrue(format.isTwoLeg(8), "quarter-final is home-and-away");
+        assertTrue(format.isTwoLeg(9), "semi-final is home-and-away");
+        assertFalse(format.isTwoLeg(10), "final remains a single match");
     }
 
     @Test

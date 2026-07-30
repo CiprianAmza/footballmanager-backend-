@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 @Service
@@ -112,8 +111,14 @@ public final class CanonicalRuntimeScoringService {
     private final RuntimeInputBuilder runtimeBuilder;
     private final MatchEvaluator evaluator;
 
-    public Optional<CanonicalRuntimeScore> scoreSafely(Supplier<RuntimeScoringRequest> requestSupplier) {
-        if (!compartmentConfig.isEnabled()) return Optional.empty();
+    /**
+     * Score one fixture with the authoritative Compartment V1 engine.
+     *
+     * <p>There is deliberately no fallback contract here. Invalid canonical input or a broken
+     * configuration must fail the fixture visibly; returning an empty result used to route the
+     * same match through an unrelated two-axis/scalar engine and made calibration meaningless.
+     */
+    public CanonicalRuntimeScore score(Supplier<RuntimeScoringRequest> requestSupplier) {
         try {
             RuntimeScoringRequest request = Objects.requireNonNull(requestSupplier, "requestSupplier").get();
             validate(request);
@@ -125,17 +130,29 @@ public final class CanonicalRuntimeScoringService {
             CanonicalScoreSampler.GoalSample goals = sampler.sample(evaluation, seed);
             CanonicalRuntimeScore score = new CanonicalRuntimeScore(
                     goals.homeGoals(), goals.awayGoals(),
-                    evaluation.home().team().attack() + evaluation.home().team().attackProtection(),
-                    evaluation.away().team().attack() + evaluation.away().team().attackProtection(),
+                    goals.homeEffectiveAttack() + goals.homeEffectiveProtection(),
+                    goals.awayEffectiveAttack() + goals.awayEffectiveProtection(),
                     evaluation,
                     configFingerprint,
-                    fingerprintService.inputFingerprint(request, home, away));
+                    fingerprintService.inputFingerprint(request, home, away),
+                    goals.homeCollectiveGoals(), goals.awayCollectiveGoals(),
+                    goals.homeShooterPlayerId(), goals.awayShooterPlayerId(),
+                    goals.homeShooterGoals(), goals.awayShooterGoals(),
+                    goals.homeRedCardPlayerId(), goals.awayRedCardPlayerId(),
+                    goals.homeEffectiveAttack(), goals.homeEffectiveProtection(),
+                    goals.awayEffectiveAttack(), goals.awayEffectiveProtection(),
+                    goals.homeXg(), goals.awayXg(),
+                    goals.homeShooterShots(), goals.awayShooterShots(),
+                    goals.homePassingPlayerId(), goals.awayPassingPlayerId(),
+                    goals.homePassingGoals(), goals.awayPassingGoals(),
+                    goals.homePassingOpportunities(), goals.awayPassingOpportunities(),
+                    goals.homePassingControl(), goals.awayPassingControl());
             telemetry.markSucceeded();
-            return Optional.of(score);
+            return score;
         } catch (RuntimeException ex) {
             telemetry.markFailed();
-            LOG.warn("canonical runtime scoring failed reason={}", ex.getMessage());
-            return Optional.empty();
+            LOG.error("authoritative canonical scoring failed", ex);
+            throw ex;
         }
     }
 

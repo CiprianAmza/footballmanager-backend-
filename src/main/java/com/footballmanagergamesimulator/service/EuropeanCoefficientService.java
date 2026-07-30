@@ -323,7 +323,7 @@ public class EuropeanCoefficientService {
     public List<Long> getLeagueIdsSortedByCoefficient() {
         int currentSeason = Integer.parseInt(currentSeason());
         List<Competition> firstLeagues = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1).toList();
+                .filter(Competition::isTopFlight).toList();
 
         Map<Long, Double> leagueCoefficients = new HashMap<>();
         for (Competition league : firstLeagues) {
@@ -390,7 +390,7 @@ public class EuropeanCoefficientService {
     public List<Long> rankFirstLeaguesByCoefficient() {
         int currentSeason = Integer.parseInt(currentSeason());
         List<Competition> firstLeagues = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1).toList();
+                .filter(Competition::isTopFlight).toList();
 
         Map<Long, Double> coef = new HashMap<>();
         for (Competition league : firstLeagues) {

@@ -29,7 +29,9 @@ class MatchStatsServiceTest {
     @BeforeEach
     void setUp() {
         service = new MatchStatsService();
-        ReflectionTestUtils.setField(service, "engineConfig", new MatchEngineConfig());
+        MatchEngineConfig config = new MatchEngineConfig();
+        ReflectionTestUtils.setField(service, "engineConfig", config);
+        ReflectionTestUtils.setField(service, "shotVolumeModel", new ShotVolumeModel(config));
         MatchStatsRepository repository = mock(MatchStatsRepository.class);
         when(repository.save(any(MatchStats.class))).thenAnswer(invocation -> invocation.getArgument(0));
         ReflectionTestUtils.setField(service, "matchStatsRepository", repository);
@@ -158,7 +160,7 @@ class MatchStatsServiceTest {
 
     @Test
     void canonicalProjectionIncludesExtraTimeButNotShootout() {
-        MatchScoringDecision extraTimeDecision = decision(1, 1, ScoreEngineKind.SCALAR_FALLBACK, null, null);
+        MatchScoringDecision extraTimeDecision = decision(1, 1, ScoreEngineKind.COMPARTMENT_V1, null, null);
         CanonicalMatchEffectsInput extraTime = new CanonicalMatchEffectsInput(extraTimeDecision,
                 KnockoutPlanSplit.knockout(1, 1, 1, 0, null, null), 10, 20,
                 List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201), goal(2, 100, 10, 102)));
@@ -166,7 +168,7 @@ class MatchStatsServiceTest {
         assertEquals(2, extraTimeStats.getHomeGoals());
         assertEquals(1, extraTimeStats.getAwayGoals());
 
-        MatchScoringDecision shootoutDecision = decision(1, 1, ScoreEngineKind.SCALAR_FALLBACK, null, null);
+        MatchScoringDecision shootoutDecision = decision(1, 1, ScoreEngineKind.COMPARTMENT_V1, null, null);
         CanonicalMatchEffectsInput shootout = new CanonicalMatchEffectsInput(shootoutDecision,
                 KnockoutPlanSplit.knockout(1, 1, 0, 0, 5, 4), 10, 20,
                 List.of(goal(0, 10, 10, 101), goal(1, 20, 20, 201)));
@@ -179,7 +181,7 @@ class MatchStatsServiceTest {
 
     @Test
     void canonicalFallbackWithoutXgRemainsDeterministicAndValid() {
-        MatchScoringDecision decision = decision(0, 0, ScoreEngineKind.SCALAR_FALLBACK, null, null);
+        MatchScoringDecision decision = decision(0, 0, ScoreEngineKind.COMPARTMENT_V1, null, null);
         CanonicalMatchEffectsInput input = new CanonicalMatchEffectsInput(decision,
                 KnockoutPlanSplit.regularOnly(0, 0), 10, 20, List.of());
 
@@ -193,10 +195,10 @@ class MatchStatsServiceTest {
     void canonicalPowersComeFromTheDecisionAndChangeTheProjection() {
         KnockoutPlanSplit split = KnockoutPlanSplit.regularOnly(0, 0);
         CanonicalMatchEffectsInput favoriteHome = new CanonicalMatchEffectsInput(
-                decision(0, 0, ScoreEngineKind.SCALAR_FALLBACK, null, null, 9_000, 1_000),
+                decision(0, 0, ScoreEngineKind.COMPARTMENT_V1, null, null, 9_000, 1_000),
                 split, 10, 20, List.of());
         CanonicalMatchEffectsInput favoriteAway = new CanonicalMatchEffectsInput(
-                decision(0, 0, ScoreEngineKind.SCALAR_FALLBACK, null, null, 1_000, 9_000),
+                decision(0, 0, ScoreEngineKind.COMPARTMENT_V1, null, null, 1_000, 9_000),
                 split, 10, 20, List.of());
 
         MatchStats homeFavorite = service.generateAndSaveCanonicalMatchStats(favoriteHome, 1, 1, 1);
@@ -205,6 +207,30 @@ class MatchStatsServiceTest {
         assertTrue(homeFavorite.getHomePossession() != awayFavorite.getHomePossession()
                         || homeFavorite.getHomeShots() != awayFavorite.getHomeShots(),
                 "canonical projection must consume decision powers");
+    }
+
+    @Test
+    void canonicalProjectionAddsShooterMissesToThePersistedShotLine() {
+        MatchScoringDecision ordinaryDecision = decision(
+                0, 0, ScoreEngineKind.COMPARTMENT_V1, 0.4, 0.4);
+        MatchScoringDecision shooterDecision = new MatchScoringDecision(
+                ordinaryDecision.fixtureKey(), ordinaryDecision.seed(), ordinaryDecision.scoreEngine(),
+                ordinaryDecision.scoreAlgorithmVersion(), ordinaryDecision.configFingerprint(),
+                ordinaryDecision.inputFingerprint(), 0, 0,
+                ordinaryDecision.homePower(), ordinaryDecision.awayPower(), 0.4, 0.4,
+                0, 0, 99L, null, 0, 0, null, null, 5, 0);
+        KnockoutPlanSplit split = KnockoutPlanSplit.regularOnly(0, 0);
+
+        MatchStats ordinary = service.generateAndSaveCanonicalMatchStats(
+                new CanonicalMatchEffectsInput(ordinaryDecision, split, 10, 20, List.of()),
+                1, 1, 1);
+        MatchStats withShooter = service.generateAndSaveCanonicalMatchStats(
+                new CanonicalMatchEffectsInput(shooterDecision, split, 10, 20, List.of()),
+                1, 1, 1);
+
+        assertEquals(ordinary.getHomeShots() + 5, withShooter.getHomeShots());
+        assertTrue(withShooter.getHomeShots() >= withShooter.getHomeShotsOnTarget()
+                + withShooter.getHomeShotsBlocked());
     }
 
     @Test

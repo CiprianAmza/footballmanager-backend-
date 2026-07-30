@@ -116,10 +116,8 @@ public class KnockoutTieResolver {
     }
 
     /**
-     * Two-axis variant of {@link #decide(double, double, int, int, Random)}: the extra-time
-     * mini-match is played on the attack-vs-defense {@link TacticalScoreService} model (the
-     * production engine when {@code tactical-model.enabled}) instead of the scalar engine. The
-     * penalty weaker-team edge compares total profile strength (attack + defense).
+     * Historical two-axis diagnostic variant. Production knockout matches use
+     * {@link #decideCanonical(double, double, int, int, int, int, Random)} exclusively.
      *
      * @param pA team A coached profile (team-talk-scaled), tA its tactic vector
      * @param pB team B coached profile, tB its tactic vector
@@ -144,6 +142,29 @@ public class KnockoutTieResolver {
         boolean aWon = tiebreakRng.nextDouble() < aWinChance;
         int[] penalties = penaltyScore(aWon, tiebreakRng);
         return new TieDecision(aWon, true, etA, etB, true, penalties[0], penalties[1]);
+    }
+
+    /**
+     * Resolve a level canonical tie after its extra-time goals were sampled by Compartment V1.
+     * This method never invokes either historical score engine.
+     */
+    public TieDecision decideCanonical(double strengthA, double strengthB,
+                                       int aggregateA, int aggregateB,
+                                       int extraTimeA, int extraTimeB,
+                                       Random tiebreakRng) {
+        if (aggregateA != aggregateB) {
+            return new TieDecision(aggregateA > aggregateB, false, 0, 0, false, 0, 0);
+        }
+        if (aggregateA + extraTimeA != aggregateB + extraTimeB) {
+            return new TieDecision((aggregateA + extraTimeA) > (aggregateB + extraTimeB),
+                    true, extraTimeA, extraTimeB, false, 0, 0);
+        }
+        double weakerWinChance = config.getKnockout().getPenaltyWeakerTeamWinChance();
+        boolean aIsWeaker = strengthA < strengthB;
+        double aWinChance = aIsWeaker ? weakerWinChance : 1.0 - weakerWinChance;
+        boolean aWon = tiebreakRng.nextDouble() < aWinChance;
+        int[] penalties = penaltyScore(aWon, tiebreakRng);
+        return new TieDecision(aWon, true, extraTimeA, extraTimeB, true, penalties[0], penalties[1]);
     }
 
     /**

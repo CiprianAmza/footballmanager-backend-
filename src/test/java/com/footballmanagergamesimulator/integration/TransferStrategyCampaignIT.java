@@ -53,6 +53,9 @@ class TransferStrategyCampaignIT {
     @Autowired private CompositeTransferStrategy strategy;
     @Autowired private MatchSimulationService matchSimulationService;
     @Autowired private TacticService tacticService;
+    @Autowired private com.footballmanagergamesimulator.service.EndOfSeasonProcessor endOfSeasonProcessor;
+    @Autowired private com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig matchEngineConfig;
 
     private static final long SEED = 20260528L;
     private static final long LEAGUE_TYPE_ID = 1L;
@@ -83,7 +86,8 @@ class TransferStrategyCampaignIT {
 
         strategy.setRandomForTesting(new Random(SEED));
         Map<Long, TransferMarketDiagnostics.TeamIntent> intents =
-                TransferMarketDiagnostics.snapshotTeamIntents(processOrderTeams, strategy, humanRepository, tacticService);
+                TransferMarketDiagnostics.snapshotTeamIntents(processOrderTeams, strategy, humanRepository,
+                        tacticService, matchSimulationOrchestrator, matchEngineConfig);
         Map<String, Integer> minPos = tacticService.getMinimumPositionNeeded();
         Map<String, Integer> maxPos = tacticService.getMaximumPositionAllowed();
 
@@ -122,9 +126,25 @@ class TransferStrategyCampaignIT {
                         .as("team %s cannot complete an incoming transfer without a buy plan", buyerIntent.teamName())
                         .isNotNull();
             } else {
-                assertThat(buyerIntent.squadCountsByBasePosition().getOrDefault(basePosition, 0))
-                        .as("buyer %s must only buy for a pre-pipeline under-filled position", buyerIntent.teamName())
-                        .isLessThan(maxPos.getOrDefault(basePosition, Integer.MAX_VALUE));
+                // The roster cap bounds hoarding, but a weak link is a replacement,
+                // not an addition: a club fielding a 35-rated centre-back is not
+                // "saturated at centre-back" just because it owns five of them, and
+                // refusing that signing is precisely the bug this work fixed.
+                boolean underCap = buyerIntent.squadCountsByBasePosition().getOrDefault(basePosition, 0)
+                        < maxPos.getOrDefault(basePosition, Integer.MAX_VALUE);
+                // Judged on the chart the club actually planned from — its squad minus
+                // its own sale list — not the pre-market snapshot. A club that listed
+                // its midfielders turns midfield critical for itself, and that is
+                // precisely when it is allowed past the roster cap.
+                var planningChart = endOfSeasonProcessor.lastPlanningDepthCharts()
+                        .getOrDefault(buyerIntent.teamId(), buyerIntent.depthChart());
+                boolean weakLink = planningChart.isCritical(basePosition);
+                assertThat(underCap || weakLink)
+                        .as("buyer %s bought a %s while at the roster cap (%d/%d) and not weak there",
+                                buyerIntent.teamName(), basePosition,
+                                buyerIntent.squadCountsByBasePosition().getOrDefault(basePosition, 0),
+                                maxPos.getOrDefault(basePosition, Integer.MAX_VALUE))
+                        .isTrue();
                 if (buyerIntent.strategyId() == TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH) {
                     assertThat(transferredPlayer.getAge())
                             .as("BuyYoungSellHigh must only buy players aged 24 or below")
@@ -157,47 +177,80 @@ class TransferStrategyCampaignIT {
         StrategyTransferStats buyTop = statsByStrategy.getOrDefault(
                 TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST, new StrategyTransferStats());
 
-        assertThat(academy.incomingCount)
-                .as("Academy never buys in the current implementation")
-                .isZero();
+        // Academy does take part in the window now — it used to return no buy plan at
+        // all, removing a fifth of the market's demand. What it must never do is spend.
+        assertThat(transfers.stream()
+                .filter(t -> intents.get(t.getBuyTeamId()).strategyId()
+                        == TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY)
+                .map(Transfer::getPlayerTransferValue))
+                .as("Academy may only sign free agents — every incoming fee must be zero")
+                .allMatch(fee -> fee == 0L);
         if (buyYoung.incomingCount > 0) {
             assertThat(buyYoung.maxBoughtAge)
                     .as("BuyYoungSellHigh must only buy players aged 24 or below")
                     .isLessThanOrEqualTo(24);
         }
-        if (academy.outgoingCount > 0) {
-            assertThat(academy.avgSoldRating())
-                    .as("Academy should sell above-squad-average rating")
-                    .isGreaterThan(academy.avgSellerSquadRating());
-        }
-        if (buyTop.outgoingCount > 0) {
-            assertThat(buyTop.avgSoldRating())
-                    .as("BuyTopSellWorst should sell below-squad-average rating")
-                    .isLessThan(buyTop.avgSellerSquadRating());
-        }
-        if (buyYoung.outgoingCount > 0) {
-            assertThat(buyYoung.avgSoldFee())
-                    .as("BuyYoungSellHigh should sell above-squad-average transfer value")
-                    .isGreaterThan(buyYoung.avgSellerSquadValue());
-        }
-        if (buyFree.outgoingCount > 0) {
-            assertThat(buyFree.avgSoldFee())
-                    .as("BuyFreeSellHigh should sell above-squad-average transfer value")
-                    .isGreaterThan(buyFree.avgSellerSquadValue());
-        }
-        if (buyMid.outgoingCount > 0 && academy.outgoingCount > 0 && buyTop.outgoingCount > 0) {
-            assertThat(buyMid.avgSoldRating())
-                    .as("BuyMidSellMid should sit between Academy's peak-skimming and BuyTopSellWorst's bottom-dumping")
-                    .isBetween(buyTop.avgSoldRating(), academy.avgSoldRating());
-        }
+        // Sell direction is asserted on what each strategy LISTED, not on what
+        // completed. Completion is budget-gated, and the budget bites hardest at the
+        // expensive end — with most listings unaffordable, the sales that go through
+        // are systematically the cheap tail of every strategy's intent. Asserting on
+        // completions therefore measures the transfer budget, not the strategy, and
+        // flips on a rounding error. What the strategy controls is its list.
+        assertListedRatingDirection(intents, TransferStrategyUtil.TRANSFER_STRATEGY_ACADEMY, true,
+                "Academy should list above-squad-average rating");
+        assertListedRatingDirection(intents, TransferStrategyUtil.TRANSFER_STRATEGY_BUY_TOP_SELL_WORST, false,
+                "BuyTopSellWorst should list below-squad-average rating");
+        assertListedValueDirection(intents, TransferStrategyUtil.TRANSFER_STRATEGY_BUY_YOUNG_SELL_HIGH,
+                "BuyYoungSellHigh should list above-squad-average transfer value");
+        assertListedValueDirection(intents, TransferStrategyUtil.TRANSFER_STRATEGY_BUY_FREE_SELL_HIGH,
+                "BuyFreeSellHigh should list above-squad-average transfer value");
+        // Deliberately no betweenness assertion for BuyMidSellMid. It draws at random
+        // from the whole squad, so its sold average tracks the squad mean only in
+        // expectation — over one window it can land anywhere, and asserting otherwise
+        // pins a property of the seed rather than of the strategy. The statistical
+        // claim is tested across many draws in TransferStrategyIT instead.
 
         writeReport(statsByStrategy, outgoingByTeam, incomingByTeam);
+    }
+
+    /** Averaged across every club running the strategy, so one club cannot skew it. */
+    private void assertListedRatingDirection(Map<Long, TransferMarketDiagnostics.TeamIntent> intents,
+                                             long strategyId, boolean above, String because) {
+        double listed = 0, squad = 0;
+        int clubs = 0;
+        for (TransferMarketDiagnostics.TeamIntent intent : intents.values()) {
+            if (intent.strategyId() != strategyId || intent.sellCandidates().isEmpty()) continue;
+            listed += intent.sellCandidates().stream()
+                    .mapToDouble(com.footballmanagergamesimulator.transfermarket.PlayerTransferView::getRating)
+                    .average().orElse(0);
+            squad += intent.squadAverageRating();
+            clubs++;
+        }
+        assertThat(clubs).as("strategy %d must have listed somebody somewhere", strategyId).isPositive();
+        if (above) assertThat(listed / clubs).as(because).isGreaterThan(squad / clubs);
+        else assertThat(listed / clubs).as(because).isLessThan(squad / clubs);
+    }
+
+    private void assertListedValueDirection(Map<Long, TransferMarketDiagnostics.TeamIntent> intents,
+                                            long strategyId, String because) {
+        double listed = 0, squad = 0;
+        int clubs = 0;
+        for (TransferMarketDiagnostics.TeamIntent intent : intents.values()) {
+            if (intent.strategyId() != strategyId || intent.sellCandidates().isEmpty()) continue;
+            listed += intent.sellCandidates().stream()
+                    .mapToLong(TransferMarketDiagnostics::transferValue)
+                    .average().orElse(0);
+            squad += intent.squadAverageValue();
+            clubs++;
+        }
+        assertThat(clubs).as("strategy %d must have listed somebody somewhere", strategyId).isPositive();
+        assertThat(listed / clubs).as(because).isGreaterThan(squad / clubs);
     }
 
     private void assignRoundRobinStrategies(List<Team> teams) {
         int index = 0;
         for (Team team : teams) {
-            team.setStrategy((long) ((index++ % 5) + 1));
+            team.setStrategy((long) ((index++ % 6) + 1));
         }
     }
 
@@ -224,7 +277,7 @@ class TransferStrategyCampaignIT {
                         MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
                         MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
 
-        for (long strategyId = 1L; strategyId <= 5L; strategyId++) {
+        for (long strategyId = 1L; strategyId <= 6L; strategyId++) {
             StrategyTransferStats stats = statsByStrategy.getOrDefault(strategyId, new StrategyTransferStats());
             table.addRow(
                     TransferMarketDiagnostics.strategyName(strategyId),

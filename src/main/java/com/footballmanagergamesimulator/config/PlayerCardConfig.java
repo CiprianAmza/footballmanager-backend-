@@ -64,18 +64,32 @@ public class PlayerCardConfig {
 
         Map<String, Double> overrides = buckets.get(normalizedBucket);
         if (overrides != null) {
-            weights.putAll(overrides);
+            overrides.forEach((attribute, value) -> {
+                String canonical = weights.keySet().stream()
+                        .filter(existing -> normalizeAttribute(existing).equals(normalizeAttribute(attribute)))
+                        .findFirst().orElse(attribute);
+                weights.put(canonical, value);
+            });
         }
 
         return weights;
     }
 
     public double weight(String bucket, String attribute) {
-        return bucketWeights(bucket).getOrDefault(attribute, 0.0);
+        String requested = normalizeAttribute(attribute);
+        return bucketWeights(bucket).entrySet().stream()
+                .filter(entry -> normalizeAttribute(entry.getKey()).equals(requested))
+                .mapToDouble(Map.Entry::getValue)
+                .findFirst().orElse(0.0);
     }
 
     private static String normalizeBucket(String bucket) {
         return bucket == null ? "" : bucket.toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeAttribute(String attribute) {
+        return attribute == null ? "" : attribute.replace(" ", "").replace("-", "")
+                .replace("_", "").toUpperCase(Locale.ROOT);
     }
 
     public static class Scale {

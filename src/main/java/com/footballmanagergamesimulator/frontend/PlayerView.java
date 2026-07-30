@@ -1,5 +1,6 @@
 package com.footballmanagergamesimulator.frontend;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.sql.Date;
@@ -30,6 +31,24 @@ public class PlayerView {
   private long transferValue;
   private boolean willNeverLeave;
   private boolean stayForward;
+
+  /**
+   * Whether the player has ended his career.
+   *
+   * <p>Sent explicitly rather than inferred from a missing club. Retirement used to
+   * be the only way to end up without one, so {@code teamId == null} was a safe
+   * stand-in; now that contracts expire into free agency it is not, and a free agent
+   * would read as retired.
+   *
+   * <p>The JSON name is pinned: Jackson derives {@code retired} from the getter
+   * {@code isRetired()} on its own, which is not the name the client reads.
+   */
+  @JsonProperty("isRetired")
+  private boolean retired;
+
+  /** True when he has no club but is still playing — available on a free transfer. */
+  @JsonProperty("isFreeAgent")
+  private boolean freeAgent;
 
   private double fitness;
   private double morale;

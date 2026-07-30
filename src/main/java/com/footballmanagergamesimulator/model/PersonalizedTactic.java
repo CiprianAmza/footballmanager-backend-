@@ -36,6 +36,7 @@ public class PersonalizedTactic {
     private String tempoFragmentation; // Flowing / Normal / Fragment
     private String widePlay;           // Cut Inside / Shoot / Cross
     private String transition;         // Win Fouls / Balanced / Fast Counter
+    private String recovery;           // Slow / Standard / Very Fast / Instantly
 
     // Set piece takers
     private Long penaltyTakerId;

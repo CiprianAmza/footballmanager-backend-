@@ -125,6 +125,7 @@ public class TacticController {
         view.setTempoFragmentation(savedTactic.getTempoFragmentation());
         view.setWidePlay(savedTactic.getWidePlay());
         view.setTransition(savedTactic.getTransition());
+        view.setRecovery(savedTactic.getRecovery());
         view.setPenaltyTakerId(savedTactic.getPenaltyTakerId());
         view.setFreeKickTakerId(savedTactic.getFreeKickTakerId());
         view.setCornerTakerLeftId(savedTactic.getCornerTakerLeftId());
@@ -270,7 +271,7 @@ public class TacticController {
         view.setPassingType("Normal");
         view.setTempo("Standard");
         view.setDefensiveLine("Standard");
-        view.setPressing("Low");
+        view.setPressing("Normal");
         view.setWidth("Balanced");
         view.setDribbling("Standard");
         view.setFoulFrequency("Normal");
@@ -278,6 +279,7 @@ public class TacticController {
         view.setTempoFragmentation("Normal");
         view.setWidePlay("Shoot");
         view.setTransition("Balanced");
+        view.setRecovery("Standard");
         view.setFormationDataList(new ArrayList<>());
         return view;
     }
@@ -357,6 +359,14 @@ public class TacticController {
                         ? List.of()
                         : coachPermissionService.parseLockedSlots(perms.getLockedSlots()),
                 Set.of(), false);
+        String shadowError = forceLockedShadowsAndValidate(xi);
+        if (shadowError != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", shadowError));
+        }
+        String specialRoleError = validateSpecialRoles(xi);
+        if (specialRoleError != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", specialRoleError));
+        }
         try {
             personalizedTactic.setFirst11(objectMapper.writeValueAsString(xi));
         } catch (JsonProcessingException e) {
@@ -380,6 +390,7 @@ public class TacticController {
             personalizedTactic.setTempoFragmentation(personalizedTacticView.getTempoFragmentation());
             personalizedTactic.setWidePlay(personalizedTacticView.getWidePlay());
             personalizedTactic.setTransition(personalizedTacticView.getTransition());
+            personalizedTactic.setRecovery(personalizedTacticView.getRecovery());
         } else {
             // Owner fixed the formation/instructions → keep the existing ones, ignore the coach's.
             personalizedTactic.setTactic(effectiveTactic);
@@ -397,6 +408,7 @@ public class TacticController {
             personalizedTactic.setTempoFragmentation(existing.getTempoFragmentation());
             personalizedTactic.setWidePlay(existing.getWidePlay());
             personalizedTactic.setTransition(existing.getTransition());
+            personalizedTactic.setRecovery(existing.getRecovery());
         }
 
         // ---- Set-piece takers ----
@@ -429,6 +441,50 @@ public class TacticController {
         } catch (JsonProcessingException e) {
             return new ArrayList<>();
         }
+    }
+
+    private static String validateSpecialRoles(List<FormationData> formation) {
+        int shooters = 0;
+        for (FormationData row : formation) {
+            if (row == null || row.getSpecialRole() == null || row.getSpecialRole().isBlank()) continue;
+            if (!"SHOOTER".equalsIgnoreCase(row.getSpecialRole().trim())) {
+                return "Unknown special role: " + row.getSpecialRole();
+            }
+            if (row.getPositionIndex() >= 30) return "SHOOTER must be in the starting eleven";
+            shooters++;
+        }
+        return shooters > 1 ? "A team may designate at most one SHOOTER" : null;
+    }
+
+    /**
+     * A persistent stay-forward player is an immutable SHADOW. Tactical SHADOW selections are
+     * otherwise allowed without a team limit, but only in the attacking positions requested by
+     * the game design. This runs after Chairman/owner locks so the persisted XI is authoritative.
+     */
+    private String forceLockedShadowsAndValidate(List<FormationData> formation) {
+        Map<Long, Human> players = humanRepository.findAllById(formation.stream()
+                        .filter(Objects::nonNull)
+                        .map(FormationData::getPlayerId)
+                        .filter(id -> id > 0)
+                        .collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(Human::getId, player -> player));
+
+        for (FormationData row : formation) {
+            if (row == null) continue;
+            if (row.getPositionIndex() >= 30) {
+                if (row.isShadow()) return "SHADOW must be in the starting eleven";
+                // A persistent Shadow sitting on the bench has no active match role yet.
+                continue;
+            }
+            Human player = players.get(row.getPlayerId());
+            if (player != null && player.isStayForward()) row.setShadow(true);
+            if (!row.isShadow()) continue;
+            String position = tacticService.getPositionFromIndex(row.getPositionIndex());
+            if (!Set.of("AML", "ML", "AMR", "MR", "AMC", "MC", "ST").contains(position)) {
+                return "SHADOW is available only at AML/ML, AMR/MR, AMC/MC or ST";
+            }
+        }
+        return null;
     }
 
     /**
@@ -1164,6 +1220,7 @@ public class TacticController {
         playerView.setReleaseClause(human.getReleaseClause());
         playerView.setTransferValue(human.getTransferValue());
         playerView.setWealth(human.getWealth());
+        playerView.setStayForward(human.isStayForward());
 
         // Nation (so squad/pitch faces can show the per-nation signature).
         com.footballmanagergamesimulator.service.NationService.NationInfo nation = nationService.infoForTeam(team.getId());

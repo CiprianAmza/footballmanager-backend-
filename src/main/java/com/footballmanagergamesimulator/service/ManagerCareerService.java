@@ -108,7 +108,7 @@ public class ManagerCareerService {
                 .toList();
 
         Set<Long> leagueCompetitionIds = allCompetitions.stream()
-                .filter(c -> c.getTypeId() == 1 || c.getTypeId() == 3)
+                .filter(Competition::isLeague)
                 .map(Competition::getId)
                 .collect(Collectors.toSet());
 
@@ -158,8 +158,8 @@ public class ManagerCareerService {
             Competition leagueComp = allCompetitions.stream().filter(c -> c.getId() == competitionId).findFirst().orElse(null);
             if (leagueComp != null) {
                 int numTeams = leagueStandings.size();
-                if (leagueComp.getTypeId() == 3 && leaguePosition <= 2) promoted = true;
-                if (leagueComp.getTypeId() == 1 && leaguePosition >= numTeams - 1) relegated = true;
+                if (leagueComp.isBelowTopFlight() && leaguePosition <= 2) promoted = true;
+                if (leagueComp.isTopFlight() && leaguePosition >= numTeams - 1) relegated = true;
             }
 
             ManagerHistory mh = new ManagerHistory();

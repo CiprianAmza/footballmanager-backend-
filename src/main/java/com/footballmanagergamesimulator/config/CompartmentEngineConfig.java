@@ -11,21 +11,20 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * Typed Phase 0/1 contract for the future compartment engine.
+ * Typed configuration contract for the authoritative compartment engine.
  *
  * <p>The bean binds the complete coefficient catalogue under {@code match.engine.compartment};
- * canonical runtime scoring receives it explicitly. Both rollout flags remain off until the
- * authoritative integration is separately enabled.
+ * canonical runtime scoring receives it explicitly. There is no rollout switch: this is the
+ * only score engine and an invalid configuration must fail at startup or at the fixture boundary.
  */
 @Configuration
 @ConfigurationProperties(prefix = "match.engine.compartment")
 public class CompartmentEngineConfig {
 
-    private boolean enabled = false;
-    private boolean shadowEnabled = false;
     private Rating rating = new Rating();
     private Map<Compartment, CompartmentWeights> compartments = new LinkedHashMap<>();
     private Map<String, Map<Compartment, CompartmentWeights>> positionCompartmentOverrides = new LinkedHashMap<>();
@@ -37,12 +36,10 @@ public class CompartmentEngineConfig {
     private Exposure exposure = new Exposure();
     private Probability probability = new Probability();
     private Aggregation aggregation = new Aggregation();
+    private Shooter shooter = new Shooter();
+    private PassingStyle passingStyle = new PassingStyle();
     private Map<String, Map<PlayerAttribute, Double>> contextRules = defaultContextRules();
 
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
-    public boolean isShadowEnabled() { return shadowEnabled; }
-    public void setShadowEnabled(boolean shadowEnabled) { this.shadowEnabled = shadowEnabled; }
     public Rating getRating() { return rating; }
     public void setRating(Rating rating) { this.rating = rating; }
     public Map<Compartment, CompartmentWeights> getCompartments() { return compartments; }
@@ -70,6 +67,10 @@ public class CompartmentEngineConfig {
     public void setProbability(Probability probability) { this.probability = probability; }
     public Aggregation getAggregation() { return aggregation; }
     public void setAggregation(Aggregation aggregation) { this.aggregation = aggregation; }
+    public Shooter getShooter() { return shooter; }
+    public void setShooter(Shooter shooter) { this.shooter = shooter; }
+    public PassingStyle getPassingStyle() { return passingStyle; }
+    public void setPassingStyle(PassingStyle passingStyle) { this.passingStyle = passingStyle; }
     public Map<String, Map<PlayerAttribute, Double>> getContextRules() { return contextRules; }
     public void setContextRules(Map<String, Map<PlayerAttribute, Double>> contextRules) {
         this.contextRules = contextRules;
@@ -89,8 +90,6 @@ public class CompartmentEngineConfig {
         add(rules, "passing:long", PlayerAttribute.PASSING, .10, PlayerAttribute.VISION, .20, PlayerAttribute.KICKING, .15);
         add(rules, "line:high", PlayerAttribute.PACE, .20, PlayerAttribute.ANTICIPATION, .15, PlayerAttribute.POSITIONING, .10);
         add(rules, "line:deep", PlayerAttribute.HEADING, .15, PlayerAttribute.CONCENTRATION, .15, PlayerAttribute.POSITIONING, .10);
-        add(rules, "pressing:high", PlayerAttribute.WORK_RATE, .20, PlayerAttribute.STAMINA, .20, PlayerAttribute.ANTICIPATION, .10);
-        add(rules, "pressing:low", PlayerAttribute.POSITIONING, .10, PlayerAttribute.CONCENTRATION, .10);
         add(rules, "width:wide", PlayerAttribute.PACE, .10, PlayerAttribute.DRIBBLING, .10, PlayerAttribute.PASSING, .05);
         add(rules, "width:narrow", PlayerAttribute.TECHNIQUE, .10, PlayerAttribute.FIRST_TOUCH, .10, PlayerAttribute.DECISIONS, .05);
         add(rules, "instruction:mark tighter", PlayerAttribute.MARKING, .20, PlayerAttribute.CONCENTRATION, .10);
@@ -128,7 +127,8 @@ public class CompartmentEngineConfig {
 
     public static class Rating {
         private int attributeMin = 1;
-        private int attributeMax = 20;
+        private int attributeMax = 19;
+        private int exceptionalAttributeValue = 20;
         private double scoreScale = 100.0;
         private double contextFactorMin = 0.60;
         private double contextFactorMax = 1.40;
@@ -148,6 +148,8 @@ public class CompartmentEngineConfig {
         public void setAttributeMin(int v) { this.attributeMin = v; }
         public int getAttributeMax() { return attributeMax; }
         public void setAttributeMax(int v) { this.attributeMax = v; }
+        public int getExceptionalAttributeValue() { return exceptionalAttributeValue; }
+        public void setExceptionalAttributeValue(int v) { this.exceptionalAttributeValue = v; }
         public double getScoreScale() { return scoreScale; }
         public void setScoreScale(double v) { this.scoreScale = v; }
         public double getContextFactorMin() { return contextFactorMin; }
@@ -306,5 +308,109 @@ public class CompartmentEngineConfig {
 
         public double getWideRedistributionShare() { return wideRedistributionShare; }
         public void setWideRedistributionShare(double value) { this.wideRedistributionShare = value; }
+    }
+
+    /**
+     * The deliberately discontinuous SHOOTER mechanic. Values of 20 are hand-authored
+     * exceptional abilities; normal generation and training stop at rating.attribute-max (19).
+     */
+    public static class Shooter {
+        private double attackContribution = 0.20;
+        private double midfieldContribution = 0.0;
+        private double defenseContribution = 0.10;
+        private double regularLongShotsCeiling = 0.68;
+        private double regularLongShotsExponent = 3.0;
+        private List<Double> standardShotDistribution =
+                List.of(0.25, 0.40, 0.20, 0.075, 0.05, 0.025);
+        private List<Double> exceptionalPositioningShotDistribution =
+                List.of(0.05, 0.50, 0.225, 0.10, 0.075, 0.05);
+        private Map<String, PressingRule> pressing = defaultPressingRules();
+
+        public double getAttackContribution() { return attackContribution; }
+        public void setAttackContribution(double v) { this.attackContribution = v; }
+        public double getMidfieldContribution() { return midfieldContribution; }
+        public void setMidfieldContribution(double v) { this.midfieldContribution = v; }
+        public double getDefenseContribution() { return defenseContribution; }
+        public void setDefenseContribution(double v) { this.defenseContribution = v; }
+        public double getRegularLongShotsCeiling() { return regularLongShotsCeiling; }
+        public void setRegularLongShotsCeiling(double v) { this.regularLongShotsCeiling = v; }
+        public double getRegularLongShotsExponent() { return regularLongShotsExponent; }
+        public void setRegularLongShotsExponent(double v) { this.regularLongShotsExponent = v; }
+        public List<Double> getStandardShotDistribution() { return standardShotDistribution; }
+        public void setStandardShotDistribution(List<Double> v) { this.standardShotDistribution = v; }
+        public List<Double> getExceptionalPositioningShotDistribution() {
+            return exceptionalPositioningShotDistribution;
+        }
+        public void setExceptionalPositioningShotDistribution(List<Double> v) {
+            this.exceptionalPositioningShotDistribution = v;
+        }
+        public Map<String, PressingRule> getPressing() { return pressing; }
+        public void setPressing(Map<String, PressingRule> v) { this.pressing = v; }
+
+        private static Map<String, PressingRule> defaultPressingRules() {
+            Map<String, PressingRule> result = new LinkedHashMap<>();
+            // Spring relaxed map binding canonicalizes keys containing spaces. Use the
+            // same form here so YAML replaces defaults instead of adding duplicate rules.
+            result.put("VeryEasy", new PressingRule(0.01, 0.00));
+            result.put("Easy", new PressingRule(0.15, 0.025));
+            result.put("Normal", new PressingRule(0.50, 0.10));
+            result.put("Aggressive", new PressingRule(0.85, 0.30));
+            result.put("VeryAggressive", new PressingRule(0.99, 0.40));
+            return result;
+        }
+    }
+
+    public static class PressingRule {
+        private double shotReduction;
+        private double redCardChance;
+
+        public PressingRule() {}
+        public PressingRule(double shotReduction, double redCardChance) {
+            this.shotReduction = shotReduction;
+            this.redCardChance = redCardChance;
+        }
+        public double getShotReduction() { return shotReduction; }
+        public void setShotReduction(double v) { this.shotReduction = v; }
+        public double getRedCardChance() { return redCardChance; }
+        public void setRedCardChance(double v) { this.redCardChance = v; }
+    }
+
+    /** Explicit high-recovery short-passing mechanic; every percentage is YAML-controlled. */
+    public static class PassingStyle {
+        private double midfieldThreshold = 19.0;
+        private double baseSuppression = 0.99;
+        private double aggressiveSuppression = 0.97;
+        private double veryAggressiveSuppression = 0.90;
+        private double longPassingSuppression = 0.85;
+        private double pace20Bonus = 0.05;
+        private double nonPace20Penalty = 0.10;
+        private double opponentPace20Penalty = 0.10;
+        private double finishing19Factor = 0.60;
+        private double pace19Chance = 0.25;
+        private List<Double> strikerOpportunityDistribution =
+                List.of(0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05);
+
+        public double getMidfieldThreshold() { return midfieldThreshold; }
+        public void setMidfieldThreshold(double v) { midfieldThreshold = v; }
+        public double getBaseSuppression() { return baseSuppression; }
+        public void setBaseSuppression(double v) { baseSuppression = v; }
+        public double getAggressiveSuppression() { return aggressiveSuppression; }
+        public void setAggressiveSuppression(double v) { aggressiveSuppression = v; }
+        public double getVeryAggressiveSuppression() { return veryAggressiveSuppression; }
+        public void setVeryAggressiveSuppression(double v) { veryAggressiveSuppression = v; }
+        public double getLongPassingSuppression() { return longPassingSuppression; }
+        public void setLongPassingSuppression(double v) { longPassingSuppression = v; }
+        public double getPace20Bonus() { return pace20Bonus; }
+        public void setPace20Bonus(double v) { pace20Bonus = v; }
+        public double getNonPace20Penalty() { return nonPace20Penalty; }
+        public void setNonPace20Penalty(double v) { nonPace20Penalty = v; }
+        public double getOpponentPace20Penalty() { return opponentPace20Penalty; }
+        public void setOpponentPace20Penalty(double v) { opponentPace20Penalty = v; }
+        public double getFinishing19Factor() { return finishing19Factor; }
+        public void setFinishing19Factor(double v) { finishing19Factor = v; }
+        public double getPace19Chance() { return pace19Chance; }
+        public void setPace19Chance(double v) { pace19Chance = v; }
+        public List<Double> getStrikerOpportunityDistribution() { return strikerOpportunityDistribution; }
+        public void setStrikerOpportunityDistribution(List<Double> v) { strikerOpportunityDistribution = v; }
     }
 }

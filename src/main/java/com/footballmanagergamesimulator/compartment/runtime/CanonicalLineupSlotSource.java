@@ -1,27 +1,30 @@
-package com.footballmanagergamesimulator.compartment.shadow;
+package com.footballmanagergamesimulator.compartment.runtime;
 
 import com.footballmanagergamesimulator.compartment.PlayerPosition;
-import com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PlayerSkills;
 
 import java.util.Objects;
 
-public record ShadowLineupSlotSource(
+/** Domain-backed lineup slot converted at the authoritative runtime boundary. */
+public record CanonicalLineupSlotSource(
         Human player,
         PlayerSkills skills,
         FormationData formationData,
         String usedPosition,
         int occurrence) {
-    public ShadowLineupSlotSource {
+    public CanonicalLineupSlotSource {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(skills, "skills");
-        if (usedPosition == null || usedPosition.isBlank()) throw new IllegalArgumentException("usedPosition must not be blank");
+        if (usedPosition == null || usedPosition.isBlank()) {
+            throw new IllegalArgumentException("usedPosition must not be blank");
+        }
         if (occurrence <= 0) throw new IllegalArgumentException("occurrence must be positive");
     }
 
     public RuntimeLineupSlot toRuntimeSlot() {
-        return new RuntimeLineupSlot(player, skills, formationData, PlayerPosition.require(usedPosition), occurrence);
+        return new RuntimeLineupSlot(
+                player, skills, formationData, PlayerPosition.require(usedPosition), occurrence);
     }
 }

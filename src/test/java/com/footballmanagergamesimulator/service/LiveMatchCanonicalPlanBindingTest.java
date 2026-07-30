@@ -57,7 +57,6 @@ class LiveMatchCanonicalPlanBindingTest {
     @BeforeEach
     void setUp() throws Exception {
         engineConfig = new MatchEngineConfig();
-        engineConfig.getTacticalModel().setEnabled(true);
         engineConfig.getMatchPlan().setEnabled(true); // flag ON
 
         service = new LiveMatchSimulationService();
@@ -159,6 +158,30 @@ class LiveMatchCanonicalPlanBindingTest {
                 .filter(g -> g.getTeamId() == AWAY_TEAM).map(g -> g.getMinute()).sorted().toList();
         assertEquals(List.of(20, 60), homeGoalMinutes, "home goals at the plan's minutes");
         assertEquals(List.of(40), awayGoalMinutes, "away goal at the plan's minute");
+    }
+
+    @Test
+    void canonicalPassingControl_drivesLivePossessionChance() {
+        List<LivePlanSnapshot.ParticipantView> participants = new ArrayList<>();
+        for (long id = 100; id <= 112; id++) participants.add(pv(HOME_TEAM, (int) (id - 100), contrib(id)));
+        for (long id = 200; id <= 212; id++) participants.add(pv(AWAY_TEAM, (int) (id - 200), contrib(id)));
+
+        LivePlanSnapshot snap = new LivePlanSnapshot("CTIM:" + MATCH_ROW, 12345L,
+                HOME_TEAM, AWAY_TEAM, 0.84, 0.0,
+                com.footballmanagergamesimulator.matchplan.MatchPlan.Status.PLANNED,
+                90, -1, -1, List.of(), participants, List.of());
+        when(matchPlanService.loadLivePlanSnapshot("CTIM:" + MATCH_ROW))
+                .thenReturn(java.util.Optional.of(snap));
+
+        Matchup matchup = tacticalScoreService.matchup(
+                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
+                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
+        LiveMatchSession session = service.createInteractiveSession(
+                HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
+                false, matchup, 0, 0, MATCH_ROW, "4-4-2", "4-4-2");
+
+        assertEquals(0.84, session.team1PossChance, 0.000_001,
+                "live possession must use the PASSING control stored in the canonical plan");
     }
 
     @Test

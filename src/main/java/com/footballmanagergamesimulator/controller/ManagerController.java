@@ -355,7 +355,7 @@ public class ManagerController {
     /** Position in the team's league (typeId 1 or 3). Returns 0 if not found. */
     private int computeLeaguePosition(Team team) {
         Competition league = competitionRepository.findAll().stream()
-                .filter(c -> c.getId() == team.getCompetitionId() && (c.getTypeId() == 1 || c.getTypeId() == 3))
+                .filter(c -> c.getId() == team.getCompetitionId() && c.isLeague())
                 .findFirst()
                 .orElse(null);
         if (league == null) return 0;

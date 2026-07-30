@@ -11,7 +11,9 @@ import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.TransferOfferRepository;
 import com.footballmanagergamesimulator.transfermarket.BuyPlanTransferView;
+import com.footballmanagergamesimulator.transfermarket.MatchingPass;
 import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
+import com.footballmanagergamesimulator.transfermarket.SquadDepthChart;
 import com.footballmanagergamesimulator.transfermarket.TransferPlayer;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -42,6 +44,14 @@ public class TransferMarketService {
     @Autowired private UserContext userContext;
     @Autowired private CoachPermissionService coachPermissionService;
 
+    /** Diagnostic only: which path the most recent successful match used. Single
+     *  threaded within a window; read immediately after canBeTransfered returns true. */
+    private boolean lastMatchWasStarter = false;
+
+    public boolean lastMatchWasStarter() {
+        return lastMatchWasStarter;
+    }
+
     /** Global flag. Flipped by {@link com.footballmanagergamesimulator.service.SeasonTransitionService}
      *  (open at end-of-season) and {@link com.footballmanagergamesimulator.service.GameAdvanceService}
      *  (open/close on calendar transitions). */
@@ -59,20 +69,74 @@ public class TransferMarketService {
     public boolean canBeTransfered(PlayerTransferView playerTransferView,
                                    BuyPlanTransferView clubPlan,
                                    TransferPlayer desiredPlayer) {
+        return canBeTransfered(playerTransferView, clubPlan, desiredPlayer, MatchingPass.PRIMARY);
+    }
+
+    /**
+     * Whether this club may sign this player, on the terms of the given pass.
+     *
+     * <p>Two ways in, and they are the same question asked from both sides:
+     *
+     * <ol>
+     *   <li><b>Starter.</b> He beats the club's incumbent at that position, so he
+     *       walks into the XI. The club wants him because he strengthens it; he
+     *       accepts because he plays. A position with no starter has an incumbent
+     *       of 0, so a hole admits anybody — which is what makes it urgent.</li>
+     *   <li><b>Step-up.</b> He does not beat the incumbent, but he is a credible
+     *       backup for him AND the club is enough better than he is that a bench
+     *       seat there is still a move up. This is the squad-depth market, and how
+     *       much of it a club does is the main thing that distinguishes the
+     *       strategies.
+     *
+     *       <p>Both halves are load-bearing. "The club is better than him" alone has
+     *       no lower bound — it gets <i>easier</i> to satisfy the worse the player
+     *       is, so a side averaging 231 would sign a 99-rated keeper behind a
+     *       215-rated one. The club's own floor is what stops that, and it is
+     *       measured against the incumbent, not the squad average, so it never
+     *       interferes with filling a genuine hole (that goes through the starter
+     *       path).</li>
+     * </ol>
+     *
+     * <p>Reputation plays no part. It was static seed data that judged the selling
+     * <i>club</i> rather than the player, which blocked exactly the dominant flow —
+     * a big club's fringe player dropping to a smaller one where he starts.
+     *
+     * <p>Positions are compared on the permissively collapsed base position, so an
+     * AMC competes for an MC slot at full value. Familiarity has already discounted
+     * the <i>incumbent</i> in {@link SquadDepthChart}; it never penalises the
+     * candidate, because it must be able to lower a bar but never raise one.
+     */
+    public boolean canBeTransfered(PlayerTransferView playerTransferView,
+                                   BuyPlanTransferView clubPlan,
+                                   TransferPlayer desiredPlayer,
+                                   MatchingPass pass) {
         if (playerTransferView.isWillNeverLeave())
             return false; // editor-protected one-club player
         if (playerTransferView.getAge() > clubPlan.getMaxAge())
             return false; // club does not want to buy player, too old
-        if (playerTransferView.getDesiredReputation() - 1000 > clubPlan.getTeamReputation())
-            return false; // club can't buy player, reputation too low
         if (!playerTransferView.getPosition().equals(desiredPlayer.getPosition()))
             return false; // not desired position
-        // 30 = scaled-up 10 for the 1-300 rating range (~3% of full scale tolerance).
-        if (playerTransferView.getRating() < desiredPlayer.getMinRating() - 30)
-            return false; // player rating too low
-        if (playerTransferView.getTeamId() == clubPlan.getTeamId())
+        if (!playerTransferView.isFreeAgent() && playerTransferView.getTeamId() == clubPlan.getTeamId())
             return false; // club already owns player
-        return true;
+
+        double rating = playerTransferView.getRating();
+        // The starter test is NOT relaxed by the clearance pass. Relaxing it let a club
+        // agree a "starter" 35 points below the man he was supposed to displace, pay a
+        // starter's fee, and then watch the engine leave him out. Clearance may loosen
+        // what counts as squad depth; it may not redefine who is better than whom.
+        if (rating > desiredPlayer.getIncumbentRating()) {
+            lastMatchWasStarter = true;
+            return true; // walks into the XI
+        }
+        lastMatchWasStarter = false;
+
+        double relaxation = pass.ratingRelaxation();
+
+        boolean credibleBackup =
+                rating > desiredPlayer.getIncumbentRating() - clubPlan.getDepthTolerance() - relaxation;
+        boolean worthTheMoveForHim =
+                clubPlan.getXiAverage() > rating + clubPlan.getStepUpGap() - relaxation;
+        return credibleBackup && worthTheMoveForHim;
     }
 
     /** AI team submits one offer per position slot for the best matching
@@ -95,12 +159,17 @@ public class TransferMarketService {
             for (TransferPlayer clubPlan : buyPlanTransferView.getPositions()) {
                 for (Human player : humanTeamPlayers) {
                     if (player.isRetired()) continue;
-                    if (player.isWillNeverLeave()) continue;
                     if (player.getPosition() == null || player.getTypeId() != TypeNames.PLAYER_TYPE) continue;
-                    if (!player.getPosition().equals(clubPlan.getPosition())) continue;
-                    if (player.getAge() > buyPlanTransferView.getMaxAge()) continue;
-                    // 30 = scaled-up 10 for the 1-300 rating range.
-                    if (player.getRating() < clubPlan.getMinRating() - 30) continue;
+                    // Same rule the AI-vs-AI market uses, so an AI club cannot bid for a
+                    // human's player on terms it would never accept from another AI club.
+                    // (This path used to compare raw positions against the plan's collapsed
+                    // base position, so an AMC could never match an MC slot at all.)
+                    PlayerTransferView candidate = new PlayerTransferView(
+                            player.getId(), humanTeamId, player.getRating(),
+                            TacticService.getBasePosition(player.getPosition()),
+                            player.getPosition(), player.getAge(),
+                            player.isWillNeverLeave(), false);
+                    if (!canBeTransfered(candidate, buyPlanTransferView, clubPlan)) continue;
 
                     // Different clubs may compete for one player, but the same club cannot
                     // create duplicate active offers when parallel competitions are processed.

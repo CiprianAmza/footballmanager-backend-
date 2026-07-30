@@ -48,7 +48,8 @@ class TacticServiceTest {
     void testGetAllExistingTactics() {
         // Test the list of tactics
         List<String> expectedTactics = List.of("442", "433", "343", "451", "352",
-                "4231", "4141", "4411", "4321", "4222", "3421", "532", "5212", "541", "3511");
+                "4231", "4141", "4411", "4321", "4222", "3421", "532", "5212", "541", "3511",
+                "31411");
         assertEquals(expectedTactics, tacticService.getAllExistingTactics());
     }
 
@@ -61,5 +62,15 @@ class TacticServiceTest {
         assertNotEquals(999, tacticService.getFormationGridIndicesExact("442")[0]);
         assertThrows(IllegalArgumentException.class,
                 () -> tacticService.getFormationGridIndicesExact("missing"));
+    }
+
+    @Test
+    void infersTheFormationThatWasActuallyPersistedInTheKickoffLineup() {
+        assertEquals("541", tacticService.inferFormation(List.of(
+                "GK", "DL", "DC", "DC", "DC", "DR",
+                "ML", "MC", "MC", "MR", "ST"), "442"));
+        assertEquals("442", tacticService.inferFormation(List.of("MC"), "442"));
+        assertEquals("31411", tacticService.inferFormation(List.of(
+                "GK", "DC", "DC", "DC", "DM", "ML", "MC", "MC", "MR", "AMC", "ST"), "442"));
     }
 }

@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.service.CompetitionService;
 import com.footballmanagergamesimulator.service.EuropeanFixturePreparationService;
 import com.footballmanagergamesimulator.service.EuropeanCompetitionService;
 import com.footballmanagergamesimulator.service.FinanceService;
+import com.footballmanagergamesimulator.service.GameLock;
 import com.footballmanagergamesimulator.service.HumanService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import com.footballmanagergamesimulator.service.AwardService;
@@ -25,6 +26,7 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -94,6 +96,10 @@ public class AdminController {
     private com.footballmanagergamesimulator.service.TransferOfferLifecycleService transferOfferLifecycleService;
     @Autowired
     private MatchSimulationOrchestrator matchSimulationOrchestrator;
+    @Autowired
+    private GameLock gameLock;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     private final Random random = new Random();
 
@@ -367,7 +373,6 @@ public class AdminController {
      * Expired deals restart from the current season.
      */
     @PostMapping("/contracts/extend")
-    @Transactional
     public ResponseEntity<?> extendPlayerContracts(
             @RequestBody Map<String, Object> body, HttpServletRequest req) {
         if (!isAdmin(req)) return unauthorized();
@@ -389,6 +394,19 @@ public class AdminController {
                     "error", "teamId is required when allTeams is false"));
         }
 
+        gameLock.lock();
+        try {
+            ResponseEntity<?> response = transactionTemplate.execute(status ->
+                    extendPlayerContractsInTransaction(seasons, allTeams, teamId));
+            return Objects.requireNonNull(response,
+                    "Contract extension transaction returned no response");
+        } finally {
+            gameLock.unlock();
+        }
+    }
+
+    private ResponseEntity<?> extendPlayerContractsInTransaction(
+            int seasons, boolean allTeams, Long teamId) {
         String scope;
         List<Human> candidates;
         if (allTeams) {

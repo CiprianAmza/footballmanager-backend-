@@ -264,7 +264,7 @@ public class CompetitionDisplayService {
             comp.putAll(competitionProgressService.teamProgress(
                     teamId, competition.getId(), curSeason));
 
-            if (competition.getTypeId() == 1 || competition.getTypeId() == 3) {
+            if (competition.isLeague()) {
                 TeamCompetitionDetail detail = teamCompetitionDetailRepository
                         .findFirstByTeamIdAndCompetitionId(teamId, competition.getId());
                 if (detail != null) {
@@ -318,7 +318,7 @@ public class CompetitionDisplayService {
             info.put("typeId", comp.getTypeId());
             info.put("name", comp.getName());
 
-            if (comp.getTypeId() == 1 || comp.getTypeId() == 3) {
+            if (comp.isLeague()) {
                 Map<String, Object> zones = getQualificationZones(comp);
                 info.put("locSpots", zones.get("locSpots"));
                 info.put("starsCupSpots", zones.get("starsCupSpots"));
@@ -339,7 +339,7 @@ public class CompetitionDisplayService {
         int starsCupStart = 0;
         int starsCupEnd = 0;
 
-        if (comp.getTypeId() == 1) {
+        if (comp.isTopFlight()) {
             List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
             int rank = sortedLeagueIds.indexOf(comp.getId()) + 1;
 

@@ -283,17 +283,41 @@ public class MatchStatsService {
             double homePower, double awayPower,
             PersonalizedTactic homeTactic, PersonalizedTactic awayTactic,
             double homeExpectedGoals, double awayExpectedGoals) {
+        return generateAndSaveCanonicalRuntimeMatchStats(
+                competitionId, season, round, team1Id, team2Id,
+                homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic,
+                homeExpectedGoals, awayExpectedGoals, 0, 0, 0, 0);
+    }
+
+    public MatchStats generateAndSaveCanonicalRuntimeMatchStats(
+            long competitionId, int season, int round,
+            long team1Id, long team2Id,
+            int homeGoals, int awayGoals,
+            double homePower, double awayPower,
+            PersonalizedTactic homeTactic, PersonalizedTactic awayTactic,
+            double homeExpectedGoals, double awayExpectedGoals,
+            int homeShooterShots, int awayShooterShots,
+            int homeShooterGoals, int awayShooterGoals) {
         MatchStats stats = generateMatchStats(
                 competitionId, season, round, team1Id, team2Id,
                 homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic,
                 this.random, homeExpectedGoals, awayExpectedGoals);
+        includeShooterAttempts(stats, homeShooterShots, awayShooterShots,
+                homeShooterGoals, awayShooterGoals, this.random);
         stats.setHomeXg(toHundredths(homeExpectedGoals));
         stats.setAwayXg(toHundredths(awayExpectedGoals));
         return matchStatsRepository.save(stats);
     }
 
-    /** Generate and persist a deterministic projection of a persisted canonical decision. */
-    public MatchStats generateAndSaveCanonicalMatchStats(
+    /**
+     * Generate a deterministic, persistence-free projection of a canonical decision.
+     *
+     * <p>This is the reporting/simulation seam for callers that need the exact same
+     * statistics as a real match without manufacturing a competition fixture or
+     * filling {@code match_stats} with synthetic rows. The persisted production path
+     * below delegates here, so the two projections cannot drift.</p>
+     */
+    public MatchStats projectCanonicalMatchStats(
             CanonicalMatchEffectsInput input,
             long competitionId, int season, int round) {
         CanonicalMatchStatsValidator.validate(input);
@@ -305,7 +329,15 @@ public class MatchStatsService {
             stats.setAwayXg(toHundredths(input.decision().awayXg()));
         }
         validateGeneratedCanonicalStats(stats);
-        return matchStatsRepository.save(stats);
+        return stats;
+    }
+
+    /** Generate and persist a deterministic projection of a persisted canonical decision. */
+    public MatchStats generateAndSaveCanonicalMatchStats(
+            CanonicalMatchEffectsInput input,
+            long competitionId, int season, int round) {
+        return matchStatsRepository.save(
+                projectCanonicalMatchStats(input, competitionId, season, round));
     }
 
     private MatchStats generateCanonicalMatchStats(
@@ -328,8 +360,12 @@ public class MatchStatsService {
         stats.setHomeGoals(homeGoals);
         stats.setAwayGoals(awayGoals);
 
-        int homePossession = clamp((int) Math.round(profile.possessionBase()
-                + edge * profile.possessionPowerScale() + rng.nextGaussian() * profile.possessionNoise()), 25, 75);
+        double possessionNoise = rng.nextGaussian() * profile.possessionNoise();
+        double baselineHomePossession = profile.possessionBase()
+                + edge * profile.possessionPowerScale() + possessionNoise;
+        int homePossession = canonicalHomePossession(
+                input.decision().homePassingControl(), input.decision().awayPassingControl(),
+                baselineHomePossession, possessionNoise);
         int awayPossession = 100 - homePossession;
         stats.setHomePossession(homePossession);
         stats.setAwayPossession(awayPossession);
@@ -427,7 +463,61 @@ public class MatchStatsService {
                 + edge * 2 + rng.nextGaussian() * profile.aerialDuelsNoise()), 5, 25));
         stats.setAwayAerialDuelsWon(clamp((int) Math.round(profile.aerialDuelsBase()
                 - edge * 2 + rng.nextGaussian() * profile.aerialDuelsNoise()), 5, 25));
+        includeShooterAttempts(stats,
+                input.decision().homeShooterShots() + input.decision().homePassingOpportunities(),
+                input.decision().awayShooterShots() + input.decision().awayPassingOpportunities(),
+                input.decision().homeShooterGoals() + input.decision().homePassingGoals(),
+                input.decision().awayShooterGoals() + input.decision().awayPassingGoals(), rng);
         return stats;
+    }
+
+    /**
+     * PASSING control is the share of the match controlled through the special
+     * midfield mechanic, so a side with 84% control must also have possession in
+     * that neighbourhood. When neither side activates it, retain the ordinary
+     * power-based possession model. If both activate it, compare their control
+     * strengths instead of allowing two impossible 80% possession shares.
+     */
+    private int canonicalHomePossession(double homeControl, double awayControl,
+                                        double baselineHomePossession, double possessionNoise) {
+        if (homeControl <= 0.0 && awayControl <= 0.0) {
+            return clamp((int) Math.round(baselineHomePossession), 25, 75);
+        }
+        double controlledHomeShare;
+        if (homeControl > 0.0 && awayControl > 0.0) {
+            controlledHomeShare = homeControl / (homeControl + awayControl);
+        } else if (homeControl > 0.0) {
+            controlledHomeShare = homeControl;
+        } else {
+            controlledHomeShare = 1.0 - awayControl;
+        }
+        return clamp((int) Math.round(controlledHomeShare * 100.0 + possessionNoise), 5, 95);
+    }
+
+    /**
+     * The ordinary shot model already contains every scored goal because of its
+     * football floor. Add only the SHOOTER attempts that missed, then classify
+     * those misses deterministically as saved, blocked or off target.
+     */
+    private void includeShooterAttempts(MatchStats stats,
+                                        int homeAttempts, int awayAttempts,
+                                        int homeGoals, int awayGoals,
+                                        Random rng) {
+        int homeMisses = Math.max(0, homeAttempts - homeGoals);
+        int awayMisses = Math.max(0, awayAttempts - awayGoals);
+        int homeSaved = randomBounded(rng, homeMisses, 0.35);
+        int awaySaved = randomBounded(rng, awayMisses, 0.35);
+        int homeBlocked = randomBounded(rng, homeMisses - homeSaved, 0.45);
+        int awayBlocked = randomBounded(rng, awayMisses - awaySaved, 0.45);
+
+        stats.setHomeShots(stats.getHomeShots() + homeMisses);
+        stats.setAwayShots(stats.getAwayShots() + awayMisses);
+        stats.setHomeShotsOnTarget(stats.getHomeShotsOnTarget() + homeSaved);
+        stats.setAwayShotsOnTarget(stats.getAwayShotsOnTarget() + awaySaved);
+        stats.setHomeShotsBlocked(stats.getHomeShotsBlocked() + homeBlocked);
+        stats.setAwayShotsBlocked(stats.getAwayShotsBlocked() + awayBlocked);
+        stats.setHomeSaves(Math.max(0, stats.getAwayShotsOnTarget() - stats.getAwayGoals()));
+        stats.setAwaySaves(Math.max(0, stats.getHomeShotsOnTarget() - stats.getHomeGoals()));
     }
 
     private int canonicalXg(int goals, int shots, CanonicalMatchStatsProfileV1 profile) {
@@ -486,6 +576,17 @@ public class MatchStatsService {
             long team1Id, long team2Id,
             LiveMatchData liveData,
             double homePower, double awayPower) {
+        return persistLiveMatchStats(competitionId, season, round, team1Id, team2Id,
+                liveData, homePower, awayPower, 0, 0, 0, 0);
+    }
+
+    public MatchStats persistLiveMatchStats(
+            long competitionId, int season, int round,
+            long team1Id, long team2Id,
+            LiveMatchData liveData,
+            double homePower, double awayPower,
+            int homeShooterShots, int awayShooterShots,
+            int homeShooterGoals, int awayShooterGoals) {
 
         Random rng = this.random;
         double totalPower = homePower + awayPower;
@@ -591,6 +692,9 @@ public class MatchStatsService {
         stats.setAwayDuelsWon(clamp((int) (hd * (1 - duelWin)), 15, 60));
         stats.setHomeAerialDuelsWon(clamp((int) (14 + rng.nextGaussian() * 3), 5, 25));
         stats.setAwayAerialDuelsWon(clamp((int) (14 + rng.nextGaussian() * 3), 5, 25));
+
+        includeShooterAttempts(stats, homeShooterShots, awayShooterShots,
+                homeShooterGoals, awayShooterGoals, rng);
 
         return matchStatsRepository.save(stats);
     }

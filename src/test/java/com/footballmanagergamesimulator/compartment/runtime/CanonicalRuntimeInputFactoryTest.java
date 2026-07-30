@@ -136,7 +136,7 @@ class CanonicalRuntimeInputFactoryTest {
         when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
         TacticalContextInput context = factory.build(tactic, slots).tacticalContexts().get(1L);
         assertThat(context).isEqualTo(new TacticalContextInput(
-                "Balanced", "Standard", "Normal", "Standard", "Standard", "Balanced", List.of()));
+                "Balanced", "Standard", "Normal", "Standard", "Normal", "Balanced", List.of()));
     }
 
     @Test
@@ -173,6 +173,27 @@ class CanonicalRuntimeInputFactoryTest {
     }
 
     @Test
+    void shooterIsExplicitAndUniquePerStartingEleven() {
+        List<RuntimeLineupSlot> slots = validSlots();
+        FormationData shooter = formation(10L, null, "Support", List.of());
+        shooter.setSpecialRole("SHOOTER");
+        slots.set(9, replaceFormation(slots.get(9), shooter));
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+
+        CanonicalRuntimeTeamInput input = factory.build(tactic("Balanced"), slots);
+        assertThat(input.lineup().stream().filter(player -> player.traits().contains(PlayerTrait.SHOOTER)))
+                .extracting(player -> player.playerId()).containsExactly(10L);
+
+        FormationData secondShooter = formation(11L, null, "Support", List.of());
+        secondShooter.setSpecialRole("SHOOTER");
+        slots.set(10, replaceFormation(slots.get(10), secondShooter));
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+        assertThatThrownBy(() -> factory.build(tactic("Balanced"), slots))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most one SHOOTER");
+    }
+
+    @Test
     void tacticalAxesAreCanonicalizedAndUnknownValuesRejected() {
         PersonalizedTactic canonical = tactic("  vErY aTtAcKiNg ");
         canonical.setTempo(" hIgHeR ");
@@ -187,7 +208,7 @@ class CanonicalRuntimeInputFactoryTest {
         assertThat(context.tempo()).isEqualTo("Higher");
         assertThat(context.passingType()).isEqualTo("Short");
         assertThat(context.defensiveLine()).isEqualTo("High");
-        assertThat(context.pressing()).isEqualTo("High");
+        assertThat(context.pressing()).isEqualTo("Very Aggressive");
         assertThat(context.width()).isEqualTo("Wide");
 
         Map<String, java.util.function.Consumer<PersonalizedTactic>> invalid = Map.of(
@@ -247,6 +268,59 @@ class CanonicalRuntimeInputFactoryTest {
         var player = factory.build(tactic("Balanced"), instructionOnly).lineup().get(10);
         assertThat(player.traits()).isEmpty();
         assertThat(player.forwardInstruction()).isEqualTo(ForwardInstruction.STAY_FORWARD);
+    }
+
+    @Test
+    void tacticalShadowUsesRefusesDefensiveWorkTraitAndIsNotUnique() {
+        List<RuntimeLineupSlot> slots = validSlots();
+        FormationData leftShadow = formation(7L, null, "Support", List.of());
+        leftShadow.setShadow(true);
+        leftShadow.setSpecialRole("SHOOTER");
+        FormationData strikerShadow = formation(11L, null, "Attack", List.of());
+        strikerShadow.setShadow(true);
+        FormationData centralMidfielderShadow = formation(6L, null, "Attack", List.of());
+        centralMidfielderShadow.setShadow(true);
+        slots.set(5, replaceFormation(slots.get(5), centralMidfielderShadow));
+        slots.set(6, replaceFormation(slots.get(6), leftShadow));
+        slots.set(10, replaceFormation(slots.get(10), strikerShadow));
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+
+        var lineup = factory.build(tactic("Balanced"), slots).lineup();
+
+        assertThat(lineup.stream()
+                .filter(player -> player.traits().contains(PlayerTrait.REFUSES_DEFENSIVE_WORK)))
+                .extracting(player -> player.playerId())
+                .containsExactlyInAnyOrder(6L, 7L, 11L);
+        assertThat(lineup.stream()
+                .filter(player -> player.traits().contains(PlayerTrait.SHOOTER)))
+                .singleElement()
+                .satisfies(player -> assertThat(player.traits())
+                        .contains(PlayerTrait.SHOOTER, PlayerTrait.REFUSES_DEFENSIVE_WORK));
+    }
+
+    @Test
+    void tacticalShadowIsRejectedOutsideItsEligiblePositions() {
+        List<RuntimeLineupSlot> slots = validSlots();
+        FormationData shadowDefender = formation(2L, null, "Defend", List.of());
+        shadowDefender.setShadow(true);
+        slots.set(1, replaceFormation(slots.get(1), shadowDefender));
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+
+        assertThatThrownBy(() -> factory.build(tactic("Balanced"), slots))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SHADOW").hasMessageContaining("DC");
+    }
+
+    @Test
+    void persistentStayForwardPlayerIsAlwaysShadowEvenWithoutSavedSelection() {
+        List<RuntimeLineupSlot> slots = validSlots();
+        slots.get(10).player().setStayForward(true);
+        when(capabilities.loadAll(anyCollection())).thenReturn(snapshots(slots));
+
+        var striker = factory.build(tactic("Balanced"), slots).lineup().stream()
+                .filter(player -> player.playerId() == 11L).findFirst().orElseThrow();
+
+        assertThat(striker.traits()).containsExactly(PlayerTrait.REFUSES_DEFENSIVE_WORK);
     }
 
     @Test

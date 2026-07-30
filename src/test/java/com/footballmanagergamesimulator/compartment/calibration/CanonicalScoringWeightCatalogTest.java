@@ -21,7 +21,7 @@ class CanonicalScoringWeightCatalogTest {
     void catalogIsStableAndContainsContextAndRoleWeights() {
         var config = CalibrationConfigFixture.load();
         var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
-        assertThat(catalog.size()).isEqualTo(731);
+        assertThat(catalog.size()).isEqualTo(727);
         assertThat(catalog.leafWeights()).isSortedAccordingTo(java.util.Comparator.comparing(CanonicalScoringWeightKey::path));
         assertThat(catalog.get("compartment.context-rules.linehigh.PACE")).isNotNull();
         assertThat(catalog.get("match.role-weights.suitability-scale")).isNotNull();
@@ -60,6 +60,9 @@ class CanonicalScoringWeightCatalogTest {
         rating.setMoraleSlope(0.0011);
         rating.setDefaultPositionMultiplier(0.77);
         rating.setDefaultRoleMultiplier(1.23);
+        rating.setExceptionalAttributeValue(20);
+        config.compartment().getShooter().setRegularLongShotsCeiling(0.63);
+        config.compartment().getShooter().getPressing().get("VeryEasy").setShotReduction(0.07);
         var set = CanonicalScoringWeightSet.baseline(config.compartment(), config.match())
                 .override(CanonicalScoringWeightCatalog.from(config.compartment(), config.match()),
                         new CanonicalScoringWeightOverride("compartment.rating.score-scale", 101.0));
@@ -70,6 +73,10 @@ class CanonicalScoringWeightCatalogTest {
         assertThat(set.compartment().getRating().getMoraleSlope()).isEqualTo(0.0011);
         assertThat(set.compartment().getRating().getDefaultPositionMultiplier()).isEqualTo(0.77);
         assertThat(set.compartment().getRating().getDefaultRoleMultiplier()).isEqualTo(1.23);
+        assertThat(set.compartment().getRating().getExceptionalAttributeValue()).isEqualTo(20);
+        assertThat(set.compartment().getShooter().getRegularLongShotsCeiling()).isEqualTo(0.63);
+        assertThat(set.compartment().getShooter().getPressing().get("VeryEasy").getShotReduction())
+                .isEqualTo(0.07);
         assertThat(set.compartment().getRating().getScoreScale()).isEqualTo(101.0);
         assertThat(config.compartment().getRating().getScoreScale()).isEqualTo(100.0);
     }
@@ -106,7 +113,7 @@ class CanonicalScoringWeightCatalogTest {
 
         assertThatThrownBy(() -> CanonicalScoringWeightCatalog.from(profile.compartment(), profile.match()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("context rule path collision");
+                .hasMessageContaining("ambiguous context rule aliases");
     }
 
     private static void flatten(Object value, String path, List<String> output) {
@@ -126,11 +133,15 @@ class CanonicalScoringWeightCatalogTest {
         boolean nonNumeric = normalized.contains(".ignores-defensive-instructions")
                 || normalized.contains(".forced-defensive-morale-delta")
                 || normalized.endsWith(".transfer-from") || normalized.endsWith(".transfer-to")
-                || normalized.startsWith("compartment.roles.SHADOW_STRIKER.");
+                || normalized.startsWith("compartment.roles.SHADOW_STRIKER.")
+                // Discontinuous SHOOTER events are verified by their dedicated probability
+                // tests and runtime fingerprint, not by the collective continuous sweep.
+                || normalized.startsWith("compartment.shooter.")
+                || normalized.equals("compartment.rating.exceptional-attribute-value")
+                || normalized.equals("compartment.probability.extra-time-scale");
         if (normalized.matches("compartment\\.mentalities\\.[^.]+\\.midfield-to-defense")) return;
         if (normalized.equals("compartment.work-rate.instructions.STAY_FORWARD.engagement")) return;
-        if (!nonNumeric && !normalized.equals("compartment.enabled") && !normalized.equals("compartment.shadow-enabled")
-                && !normalized.equals("match.engine.compartment.enabled") && !normalized.equals("match.engine.compartment.shadow-enabled")) output.add(normalized);
+        if (!nonNumeric) output.add(normalized);
     }
 
     private static void assertUniqueNormalizedPaths(List<String> paths) {

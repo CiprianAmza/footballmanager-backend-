@@ -69,7 +69,7 @@ class CurrentTacticalEngineBaselineTest {
         }
         return new BaselineSnapshot(1, BASE_COMMIT, TacticalScoreService.class.getName(), BASE_SEED,
                 MATCHES_PER_SCENARIO,
-                new EngineConfigSnapshot(cfg.isEnabled(), cfg.getRatioExponent(), cfg.getBaseOpenness(),
+                new EngineConfigSnapshot(true, cfg.getRatioExponent(), cfg.getBaseOpenness(),
                         cfg.getHomeAttackBonus(), cfg.getMaxGoalsPerTeam()),
                 results);
     }

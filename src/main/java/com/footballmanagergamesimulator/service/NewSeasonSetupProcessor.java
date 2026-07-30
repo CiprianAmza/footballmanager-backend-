@@ -81,6 +81,15 @@ import java.util.stream.Collectors;
 @Service
 public class NewSeasonSetupProcessor {
 
+    /**
+     * These clubs use hand-authored mechanics that depend on their persisted
+     * formation and XI. Treating them like generated AI tactics at the season
+     * boundary silently disables PASSING STYLE / SHOOTER from season two on.
+     */
+    private static final Set<String> PERMANENT_AUTHORED_TACTIC_TEAMS = Set.of(
+            "Inazuma Japan",
+            "Athletic Sohatu");
+
     @Autowired private RoundRepository roundRepository;
     @Autowired private TeamRepository teamRepository;
     @Autowired private HumanRepository humanRepository;
@@ -138,9 +147,11 @@ public class NewSeasonSetupProcessor {
         int newSeason = Math.toIntExact(oldSeason + 1);
         System.out.println("=== processNewSeasonSetup: transitioning from season " + season + " ===");
 
-        // Note: refreshTeamBudgets is called in processEndOfSeason before AI transfers
+        // Note: refreshTeamBudgets is called in processEndOfSeason before AI transfers.
+        // So are training, ageing, retirements, loan returns and contract expiries —
+        // the AI market must see the squads clubs will actually field next season,
+        // and the free agents those expiries release. See EndOfSeasonProcessor.
         List<Long> teamIds = teamRepository.findAll().stream().map(Team::getId).collect(Collectors.toList());
-        applyTrainingEffect(teamIds);
 
         Set<Long> competitions = competitionRepository.findAll()
                 .stream()
@@ -155,11 +166,9 @@ public class NewSeasonSetupProcessor {
         snapshotHistoricalValues(competitions, oldSeason, detailsByCompetition);
         saveAllPlayerTeamHistoricalRelations(oldSeason);
 
-        // Return loaned players (handles buy obligations and salary adjustments)
-        processLoanReturns((int) oldSeason);
-
-        // Execute Admin movements scheduled for this exact season boundary only
-        // after older loans have returned and before contract expiries are applied.
+        // Loans already returned in processEndOfSeason, before the AI market.
+        // Admin movements stay here: they are your explicit instructions and must
+        // land on top of whatever the AI market did, not be anticipated by it.
         adminTransferService.executeScheduledForSeason(newSeason);
 
         resetCompetitionData();
@@ -167,10 +176,9 @@ public class NewSeasonSetupProcessor {
         removeCompetitionData((long) newSeason);
         addImprovementToOverachievers();
 
-        humanService.addOneYearToAge();
-        humanService.retirePlayers();
-        // Wipe AI tactics for the new season but preserve human-managed teams'
-        // saved formation/mentality/tempo — a blanket deleteAll() would lose them.
+        // Ageing + retirements already applied in processEndOfSeason, before the market.
+        // Wipe generated AI tactics for the new season, while preserving human
+        // teams and the hand-authored PASSING STYLE / SHOOTER setups.
         clearAiPersonalizedTactics();
 
         // Collect regens across ALL teams, then flush via saveAll once per repository.
@@ -216,12 +224,19 @@ public class NewSeasonSetupProcessor {
         // Clear derby cache for new season
         teamPostMatchService.clearDerbyCache();
 
-        endOfSeasonProcessor.handleContractExpiries(newSeason);
+        // Player contract expiries already applied in processEndOfSeason, so the
+        // released players were available to the AI market as free agents.
         scoutManagementController.processExpiredContracts(newSeason);
         // Contracts and retirements are now final for the boundary. Promote
         // academy players only at this point, so every club starts the season
         // with at least 18 permanent first-team players.
+        // Already run in processEndOfSeason, before the market. Repeated here so any
+        // club left short by what happened since (admin moves, loan returns) still
+        // starts the season able to field a side; it is a no-op for everyone else.
         minimumSquadService.ensureMinimumSquads(newSeason);
+        // Readiness was already restored in processEndOfSeason, before the market.
+        // Re-run it here so players who arrived since (admin moves, academy promotions,
+        // regens) also start the season fresh; it is idempotent for everyone else.
         int resetPlayers = newSeasonPlayerReadinessService.resetActiveTeamPlayers();
         System.out.println("=== New-season readiness reset to 80 morale / 80 fitness for "
                 + resetPlayers + " active team player(s) ===");
@@ -308,17 +323,17 @@ public class NewSeasonSetupProcessor {
     }
 
     // ============================================================
-    //  Personalized-tactic reset (preserve human teams)
+    //  Personalized-tactic reset (preserve human + authored special teams)
     // ============================================================
 
-    private void clearAiPersonalizedTactics() {
-        Set<Long> humanTeamIds = new HashSet<>(userContext.getAllHumanTeamIds());
-        if (humanTeamIds.isEmpty()) {
-            personalizedTacticRepository.deleteAll();
-            return;
-        }
+    void clearAiPersonalizedTactics() {
+        Set<Long> preservedTeamIds = new HashSet<>(userContext.getAllHumanTeamIds());
+        teamRepository.findAll().stream()
+                .filter(team -> PERMANENT_AUTHORED_TACTIC_TEAMS.contains(team.getName()))
+                .map(Team::getId)
+                .forEach(preservedTeamIds::add);
         List<PersonalizedTactic> toDelete = personalizedTacticRepository.findAll().stream()
-                .filter(pt -> !humanTeamIds.contains(pt.getTeamId()))
+                .filter(pt -> !preservedTeamIds.contains(pt.getTeamId()))
                 .collect(Collectors.toList());
         personalizedTacticRepository.deleteAll(toDelete);
     }

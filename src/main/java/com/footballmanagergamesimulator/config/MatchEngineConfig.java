@@ -9,13 +9,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Single source of truth for every numeric constant that influences a match
- * outcome. Externalized so a fuzz/auto-tuner can sweep values without
- * recompiling and so designers can tweak balance from YAML.
+ * Configuration for match presentation, player effects and historical diagnostics.
+ * Authoritative score-generation weights do not live here; Compartment V1 binds them from
+ * {@code compartment-scoring-weights-v1.yml} through {@link CompartmentEngineConfig}.
  *
- * <p>Defaults equal the hardcoded values that existed before extraction —
- * production behaviour is unchanged unless overridden via
- * {@code match.engine.*} properties in {@code application.yml}.
+ * <p>Defaults equal the hardcoded values that existed before extraction and continue to feed
+ * non-scoring match effects unless overridden via {@code match.engine.*} properties.
  *
  * <p>Sections map to the audit groupings:
  * <ul>
@@ -602,6 +601,11 @@ public class MatchEngineConfig {
         private int goalMinuteMax = 91;
         /** Probability of generating an assist event for a non-penalty goal. */
         private double assistProbability = 0.7;
+        /**
+         * Per-goal assist share reserved for an eligible on-pitch player with
+         * perfect Passing (20). Multiple perfect passers share this probability.
+         */
+        private double perfectPassingAssistProbability = 0.7;
         /** Number of substitutions to generate per team in non-live engine. */
         private int substitutionsPerTeam = 3;
         /** Substitution minute uniform range [min, max-1]. */
@@ -619,6 +623,8 @@ public class MatchEngineConfig {
         public void setGoalMinuteMax(int v) { this.goalMinuteMax = v; }
         public double getAssistProbability() { return assistProbability; }
         public void setAssistProbability(double v) { this.assistProbability = v; }
+        public double getPerfectPassingAssistProbability() { return perfectPassingAssistProbability; }
+        public void setPerfectPassingAssistProbability(double v) { this.perfectPassingAssistProbability = v; }
         public int getSubstitutionsPerTeam() { return substitutionsPerTeam; }
         public void setSubstitutionsPerTeam(int v) { this.substitutionsPerTeam = v; }
         public int getSubstitutionMinuteMin() { return substitutionMinuteMin; }
@@ -1458,22 +1464,13 @@ public class MatchEngineConfig {
         }
     }
 
-    // ==================== TWO-AXIS TACTICAL MODEL (trade-off + matchup) ====================
+    // ==================== LEGACY TACTICAL PRESENTATION MODEL ====================
     /**
-     * Knobs for {@code TacticalScoreService} — the attack/defense match model where tactic
-     * settings redistribute a squad's value between attacking and defending (a trade-off) and
-     * open/slow the game, and goals come from each side's attack vs the other's defense (matchup).
-     * Replaces flat additive percentage bonuses. The categorical setting → numeric mapping
-     * (mentality → bias, tempo → risk, …) lives in {@code TacticalScoreService}; these are the
-     * strength scalars and the per-position attack share.
+     * Historical tactical/presentation coefficients retained for non-scoring UI helpers and old
+     * diagnostic tests. Production score generation is exclusively Compartment V1 and none of
+     * these values can select or replace its scorer.
      */
     public static class TacticalModel {
-        /** When true, production match scoring uses this two-axis model instead of the scalar
-         *  {@code calculateScores} + additive {@code adjustTeamPowerByTacticalProperties} path.
-         *  Default ON (cutover, 2026-05-30): the two-axis model is the production engine. The scalar
-         *  methods are retained (and some legacy scalar-engine tests still exercise them directly),
-         *  but production scoring no longer routes through them. Set false to fall back to the scalar engine. */
-        private boolean enabled = true;
         /** How far mentality shifts value between attack and defense (trade-off magnitude). */
         private double biasStrength = 0.22;
         /** How much "control" settings (keep ball / time-wasting) raise effective defense. */
@@ -1569,8 +1566,6 @@ public class MatchEngineConfig {
         private Map<String, Double> transitionRisk = new HashMap<>();
         private Map<String, Double> transitionControl = new HashMap<>();
 
-        public boolean isEnabled() { return enabled; }
-        public void setEnabled(boolean v) { this.enabled = v; }
         public double getBiasStrength() { return biasStrength; }
         public void setBiasStrength(double v) { this.biasStrength = v; }
         public double getControlStrength() { return controlStrength; }
@@ -1709,7 +1704,7 @@ public class MatchEngineConfig {
         public static final List<String> DEFENSIVE_LINE_OPTIONS =
                 List.of("Deep", "Standard", "High");
         public static final List<String> PRESSING_OPTIONS =
-                List.of("Low", "Standard", "High");
+                List.of("Very Easy", "Easy", "Normal", "Aggressive", "Very Aggressive");
         public static final List<String> WIDTH_OPTIONS =
                 List.of("Narrow", "Balanced", "Wide");
         public static final List<String> DRIBBLING_OPTIONS =
@@ -1724,6 +1719,8 @@ public class MatchEngineConfig {
                 List.of("Cut Inside", "Shoot", "Cross");
         public static final List<String> TRANSITION_OPTIONS =
                 List.of("Win Fouls", "Balanced", "Fast Counter");
+        public static final List<String> RECOVERY_OPTIONS =
+                List.of("Slow", "Standard", "Very Fast", "Instantly");
 
         /** Attack share for a used base position: override → shipped default → 0.5. */
         public double attackShareFor(String position) {

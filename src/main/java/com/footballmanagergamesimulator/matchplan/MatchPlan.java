@@ -43,6 +43,24 @@ public class MatchPlan {
     private Double awayXg;
     private Double homePower;
     private Double awayPower;
+    private int homeCollectiveGoals;
+    private int awayCollectiveGoals;
+    private Long homeShooterPlayerId;
+    private Long awayShooterPlayerId;
+    private int homeShooterGoals;
+    private int awayShooterGoals;
+    private int homeShooterShots;
+    private int awayShooterShots;
+    private Long homePassingPlayerId;
+    private Long awayPassingPlayerId;
+    private int homePassingGoals;
+    private int awayPassingGoals;
+    private int homePassingOpportunities;
+    private int awayPassingOpportunities;
+    private double homePassingControl;
+    private double awayPassingControl;
+    private Long homeRedCardPlayerId;
+    private Long awayRedCardPlayerId;
 
     private long homeTeamId;
     private long awayTeamId;
@@ -100,6 +118,24 @@ public class MatchPlan {
     public Double getAwayXg() { return awayXg; }
     public Double getHomePower() { return homePower; }
     public Double getAwayPower() { return awayPower; }
+    public int getHomeCollectiveGoals() { return homeCollectiveGoals; }
+    public int getAwayCollectiveGoals() { return awayCollectiveGoals; }
+    public Long getHomeShooterPlayerId() { return homeShooterPlayerId; }
+    public Long getAwayShooterPlayerId() { return awayShooterPlayerId; }
+    public int getHomeShooterGoals() { return homeShooterGoals; }
+    public int getAwayShooterGoals() { return awayShooterGoals; }
+    public int getHomeShooterShots() { return homeShooterShots; }
+    public int getAwayShooterShots() { return awayShooterShots; }
+    public Long getHomePassingPlayerId() { return homePassingPlayerId; }
+    public Long getAwayPassingPlayerId() { return awayPassingPlayerId; }
+    public int getHomePassingGoals() { return homePassingGoals; }
+    public int getAwayPassingGoals() { return awayPassingGoals; }
+    public int getHomePassingOpportunities() { return homePassingOpportunities; }
+    public int getAwayPassingOpportunities() { return awayPassingOpportunities; }
+    public double getHomePassingControl() { return homePassingControl; }
+    public double getAwayPassingControl() { return awayPassingControl; }
+    public Long getHomeRedCardPlayerId() { return homeRedCardPlayerId; }
+    public Long getAwayRedCardPlayerId() { return awayRedCardPlayerId; }
     public long getHomeTeamId() { return homeTeamId; }
     public long getAwayTeamId() { return awayTeamId; }
     public int getHomeScore90() { return homeScore90; }
@@ -135,13 +171,80 @@ public class MatchPlan {
         this.awayXg = decision.awayXg();
         this.homePower = decision.homePower();
         this.awayPower = decision.awayPower();
+        this.homeCollectiveGoals = decision.homeCollectiveGoals();
+        this.awayCollectiveGoals = decision.awayCollectiveGoals();
+        this.homeShooterPlayerId = decision.homeShooterPlayerId();
+        this.awayShooterPlayerId = decision.awayShooterPlayerId();
+        this.homeShooterGoals = decision.homeShooterGoals();
+        this.awayShooterGoals = decision.awayShooterGoals();
+        this.homeShooterShots = decision.homeShooterShots();
+        this.awayShooterShots = decision.awayShooterShots();
+        this.homePassingPlayerId = decision.homePassingPlayerId();
+        this.awayPassingPlayerId = decision.awayPassingPlayerId();
+        this.homePassingGoals = decision.homePassingGoals();
+        this.awayPassingGoals = decision.awayPassingGoals();
+        this.homePassingOpportunities = decision.homePassingOpportunities();
+        this.awayPassingOpportunities = decision.awayPassingOpportunities();
+        this.homePassingControl = decision.homePassingControl();
+        this.awayPassingControl = decision.awayPassingControl();
+        this.homeRedCardPlayerId = decision.homeRedCardPlayerId();
+        this.awayRedCardPlayerId = decision.awayRedCardPlayerId();
+        assignShooterGoalSlots(homeTeamId, homeShooterPlayerId, homeShooterGoals);
+        assignShooterGoalSlots(awayTeamId, awayShooterPlayerId, awayShooterGoals);
+        assignPassingGoalSlots(homeTeamId, homePassingPlayerId, homePassingGoals);
+        assignPassingGoalSlots(awayTeamId, awayPassingPlayerId, awayPassingGoals);
     }
 
     public MatchScoringDecision getScoreDecision() {
         if (!hasScoreDecision()) return null;
         return new MatchScoringDecision(fixtureKey, seed, scoreEngine, scoreAlgorithmVersion,
                 scoreConfigFingerprint, scoreInputFingerprint, homeScore90, awayScore90,
-                homePower, awayPower, homeXg, awayXg);
+                homePower, awayPower, homeXg, awayXg,
+                homeCollectiveGoals, awayCollectiveGoals,
+                homeShooterPlayerId, awayShooterPlayerId, homeShooterGoals, awayShooterGoals,
+                homeRedCardPlayerId, awayRedCardPlayerId,
+                homeShooterShots, awayShooterShots,
+                homePassingPlayerId, awayPassingPlayerId,
+                homePassingGoals, awayPassingGoals,
+                homePassingOpportunities, awayPassingOpportunities,
+                homePassingControl, awayPassingControl);
+    }
+
+    private void assignShooterGoalSlots(long teamId, Long shooterPlayerId, int shooterGoals) {
+        if (shooterGoals == 0) return;
+        if (shooterPlayerId == null) {
+            throw new IllegalArgumentException("SHOOTER goals require a SHOOTER player");
+        }
+        List<GoalSlot> regularGoals = goalSlots.stream()
+                .filter(slot -> slot.getPhase() == GoalPhase.REGULAR_TIME && slot.getTeamId() == teamId)
+                .sorted(java.util.Comparator.comparingInt(GoalSlot::getSlotIndex))
+                .toList();
+        if (shooterGoals > regularGoals.size()) {
+            throw new IllegalArgumentException("SHOOTER goals exceed regular-time team score");
+        }
+        for (int i = 0; i < shooterGoals; i++) {
+            regularGoals.get(i).forceScorer(shooterPlayerId, "SHOOTER");
+        }
+    }
+
+    private void assignPassingGoalSlots(long teamId, Long playerId, int goals) {
+        if (goals == 0) return;
+        if (playerId == null) throw new IllegalArgumentException("PASSING STYLE goals require a striker");
+        List<GoalSlot> availableGoals = goalSlots.stream()
+                .filter(slot -> slot.getPhase() == GoalPhase.REGULAR_TIME && slot.getTeamId() == teamId)
+                .filter(slot -> slot.getForcedScorerId() == null)
+                .sorted(java.util.Comparator.comparingInt(GoalSlot::getSlotIndex))
+                .toList();
+        if (goals > availableGoals.size()) {
+            throw new IllegalArgumentException("PASSING STYLE goals exceed unassigned regular-time goals");
+        }
+        for (int i = 0; i < goals; i++) availableGoals.get(i).forceScorer(playerId, "PASSING_STYLE");
+    }
+
+    public Long redCardPlayerId(long teamId) {
+        if (teamId == homeTeamId) return homeRedCardPlayerId;
+        if (teamId == awayTeamId) return awayRedCardPlayerId;
+        throw new IllegalArgumentException("team is not part of plan: " + teamId);
     }
 
     public KnockoutPlanSplit getKnockoutPlanSplit() {

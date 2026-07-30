@@ -13,8 +13,10 @@ import java.util.Random;
  * Used by BOTH the live executor and the instant/batch executor so the two paths
  * can never disagree. Given the players on the pitch at the goal's minute, it
  * chooses a scorer (position × finishing × rating × fitness, honouring a
- * designated penalty/free-kick taker) and, for open play, an assister
- * (position × passing/vision × rating) from the remaining on-pitch players.
+ * designated penalty/free-kick taker) and, for open play, an assister from the
+ * remaining on-pitch players. Passing 20 is exceptional: eligible perfect
+ * passers share a fixed 70% assist chance; the remaining share is distributed
+ * exclusively by the other players' Passing attribute.
  *
  * <p>Determinism: the caller passes a per-slot {@link Random} derived from the
  * plan seed and the slot index, kept separate from any cosmetic-event RNG, so
@@ -22,6 +24,8 @@ import java.util.Random;
  */
 @Service
 public class ContributionResolver {
+
+    private static final int PERFECT_PASSING = 20;
 
     private final MatchEngineConfig engineConfig;
 
@@ -44,15 +48,32 @@ public class ContributionResolver {
         List<Contributor> canonical = new ArrayList<>(onPitch);
         canonical.sort(java.util.Comparator.comparingLong(Contributor::playerId));
 
-        Contributor scorer = pickScorer(slot.getGoalType(), canonical, rng);
+        Contributor scorer = slot.getForcedScorerId() == null
+                ? pickScorer(slot.getGoalType(), canonical, rng)
+                : findForcedScorer(slot.getForcedScorerId(), canonical);
         if (scorer == null) return;
 
         Long assistId = null;
-        if (shouldHaveAssist(slot.getGoalType(), rng)) {
-            Contributor assister = pickAssister(canonical, scorer, rng);
-            if (assister != null) assistId = assister.playerId();
+        if (!"PENALTY".equals(slot.getGoalType())) {
+            boolean shooterGoal = "SHOOTER".equals(slot.getGoalType());
+            List<Contributor> candidates = assistCandidates(canonical, scorer, shooterGoal);
+            boolean hasPerfectPasser = candidates.stream()
+                    .anyMatch(contributor -> contributor.passing() == PERFECT_PASSING);
+            // A perfect passer's 70% is per goal, not 70% of the ordinary
+            // assistProbability. SHOOTER goals also remain guaranteed assists.
+            if (hasPerfectPasser || shooterGoal || shouldHaveAssist(slot.getGoalType(), rng)) {
+                Contributor assister = pickAssister(candidates, rng);
+                if (assister != null) assistId = assister.playerId();
+            }
         }
         slot.resolve(scorer.playerId(), assistId);
+    }
+
+    private Contributor findForcedScorer(long playerId, List<Contributor> onPitch) {
+        for (Contributor contributor : onPitch) {
+            if (contributor.playerId() == playerId) return contributor;
+        }
+        return null;
     }
 
     private Contributor pickScorer(String goalType, List<Contributor> onPitch, Random rng) {
@@ -77,19 +98,50 @@ public class ContributionResolver {
         return r * r;
     }
 
-    private Contributor pickAssister(List<Contributor> onPitch, Contributor scorer, Random rng) {
+    private List<Contributor> assistCandidates(
+            List<Contributor> onPitch, Contributor scorer, boolean includeGoalkeeper) {
         List<Contributor> candidates = new ArrayList<>();
         for (Contributor c : onPitch) {
             if (c.playerId() == scorer.playerId()) continue;
-            if (c.isGoalkeeper()) continue;
+            if (!includeGoalkeeper && c.isGoalkeeper()) continue;
             candidates.add(c);
         }
+        return candidates;
+    }
+
+    /**
+     * Passing 20 is a discrete playmaking ability. When at least one eligible
+     * perfect passer is not the scorer, that group shares the configured 70%.
+     * On a miss of that roll, only the other players contest the remaining 30%,
+     * weighted directly by Passing. If no perfect passer exists, the whole
+     * selection is Passing-weighted.
+     */
+    private Contributor pickAssister(List<Contributor> candidates, Random rng) {
         if (candidates.isEmpty()) return null;
+
+        List<Contributor> perfectPassers = candidates.stream()
+                .filter(contributor -> contributor.passing() == PERFECT_PASSING)
+                .toList();
+        if (!perfectPassers.isEmpty()) {
+            double probability = Math.max(0.0, Math.min(1.0,
+                    engineConfig.getEvents().getPerfectPassingAssistProbability()));
+            if (rng.nextDouble() < probability) {
+                return passingWeightedPick(perfectPassers, rng);
+            }
+            List<Contributor> otherPlayers = candidates.stream()
+                    .filter(contributor -> contributor.passing() != PERFECT_PASSING)
+                    .toList();
+            // A real XI always has another candidate. This fallback only covers
+            // synthetic/minimal lineups and still guarantees a valid assister.
+            if (otherPlayers.isEmpty()) return passingWeightedPick(perfectPassers, rng);
+            return passingWeightedPick(otherPlayers, rng);
+        }
+        return passingWeightedPick(candidates, rng);
+    }
+
+    private Contributor passingWeightedPick(List<Contributor> candidates, Random rng) {
         return PositionScoringWeights.weightedPick(
-                candidates,
-                c -> PositionScoringWeights.assistWeight(c.position(), c.passing(), c.vision())
-                        * Math.max(c.rating(), 1.0),
-                rng);
+                candidates, contributor -> Math.max(contributor.passing(), 0), rng);
     }
 
     private Contributor designatedTaker(String goalType, List<Contributor> onPitch) {

@@ -86,6 +86,23 @@ public class MatchSimulationOrchestrator {
         return matchdayCoordinator.finalizeInteractiveLiveMatch(liveKey);
     }
 
+    /** The AI best XI (player + slot) for a team — the same selection matchday uses.
+     *  Used by the AI transfer market to split starters from reserves. */
+    public java.util.List<com.footballmanagergamesimulator.controller.TacticController.StarterSlot> startersFor(long teamId) {
+        return matchRoundSimulator.startersFor(teamId);
+    }
+
+    /** Prefetch many clubs' squads in two queries — see MatchRoundSimulator.warmFormationSquads. */
+    public void warmFormationSquads(java.util.Collection<Long> teamIds) {
+        matchRoundSimulator.warmFormationSquads(teamIds);
+    }
+
+    /** Squad membership changed, tactical preference did not — drops the squad-derived
+     *  caches but keeps the (expensive) formation choice. Used by the AI transfer window. */
+    public void invalidateSquadCaches(long teamId) {
+        matchRoundSimulator.invalidateSquadCaches(teamId);
+    }
+
     /** Invalidate one team's cached AI base rating after its squad/ratings change
      *  (training, transfers) so the next match recomputes from current data. */
     public void invalidateRatingCache(long teamId) {

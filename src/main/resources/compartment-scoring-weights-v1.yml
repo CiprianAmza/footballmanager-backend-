@@ -4,15 +4,21 @@ match:
     compartment:
       rating:
         attribute-min: 1
-        attribute-max: 20
+        # 1..19 are ordinary generated/trainable values. 20 is hand-authored and
+        # receives its discontinuous meaning only from an explicitly selected special role.
+        attribute-max: 19
+        exceptional-attribute-value: 20
         score-scale: 100.0
         context-coefficient-min: -1.0
         context-coefficient-max: 1.0
         role-fit-base: 0.85
         role-fit-range: 0.30
-        fitness-floor: 0.70
+        # Temporarily neutral while rating/tactic calibration is in progress.
+        # max(1.0, fitness / 100) is always 1.0 for the domain's 0..100 values.
+        fitness-floor: 1.0
         morale-neutral: 70.0
-        morale-slope: 0.0004
+        # Preserve morale as game state/UI data, but keep it out of match strength.
+        morale-slope: 0.0
         default-position-multiplier: 1.0
         default-role-multiplier: 1.0
 
@@ -131,41 +137,41 @@ match:
           transfer-from: DEFENSE
           transfer-to: ATTACK
           transfer-share: 0.20
-          openness: 1.15
+          openness: 3.10
         ATTACKING:
           midfield-to-attack: 0.70
           midfield-to-defense: 0.30
           transfer-from: DEFENSE
           transfer-to: ATTACK
           transfer-share: 0.08
-          openness: 1.07
+          openness: 2.89
         BALANCED:
           midfield-to-attack: 0.50
           midfield-to-defense: 0.50
           transfer-from: ATTACK
           transfer-to: DEFENSE
           transfer-share: 0.00
-          openness: 1.00
+          openness: 2.70
         DEFENSIVE:
           midfield-to-attack: 0.25
           midfield-to-defense: 0.75
           transfer-from: ATTACK
           transfer-to: DEFENSE
           transfer-share: 0.08
-          openness: 0.90
+          openness: 2.43
         VERY_DEFENSIVE:
           midfield-to-attack: 0.10
           midfield-to-defense: 0.90
           transfer-from: ATTACK
           transfer-to: DEFENSE
           transfer-share: 0.20
-          openness: 0.78
+          openness: 2.11
 
       work-rate:
         traits:
           REFUSES_DEFENSIVE_WORK:
             engagement: 0.08
-            attack-multiplier: 1.15
+            attack-multiplier: 10
             ignores-defensive-instructions: true
             forced-defensive-morale-delta: -3.0
         instructions:
@@ -185,12 +191,49 @@ match:
         penalty-exponent: 1.70
 
       probability:
-        matchup-exponent: 1.5
+        # How hard a quality gap converts into a share of the match's goals. At 2.5 a side
+        # 20% stronger took 61% of the chances; at 3.5 it takes 66%. This is the dial for
+        # how much rating decides results — the goal TOTAL is set by mentality openness
+        # below and is deliberately not touched here.
+        matchup-exponent: 3.5
         home-advantage: 1.08
-        gamma-shape: 12.0
+        gamma-shape: 8.0
         goal-cap: 7
+        extra-time-scale: 0.3333333333333333
       aggregation:
         wide-redistribution-share: 0.20
+      shooter:
+        # The player deliberately gives up ordinary collective involvement to focus on shots.
+        attack-contribution: 0.20
+        midfield-contribution: 0.00
+        defense-contribution: 0.10
+        # Long Shots 1..19 stays below 70%; 20 jumps discontinuously to 100%.
+        regular-long-shots-ceiling: 0.68
+        regular-long-shots-exponent: 3.0
+        # Probability for exactly 0,1,2,3,4,5 special shots.
+        standard-shot-distribution: [0.25, 0.40, 0.20, 0.075, 0.05, 0.025]
+        exceptional-positioning-shot-distribution: [0.05, 0.50, 0.225, 0.10, 0.075, 0.05]
+        pressing:
+          "Very Easy":       { shot-reduction: 0.01, red-card-chance: 0.00 }
+          "Easy":            { shot-reduction: 0.15, red-card-chance: 0.025 }
+          "Normal":          { shot-reduction: 0.50, red-card-chance: 0.10 }
+          "Aggressive":      { shot-reduction: 0.85, red-card-chance: 0.30 }
+          "Very Aggressive": { shot-reduction: 0.99, red-card-chance: 0.40 }
+      passing-style:
+        midfield-threshold: 19.0
+        base-suppression: 0.99
+        aggressive-suppression: 0.97
+        very-aggressive-suppression: 0.90
+        long-passing-suppression: 0.85
+        pace20-bonus: 0.05
+        non-pace20-penalty: 0.10
+        opponent-pace20-penalty: 0.10
+        # Finishing 20 gets the full control percentage. At 19 it loses 40%; below 19 it loses more.
+        finishing19-factor: 0.60
+        # A striker with pace 19 is capped at 25%; lower pace scales proportionally.
+        pace19-chance: 0.25
+        # Probability for exactly 0,1,2,3,4,5,6 special striker opportunities.
+        striker-opportunity-distribution: [0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05]
       context-rules:
         mentality:attacking: { OFF_THE_BALL: 0.15, COMPOSURE: 0.10 }
         mentality:very attacking: { OFF_THE_BALL: 0.30, COMPOSURE: 0.20 }
@@ -204,8 +247,6 @@ match:
         passing:long: { PASSING: 0.10, VISION: 0.20, KICKING: 0.15 }
         line:high: { PACE: 0.20, ANTICIPATION: 0.15, POSITIONING: 0.10 }
         line:deep: { HEADING: 0.15, CONCENTRATION: 0.15, POSITIONING: 0.10 }
-        pressing:high: { WORK_RATE: 0.20, STAMINA: 0.20, ANTICIPATION: 0.10 }
-        pressing:low: { POSITIONING: 0.10, CONCENTRATION: 0.10 }
         width:wide: { PACE: 0.10, DRIBBLING: 0.10, PASSING: 0.05 }
         width:narrow: { TECHNIQUE: 0.10, FIRST_TOUCH: 0.10, DECISIONS: 0.05 }
         instruction:mark tighter: { MARKING: 0.20, CONCENTRATION: 0.10 }

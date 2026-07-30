@@ -74,4 +74,14 @@ class MatchSimulationServiceTest {
                 "extra-time mini-match (1.0 goals) should yield fewer goals than a full match (3.0); "
                         + "et=" + etGoals + " full=" + fullGoals);
     }
+
+    @Test
+    void computeMatchRating_hatTrickIsAlwaysMaximumRating() {
+        // Even the normally adverse modifiers (defeat + substitute) and RNG must not
+        // reduce a three-goal performance below the maximum match rating.
+        assertEquals(10.0, service.computeMatchRating(
+                "ML", 3, 0, false, false, false, true));
+        assertEquals(10.0, service.computeMatchRating(
+                "ST", 4, 0, false, false, false, false));
+    }
 }

@@ -601,8 +601,23 @@ public class EuropeanCompetitionService {
                 .map(Competition::getId).orElse(-1L);
         if (starsCupCompetitionId <= 0) return;
 
-        List<CompetitionTeamInfoDetail> results = competitionTeamInfoDetailRepository
-                .findAllByCompetitionIdAndRoundIdAndSeasonNumber(locCompetitionId, locRound, currentSeason);
+        // A calendar-driven two-leg round may pause on an interactive match. Do
+        // not mistake either club from that unfinished tie for a loser. The call
+        // is repeated by the live-match commit after it persists the deciding leg.
+        List<CompetitionTeamInfoMatch> fixtures = competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(
+                        locCompetitionId, locRound, String.valueOf(currentSeason));
+        List<CompetitionTeamInfoMatch> decidingFixtures = fixtures.stream()
+                .filter(match -> match.getLegNumber() != 1)
+                .toList();
+        boolean roundIncomplete = !fixtures.isEmpty()
+                && (decidingFixtures.isEmpty() || decidingFixtures.stream()
+                .anyMatch(match -> match.getTeam1Score() < 0 || match.getTeam2Score() < 0));
+        if (roundIncomplete) {
+            System.out.println("=== LoC round " + locRound
+                    + " loser assignment deferred until every tie is decided ===");
+            return;
+        }
 
         int nextRound = locRound + 1;
         Set<Long> winners = competitionTeamInfoRepository.findAllBySeasonNumber(currentSeason).stream()

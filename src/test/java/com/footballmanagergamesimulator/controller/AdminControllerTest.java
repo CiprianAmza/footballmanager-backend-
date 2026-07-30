@@ -14,6 +14,7 @@ import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.CompetitionService;
 import com.footballmanagergamesimulator.service.EuropeanFixturePreparationService;
+import com.footballmanagergamesimulator.service.GameLock;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,6 +26,9 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Map;
 import java.util.List;
@@ -34,12 +38,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AdminControllerTest {
+
+    private record ContractSynchronization(GameLock gameLock,
+                                           TransactionTemplate transactionTemplate) {
+    }
 
     @Test
     void adminLoginCreatesAnAdminSessionForTheSecuredEndpoints() {
@@ -148,6 +157,7 @@ class AdminControllerTest {
     @Test
     void extendsEveryActivePlayerContractForOneTeam() {
         AdminController controller = new AdminController();
+        ContractSynchronization synchronization = wireContractSynchronization(controller);
         HumanRepository humanRepository = mock(HumanRepository.class);
         TeamRepository teamRepository = mock(TeamRepository.class);
         RoundRepository roundRepository = mock(RoundRepository.class);
@@ -179,11 +189,17 @@ class AdminControllerTest {
         assertEquals(4, retired.getContractEndSeason());
         assertEquals(0, expiredDeal.getPreContractTeamId());
         verify(humanRepository).saveAll(List.of(currentDeal, expiredDeal));
+
+        var order = inOrder(synchronization.gameLock(), synchronization.transactionTemplate());
+        order.verify(synchronization.gameLock()).lock();
+        order.verify(synchronization.transactionTemplate()).execute(any(TransactionCallback.class));
+        order.verify(synchronization.gameLock()).unlock();
     }
 
     @Test
     void extendsContractsAcrossAllTeamsButNotFreeAgents() {
         AdminController controller = new AdminController();
+        wireContractSynchronization(controller);
         HumanRepository humanRepository = mock(HumanRepository.class);
         RoundRepository roundRepository = mock(RoundRepository.class);
         ReflectionTestUtils.setField(controller, "humanRepository", humanRepository);
@@ -205,6 +221,20 @@ class AdminControllerTest {
         assertEquals(14, second.getContractEndSeason());
         assertEquals(0, freeAgent.getContractEndSeason());
         verify(humanRepository).saveAll(List.of(first, second));
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private ContractSynchronization wireContractSynchronization(AdminController controller) {
+        GameLock gameLock = mock(GameLock.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        TransactionStatus transactionStatus = mock(TransactionStatus.class);
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
+            TransactionCallback callback = invocation.getArgument(0);
+            return callback.doInTransaction(transactionStatus);
+        });
+        ReflectionTestUtils.setField(controller, "gameLock", gameLock);
+        ReflectionTestUtils.setField(controller, "transactionTemplate", transactionTemplate);
+        return new ContractSynchronization(gameLock, transactionTemplate);
     }
 
     private HttpServletRequest adminRequest() {

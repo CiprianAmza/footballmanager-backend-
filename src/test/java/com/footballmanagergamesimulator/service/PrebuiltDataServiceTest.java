@@ -70,6 +70,16 @@ class PrebuiltDataServiceTest {
                 SELECT COUNT(*) FROM HUMAN
                 WHERE ID IN (759, 4061, 1080) AND STAY_FORWARD = FALSE
                 """, Long.class)).isEqualTo(3L);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'COMPETITION' AND COLUMN_NAME = 'TIER' AND IS_NULLABLE = 'NO'
+                """, Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT TIER FROM COMPETITION WHERE ID = 1", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT TYPE_ID FROM COMPETITION WHERE ID = 5", Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT TIER FROM COMPETITION WHERE ID = 5", Integer.class)).isEqualTo(2);
     }
 
     @Test
@@ -111,6 +121,8 @@ class PrebuiltDataServiceTest {
 
     private static String auxiliarySnapshotTables() {
         return """
+                CREATE TABLE COMPETITION (ID BIGINT PRIMARY KEY, TYPE_ID BIGINT NOT NULL);
+                INSERT INTO COMPETITION(ID, TYPE_ID) VALUES (1, 1), (5, 3);
                 CREATE TABLE TEAM (ID BIGINT PRIMARY KEY);
                 CREATE TABLE SCORER (ID BIGINT PRIMARY KEY);
                 CREATE TABLE PLAYER_SEASON_STAT (ID BIGINT PRIMARY KEY);

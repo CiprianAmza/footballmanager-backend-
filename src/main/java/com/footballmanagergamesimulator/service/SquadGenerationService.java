@@ -109,9 +109,20 @@ public class SquadGenerationService {
         player.setMorale(initialMorale);
         player.setFitness(100);
 
-        // Spread of ±25 around the team's target rating gives each squad a
-        // visible best-XI/squad-depth gap without crossing tiers.
-        int playerRating = random.nextInt(Math.max(10, targetRating - 25), Math.max(11, targetRating + 25));
+        // Squad depth, as a share of the club's level rather than a flat band.
+        //
+        // A fixed +-25 was ten times what separates neighbouring clubs: 100 reputation buys
+        // 2.5 rating a player, so two sides a whole tier apart drew from almost the same
+        // distribution. With the best eleven of twenty-two then playing, the draw decided
+        // the table — one club landed exactly on its reputation while the division's
+        // weakest overshot it by 145 across its eleven, and finished above sides it should
+        // never have troubled.
+        //
+        // Proportional keeps the depth (a strong squad still has a visible gap between its
+        // eleven and its bench) while making a real difference in reputation decisive.
+        int spread = Math.max(3, (int) Math.round(targetRating * 0.08));
+        int playerRating = random.nextInt(Math.max(10, targetRating - spread),
+                Math.max(11, targetRating + spread));
         player.setRating(playerRating);
         player.setCurrentAbility(playerRating);
         player.setPotentialAbility(playerRating + random.nextInt(10, 40));

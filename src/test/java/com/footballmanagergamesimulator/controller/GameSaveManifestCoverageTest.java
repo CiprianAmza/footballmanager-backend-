@@ -33,12 +33,18 @@ class GameSaveManifestCoverageTest {
             while (tables.next()) actual.add(tables.getString("TABLE_NAME").toUpperCase());
         }
 
-        Set<String> preservedInstallationState = Set.of("USERS", "PERSON_PROFILE");
-        Set<String> expected = new HashSet<>(GameSaveImportService.manifestTableNames());
-        expected.addAll(preservedInstallationState);
+        // Read the preserved set from the service instead of restating it here: a local
+        // copy silently went stale when the multiplayer room tables were added, so the
+        // test passed while /game/export failed on the very check it is meant to mirror.
+        Set<String> disposed = new HashSet<>(GameSaveImportService.manifestTableNames());
+        disposed.addAll(GameSaveImportService.preservedTableNames());
 
         assertThat(GameSaveImportService.manifestTableNames()).hasSize(87);
         assertThat(GameSaveImportService.manifestKeys()).hasSize(87).doesNotHaveDuplicates();
-        assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+        // The export-time invariant: no live table may lack a disposition.
+        assertThat(actual).isSubsetOf(disposed);
+        // Flyway is disabled here, so FLYWAY_SCHEMA_HISTORY is legitimately absent; every
+        // manifest table, however, must be a real table.
+        assertThat(actual).containsAll(GameSaveImportService.manifestTableNames());
     }
 }

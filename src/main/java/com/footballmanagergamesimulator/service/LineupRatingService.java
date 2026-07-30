@@ -16,6 +16,8 @@ import com.footballmanagergamesimulator.model.PlayerSkills;
 import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.model.ScorerLeaderboardEntry;
 import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.matchplan.Contributor;
+import com.footballmanagergamesimulator.matchplan.Lineup;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.MatchPlayerRatingRepository;
@@ -332,6 +334,51 @@ public class LineupRatingService {
                         competitionId, season, round, teamId);
         persistPlayerRatingsBatch(competitionId, season, round,
                 List.of(new AiLineupInput(teamId, tactic, starters, substitutes, scorers)));
+    }
+
+    /**
+     * Canonical-match variant: persist the exact kickoff squad stored in MatchPlan.
+     * This deliberately does not rebuild the manager's current saved tactic, which
+     * may already differ from the formation that actually played the match.
+     */
+    public void persistPlayerRatings(long competitionId, int season, int round, long teamId,
+                                     String tactic, Lineup lineup) {
+        persistPlayerRatings(competitionId, season, round, teamId, tactic, lineup, null);
+    }
+
+    public void persistPlayerRatings(long competitionId, int season, int round, long teamId,
+                                     String tactic, Lineup lineup, List<Scorer> inMemoryScorers) {
+        if (lineup == null || lineup.getStartingXI().isEmpty()) {
+            persistPlayerRatings(competitionId, season, round, teamId, tactic);
+            return;
+        }
+        List<TacticController.StarterSlot> starters = lineup.getStartingXI().stream()
+                .map(contributor -> new TacticController.StarterSlot(
+                        playerView(contributor), contributor.position()))
+                .toList();
+        List<PlayerView> substitutes = lineup.getBench().stream()
+                .map(this::playerView)
+                .toList();
+        String playedFormation = tacticService.inferFormation(
+                lineup.getStartingXI().stream().map(Contributor::position).toList(), tactic);
+        if (inMemoryScorers == null) {
+            persistPlayerRatings(competitionId, season, round, teamId,
+                    playedFormation, starters, substitutes);
+        } else {
+            persistPlayerRatingsBatch(competitionId, season, round,
+                    List.of(new AiLineupInput(teamId, playedFormation, starters,
+                            substitutes, List.copyOf(inMemoryScorers))));
+        }
+    }
+
+    private PlayerView playerView(Contributor contributor) {
+        PlayerView view = new PlayerView();
+        view.setId(contributor.playerId());
+        view.setName(contributor.name());
+        view.setPosition(contributor.position());
+        view.setRating(contributor.rating());
+        view.setFitness(contributor.fitness());
+        return view;
     }
 
     /**
@@ -672,6 +719,19 @@ public class LineupRatingService {
     public void getScorersForTeam(long teamId, long opponentTeamId, int teamScore, int opponentScore,
                                   String tactic, long competitionId, int roundNumber,
                                   java.util.Map<Long, int[]> canonicalTally) {
+        getScorersForTeam(teamId, opponentTeamId, teamScore, opponentScore, tactic,
+                competitionId, roundNumber, canonicalTally, null);
+    }
+
+    /**
+     * Canonical projection variant. The supplied lineup is the exact MatchPlan
+     * participant timeline, including the substitutes who really entered.
+     */
+    public List<Scorer> getScorersForTeam(long teamId, long opponentTeamId,
+                                          int teamScore, int opponentScore,
+                                          String tactic, long competitionId, int roundNumber,
+                                          java.util.Map<Long, int[]> canonicalTally,
+                                          Lineup exactLineup) {
 
         Long competitionTypeIdObj = competitionRepository.findTypeIdById(competitionId);
         long competitionTypeId = competitionTypeIdObj != null ? competitionTypeIdObj : 0L;
@@ -685,7 +745,27 @@ public class LineupRatingService {
 
         boolean loadedSuccessfully = false;
 
-        if (personalizedTacticOpt.isPresent()) {
+        if (exactLineup != null && !exactLineup.getStartingXI().isEmpty()) {
+            Set<Long> appeared = new HashSet<>();
+            for (Lineup.Appearance appearance : exactLineup.appearances()) {
+                appeared.add(appearance.playerId());
+            }
+            for (Contributor contributor : exactLineup.getStartingXI()) {
+                possibleScorers.add(newScorer(contributor, false, teamId, opponentTeamId,
+                        teamScore, opponentScore, competitionId, roundNumber,
+                        competitionTypeId, teamName, opponentName, competitionName));
+            }
+            for (Contributor contributor : exactLineup.getBench()) {
+                if (appeared.contains(contributor.playerId())) {
+                    possibleScorers.add(newScorer(contributor, true, teamId, opponentTeamId,
+                            teamScore, opponentScore, competitionId, roundNumber,
+                            competitionTypeId, teamName, opponentName, competitionName));
+                }
+            }
+            loadedSuccessfully = true;
+        }
+
+        if (!loadedSuccessfully && personalizedTacticOpt.isPresent()) {
             try {
                 PersonalizedTactic personalized = personalizedTacticOpt.get();
                 Set<Long> unavailableIds = matchSimulationOrchestrator.roundUnavailableIds(teamId);
@@ -786,6 +866,7 @@ public class LineupRatingService {
         // Snapshot the starting XI (before substitutes get merged in) for Faza 2 analytics.
         List<PlayerView> startingXI = new ArrayList<>();
         for (Scorer s : possibleScorers) {
+            if (s.isSubstitute()) continue;
             PlayerView pv = new PlayerView();
             pv.setId(s.getPlayerId());
             pv.setPosition(s.getPosition());
@@ -794,8 +875,9 @@ public class LineupRatingService {
         }
 
         Random random = new Random();
-        int substitutesDone = random.nextInt(0, Math.min(6, substitutions.size() + 1));
-        if (!substitutions.isEmpty()) {
+        int substitutesDone = exactLineup == null
+                ? random.nextInt(0, Math.min(6, substitutions.size() + 1)) : 0;
+        if (exactLineup == null && !substitutions.isEmpty()) {
             Collections.shuffle(substitutions);
             for (int i = 0; i < Math.min(substitutesDone, substitutions.size()); i++) {
                 possibleScorers.add(substitutions.get(i));
@@ -954,6 +1036,31 @@ public class LineupRatingService {
         playerMatchStatService.recordRealMatchForTeam(
                 teamId, startingXI, personalizedTacticOpt.orElse(null),
                 competitionId, gameStateService.currentSeason());
+        return List.copyOf(possibleScorers);
+    }
+
+    private Scorer newScorer(Contributor contributor, boolean substitute,
+                             long teamId, long opponentTeamId,
+                             int teamScore, int opponentScore,
+                             long competitionId, int roundNumber, long competitionTypeId,
+                             String teamName, String opponentName, String competitionName) {
+        Scorer scorer = new Scorer();
+        scorer.setPlayerId(contributor.playerId());
+        scorer.setSeasonNumber(gameStateService.currentSeason());
+        scorer.setRoundNumber(roundNumber);
+        scorer.setTeamId(teamId);
+        scorer.setOpponentTeamId(opponentTeamId);
+        scorer.setPosition(contributor.position());
+        scorer.setTeamScore(teamScore);
+        scorer.setOpponentScore(opponentScore);
+        scorer.setCompetitionId(competitionId);
+        scorer.setCompetitionTypeId((int) competitionTypeId);
+        scorer.setTeamName(teamName);
+        scorer.setOpponentTeamName(opponentName);
+        scorer.setCompetitionName(competitionName);
+        scorer.setRating(contributor.rating());
+        scorer.setSubstitute(substitute);
+        return scorer;
     }
 
     /**

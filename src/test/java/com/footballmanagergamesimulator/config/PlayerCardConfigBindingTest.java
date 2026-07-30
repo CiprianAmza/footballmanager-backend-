@@ -30,6 +30,10 @@ class PlayerCardConfigBindingTest {
         assertThat(cfg.getAttributeScale().getTargetMax()).isEqualTo(95.0);
         assertThat(cfg.weight("SHO", "Finishing")).isEqualTo(2.5);
         assertThat(cfg.weight("SHO", "Long Shots")).isEqualTo(4.0);
+        assertThat(cfg.weight("SHO", "LongShots")).isEqualTo(4.0);
+        assertThat(cfg.bucketWeights("SHO").keySet().stream()
+                .filter(key -> key.replace(" ", "").equals("LongShots")))
+                .hasSize(1);
         assertThat(cfg.weight("PAC", "Pace")).isEqualTo(1.0);
         assertThat(cfg.weight("DEF", "Finishing")).isEqualTo(0.0);
     }

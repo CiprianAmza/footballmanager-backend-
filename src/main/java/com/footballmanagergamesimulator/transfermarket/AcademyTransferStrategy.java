@@ -1,68 +1,56 @@
 package com.footballmanagergamesimulator.transfermarket;
 
 import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.repository.HumanRepository;
-import com.footballmanagergamesimulator.service.TacticService;
-import com.footballmanagergamesimulator.util.TypeNames;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.Comparator;
 
+/**
+ * Develops its own players and cashes in on them: sells from the XI, best first.
+ *
+ * <p>It does not compete in the paid market — {@link #spendingCap()} is 0 — but it
+ * is no longer barred from buying outright. Real academy clubs still sign free
+ * agents to cover positions the youth intake missed, so it takes one or two
+ * released players rather than fielding juniors everywhere.
+ */
 public class AcademyTransferStrategy extends AbstractTransferStrategy {
 
-    private Random random = new Random();
+  @Override
+  protected SellSource sellSource() {
+    return SellSource.STARTERS;
+  }
 
-    @Override
-    public void setRandom(Random random) {
-      this.random = random;
-    }
+  @Override
+  protected Comparator<Human> sellOrder() {
+    return Comparator.comparingDouble(Human::getRating).reversed();
+  }
 
-    @Override
-    public List<PlayerTransferView> playersToSell(Team team, HumanRepository humanRepository, HashMap<String, Integer> minimumPositionNeeded) {
+  @Override
+  protected int maxBuyAge() {
+    return 32; // an experienced free agent is worth more than a third-choice junior
+  }
 
-      HashMap<String, Integer> currentPositionAllocated = new HashMap<>();
+  @Override
+  protected double stepUpGap() {
+    return 60; // nothing is free but a free agent, so be generous about who fits
+  }
 
-      List<Human> players = humanRepository
-        .findAllByTeamIdAndTypeId(team.getId(), TypeNames.PLAYER_TYPE)
-        .stream()
-        .sorted(Comparator.comparing(Human::getRating).reversed())
-        .toList();
+  @Override
+  protected boolean protectsStarters() {
+    return false; // selling its best IS the model — the club lives off it
+  }
 
-      for (Human player : players) {
-        String basePos = TacticService.getBasePosition(player.getPosition());
-        currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) + 1);
-      }
+  @Override
+  protected double depthTolerance() {
+    return 60; // a released player only has to be plausible cover
+  }
 
-      List<Human> validThatCouldBeSold = new ArrayList<>();
-      for (Human player : players) {
-        if (player.isWillNeverLeave()) continue;
-        String basePos = TacticService.getBasePosition(player.getPosition());
-        if (minimumPositionNeeded.getOrDefault(basePos, 0) < currentPositionAllocated.getOrDefault(basePos, 0)) {
-          validThatCouldBeSold.add(player);
-          currentPositionAllocated.put(basePos, currentPositionAllocated.getOrDefault(basePos, 0) - 1);
-        }
-      }
+  @Override
+  protected long spendingCap() {
+    return 0L; // free agents only
+  }
 
-      // sorted by rating DESC → head = top-rated players (Academy sells its peaks)
-      List<Human> playersForSale =
-        validThatCouldBeSold.subList(0, Math.min(random.nextInt(3, 6), validThatCouldBeSold.size()));
-
-      return fromHumanToPlayerTransferView(team, playersForSale);
-    }
-
-    public List<PlayerTransferView> fromHumanToPlayerTransferView(Team team, List<Human> players) {
-
-      return players.stream()
-        .map(player -> new PlayerTransferView(player.getId(), team.getId(), team.getReputation(),
-                player.getRating(), TacticService.getBasePosition(player.getPosition()), player.getAge(),
-                player.isWillNeverLeave()))
-        .collect(Collectors.toList());
-    }
-
-    @Override
-    public BuyPlanTransferView playersToBuy(Team team, HumanRepository humanRepository, HashMap<String, Integer> maximumPositionsAllowed) {
-
-      return null; // Academy Strategy will not buy players. They will only use own players recruited by the youth system
-    }
+  @Override
+  protected int wantedPositionCount() {
+    return random.nextInt(1, 3); // 1-2 gaps, not a full rebuild
+  }
 }

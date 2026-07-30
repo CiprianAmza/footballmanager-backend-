@@ -255,7 +255,8 @@ class StatsAggregationServiceTest {
                 team(101L, "Alpha"), team(202L, "Beta")));
         Competition secondLeague = new Competition();
         secondLeague.setId(303L);
-        secondLeague.setTypeId(3);
+        secondLeague.setTypeId(Competition.LEAGUE);
+        secondLeague.setTier(2);
         when(competitionRepository.findAll()).thenReturn(List.of(secondLeague));
 
         Map<String, Object> result = service.getSeasonOverviewStats(3, 10);

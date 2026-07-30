@@ -501,7 +501,7 @@ public class JobOfferService {
         try {
             List<Competition> comps = competitionRepository.findAll();
             for (Competition comp : comps) {
-                if (comp.getTypeId() == 1 || comp.getTypeId() == 3) {
+                if (comp.isLeague()) {
                     List<CompetitionTeamInfo> teams = competitionTeamInfoRepository.findAll().stream()
                             .filter(c -> c.getCompetitionId() == comp.getId() && c.getTeamId() == teamId)
                             .toList();

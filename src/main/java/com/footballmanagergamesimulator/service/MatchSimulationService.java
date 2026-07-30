@@ -356,6 +356,14 @@ public class MatchSimulationService {
                                       boolean isCleanSheet, boolean isWin, boolean isDraw,
                                       boolean isSubstitute) {
         MatchEngineConfig.Ratings r = engineConfig.getRatings();
+
+        // A hat-trick is the defining individual performance of the match. It must not be
+        // dragged below 10 by the normal result/substitute modifiers or by random variance.
+        // This also covers four-or-more-goal performances.
+        if (goals >= 3) {
+            return r.getMax();
+        }
+
         // Uses field-level RNG so determinism IT (seed → reproducible output) holds.
         double rating = r.getBase();
 

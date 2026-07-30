@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.SeasonObjective;
 import com.footballmanagergamesimulator.model.Team;
@@ -20,7 +21,9 @@ import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.SeasonObjectiveRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.service.MatchRoundSimulator;
 import com.footballmanagergamesimulator.service.SeasonTransitionService;
+import com.footballmanagergamesimulator.user.UserContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -67,7 +70,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *       flagged.</li>
  *   <li>Transfer window opens at the end of {@code processEndOfSeason}.</li>
  *   <li>New season starts: round.season +1, round.round = 1, players age +1,
- *       regens appear, personalized tactics cleared, new fixtures generated.</li>
+ *       regens appear, generated AI tactics clear while authored tactics survive,
+ *       and new fixtures are generated.</li>
  * </ul>
  */
 @SpringBootTest
@@ -88,6 +92,8 @@ class SeasonTransitionInvariantsIT {
     @Autowired private SeasonObjectiveRepository seasonObjectiveRepository;
     @Autowired private CompetitionFormatConfig competitionFormatConfig;
     @Autowired private EuropeanQualificationPolicy europeanQualificationPolicy;
+    @Autowired private UserContext userContext;
+    @Autowired private MatchRoundSimulator matchRoundSimulator;
 
     // ============================================================
     //  Order 1 — bootstrap shape sanity
@@ -101,13 +107,15 @@ class SeasonTransitionInvariantsIT {
         Map<Long, Long> countByType = all.stream()
                 .collect(Collectors.groupingBy(Competition::getTypeId, Collectors.counting()));
 
-        // 1 = First League, 2 = National Cup, 3 = Second League, 4 = LoC, 5 = Stars Cup
-        long leagueCount = countByType.getOrDefault(1L, 0L);
+        // 1 = League (any level, tier says which), 2 = National Cup, 4 = LoC, 5 = Stars Cup.
+        // Type 3 no longer exists: a second division is a LEAGUE on tier 2, so counting
+        // top flights by type alone would now sweep them in and never match the cups.
+        long leagueCount = all.stream().filter(Competition::isTopFlight).count();
         long cupCount = countByType.getOrDefault(2L, 0L);
-        long secondLeagueCount = countByType.getOrDefault(3L, 0L);
+        long secondLeagueCount = all.stream().filter(Competition::isBelowTopFlight).count();
         assertTrue(leagueCount >= 1, "should have at least 1 first league");
         assertEquals(leagueCount, cupCount,
-                "each first league should have a matching national cup (typeId=1 count must equal typeId=2 count)");
+                "each top flight should have a matching national cup");
         assertEquals(1L, countByType.getOrDefault(4L, 0L),
                 "exactly one League of Champions (typeId=4)");
         assertEquals(1L, countByType.getOrDefault(5L, 0L),
@@ -211,9 +219,9 @@ class SeasonTransitionInvariantsIT {
         // Sorted desc by team reputation, so position 1 = best-reputation team in that competition.
         // This makes the cup "winner" deterministic (team #1 by rep == top of cup TCD).
         List<Competition> leagues = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 1).collect(Collectors.toList());
+                .filter(Competition::isTopFlight).collect(Collectors.toList());
         List<Competition> secondLeagues = competitionRepository.findAll().stream()
-                .filter(c -> c.getTypeId() == 3).collect(Collectors.toList());
+                .filter(Competition::isBelowTopFlight).collect(Collectors.toList());
         List<Competition> cups = competitionRepository.findAll().stream()
                 .filter(c -> c.getTypeId() == 2).collect(Collectors.toList());
         for (Competition c : leagues) seedFinalStandings(c.getId());
@@ -472,8 +480,18 @@ class SeasonTransitionInvariantsIT {
         assertEquals(0, regensBeforeSetup,
                 "no player should have seasonCreated == nextSeason before processNewSeasonSetup runs");
 
-        // Snapshot: personalized tactics exist? If they do, they must be wiped after setup.
-        long personalizedTacticsBefore = personalizedTacticRepository.count();
+        // Generated AI tactics are seasonal. Human tactics and the authored
+        // Inazuma/Athletic mechanics must survive the boundary.
+        List<PersonalizedTactic> personalizedTacticsBefore = personalizedTacticRepository.findAll();
+        Set<Long> preservedTacticTeamIds = new HashSet<>(userContext.getAllHumanTeamIds());
+        teamRepository.findAll().stream()
+                .filter(team -> Set.of("Inazuma Japan", "Athletic Sohatu").contains(team.getName()))
+                .map(Team::getId)
+                .forEach(preservedTacticTeamIds::add);
+        Set<Long> expectedTacticsAfter = personalizedTacticsBefore.stream()
+                .map(PersonalizedTactic::getTeamId)
+                .filter(preservedTacticTeamIds::contains)
+                .collect(Collectors.toSet());
 
         // -------- ACT --------
         seasonTransitionService.processNewSeasonSetup((int) seasonBefore);
@@ -485,8 +503,11 @@ class SeasonTransitionInvariantsIT {
         assertEquals(1L, roundAfter.getRound(),
                 "round.round must reset to 1 at start of new season");
 
-        // ============ Invariant 2: AGING — every non-retired player from before is now +1 year ============
-        // (some may have retired during this call, so we check non-retired survivors only)
+        // ============ Invariant 2: AGING happens BEFORE this call, not in it ============
+        // Ageing, retirement and contract expiry moved into processEndOfSeason, ahead of
+        // the transfer window: the market has to plan against the squads it will actually
+        // get, not value a 34-year-old who retires days later. processNewSeasonSetup must
+        // therefore leave ages alone — a second increment here would age everyone twice.
         int agedUp = 0, retired = 0, untouched = 0;
         for (Human before : playersBefore) {
             Human after = humanRepository.findById(before.getId()).orElse(null);
@@ -501,9 +522,10 @@ class SeasonTransitionInvariantsIT {
                 untouched++;
             }
         }
-        assertTrue(agedUp > 0, "at least some players should have aged up (+1)");
-        assertEquals(0, untouched,
-                "no player should be untouched — every surviving non-retired player must have aged exactly +1");
+        assertEquals(0, agedUp,
+                "processNewSeasonSetup must not age anyone — processEndOfSeason already did, "
+                        + "and a second increment would age every player twice per season");
+        assertTrue(untouched > 0, "surviving players must keep the age processEndOfSeason gave them");
         assertTrue(retired >= 0, "retired count should be >= 0");
 
         // ============ Invariant 3: REGENS — new players with seasonCreated == nextSeason ============
@@ -524,12 +546,22 @@ class SeasonTransitionInvariantsIT {
         assertTrue(activeTeamPlayers.stream().allMatch(player -> player.getFitness() == 80.0),
                 "every active club player must start the new season with fitness 80");
 
-        // ============ Invariant 4: PERSONALIZED TACTICS CLEARED ============
-        // (only if there were any to begin with — bootstrap might not create them)
-        if (personalizedTacticsBefore > 0) {
-            assertEquals(0, personalizedTacticRepository.count(),
-                    "personalized tactics should be wiped at the start of a new season");
-        }
+        // ============ Invariant 4: GENERATED AI TACTICS CLEARED ============
+        Set<Long> actualTacticsAfter = personalizedTacticRepository.findAll().stream()
+                .map(PersonalizedTactic::getTeamId)
+                .collect(Collectors.toSet());
+        assertEquals(expectedTacticsAfter, actualTacticsAfter,
+                "new season must preserve human and authored special tactics only");
+        Team inazuma = teamRepository.findAll().stream()
+                .filter(team -> "Inazuma Japan".equals(team.getName()))
+                .findFirst()
+                .orElseThrow();
+        PersonalizedTactic inazumaTactic = personalizedTacticRepository
+                .findPersonalizedTacticByTeamId(inazuma.getId()).orElseThrow();
+        assertEquals("31411", inazumaTactic.getTactic(),
+                "Inazuma must retain its authored 3-1-4-1-1 across seasons");
+        assertEquals("31411", matchRoundSimulator.chooseFormationForTest(inazuma.getId()),
+                "the AI match path must actually select Inazuma's authored formation");
 
         // ============ Invariant 5: NEW SEASON FIXTURES EXIST ============
         // For every first league, round-1 fixtures for the new season must exist.

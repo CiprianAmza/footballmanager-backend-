@@ -12,6 +12,7 @@ import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeInpu
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeTeamInput;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoreSampler;
 import com.footballmanagergamesimulator.compartment.runtime.RuntimeLineupSlot;
+import com.footballmanagergamesimulator.matchplan.MatchPlanService;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.frontend.PersonalizedTacticView;
@@ -25,27 +26,25 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.TreeSet;
 
 /**
  * Tactics Advisor and custom competition simulator.
  *
- * <p>The advisor paths use the authoritative Compartment Engine pipeline. The legacy tactical
- * service remains only for the separate historical custom-competition endpoint and for mirroring
- * the AI manager's current tactic selection until that selector is migrated independently.
+ * <p>Every advisor and custom-competition path uses the authoritative Compartment Engine pipeline.
  */
 @Service
 public class TacticSimulationService {
@@ -62,9 +61,7 @@ public class TacticSimulationService {
     @Autowired private PlayerValueService playerValueService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private PersonalizedTacticRepository personalizedTacticRepository;
-    @Autowired private ManagerTacticService managerTacticService;
     @Autowired private TacticService tacticService;
-    @Autowired private TacticalScoreService tacticalScoreService;
     @Autowired private CanonicalRuntimeInputFactory canonicalRuntimeInputFactory;
     @Autowired private CanonicalScoreSampler canonicalScoreSampler;
     @Autowired private CompartmentEngineConfig compartmentEngineConfig;
@@ -75,7 +72,7 @@ public class TacticSimulationService {
                                   String inPossession, String timeWasting,
                                   String defensiveLine, String pressing, String width,
                                   String dribbling, String foulFrequency, String foulHardness,
-                                  String tempoFragmentation, String widePlay, String transition,
+                                  String tempoFragmentation, String widePlay, String transition, String recovery,
                                   double avgPoints, int minPoints, int maxPoints) {}
 
     public record TacticPointsResult(long teamId, String teamName, String formation,
@@ -85,6 +82,46 @@ public class TacticSimulationService {
                               int losses, int goalsFor, int goalsAgainst, int points) {}
 
     public record CompetitionResult(List<StandingRow> standings) {}
+
+    /** Authoritative score for a standalone fixture such as a friendly. */
+    public record CanonicalStandaloneScore(int homeGoals, int awayGoals,
+                                           double homePower, double awayPower,
+                                           CanonicalMatchEvaluation evaluation) {}
+
+    public CanonicalStandaloneScore scoreCanonicalMatch(long homeTeamId, long awayTeamId,
+                                                         String fixtureKey, long competitionId,
+                                                         int season, int round) {
+        if (homeTeamId <= 0 || awayTeamId <= 0 || homeTeamId == awayTeamId) {
+            throw new IllegalArgumentException("standalone team ids must be positive and distinct");
+        }
+        if (fixtureKey == null || fixtureKey.isBlank()) {
+            throw new IllegalArgumentException("fixtureKey must not be blank");
+        }
+        CanonicalFormationEvaluation home = currentCanonicalFormation(homeTeamId);
+        CanonicalFormationEvaluation away = currentCanonicalFormation(awayTeamId);
+        CanonicalMatchEvaluation evaluation = canonicalAdapter().evaluate(
+                home.evaluation(), away.evaluation(), MatchVenue.HOME);
+        long seed = MatchPlanService.seedFor(fixtureKey, competitionId, season, round,
+                homeTeamId, awayTeamId);
+        CanonicalScoreSampler.GoalSample goals = canonicalScoreSampler.sample(evaluation, seed);
+        return new CanonicalStandaloneScore(
+                goals.homeGoals(), goals.awayGoals(),
+                home.evaluation().team().attack() + home.evaluation().team().attackProtection(),
+                away.evaluation().team().attack() + away.evaluation().team().attackProtection(),
+                evaluation);
+    }
+
+    private CanonicalFormationEvaluation currentCanonicalFormation(long teamId) {
+        PersonalizedTactic tactic = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
+                .map(TacticSimulationService::copyTacticAxes)
+                .orElseGet(TacticSimulationService::neutralCanonicalTactic);
+        PersonalizedTactic persisted = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
+                .orElse(null);
+        String formation = persisted == null ? null : persisted.getTactic();
+        return formation == null || formation.isBlank()
+                ? bestCanonicalFormation(teamId, tactic)
+                : canonicalFormation(teamId, formation, tactic);
+    }
 
     /** Fully loaded canonical inputs; player capabilities are read once, then tactic contexts vary in memory. */
     private record CanonicalAdvisorMatchup(String formation, CanonicalRuntimeTeamInput team,
@@ -97,32 +134,13 @@ public class TacticSimulationService {
         if (ids.isEmpty()) throw new IllegalArgumentException("Tactics Advisor needs at least one opponent");
         CanonicalRuntimeTeamInput team = canonicalTeamInput(teamId, form, neutralCanonicalTactic());
 
-        // Runtime currently derives an unsaved AI manager's axes through ManagerTacticService. Keep
-        // that opponent identity for parity, but all matchup evaluation below is canonical.
-        TeamProfile legacyTeam = coachedTeamProfile(teamId, form);
-        TeamProfile[] legacyOpponents = new TeamProfile[ids.size()];
-        double averageAttack = legacyTeam.attack();
-        double averageDefense = legacyTeam.defense();
-        for (int i = 0; i < ids.size(); i++) {
-            legacyOpponents[i] = coachedTeamProfile(ids.get(i), advisorFormationFor(ids.get(i)));
-            averageAttack += legacyOpponents[i].attack();
-            averageDefense += legacyOpponents[i].defense();
-        }
-        TeamProfile average = new TeamProfile(averageAttack / (ids.size() + 1), averageDefense / (ids.size() + 1));
-
         CanonicalRuntimeTeamInput[] opponents = new CanonicalRuntimeTeamInput[ids.size()];
         for (int i = 0; i < ids.size(); i++) {
             long opponentId = ids.get(i);
-            TeamProfile opponentProfile = legacyOpponents[i];
             String opponentFormation = advisorFormationFor(opponentId);
             PersonalizedTactic tactic = personalizedTacticRepository.findPersonalizedTacticByTeamId(opponentId)
                     .map(TacticSimulationService::copyTacticAxes)
-                    .orElseGet(() -> managerTacticService.chooseTactic(
-                            opponentProfile, average, coachFor(opponentId).pickAbility()));
-            if (tactic.getWidth() == null || tactic.getWidth().isBlank()) {
-                tactic.setWidth(managerTacticService.widthIdentity(
-                        teamWideShare(opponentId, opponentFormation)));
-            }
+                    .orElseGet(TacticSimulationService::neutralCanonicalTactic);
             opponents[i] = canonicalTeamInput(opponentId, opponentFormation, tactic);
         }
         return new CanonicalAdvisorMatchup(form, team, opponents, opponents.length);
@@ -165,7 +183,7 @@ public class TacticSimulationService {
                     t.getInPossession(), t.getTimeWasting(),
                     t.getDefensiveLine(), t.getPressing(), t.getWidth(),
                     t.getDribbling(), t.getFoulFrequency(), t.getFoulHardness(),
-                    t.getTempoFragmentation(), t.getWidePlay(), t.getTransition(),
+                    t.getTempoFragmentation(), t.getWidePlay(), t.getTransition(), t.getRecovery(),
                     sum / (double) n, minMax[0], minMax[1]));
         }
         rows.sort(Comparator.comparingDouble(TacticPointsRow::avgPoints).reversed());
@@ -190,8 +208,9 @@ public class TacticSimulationService {
     public record AnalyticalRow(String mentality, String tempo, String passingType, String inPossession,
                                 String timeWasting, String defensiveLine, String pressing, String width,
                                 String dribbling, String foulFrequency, String foulHardness,
-                                String tempoFragmentation, String widePlay, String transition,
-                                double expectedPoints, double expectedGoalDifference) {}
+                                String tempoFragmentation, String widePlay, String transition, String recovery,
+                                double expectedPoints, double expectedGoalDifference,
+                                double winProbability, double drawProbability, double lossProbability) {}
 
     public record AnalyticalResult(long teamId, String teamName, String formation, int opponentCount,
                                    List<AnalyticalRow> rows) {}
@@ -213,18 +232,22 @@ public class TacticSimulationService {
         for (PersonalizedTactic t : canonicalAdvisorTactics()) {
             CanonicalRuntimeTeamInput candidate = canonicalRuntimeInputFactory.withTactic(m.team(), t);
             CanonicalTeamEvaluation candidateEvaluation = adapter.evaluateTeam(candidate);
-            double pts = 0, xgd = 0;
+            double pts = 0, xgd = 0, wins = 0, draws = 0, losses = 0;
             for (int o = 0; o < m.oppCount(); o++) {
                 CanonicalMatchEvaluation home = adapter.evaluate(candidateEvaluation, opponentEvaluations[o], MatchVenue.HOME);
                 CanonicalMatchEvaluation away = adapter.evaluate(opponentEvaluations[o], candidateEvaluation, MatchVenue.HOME);
                 pts += expectedHomePoints(home) + expectedAwayPoints(away);
                 xgd += home.probability().homeXg() - home.probability().awayXg();
                 xgd += away.probability().awayXg() - away.probability().homeXg();
+                wins += home.outcome().homeWin() + away.outcome().awayWin();
+                draws += home.outcome().draw() + away.outcome().draw();
+                losses += home.outcome().awayWin() + away.outcome().homeWin();
             }
             rows.add(new AnalyticalRow(t.getMentality(), t.getTempo(), t.getPassingType(), t.getInPossession(),
                     t.getTimeWasting(), t.getDefensiveLine(), t.getPressing(), t.getWidth(), t.getDribbling(),
                     t.getFoulFrequency(), t.getFoulHardness(), t.getTempoFragmentation(), t.getWidePlay(),
-                    t.getTransition(), pts, xgd / games));
+                    t.getTransition(), t.getRecovery(), pts, xgd / games,
+                    wins / games, draws / games, losses / games));
         }
         rows.sort(Comparator.comparingDouble(AnalyticalRow::expectedPoints).reversed());
 
@@ -249,17 +272,37 @@ public class TacticSimulationService {
     }
 
     /**
-     * Evaluate every available formation through the same canonical input and team-evaluation
-     * pipeline used by the Compartment scorer, then return the formation with the greatest raw
-     * XI compartment sum. Chairman formation mandates are applied before evaluation, so an
-     * imposed formation leaves exactly one candidate. This method is read-only and does not
-     * mutate the manager's persisted preference or {@code alwaysUseBestPossibleTactic} flag.
+     * Select the best formation using only the persisted 1..300 {@link Human#getRating()} values:
+     * for every formation, put the highest-rated natural player in each required position, fill
+     * any remaining slots by rating, sum the selected eleven, and take the greatest sum. Engine
+     * weights, attributes, morale, fitness, roles and tactical axes cannot influence this choice.
+     * They are applied only after the formation and XI have been frozen, when the selected lineup
+     * is evaluated by the canonical Compartment pipeline.
      *
-     * <p>The starting XI for each formation comes from the production Chairman-aware selector;
-     * player attributes, used positions, familiarity, roles, fitness, morale and tactic context
-     * are then evaluated by {@link CanonicalRuntimeInputFactory} and
-     * {@link CanonicalMatchEvaluationAdapter}.</p>
+     * <p>Chairman formation mandates are still applied before candidate selection. The method is
+     * read-only and does not mutate manager preferences or the
+     * {@code alwaysUseBestPossibleTactic} flag.</p>
      */
+    /**
+     * Evaluates one named formation under one tactic, without picking a winner.
+     *
+     * <p>{@link #bestCanonicalFormation} chooses by {@code topXiRating} — the raw sum of
+     * the eleven's 1&ndash;300 ratings — which asks "where can I field my best-rated
+     * players", not "which shape wins matches". Those diverge: the compartment engine
+     * scores three weighted compartments and a defensive exposure model, none of which a
+     * rating sum can express. Anything searching for a genuinely best setup has to be able
+     * to price a formation it would not otherwise have chosen.
+     */
+    public CanonicalFormationEvaluation canonicalFormation(long teamId, String formation,
+                                                           PersonalizedTactic tactic) {
+        if (teamId <= 0) throw new IllegalArgumentException("teamId must be positive");
+        PersonalizedTactic effectiveTactic = tactic == null ? neutralCanonicalTactic() : tactic;
+        RatingSelectedCanonicalInput selected =
+                canonicalTeamInputByRawRating(teamId, formation, effectiveTactic);
+        return new CanonicalFormationEvaluation(formation, selected.input(),
+                canonicalAdapter().evaluateTeam(selected.input()), selected.ratingTotal());
+    }
+
     public CanonicalFormationEvaluation bestCanonicalFormation(long teamId, PersonalizedTactic tactic) {
         if (teamId <= 0) throw new IllegalArgumentException("teamId must be positive");
         PersonalizedTactic effectiveTactic = tactic == null ? neutralCanonicalTactic() : tactic;
@@ -275,13 +318,12 @@ public class TacticSimulationService {
 
         CanonicalFormationEvaluation best = null;
         for (String formation : formations) {
-            CanonicalRuntimeTeamInput input = canonicalTeamInput(teamId, formation, effectiveTactic);
+            RatingSelectedCanonicalInput selected =
+                    canonicalTeamInputByRawRating(teamId, formation, effectiveTactic);
+            CanonicalRuntimeTeamInput input = selected.input();
             CanonicalTeamEvaluation evaluation = adapter.evaluateTeam(input);
-            double rawTopXi = evaluation.team().rawTotals().attack()
-                    + evaluation.team().rawTotals().midfield()
-                    + evaluation.team().rawTotals().defense();
             CanonicalFormationEvaluation candidate =
-                    new CanonicalFormationEvaluation(formation, input, evaluation, rawTopXi);
+                    new CanonicalFormationEvaluation(formation, input, evaluation, selected.ratingTotal());
             if (best == null || candidate.topXiRating() > best.topXiRating()
                     || (Double.compare(candidate.topXiRating(), best.topXiRating()) == 0
                     && candidate.formation().compareTo(best.formation()) < 0)) {
@@ -290,6 +332,151 @@ public class TacticSimulationService {
         }
         return java.util.Objects.requireNonNull(best, "best canonical formation");
     }
+
+    private RatingSelectedCanonicalInput canonicalTeamInputByRawRating(
+            long teamId, String proposedFormation, PersonalizedTactic tactic) {
+        String formation = mandateEnforcement.effectiveFormation(teamId, proposedFormation);
+        List<String> requiredSlots = new ArrayList<>(11);
+        tacticService.getRoomInTeamByTactic(formation).entrySet().stream()
+                .sorted(Comparator.comparingInt(entry ->
+                        tacticService.getValueForTacticDisplay(entry.getKey())))
+                .forEach(entry -> {
+                    for (int occurrence = 0; occurrence < entry.getValue(); occurrence++) {
+                        requiredSlots.add(entry.getKey());
+                    }
+                });
+        if (requiredSlots.size() != 11) {
+            throw new IllegalArgumentException("Formation " + formation + " does not contain exactly 11 slots");
+        }
+
+        Comparator<Human> ratingOrder = Comparator.comparingDouble(Human::getRating).reversed()
+                .thenComparingLong(Human::getId);
+        List<Human> remaining = humanRepo.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE).stream()
+                .filter(player -> !player.isRetired())
+                .sorted(ratingOrder)
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        List<RatingSelectedSlot> selected = new ArrayList<>(11);
+        Map<Long, FormationData> savedData = savedFormationData(teamId, formation);
+        Set<Integer> expectedIndexes = Arrays.stream(tacticService.getFormationGridIndicesExact(formation))
+                .boxed().collect(java.util.stream.Collectors.toSet());
+        Set<Integer> savedIndexes = savedData.values().stream()
+                .map(FormationData::getPositionIndex)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean completeSavedEleven = savedData.size() == 11 && savedIndexes.equals(expectedIndexes);
+        if (completeSavedEleven) {
+            for (FormationData row : savedData.values().stream()
+                    .sorted(Comparator.comparingInt(FormationData::getPositionIndex)).toList()) {
+                Human player = remaining.stream().filter(candidate -> candidate.getId() == row.getPlayerId())
+                        .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                                "Saved starter " + row.getPlayerId() + " is not available for team " + teamId));
+                String usedPosition = tacticService.getPositionFromIndex(row.getPositionIndex());
+                if (!requiredSlots.remove(usedPosition)) {
+                    throw new IllegalArgumentException("Saved slot " + row.getPositionIndex()
+                            + " is not part of formation " + formation);
+                }
+                remaining.remove(player);
+                selected.add(new RatingSelectedSlot(player, usedPosition));
+            }
+        } else {
+            // An incomplete saved XI is not authoritative, but an explicitly designated
+            // SHOOTER must still be fixed into his slot while the remaining ten are selected.
+            FormationData savedShooter = savedData.values().stream()
+                    .filter(row -> row.getPositionIndex() < 30 && "SHOOTER".equalsIgnoreCase(row.getSpecialRole()))
+                    .findFirst().orElse(null);
+            if (savedShooter != null) {
+                Human shooter = remaining.stream().filter(player -> player.getId() == savedShooter.getPlayerId())
+                        .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                                "Saved SHOOTER is not available for team " + teamId));
+                String shooterSlot = tacticService.getPositionFromIndex(savedShooter.getPositionIndex());
+                if (!requiredSlots.remove(shooterSlot)) {
+                    throw new IllegalArgumentException("Saved SHOOTER slot is not part of formation " + formation);
+                }
+                remaining.remove(shooter);
+                selected.add(new RatingSelectedSlot(shooter, shooterSlot));
+            }
+        }
+        List<String> unfilled = new ArrayList<>();
+        for (String slot : requiredSlots) {
+            // Exact position first, then the same family — a DM is an MC, an AML is an ML.
+            // Matching only on the exact string sent naturals to the bench and left the slot
+            // to be back-filled by whoever was left over, which is how a defender ended up
+            // at AMC scoring 21 against team-mates on 120.
+            Human bestNatural = remaining.stream()
+                    .filter(player -> slot.equals(player.getPosition()))
+                    .min(ratingOrder)
+                    .orElseGet(() -> remaining.stream()
+                            .filter(player -> sameFamily(player.getPosition(), slot))
+                            .min(ratingOrder)
+                            .orElse(null));
+            if (bestNatural == null) {
+                unfilled.add(slot);
+            } else {
+                remaining.remove(bestNatural);
+                selected.add(new RatingSelectedSlot(bestNatural, slot));
+            }
+        }
+        if (remaining.size() < unfilled.size()) {
+            throw new IllegalArgumentException("Team " + teamId + " does not have 11 players for " + formation);
+        }
+        // What is left cannot play the slot naturally, so take whoever loses the least by
+        // being moved there rather than whoever is best on paper. Raw rating picked the
+        // strongest defender for a hole in attack; his rating counts what he does at the
+        // back, and the engine then scores him on a compartment he contributes nothing to.
+        for (String slot : unfilled) {
+            Human best = remaining.stream()
+                    .max(Comparator.comparingDouble(player -> effectiveRatingInSlot(player, slot)))
+                    .orElseThrow();
+            remaining.remove(best);
+            selected.add(new RatingSelectedSlot(best, slot));
+        }
+        selected.sort(Comparator.<RatingSelectedSlot>comparingInt(slot ->
+                        tacticService.getValueForTacticDisplay(slot.usedPosition()))
+                .thenComparing(slot -> slot.player().getId()));
+
+        List<Long> playerIds = selected.stream().map(slot -> slot.player().getId()).toList();
+        Map<Long, PlayerSkills> skills = new HashMap<>();
+        playerSkillsRepository.findAllByPlayerIdIn(playerIds)
+                .forEach(row -> skills.put(row.getPlayerId(), row));
+        Map<PlayerPosition, Integer> occurrences = new java.util.EnumMap<>(PlayerPosition.class);
+        List<RuntimeLineupSlot> runtimeSlots = new ArrayList<>(11);
+        double ratingTotal = 0.0;
+        for (RatingSelectedSlot slot : selected) {
+            Human player = slot.player();
+            PlayerSkills playerSkills = skills.get(player.getId());
+            if (playerSkills == null) {
+                throw new IllegalArgumentException("Missing canonical skills for player " + player.getId());
+            }
+            PlayerPosition position = PlayerPosition.require(slot.usedPosition());
+            int occurrence = occurrences.merge(position, 1, Integer::sum);
+            runtimeSlots.add(new RuntimeLineupSlot(player, playerSkills, savedData.get(player.getId()),
+                    position, occurrence));
+            // Weighted by how well the man fits the slot, so a formation that cannot be
+            // staffed scores as the compromise it is. A raw sum treated a defender at AMC
+            // as worth his full rating, which made 4321 look best for a squad holding one
+            // natural AMC — and the engine then scored that slot at a fifth of its
+            // team-mates.
+            ratingTotal += effectiveRatingInSlot(player, slot.usedPosition());
+        }
+        return new RatingSelectedCanonicalInput(
+                canonicalRuntimeInputFactory.build(tactic, runtimeSlots), ratingTotal);
+    }
+
+    /** Same base position, so the move costs nothing: DM/MC/AMC are one family, ML/AML another. */
+    private boolean sameFamily(String naturalPosition, String slot) {
+        String natural = TacticService.getBasePosition(naturalPosition);
+        String target = TacticService.getBasePosition(slot);
+        return natural != null && natural.equals(target);
+    }
+
+    /** A player's rating discounted by how far the slot is from his own position. */
+    private double effectiveRatingInSlot(Human player, String slot) {
+        if (sameFamily(player.getPosition(), slot)) return player.getRating();
+        return player.getRating() * playerValueService.familiarityFactor(player.getPosition(), slot);
+    }
+
+    private record RatingSelectedSlot(Human player, String usedPosition) {}
+
+    private record RatingSelectedCanonicalInput(CanonicalRuntimeTeamInput input, double ratingTotal) {}
 
     public record CanonicalFormationEvaluation(String formation,
                                                CanonicalRuntimeTeamInput input,
@@ -326,15 +513,18 @@ public class TacticSimulationService {
         return goalsFor > goalsAgainst ? 3 : goalsFor == goalsAgainst ? 1 : 0;
     }
 
-    /** Exactly the six team axes consumed by CanonicalRuntimeInputFactory: 2,025 combinations. */
+    /** Every distinct canonical tactic state, including recovery only where it can activate PASSING STYLE. */
     private static List<PersonalizedTactic> canonicalAdvisorTactics() {
-        List<PersonalizedTactic> result = new ArrayList<>(2_025);
+        List<PersonalizedTactic> result = new ArrayList<>(4_050);
         for (String mentality : MatchEngineConfig.TacticalModel.MENTALITY_OPTIONS)
             for (String tempo : MatchEngineConfig.TacticalModel.TEMPO_OPTIONS)
                 for (String passing : MatchEngineConfig.TacticalModel.PASSING_OPTIONS)
                     for (String line : MatchEngineConfig.TacticalModel.DEFENSIVE_LINE_OPTIONS)
                         for (String pressing : MatchEngineConfig.TacticalModel.PRESSING_OPTIONS)
                             for (String width : MatchEngineConfig.TacticalModel.WIDTH_OPTIONS) {
+                              List<String> recoveries = "Short".equals(passing) && "Aggressive".equals(pressing)
+                                      ? MatchEngineConfig.TacticalModel.RECOVERY_OPTIONS : List.of("Standard");
+                              for (String recovery : recoveries) {
                                 PersonalizedTactic tactic = neutralCanonicalTactic();
                                 tactic.setMentality(mentality);
                                 tactic.setTempo(tempo);
@@ -342,7 +532,9 @@ public class TacticSimulationService {
                                 tactic.setDefensiveLine(line);
                                 tactic.setPressing(pressing);
                                 tactic.setWidth(width);
+                                tactic.setRecovery(recovery);
                                 result.add(tactic);
+                              }
                             }
         return result;
     }
@@ -353,7 +545,7 @@ public class TacticSimulationService {
         tactic.setTempo("Standard");
         tactic.setPassingType("Normal");
         tactic.setDefensiveLine("Standard");
-        tactic.setPressing("Standard");
+        tactic.setPressing("Normal");
         tactic.setWidth("Balanced");
         // Kept for the existing DTO/UI only; these fields are intentionally not scored by V1.
         tactic.setInPossession("Standard");
@@ -364,6 +556,7 @@ public class TacticSimulationService {
         tactic.setTempoFragmentation("Normal");
         tactic.setWidePlay("Shoot");
         tactic.setTransition("Balanced");
+        tactic.setRecovery("Standard");
         return tactic;
     }
 
@@ -375,6 +568,7 @@ public class TacticSimulationService {
         copy.setDefensiveLine(source.getDefensiveLine());
         copy.setPressing(source.getPressing());
         copy.setWidth(source.getWidth());
+        copy.setRecovery(source.getRecovery());
         return copy;
     }
 
@@ -427,36 +621,19 @@ public class TacticSimulationService {
         int n = teamIds.size();
         int nSeasons = Math.max(1, Math.min(MAX_SEASONS, seasons <= 0 ? 10 : seasons));
 
-        TeamProfile[] profiles = new TeamProfile[n];
-        TeamProfile avg;
-        double avgAtt = 0, avgDef = 0;
-        for (int i = 0; i < n; i++) {
-            profiles[i] = coachedTeamProfile(teamIds.get(i), formationFor(teamIds.get(i)));
-            avgAtt += profiles[i].attack();
-            avgDef += profiles[i].defense();
-        }
-        avg = new TeamProfile(avgAtt / n, avgDef / n);
-
-        TacticVector[] tactics = new TacticVector[n];
-        for (int i = 0; i < n; i++) {
-            Coach c = coachFor(teamIds.get(i));
-            PersonalizedTactic chosen = managerTacticService.chooseTactic(profiles[i], avg, c.pickAbility());
-            // chooseTactic sets line/press; width is a squad-shape identity (set here for parity with prod).
-            chosen.setWidth(managerTacticService.widthIdentity(teamWideShare(teamIds.get(i), formationFor(teamIds.get(i)))));
-            tactics[i] = tacticalScoreService.vector(chosen);
-        }
-
         int[] played = new int[n], wins = new int[n], draws = new int[n], losses = new int[n];
         int[] gf = new int[n], ga = new int[n], pts = new int[n];
 
-        Random rng = new Random(BASE_SEED);
+        int fixtureOrdinal = 0;
         for (int s = 0; s < nSeasons; s++) {
             for (int h = 0; h < n; h++) {
                 for (int a = 0; a < n; a++) {
                     if (h == a) continue; // each ordered pair once => full double round-robin
-                    List<Integer> sc = tacticalScoreService.score(
-                            profiles[h], tactics[h], profiles[a], tactics[a], rng);
-                    int gH = sc.get(0), gA = sc.get(1);
+                    CanonicalStandaloneScore score = scoreCanonicalMatch(
+                            teamIds.get(h), teamIds.get(a),
+                            "TACTIC_SIM:" + s + ":" + fixtureOrdinal,
+                            0L, s + 1, ++fixtureOrdinal);
+                    int gH = score.homeGoals(), gA = score.awayGoals();
                     played[h]++; played[a]++;
                     gf[h] += gH; ga[h] += gA;
                     gf[a] += gA; ga[a] += gH;
@@ -507,66 +684,6 @@ public class TacticSimulationService {
                 .map(PersonalizedTactic::getTactic)
                 .filter(value -> value != null && !value.isBlank())
                 .orElseGet(() -> formationFor(teamId));
-    }
-
-    private TeamProfile coachedTeamProfile(long teamId, String formation) {
-        Coach c = coachFor(teamId);
-        return tacticalScoreService.coachedProfile(teamProfile(teamId, formation), c.off(), c.def());
-    }
-
-    private static final java.util.Set<String> WIDE_POSITIONS = java.util.Set.of("ML", "MR", "DL", "DR");
-
-    /** Share of the XI's match value in wide positions (for the AI/advisor width identity). */
-    private double teamWideShare(long teamId, String formation) {
-        List<TacticController.StarterSlot> slots =
-                tacticController.getBestElevenWithSlots(String.valueOf(teamId), formation);
-        List<Long> ids = slots.stream().map(s -> s.player().getId()).toList();
-        Map<Long, PlayerSkills> skills = new HashMap<>();
-        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skills.put(s.getPlayerId(), s);
-        double total = 0, wide = 0;
-        for (TacticController.StarterSlot slot : slots) {
-            PlayerView pv = slot.player();
-            String used = slot.usedPosition();
-            PlayerSkills sk = skills.get(pv.getId());
-            double value = sk != null
-                    ? playerValueService.evaluatePlayer(sk, pv.getPosition(), used, pv.getMorale(), pv.getFitness())
-                    : playerValueService.evaluatePlayer(pv.getRating(), pv.getPosition(), used, pv.getMorale(), pv.getFitness());
-            total += value;
-            if (WIDE_POSITIONS.contains(used)) wide += value;
-        }
-        return total <= 0 ? 0 : wide / total;
-    }
-
-    private TeamProfile teamProfile(long teamId, String formation) {
-        List<TacticController.StarterSlot> slots =
-                tacticController.getBestElevenWithSlots(String.valueOf(teamId), formation);
-        List<Long> ids = slots.stream().map(s -> s.player().getId()).toList();
-        Map<Long, PlayerSkills> skills = new HashMap<>();
-        for (PlayerSkills s : playerSkillsRepository.findAllByPlayerIdIn(ids)) skills.put(s.getPlayerId(), s);
-        List<TacticalScoreService.StarterValue> starters = new ArrayList<>(slots.size());
-        for (TacticController.StarterSlot slot : slots) {
-            PlayerView pv = slot.player();
-            String natural = pv.getPosition(), used = slot.usedPosition();
-            PlayerSkills sk = skills.get(pv.getId());
-            double value = sk != null
-                    ? playerValueService.evaluatePlayer(sk, natural, used, pv.getMorale(), pv.getFitness())
-                    : playerValueService.evaluatePlayer(pv.getRating(), natural, used, pv.getMorale(), pv.getFitness());
-            double[] apt = TacticalScoreService.playerAptitudes(sk, pv.getFitness());
-            starters.add(new TacticalScoreService.StarterValue(used, value, apt[0], apt[1], apt[2]));
-        }
-        return tacticalScoreService.profile(starters);
-    }
-
-    private record Coach(double off, double def) {
-        double pickAbility() { return (off + def) / 2.0; }
-    }
-
-    private Coach coachFor(long teamId) {
-        return humanRepo.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
-                .filter(m -> !m.isRetired())
-                .findFirst()
-                .map(m -> new Coach(m.getOffensiveAbility(), m.getDefensiveAbility()))
-                .orElse(new Coach(50.0, 50.0));
     }
 
     private long findLeagueForTeam(long teamId, int season) {

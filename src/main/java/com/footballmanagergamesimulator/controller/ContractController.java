@@ -285,7 +285,7 @@ public class ContractController {
         }
         if (player.isWillNeverLeave()) {
             return ResponseEntity.status(409).body(Map.of("success", false,
-                    "message", "This player will retire at the end of their current contract"));
+                    "message", "This player has committed his whole career to one club and will never be available"));
         }
 
         long humanTeamId = clubActionAuthorizationService.authorize(request, body,

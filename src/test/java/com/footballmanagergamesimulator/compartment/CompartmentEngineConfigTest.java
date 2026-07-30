@@ -11,8 +11,7 @@ class CompartmentEngineConfigTest {
     private final CompartmentEngineConfig config = CompartmentConfigFixture.load();
 
     @Test
-    void productionYamlBindsCompleteTypedContractWithFlagOff() {
-        assertThat(config.isEnabled()).isFalse();
+    void productionYamlBindsCompleteTypedContract() {
         assertThat(config.getCompartments()).containsOnlyKeys(Compartment.values());
         assertThat(config.getPositions()).hasSize(14).containsKeys("GK", "DM", "ST");
         assertThat(config.getRoles()).hasSize(PlayerRole.values().length)
@@ -29,6 +28,24 @@ class CompartmentEngineConfigTest {
         assertThat(config.getPositionCompartmentOverrides().get("GK").get(Compartment.DEFENSE)
                 .getAttributes().values().stream().mapToDouble(Double::doubleValue).sum())
                 .isCloseTo(1.0, within(1e-12));
+        assertThat(config.getRating().getFitnessFloor()).isEqualTo(1.0);
+        assertThat(config.getRating().getMoraleSlope()).isZero();
+        assertThat(config.getRating().getAttributeMax()).isEqualTo(19);
+        assertThat(config.getRating().getExceptionalAttributeValue()).isEqualTo(20);
+        assertThat(config.getShooter().getStandardShotDistribution()).containsExactly(
+                0.25, 0.40, 0.20, 0.075, 0.05, 0.025);
+        assertThat(config.getShooter().getExceptionalPositioningShotDistribution()).containsExactly(
+                0.05, 0.50, 0.225, 0.10, 0.075, 0.05);
+        assertThat(config.getShooter().getPressing()).containsOnlyKeys(
+                "VeryEasy", "Easy", "Normal", "Aggressive", "VeryAggressive");
+        assertThat(config.getPassingStyle().getMidfieldThreshold()).isEqualTo(19.0);
+        assertThat(config.getPassingStyle().getBaseSuppression()).isEqualTo(0.99);
+        assertThat(config.getPassingStyle().getAggressiveSuppression()).isEqualTo(0.97);
+        assertThat(config.getPassingStyle().getVeryAggressiveSuppression()).isEqualTo(0.90);
+        assertThat(config.getPassingStyle().getLongPassingSuppression()).isEqualTo(0.85);
+        assertThat(config.getPassingStyle().getFinishing19Factor()).isEqualTo(0.60);
+        assertThat(config.getPassingStyle().getStrikerOpportunityDistribution()).containsExactly(
+                0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05);
     }
 
     @Test
@@ -39,11 +56,11 @@ class CompartmentEngineConfigTest {
         assertThat(veryAttacking.getTransferFrom()).isEqualTo(Compartment.DEFENSE);
         assertThat(veryAttacking.getTransferTo()).isEqualTo(Compartment.ATTACK);
         assertThat(veryAttacking.getTransferShare()).isEqualTo(0.20);
-        assertThat(veryAttacking.getOpenness()).isEqualTo(1.15);
+        assertThat(veryAttacking.getOpenness()).isEqualTo(3.10);
 
         var refuses = config.getWorkRate().getTraits().get(PlayerTrait.REFUSES_DEFENSIVE_WORK);
         assertThat(refuses.getEngagement()).isEqualTo(0.08);
-        assertThat(refuses.getAttackMultiplier()).isEqualTo(1.15);
+        assertThat(refuses.getAttackMultiplier()).isEqualTo(10.0);
         assertThat(refuses.isIgnoresDefensiveInstructions()).isTrue();
         assertThat(refuses.getForcedDefensiveMoraleDelta()).isEqualTo(-3.0);
 
@@ -53,9 +70,9 @@ class CompartmentEngineConfigTest {
         assertThat(config.getExposure().getPenaltyStrength()).isEqualTo(0.55);
         assertThat(config.getExposure().getPenaltyExponent()).isEqualTo(1.70);
 
-        assertThat(config.getProbability().getMatchupExponent()).isEqualTo(1.5);
+        assertThat(config.getProbability().getMatchupExponent()).isEqualTo(3.5);
         assertThat(config.getProbability().getHomeAdvantage()).isEqualTo(1.08);
-        assertThat(config.getProbability().getGammaShape()).isEqualTo(12.0);
+        assertThat(config.getProbability().getGammaShape()).isEqualTo(8.0);
         assertThat(config.getProbability().getGoalCap()).isEqualTo(7);
         assertThat(config.getProbability().getExtraTimeScale()).isCloseTo(1.0 / 3.0, within(1e-15));
         assertThat(config.getProbability().getIntervalLowerQuantile()).isEqualTo(0.05);
@@ -67,8 +84,6 @@ class CompartmentEngineConfigTest {
     void weightsProfileContainsNoRolloutFlags() throws Exception {
         String weights = new String(new org.springframework.core.io.ClassPathResource(
                 "compartment-scoring-weights-v1.yml").getInputStream().readAllBytes());
-        assertThat(weights).doesNotContain("enabled: false").doesNotContain("shadow-enabled: false");
-        assertThat(config.isEnabled()).isFalse();
-        assertThat(config.isShadowEnabled()).isFalse();
+        assertThat(weights).doesNotContain("\n  enabled:").doesNotContain("shadow-enabled");
     }
 }
