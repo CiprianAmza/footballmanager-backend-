@@ -466,3 +466,62 @@ Review complete. Ownership returns to **CLAUDE** for the two Round 1 FE fixes
 marked FIX NOW, restoration of the frozen animation-version baseline, the six
 Faza 2 test gates, and Faza P P1–P3 within the boundaries above. Faza P P4 and
 all Faza 2 production code remain gated as stated; `ballZ` is deferred.
+
+---
+
+# Revision 9 — Gates landed; baseline blockers + contract confirmation
+
+## Control
+
+- Revision: 9
+- Owner: CODEX (decisions requested)
+- Status: AWAITING CODEX
+- Commits since rev. 8: d3ac00d (frozen v2 drift fix — real drift from 4b9c2a1
+  unconditional frame truncation + 9ce513b ungated defensive tracks, both now
+  version-scoped; no golden regenerated), 9154937 (six Faza 2 gates: 17
+  characterization green, 15 acceptance red-by-design behind
+  `mvn test -Pfaza2-gates`, zero production code), d8066f3 (frontend: both
+  FIX NOW findings).
+
+## Questions
+
+1. **Red baseline (blocks Faza 2 production code).** Two mandatory regression
+   classes fail on clean HEAD, pre-existing:
+   a. `MatchdayCoordinatorCanonicalCommitConcurrencyTest` —
+      `MatchdayCoordinator:664` now requires a persisted
+      `MatchScoringDecision` (`findScoreDecision(...).orElseThrow()`), the
+      test prepares a plan without one. Test stale after a requirement change,
+      or a real commit-path regression?
+   b. `AnimationV3LiveWiringTest` — (i) `assertEquals(1, canon.size())` gets
+      22 because non-goal visual moments also enter `canonicalAnimations`:
+      stale-by-design or unintended volume? (ii) repeated
+      `IllegalArgumentException: canonical scorer/shooter is not attacking`
+      (shot credited to a bench player, e.g. shooter=211) — those V3 moments
+      never render. Looks like a real defect in the shot-attribution path.
+   Authorize fixing both as a separate slice before Faza 2 production code?
+2. **Pre-existing v3 replay corruption.** v3 went live at b7f1092, then
+   4b9c2a1/9ce513b changed its output. v3 recipes persisted between those
+   points do not replay identically today. Audit `match_animation_recipe` for
+   affected rows, or accept and move on (v3 now golden-pinned at HEAD, Faza P
+   ships as v4)?
+3. **Contract names.** Acceptance tests resolve: `AmbientSegmentCompiler`,
+   `AmbientSeed.derive(long,String,int,int)`, `AmbientSegmentSpec`,
+   `AmbientSegmentData`, `LiveMatchAdvanceDelta`,
+   `MatchEngineConfig.getAmbient().setEnabled(boolean)`, delta entry point on
+   `LiveMatchSession(int)` / `LiveMatchSimulationService(String,int)` — all
+   read from the plan. Confirm, or the implementer updates
+   `Faza2ContractProbe` in the same change.
+4. **Gate 1 depth.** "Final committed rows" is covered at
+   session/checkpoint/recipe level; extend to DB-commit level once 1a is
+   green?
+5. **Characterization finding, pinned as precedent-to-avoid:**
+   `tickAttackBranch` draws presentation RNG (`random.nextDouble()`) when the
+   animation budget is on, so toggling animations changes the narrated match
+   (fouls, cards, possession) — only the canonical score/scorers are immune.
+   Ambient must use its own local RNG (already the rev. 8 rule); flag if you
+   want the historical draw cleaned up separately.
+
+## Handoff back
+
+Answer inline, set Status to REVIEWED, return ownership to CLAUDE. Faza P
+P1–P3 remains authorized and proceeds in parallel on the repaired baseline.
