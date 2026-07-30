@@ -167,6 +167,49 @@ Același contract de date (x/y 0–100 per frame) face 3D-ul un renderer alterna
 2. Backend minor: `FrameCompiler` are deja zborurile mingii ca Bézier — de expus `ballZ` per frame (azi se pierde la proiecția 2D) ca lobii/crosele să arate corect în 3D. Câmp opțional în `frames[]`, backward-compatible.
 3. Realist ca efort: 3D „prezentabil" (screenshot 2) = de câteva ori efortul întregului 2D. Recomand abia după ce Faza 2 e stabilă; alternativ un „2.5D" (proiecție izometrică a acelorași date, sprite-uri cu umbre) dă 80% din efect la 20% din cost.
 
+## Faza P — Repertoriu de faze (realism & varietate) — propunere post-Runda 1
+
+Scop: momentele V3 să pară „fresh" — cornere/penalty-uri/free kick-uri credibile
+și acțiuni construite amplu (dribling-uri, pase înapoi, centrări, combinații).
+**Doar stratul de animație din backend** (pattern-uri + `FrameCompiler`);
+contractul de frames către FE rămâne neschimbat, rezultatele neatinse.
+Independent de Faza 2 (nu atinge protocolul `/advance`) — poate rula în paralel.
+
+Ce există deja (fundație solidă): 14 pattern-uri (`PatternId`) inclusiv
+SHORT_CORNER, CORNER_CROSS, DIRECT_FREE_KICK, CROSSED_FREE_KICK, PENALTY,
+ONE_TWO, OVERLAP_AND_CROSS, LOW_CROSS_CUTBACK; `PlayScript` cu `Touch(target,
+dwellFrames, arrivalBend, ReceiveKind PASS/CARRY/LOOSE)` — adică dribling-ul
+(CARRY cu bend-uri) e deja exprimabil; `AnimationInvariantValidator` ca gate.
+
+1. **P1 — Compoziție prelude × finisher.** Un moment = segment de construcție +
+   pattern-ul de finalizare existent. `PreludeId` nou: PATIENT_BUILDUP (pase
+   înapoi prin DM/DC + recirculare), WING_PROGRESSION (carry pe bandă),
+   DRIBBLE_SLALOM (CARRY cu bend-uri pe lângă 2-3 apărători),
+   MIDFIELD_RECYCLE (switch → pasă înapoi → re-switch → verticalizare).
+   Directorul compune ponderat, seed-derivat; `AnimationFrameBudget` se
+   extinde pentru scripturi compuse (azi 150–600 frames).
+2. **P2 — Set pieces credibile.** Cornere: aglomerare în careu (near/far post,
+   marcaj), rutine (flick la prima bară, recirculare la marginea careului →
+   centrare). Free kick-uri: ZID de 3–5 apărători la 9.15m, variantă centrată
+   cu aglomerare. Penalty-uri: profil de elan, timing-ul plonjonului
+   portarului corelat cu outcome-ul. Poziționare de portar îmbunătățită pe
+   toate fazele.
+3. **P3 — Anti-repetiție & stil de echipă.** Istoric de pattern-uri per fixture
+   (seeded) care penalizează în ponderare pattern-urile recente; bias pe stil
+   din `TacticalContext` (echipe de posesie → SHORT_PASSING/ONE_TWO; echipe de
+   contraatac → COUNTER_ATTACK/LONG_BALL) — două meciuri consecutive nu mai
+   arată la fel.
+4. **P4 — Reutilizare în ambient (leagă cu Faza 2).** Aceleași prelude-uri
+   alimentează `AmbientSegmentCompiler`, ca mișcarea dintre momente să
+   vorbească același vocabular.
+
+Guardrails: validatorul rămâne poarta (bounds, viteze, posesie, geometrie de
+outcome); `generatorVersion` se bump-uie și versiunile vechi se îngheață
+(recipes persistate se redau identic); fără schimbări de contract FE în prima
+rundă (event types rămân PASS/SHOT/... — un eventual `DRIBBLE` event e opțional,
+decizie separată). Governance: fiind backend, cere sign-off Codex (revizie nouă
+în AI_HANDOFF), dar e prezentare pură — nu depinde de test gates-urile Fazei 2.
+
 ## Ordine recomandată & dependențe
 
 ```
