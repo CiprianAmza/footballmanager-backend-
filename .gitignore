@@ -15,3 +15,6 @@ target/
 
 # generated fast-start DB snapshot (bootstrap.use-pre-built-data)
 prebuilt-data.sql
+# local ML datasets / generated artifacts (198MB+, not for the repo)
+face-lab/
+output/
