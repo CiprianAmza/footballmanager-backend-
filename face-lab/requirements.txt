@@ -1,0 +1,3 @@
+# Face Lab — no deep learning, no GPU. Small tabular models only.
+scikit-learn>=1.3
+numpy>=1.24

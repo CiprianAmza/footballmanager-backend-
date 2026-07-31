@@ -13,8 +13,8 @@ target/
 # stray local installers / large binaries
 *.pkg
 
-# generated fast-start DB snapshot (bootstrap.use-pre-built-data)
-prebuilt-data.sql
-# local ML datasets / generated artifacts (198MB+, not for the repo)
-face-lab/
+# machine handover 2026-07-31: prebuilt-data.sql and face-lab/ are
+# deliberately tracked now so nothing is lost with the old laptop.
+
+# personal / non-code exports - never track (this is a public repo)
 output/

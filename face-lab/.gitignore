@@ -1,0 +1,7 @@
+data/generations/
+data/*.jsonl
+exports/
+palettes.json
+__pycache__/
+*.pyc
+.venv/
