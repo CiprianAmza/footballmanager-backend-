@@ -57,7 +57,10 @@ public class MatchEngineConfig {
     private Boardroom boardroom = new Boardroom();
     private Analytics analytics = new Analytics();
     private MatchPlan matchPlan = new MatchPlan();
+    private Phase phase = new Phase();
 
+    public Phase getPhase() { return phase; }
+    public void setPhase(Phase phase) { this.phase = phase; }
     public MatchPlan getMatchPlan() { return matchPlan; }
     public void setMatchPlan(MatchPlan matchPlan) { this.matchPlan = matchPlan; }
     public Boardroom getBoardroom() { return boardroom; }
@@ -592,6 +595,60 @@ public class MatchEngineConfig {
         public void setStaminaFactorFloor(double v) { this.staminaFactorFloor = v; }
         public double getStaminaFactorRange() { return staminaFactorRange; }
         public void setStaminaFactorRange(double v) { this.staminaFactorRange = v; }
+    }
+
+    // ==================== PHASE ENGINE (spatial possession chains) ====================
+    /**
+     * Tunables for {@code MatchPhaseEngine}: the presentational per-minute
+     * possession chains (pass/dribble sequences with ball coordinates) layered
+     * on top of the authoritative live timeline. Cosmetic only — never affects
+     * scores, stats, or the session RNG stream.
+     */
+    public static class Phase {
+        /** Master switch; off = no chains generated and no phases field in LiveMatchData. */
+        private boolean enabled = true;
+        /** Build-up actions per chain before the terminal, uniform [min, max]. */
+        private int minBuildupActions = 3;
+        private int maxBuildupActions = 7;
+        /** Base probability of a backward pass; pressure adds up to the boost as
+         *  the ball advances toward the opponent goal (x → 100). */
+        private double backPassBase = 0.16;
+        private double backPassPressureBoost = 0.18;
+        /** Base probabilities for the other non-forward buildup choices. */
+        private double lateralPassChance = 0.16;
+        private double dribbleChance = 0.15;
+        /** Chance a possession-only chain ends with the ball out for a throw-in
+         *  (vs a tackle/interception turnover). */
+        private double throwInShare = 0.25;
+        /** Playback pacing: pass duration = base + perUnitDistance * distance,
+         *  clamped. Middle ground — brisk enough to read as decisive, slow
+         *  enough to follow; the frontend adds a user ± multiplier on top. */
+        private int actionDurationBaseMs = 380;
+        private int actionDurationPerUnitMs = 26;
+        private int actionDurationMaxMs = 1400;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getMinBuildupActions() { return minBuildupActions; }
+        public void setMinBuildupActions(int v) { this.minBuildupActions = v; }
+        public int getMaxBuildupActions() { return maxBuildupActions; }
+        public void setMaxBuildupActions(int v) { this.maxBuildupActions = v; }
+        public double getBackPassBase() { return backPassBase; }
+        public void setBackPassBase(double v) { this.backPassBase = v; }
+        public double getBackPassPressureBoost() { return backPassPressureBoost; }
+        public void setBackPassPressureBoost(double v) { this.backPassPressureBoost = v; }
+        public double getLateralPassChance() { return lateralPassChance; }
+        public void setLateralPassChance(double v) { this.lateralPassChance = v; }
+        public double getDribbleChance() { return dribbleChance; }
+        public void setDribbleChance(double v) { this.dribbleChance = v; }
+        public double getThrowInShare() { return throwInShare; }
+        public void setThrowInShare(double v) { this.throwInShare = v; }
+        public int getActionDurationBaseMs() { return actionDurationBaseMs; }
+        public void setActionDurationBaseMs(int v) { this.actionDurationBaseMs = v; }
+        public int getActionDurationPerUnitMs() { return actionDurationPerUnitMs; }
+        public void setActionDurationPerUnitMs(int v) { this.actionDurationPerUnitMs = v; }
+        public int getActionDurationMaxMs() { return actionDurationMaxMs; }
+        public void setActionDurationMaxMs(int v) { this.actionDurationMaxMs = v; }
     }
 
     // ==================== EVENTS GENERATION ====================

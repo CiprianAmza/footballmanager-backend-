@@ -68,6 +68,12 @@ public class LiveMatchData {
     // uses these to render fitness bars under each player during playback.
     private List<StaminaSnapshot> staminaSnapshots;
 
+    // Faza A (3D plan): per-minute presentational possession chains (passes,
+    // dribbles, set pieces, turnovers) with ball coordinates. Present only when
+    // match.engine.phase.enabled is on; cosmetic — the timeline stays authoritative.
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<MatchPhaseData> phases;
+
     // ===== Interactive (Faza 3) — live state for /state, /advance, /substitute =====
 
     /** Current engine minute (0 at kickoff, totalMinutes when finished). */
@@ -86,6 +92,27 @@ public class LiveMatchData {
     private List<PlayerStaminaInfo> homeBench;
     private List<PlayerStaminaInfo> awayBench;
 
+    // Card-face → match-sprite alignment: playerId → stored face descriptor so the
+    // pitch sprites reuse the exact card appearance. Field names mirror
+    // PlayerCardService.extractFaceDescriptor, so the FE FaceDescriptor fits both.
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Map<Long, FaceInfo> faces;
+
+    @Data
+    public static class FaceInfo {
+        private int baseFaceId;
+        private int skinTone;
+        private int hairStyle;
+        private int hairColor;
+        private int eyeColor;
+        private int faceShape;
+        private int noseShape;
+        private int eyeShape;
+        private int mouthShape;
+        private int browShape;
+        private String species;
+    }
+
     @Data
     public static class LiveMatchMinute {
         private int minute;
@@ -97,6 +124,11 @@ public class LiveMatchData {
         private long playerId;
         private long teamId;
         private String teamName;
+        /** Faza B: shot flavour as data — OPEN_PLAY | PENALTY | FREE_KICK |
+         *  CORNER. Null for non-shot events (and for events emitted before
+         *  this field existed). */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private String playType;
     }
 
     @Data

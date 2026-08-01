@@ -81,6 +81,16 @@ public class LiveMatchSession {
     private int nextVisualSlotIndex = VISUAL_SLOT_BASE;
     final List<LiveMatchMinute> timeline = new ArrayList<>();
     final List<MatchEvent> dbEvents = new ArrayList<>();
+    // Faza A: per-minute presentational possession chains (cosmetic layer on top
+    // of the timeline; generated from a dedicated deterministic RNG so the
+    // session's checkpointed RNG stream is untouched). After a cold recovery the
+    // pre-crash minutes have no chains — acceptable, the layer is cosmetic.
+    final List<com.footballmanagergamesimulator.frontend.MatchPhaseData> phases = new ArrayList<>();
+    /** endEvent of the previous minute's chain — cues counter-attack patterns. */
+    private String lastPhaseEndEvent;
+    /** Where the previous chain left the ball — the next chain starts there. */
+    private Double lastPhaseBallX;
+    private Double lastPhaseBallY;
 
     // --- Score / stats ---
     int homeScore = 0, awayScore = 0;
@@ -524,9 +534,12 @@ public class LiveMatchSession {
         String goalDesc = LiveMatchSimulationService.GOAL_DESCRIPTIONS[
                 random.nextInt(LiveMatchSimulationService.GOAL_DESCRIPTIONS.length)];
         String who = scorerName == null || scorerName.isEmpty() ? teamName : scorerName;
-        timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "goal",
+        LiveMatchMinute canonicalGoal = svc.createMinuteEvent(min, homeScore, awayScore, "goal",
                 "GOAL! " + who + "! " + goalDesc,
-                scorerId, scorerName, teamId, teamName));
+                scorerId, scorerName, teamId, teamName);
+        LivePlanSnapshot.SlotView playTypeSlot = slotByIndex.get(slotIndex);
+        canonicalGoal.setPlayType(playTypeSlot != null ? playTypeSlot.goalType() : "OPEN_PLAY");
+        timeline.add(canonicalGoal);
         // The canonical goal/assist MatchEvents are persisted by resolveDueSlot, so they
         // are NOT added to dbEvents here (no duplicate rows; displayed == persisted).
 
@@ -1339,6 +1352,9 @@ public class LiveMatchSession {
     }
 
     private void tickOneMinute(int min) {
+        // Faza A: everything appended to the timeline from here on belongs to
+        // this minute and feeds the presentational possession chain below.
+        int timelineMark = timeline.size();
         // Canonical plan bound: score exactly the plan's goal slots due this minute
         // (both sides, slotIndex order), resolved against the live on-pitch set. The
         // pinned-forcing sets are empty in this mode, so the narration below only adds
@@ -1488,6 +1504,34 @@ public class LiveMatchSession {
             staminaSnapshots.add(svc.captureStaminaSnapshot(min, matchStates, team1Ids, team2Ids));
         }
 
+        // Faza A: derive this minute's presentational possession chain from the
+        // timeline events emitted above. Own deterministic RNG (seeded from the
+        // fixture identity + minute, stable across cold recovery) — the session's
+        // `random` stream is never consumed here, preserving RNG parity.
+        if (svc.matchPhaseEngine != null && svc.engineConfig != null
+                && svc.engineConfig.getPhase().isEnabled()) {
+            List<LiveMatchMinute> minuteEvents =
+                    new ArrayList<>(timeline.subList(timelineMark, timeline.size()));
+            boolean homeAttacksRightNow = min <= halfTimeMinute;
+            boolean kickoff = min == 1 || min == halfTimeMinute + 1;
+            com.footballmanagergamesimulator.frontend.MatchPhaseData phase =
+                    svc.matchPhaseEngine.buildMinutePhase(new MatchPhaseEngine.MinuteContext(
+                            min, homeAttacksRightNow, team1HasBall, teamId1, teamId2,
+                            buildPhasePlayers(team1Ids), buildPhasePlayers(team2Ids),
+                            minuteEvents, kickoff, lastPhaseEndEvent,
+                            lastPhaseBallX, lastPhaseBallY, phaseSeed(min)));
+            if (phase != null) {
+                phases.add(phase);
+                lastPhaseEndEvent = phase.getEndEvent();
+                List<com.footballmanagergamesimulator.frontend.MatchPhaseData.PhaseAction> acts =
+                        phase.getActions();
+                if (!acts.isEmpty()) {
+                    lastPhaseBallX = acts.get(acts.size() - 1).getEndX();
+                    lastPhaseBallY = acts.get(acts.size() - 1).getEndY();
+                }
+            }
+        }
+
         // Half time
         if (min == halfTimeMinute) {
             timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "half_time",
@@ -1561,9 +1605,11 @@ public class LiveMatchSession {
             String goalDesc = LiveMatchSimulationService.GOAL_DESCRIPTIONS[
                     random.nextInt(LiveMatchSimulationService.GOAL_DESCRIPTIONS.length)];
             String prefix = svc.playTypePrefix(playType, "GOAL");
-            timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "goal",
+            LiveMatchMinute goalEvent = svc.createMinuteEvent(min, homeScore, awayScore, "goal",
                     prefix + "GOAL! " + attacker.getName() + "! " + goalDesc,
-                    attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+                    attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName);
+            goalEvent.setPlayType(playType);
+            timeline.add(goalEvent);
             dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
                     min, "goal", attacker.getId(), attacker.getName(), attackingTeamId,
                     (prefix.isEmpty() ? "" : prefix.trim() + " ") + goalDesc));
@@ -1598,9 +1644,11 @@ public class LiveMatchSession {
             String saveDesc = LiveMatchSimulationService.SAVE_DESCRIPTIONS[
                     random.nextInt(LiveMatchSimulationService.SAVE_DESCRIPTIONS.length)];
             String prefix = svc.playTypePrefix(playType, "SAVE");
-            timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "shot_saved",
+            LiveMatchMinute saveEvent = svc.createMinuteEvent(min, homeScore, awayScore, "shot_saved",
                     prefix + attacker.getName() + " " + saveDesc,
-                    attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+                    attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName);
+            saveEvent.setPlayType(playType);
+            timeline.add(saveEvent);
             // Persist save events so the Match Events summary can show
             // "penalty saved" / "free kick saved" alongside goals + cards.
             dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
@@ -1630,9 +1678,11 @@ public class LiveMatchSession {
             String missDesc = LiveMatchSimulationService.MISS_DESCRIPTIONS[
                     random.nextInt(LiveMatchSimulationService.MISS_DESCRIPTIONS.length)];
             String prefix = svc.playTypePrefix(playType, "MISS");
-            timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "shot_wide",
+            LiveMatchMinute missEvent = svc.createMinuteEvent(min, homeScore, awayScore, "shot_wide",
                     prefix + attacker.getName() + " " + missDesc,
-                    attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName));
+                    attacker.getId(), attacker.getName(), attackingTeamId, attackingTeamName);
+            missEvent.setPlayType(playType);
+            timeline.add(missEvent);
             dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
                     min, "shot_wide", attacker.getId(), attacker.getName(), attackingTeamId,
                     (prefix.isEmpty() ? "Shot wide" : prefix.trim())));
@@ -1678,9 +1728,11 @@ public class LiveMatchSession {
                 if (team1HasBall) { homeScore++; homeShotsOnTarget++; homeShots++; }
                 else { awayScore++; awayShotsOnTarget++; awayShots++; }
 
-                timeline.add(svc.createMinuteEvent(min, homeScore, awayScore, "goal",
+                LiveMatchMinute cornerGoal = svc.createMinuteEvent(min, homeScore, awayScore, "goal",
                         "GOAL! " + header.getName() + " rises highest and heads it in from the corner!",
-                        header.getId(), header.getName(), attackingTeamId, attackingTeamName));
+                        header.getId(), header.getName(), attackingTeamId, attackingTeamName);
+                cornerGoal.setPlayType("CORNER");
+                timeline.add(cornerGoal);
                 dbEvents.add(svc.buildMatchEvent(competitionId, season, round, teamId1, teamId2,
                         min, "goal", header.getId(), header.getName(), attackingTeamId, "Header from corner"));
 
@@ -1976,6 +2028,17 @@ public class LiveMatchSession {
         return buildResult();
     }
 
+    /** Faza C: incremental read of the presentational possession chains —
+     *  everything from the given minute on. Lets the frontend poll for new
+     *  phases without re-downloading the cumulative LiveMatchData. */
+    public synchronized List<com.footballmanagergamesimulator.frontend.MatchPhaseData> phasesSince(int fromMinute) {
+        List<com.footballmanagergamesimulator.frontend.MatchPhaseData> out = new ArrayList<>();
+        for (com.footballmanagergamesimulator.frontend.MatchPhaseData p : phases) {
+            if (p.getMinute() >= fromMinute) out.add(p);
+        }
+        return out;
+    }
+
     /** Build the LiveMatchData DTO from current state. Safe to call mid-match
      *  for interactive endpoints — possession uses elapsed minutes as the
      *  denominator so partial-match values stay sensible. Also populates
@@ -2024,6 +2087,7 @@ public class LiveMatchSession {
         data.setFirstHalfStoppage(firstHalfStoppage);
         data.setSecondHalfStoppage(secondHalfStoppage);
         data.setStaminaSnapshots(staminaSnapshots);
+        if (!phases.isEmpty()) data.setPhases(new ArrayList<>(phases));
 
         // --- Interactive live state ---
         data.setCurrentMinute(currentMinute);
@@ -2035,7 +2099,65 @@ public class LiveMatchSession {
         data.setAwayPitch(buildPitchView(team2Ids, true));
         data.setHomeBench(buildPitchView(team1Ids, false));
         data.setAwayBench(buildPitchView(team2Ids, false));
+        data.setFaces(buildFacesMap());
         return data;
+    }
+
+    /** Presentational: playerId → stored card-face descriptor for both squads,
+     *  so pitch sprites match card appearance. Built from the Human lists the
+     *  session already holds — no repository round-trip. */
+    private Map<Long, LiveMatchData.FaceInfo> buildFacesMap() {
+        Map<Long, LiveMatchData.FaceInfo> faces = new HashMap<>();
+        putFaces(faces, team1All);
+        putFaces(faces, team2All);
+        return faces;
+    }
+
+    private void putFaces(Map<Long, LiveMatchData.FaceInfo> faces, List<Human> players) {
+        if (players == null) return;
+        for (Human h : players) {
+            if (h == null) continue;
+            LiveMatchData.FaceInfo f = new LiveMatchData.FaceInfo();
+            f.setBaseFaceId(h.getBaseFaceId());
+            f.setSkinTone(h.getSkinTone());
+            f.setHairStyle(h.getHairStyle());
+            f.setHairColor(h.getHairColor());
+            f.setEyeColor(h.getEyeColor());
+            f.setFaceShape(h.getFaceShape());
+            f.setNoseShape(h.getNoseShape());
+            f.setEyeShape(h.getEyeShape());
+            f.setMouthShape(h.getMouthShape());
+            f.setBrowShape(h.getBrowShape());
+            // Species defaults to "human"; guard against legacy rows with null.
+            f.setSpecies(h.getSpecies() != null ? h.getSpecies() : "human");
+            faces.put(h.getId(), f);
+        }
+    }
+
+    /** On-pitch snapshot for the phase engine: identity + fielded role + the
+     *  attributes the chain builder weighs (passing/vision/pace). */
+    private List<MatchPhaseEngine.PhasePlayer> buildPhasePlayers(Set<Long> teamIds) {
+        List<MatchPhaseEngine.PhasePlayer> out = new ArrayList<>();
+        for (PlayerMatchState s : matchStates.values()) {
+            if (!teamIds.contains(s.playerId) || !s.isOnPitch) continue;
+            out.add(new MatchPhaseEngine.PhasePlayer(
+                    s.playerId, s.name,
+                    fieldedPosition.getOrDefault(s.playerId, s.position),
+                    s.passing, s.vision, s.pace,
+                    s.dribbling, s.flair, s.crossing, s.heading));
+        }
+        return out;
+    }
+
+    /** Deterministic seed for the phase RNG: fixture identity + minute. Stable
+     *  across cold recovery so regenerated minutes narrate identically. */
+    private long phaseSeed(int min) {
+        long seed = competitionId;
+        seed = seed * 31 + season;
+        seed = seed * 31 + round;
+        seed = seed * 31 + teamId1;
+        seed = seed * 31 + teamId2;
+        return seed * 1_000_003L + min;
     }
 
     /** Slice of {@link #matchStates} for the live pitch/bench view. */

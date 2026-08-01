@@ -72,6 +72,10 @@ public class LiveMatchSimulationService {
     // null in pure-helper unit tests, and inert unless its own feature flag is on.
     @Autowired(required = false)
     AnimationV3GoalAdapter animationV3GoalAdapter;
+    // Presentation-only possession-chain generator (Faza A). Optional/guarded the
+    // same way: null in `new`-built unit tests, inert when match.engine.phase is off.
+    @Autowired(required = false)
+    MatchPhaseEngine matchPhaseEngine;
 
     // Per-minute stamina drain for a "default" player (stamina=10, naturalFitness=10)
     // at a position with multiplier 1.0 lands around 0.35 stamina/min after
@@ -529,6 +533,12 @@ public class LiveMatchSimulationService {
             s.passing = ps != null ? Math.max(1, ps.getPassing()) : 10;
             s.vision = ps != null ? Math.max(1, ps.getVision()) : 10;
             s.finishing = ps != null ? Math.max(1, ps.getFinishing()) : 10;
+            // Faza A.2 pattern picks: wingers cross, dribblers run at people,
+            // target men win long balls.
+            s.dribbling = ps != null ? Math.max(1, ps.getDribbling()) : 10;
+            s.flair = ps != null ? Math.max(1, ps.getFlair()) : 10;
+            s.crossing = ps != null ? Math.max(1, ps.getCrossing()) : 10;
+            s.heading = ps != null ? Math.max(1, ps.getHeading()) : 10;
             states.put(p.getId(), s);
         }
     }
@@ -891,6 +901,10 @@ public class LiveMatchSimulationService {
         int passing;           // 1-20
         int vision;            // 1-20
         int finishing;         // 1-20
+        int dribbling;         // 1-20
+        int flair;             // 1-20
+        int crossing;          // 1-20
+        int heading;           // 1-20
         /** Minute when this player picked up a yellow card; 0 = never. */
         int yellowCardMinute;
         /** Minute when this player was sent off with a red; 0 = never. */

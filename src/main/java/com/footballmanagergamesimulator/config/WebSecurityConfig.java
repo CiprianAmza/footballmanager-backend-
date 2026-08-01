@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.config;
 
 import com.footballmanagergamesimulator.user.UserDetailsServiceImpl;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.boot.autoconfigure.security.servlet.PathRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +15,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
@@ -28,18 +30,41 @@ public class WebSecurityConfig {
     /** Face Lab endpoints, opened up only while the dev flag below is set. */
     private static final String FACE_LAB_PATHS = "/api/dev/facelab/**";
 
+    /** Phase Lab endpoints (scenario preview + rating). Dev tool; enabled by
+     *  default in this test project, disable with phaselab.enabled=false. */
+    private static final String PHASE_LAB_PATHS = "/api/dev/phaselab/**";
+
+    /**
+     * H2 web console, opened up only while the dev flag below is set.
+     *
+     * <p>This must be a {@link PathRequest} matcher, not the usual
+     * {@code requestMatchers("/h2-console/**")} string. With Spring MVC on the
+     * classpath a string builds an {@code MvcRequestMatcher}, which resolves
+     * paths against the DispatcherServlet — but the console is its own servlet,
+     * so the pattern misses. The symptom is a 401/403 on {@code /h2-console}
+     * and on the {@code login.do} form post while {@code /h2-console/} itself
+     * happens to work.
+     */
+    private static final RequestMatcher H2_CONSOLE_PATHS = PathRequest.toH2Console();
+
     private final UserDetailsServiceImpl userDetailsService;
     private final boolean chairmanEnabled;
     private final boolean faceLabEnabled;
+    private final boolean phaseLabEnabled;
+    private final boolean h2ConsoleEnabled;
     private final List<String> allowedOrigins;
 
     public WebSecurityConfig(UserDetailsServiceImpl userDetailsService,
                              ChairmanModeProperties chairmanModeProperties,
                              @Value("${cors.allowed-origins:http://localhost:4200}") List<String> allowedOrigins,
-                             @Value("${facelab.enabled:false}") boolean faceLabEnabled) {
+                             @Value("${facelab.enabled:false}") boolean faceLabEnabled,
+                             @Value("${phaselab.enabled:true}") boolean phaseLabEnabled,
+                             @Value("${spring.h2.console.enabled:false}") boolean h2ConsoleEnabled) {
         this.userDetailsService = userDetailsService;
         this.chairmanEnabled = chairmanModeProperties.isEnabled();
         this.faceLabEnabled = faceLabEnabled;
+        this.phaseLabEnabled = phaseLabEnabled;
+        this.h2ConsoleEnabled = h2ConsoleEnabled;
         this.allowedOrigins = allowedOrigins;
     }
 
@@ -93,6 +118,16 @@ public class WebSecurityConfig {
                     // The Face Lab gallery posts without a session, so there is no CSRF
                     // token to present. Only reachable while facelab.enabled is set.
                     if (faceLabEnabled) csrf.ignoringRequestMatchers(FACE_LAB_PATHS);
+                    // The Phase Lab page also renders outside the login shell.
+                    if (phaseLabEnabled) csrf.ignoringRequestMatchers(PHASE_LAB_PATHS);
+                    // The H2 console is a plain server-rendered form app that knows
+                    // nothing about our token. Only reachable while the dev flag is set.
+                    if (h2ConsoleEnabled) csrf.ignoringRequestMatchers(H2_CONSOLE_PATHS);
+                })
+                .headers(headers -> {
+                    // The H2 console renders its query editor inside frames, which the
+                    // default DENY policy blocks. Relaxed to same-origin for dev only.
+                    if (h2ConsoleEnabled) headers.frameOptions(frame -> frame.sameOrigin());
                 })
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
@@ -102,7 +137,12 @@ public class WebSecurityConfig {
                     requests.requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll();
                     requests.requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll();
                     requests.requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll();
-                    requests.requestMatchers("/h2-console/**").denyAll();
+                    // DEV-ONLY database console. `spring.h2.console.enabled` lives in the
+                    // local application.properties and is absent from the packaged
+                    // application.yml, so a production boot keeps the deny rule below AND
+                    // Spring never registers the console servlet in the first place.
+                    if (h2ConsoleEnabled) requests.requestMatchers(H2_CONSOLE_PATHS).permitAll();
+                    else requests.requestMatchers(H2_CONSOLE_PATHS).denyAll();
                     requests.requestMatchers(HttpMethod.POST, "/game/setup").denyAll();
                     requests.requestMatchers(HttpMethod.GET, "/game/isSetupComplete").denyAll();
                     // Save files contain the shared football world but deliberately
@@ -136,6 +176,7 @@ public class WebSecurityConfig {
                     // The gallery deliberately renders outside the login shell, so it has
                     // no session to authenticate with.
                     if (faceLabEnabled) requests.requestMatchers(FACE_LAB_PATHS).permitAll();
+                    if (phaseLabEnabled) requests.requestMatchers(PHASE_LAB_PATHS).permitAll();
                     requests.requestMatchers("/admin/login").permitAll();
                     requests.requestMatchers("/admin/**").hasRole("ADMIN");
                     requests.anyRequest().authenticated();
