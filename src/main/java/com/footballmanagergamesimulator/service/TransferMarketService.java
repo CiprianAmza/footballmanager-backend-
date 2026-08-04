@@ -1,11 +1,8 @@
 package com.footballmanagergamesimulator.service;
 
-import com.footballmanagergamesimulator.model.Human;
-import com.footballmanagergamesimulator.model.ManagerInbox;
-import com.footballmanagergamesimulator.model.Round;
-import com.footballmanagergamesimulator.model.Team;
-import com.footballmanagergamesimulator.model.TransferOffer;
+import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.LoanRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -21,6 +18,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Owns transfer-market workflow: the global transfer-window flag, the
@@ -37,6 +36,7 @@ import java.util.List;
 public class TransferMarketService {
 
     @Autowired private HumanRepository humanRepository;
+    @Autowired private LoanRepository loanRepository;
     @Autowired private TeamRepository teamRepository;
     @Autowired private TransferOfferRepository transferOfferRepository;
     @Autowired private ManagerInboxRepository managerInboxRepository;
@@ -151,6 +151,12 @@ public class TransferMarketService {
         int season = (int) round.getSeason();
         int roundNumber = (int) round.getRound();
 
+        Set<Long> playersOutOnLoan = loanRepository
+                .findAllByStatus("active")
+                .stream()
+                .map(Loan::getPlayerId)
+                .collect(Collectors.toSet());
+
         for (long humanTeamId : userContext.getAllHumanTeamIds()) {
             List<Human> humanTeamPlayers = humanRepository.findAllByTeamId(humanTeamId);
             Team humanTeam = teamRepository.findById(humanTeamId).orElse(null);
@@ -159,6 +165,7 @@ public class TransferMarketService {
             for (TransferPlayer clubPlan : buyPlanTransferView.getPositions()) {
                 for (Human player : humanTeamPlayers) {
                     if (player.isRetired()) continue;
+                    if (playersOutOnLoan.contains(player.getId())) continue;
                     if (player.getPosition() == null || player.getTypeId() != TypeNames.PLAYER_TYPE) continue;
                     // Same rule the AI-vs-AI market uses, so an AI club cannot bid for a
                     // human's player on terms it would never accept from another AI club.

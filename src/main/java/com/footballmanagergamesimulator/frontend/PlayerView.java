@@ -59,6 +59,10 @@ public class PlayerView {
 
   List<String> skillNames;
   List<Long> skillValues;
+  private int seasonAppearances;
+  private int seasonGoals;
+  private int seasonAssists;
+  private List<PlayerAttributeView> importantAttributes;
 
   // Physical profile
   private String preferredFoot;

@@ -39,6 +39,9 @@ public class GameController {
     YouthAcademyService youthAcademyService;
 
     @Autowired
+    AcademyIntelligenceService academyIntelligenceService;
+
+    @Autowired
     SponsorshipService sponsorshipService;
 
     @Autowired
@@ -420,9 +423,29 @@ public class GameController {
         return youthAcademyService.getYouthSquad(teamId);
     }
 
+    @GetMapping("/youthAcademy/intelligence/{teamId}")
+    public AcademyIntelligenceService.AcademyOverview getYouthAcademyIntelligence(@PathVariable long teamId) {
+        return academyIntelligenceService.overview(teamId);
+    }
+
     @PostMapping("/youthAcademy/promote/{youthPlayerId}")
     public Human promoteYouthPlayer(@PathVariable long youthPlayerId, HttpServletRequest request) {
         return youthAcademyService.promoteToFirstTeam(youthPlayerId, userContext.getTeamId(request));
+    }
+
+    @PostMapping("/youthAcademy/release/{youthPlayerId}")
+    public void releaseYouthPlayer(@PathVariable long youthPlayerId, HttpServletRequest request) {
+        youthAcademyService.releaseYouthPlayer(youthPlayerId, userContext.getTeamId(request));
+    }
+
+    @PostMapping("/youthAcademy/facilities/upgrade")
+    public FacilityUpgrade startYouthFacilityUpgrade(@RequestBody Map<String, Object> body,
+                                                     HttpServletRequest request) {
+        String facilityType = String.valueOf(body.get("facilityType"));
+        if (!Set.of("YOUTH_ACADEMY", "YOUTH_TRAINING").contains(facilityType)) {
+            throw new IllegalArgumentException("Unsupported youth facility type");
+        }
+        return startFacilityUpgradeForTeam(userContext.getTeamId(request), facilityType);
     }
 
     // ==================== SPONSORSHIPS ====================
@@ -469,9 +492,14 @@ public class GameController {
     }
 
     @PostMapping("/facilities/upgrade")
-    public FacilityUpgrade startFacilityUpgrade(@RequestBody Map<String, Object> body) {
-        long teamId = ((Number) body.get("teamId")).longValue();
+    public FacilityUpgrade startFacilityUpgrade(@RequestBody Map<String, Object> body,
+                                                HttpServletRequest request) {
+        long teamId = userContext.getTeamId(request);
         String facilityType = (String) body.get("facilityType");
+        return startFacilityUpgradeForTeam(teamId, facilityType);
+    }
+
+    private FacilityUpgrade startFacilityUpgradeForTeam(long teamId, String facilityType) {
         int season = getCurrentSeason();
         // Get current day from calendar
         int currentDay = 0;

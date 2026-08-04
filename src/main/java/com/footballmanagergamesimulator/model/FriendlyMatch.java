@@ -46,4 +46,25 @@ public class FriendlyMatch {
     // Linked calendar event ID (for cancellation)
     @Column(columnDefinition = "bigint default 0")
     private long calendarEventId;
+
+    /** Optional link to a tour, training camp or club-hosted mini tournament. */
+    private Long friendlyEventId;
+
+    /** FRIENDLY, TOUR_MATCH, MINI_LEAGUE or MINI_CUP. */
+    @Column(columnDefinition = "varchar(30) default 'FRIENDLY'")
+    private String matchType = "FRIENDLY";
+
+    /** Preparation objective chosen by the manager. */
+    @Column(columnDefinition = "varchar(30) default 'BALANCED'")
+    private String purpose = "BALANCED";
+
+    /** STANDARD, EXTENDED_BENCH or DEVELOPMENT. */
+    @Column(columnDefinition = "varchar(30) default 'STANDARD'")
+    private String ruleset = "STANDARD";
+
+    /** FRIENDLY, ROUND_1, ROUND_2, SEMI_FINAL or FINAL. */
+    @Column(columnDefinition = "varchar(30) default 'FRIENDLY'")
+    private String eventStage = "FRIENDLY";
+
+    private String venueName;
 }

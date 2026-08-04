@@ -25,4 +25,6 @@ public interface ManagerInboxRepository extends JpaRepository<ManagerInbox, Long
 
     boolean existsByRecipientProfileIdAndDeduplicationKey(Long recipientProfileId, String deduplicationKey);
 
+    boolean existsByTeamIdAndDeduplicationKey(long teamId, String deduplicationKey);
+
 }

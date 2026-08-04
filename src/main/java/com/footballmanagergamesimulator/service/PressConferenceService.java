@@ -39,28 +39,42 @@ public class PressConferenceService {
             "How do you rate your chances?",
             "Any injury concerns?",
             "What's the team morale like?",
-            "Are you happy with recent form?"
+            "Are you happy with recent form?",
+            "Will recent performances influence your team selection?",
+            "Do you feel the pressure from the supporters?",
+            "Has transfer speculation distracted the squad?",
+            "What tactical threat concerns you most about the opposition?"
     );
 
     private static final List<String> POST_MATCH_QUESTIONS_WIN = List.of(
             "How does this win feel?",
             "Any standout performers today?",
             "What was the turning point?",
-            "Can you keep this momentum going?"
+            "Can you keep this momentum going?",
+            "Was this your most complete performance of the season?",
+            "How important was the reaction from the substitutes?",
+            "Are expectations around the club rising?"
     );
 
     private static final List<String> POST_MATCH_QUESTIONS_DRAW = List.of(
             "Two points dropped or one earned?",
             "What did you make of the performance?",
             "Where did the game slip away?",
-            "What are you taking away from today?"
+            "What are you taking away from today?",
+            "Did your side manage the decisive moments well enough?",
+            "Were you satisfied with the refereeing decisions?",
+            "Does the team need more attacking options?"
     );
 
     private static final List<String> POST_MATCH_QUESTIONS_LOSS = List.of(
             "What went wrong out there?",
             "Is the squad good enough?",
             "Are you worried about your job?",
-            "How do you respond from this?"
+            "How do you respond from this?",
+            "Do you accept responsibility for the tactical plan?",
+            "Did the players show enough attitude?",
+            "What is your message to the supporters?",
+            "Has the dressing room lost confidence?"
     );
 
     public PressConference generatePreMatchPressConference(long teamId, long competitionId, int matchday, int season) {
@@ -228,12 +242,26 @@ public class PressConferenceService {
         pressConference.setReputationEffect(reputationIfWin); // store potential win effect
         pressConferenceRepository.save(pressConference);
 
-        // Send inbox confirmation
+        String mediaHeadline = switch (responseType) {
+            case "confident" -> "Media reaction: manager refuses to lower expectations";
+            case "aggressive" -> "Media reaction: bold words raise the stakes";
+            case "deflect" -> "Media reaction: manager shuts down the questions";
+            default -> "Media reaction: measured message from the manager";
+        };
+        String mediaContext = switch (responseType) {
+            case "confident" -> "The studio panel viewed the response as a public show of faith in the squad.";
+            case "aggressive" -> "Analysts warned that the statement could inspire the team, but also increase pressure before the next result.";
+            case "deflect" -> "The refusal to engage became the main talking point, with attention now shifting to the dressing room.";
+            default -> "Commentators described the tone as controlled and designed to keep attention on the next match.";
+        };
+
+        // Turn the chosen response into a media story, not only an internal receipt.
         sendInboxMessage(pressConference.getTeamId(), pressConference.getSeasonNumber(),
                 pressConference.getDay(),
-                "Press Conference Completed",
-                responseDescription + " Morale effect: " + (moraleEffect >= 0 ? "+" : "") + moraleEffect + " for all players.",
-                "PRESS_CONFERENCE");
+                mediaHeadline,
+                responseDescription + "\n\n" + mediaContext + "\n\nSquad morale effect: "
+                        + (moraleEffect >= 0 ? "+" : "") + moraleEffect + ".",
+                "MEDIA_REACTION");
 
         Map<String, Object> result = new HashMap<>();
         result.put("pressConferenceId", pressConferenceId);

@@ -42,6 +42,8 @@ public class TrainingService {
     @Autowired
     TrainingCadenceService trainingCadenceService;
     @Autowired
+    PlayerPersonalityService playerPersonalityService;
+    @Autowired
     InjuryTimelineService injuryTimelineService;
     @Autowired(required = false)
     GameplayFeatureConfig gameplayFeatures;
@@ -139,8 +141,9 @@ public class TrainingService {
                 Set<String> effectiveFocusAttrs = getEffectiveFocusAttrs(player, focusAttrs);
                 PlayerSkills skills = skillsByPlayer.get(player.getId());
                 if (skills != null) {
+                    double personalityFactor = playerPersonalityService.trainingDevelopmentFactor(player, trainingFocus);
                     boolean attributeChanged = trainAttributes(
-                            player, skills, effectiveFocusAttrs, random, facilityFactor);
+                            player, skills, effectiveFocusAttrs, random, facilityFactor * personalityFactor);
 
                     if (attributeChanged) {
                         double newRating = PlayerSkillsService.computeOverallRating(skills);

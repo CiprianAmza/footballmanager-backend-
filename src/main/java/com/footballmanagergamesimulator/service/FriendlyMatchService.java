@@ -37,6 +37,8 @@ public class FriendlyMatchService {
     @Autowired
     @Lazy
     private TacticSimulationService tacticSimulationService;
+    @Autowired
+    private FriendlyEventService friendlyEventService;
 
     private static final int PRE_SEASON_START = 1;
     private static final int PRE_SEASON_END = 30;
@@ -119,6 +121,11 @@ public class FriendlyMatchService {
      * Schedule a friendly match.
      */
     public Map<String, Object> scheduleFriendly(long teamId, long opponentTeamId, int day, int season) {
+        return scheduleFriendly(teamId, opponentTeamId, day, season, "BALANCED", "STANDARD", null);
+    }
+
+    public Map<String, Object> scheduleFriendly(long teamId, long opponentTeamId, int day, int season,
+                                                String purpose, String ruleset, String venueName) {
         Map<String, Object> result = new LinkedHashMap<>();
 
         // Validation
@@ -168,6 +175,11 @@ public class FriendlyMatchService {
         friendly.setAwayTeamName(awayTeamName);
         friendly.setStatus("SCHEDULED");
         friendly.setScheduledByTeamId(teamId);
+        friendly.setMatchType("FRIENDLY");
+        friendly.setPurpose(normalizeOption(purpose, Set.of("BALANCED", "FITNESS", "TACTICAL", "DEVELOPMENT"), "BALANCED"));
+        friendly.setRuleset(normalizeOption(ruleset, Set.of("STANDARD", "EXTENDED_BENCH", "DEVELOPMENT"), "STANDARD"));
+        friendly.setEventStage("FRIENDLY");
+        friendly.setVenueName(venueName == null || venueName.isBlank() ? homeTeamName + " Stadium" : venueName.trim());
 
         // Create calendar event
         CalendarEvent event = new CalendarEvent();
@@ -206,6 +218,11 @@ public class FriendlyMatchService {
         if (!"SCHEDULED".equals(friendly.getStatus())) {
             result.put("success", false);
             result.put("error", "Can only cancel scheduled matches");
+            return result;
+        }
+        if (friendly.getFriendlyEventId() != null) {
+            result.put("success", false);
+            result.put("error", "Tournament fixtures belong to their event. Cancel the event instead.");
             return result;
         }
 
@@ -254,6 +271,12 @@ public class FriendlyMatchService {
             m.put("homeTeamName", fm.getHomeTeamName());
             m.put("awayTeamName", fm.getAwayTeamName());
             m.put("status", fm.getStatus());
+            m.put("friendlyEventId", fm.getFriendlyEventId());
+            m.put("matchType", fm.getMatchType() == null ? "FRIENDLY" : fm.getMatchType());
+            m.put("purpose", fm.getPurpose() == null ? "BALANCED" : fm.getPurpose());
+            m.put("ruleset", fm.getRuleset() == null ? "STANDARD" : fm.getRuleset());
+            m.put("eventStage", fm.getEventStage() == null ? "FRIENDLY" : fm.getEventStage());
+            m.put("venueName", fm.getVenueName());
             if ("COMPLETED".equals(fm.getStatus())) {
                 m.put("homeGoals", fm.getHomeGoals());
                 m.put("awayGoals", fm.getAwayGoals());
@@ -282,7 +305,15 @@ public class FriendlyMatchService {
             results.add(result);
         }
 
+        friendlyEventService.advanceEventsForDay(season, day);
+
         return results;
+    }
+
+    private String normalizeOption(String value, Set<String> allowed, String fallback) {
+        if (value == null) return fallback;
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return allowed.contains(normalized) ? normalized : fallback;
     }
 
     /**

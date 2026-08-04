@@ -11,8 +11,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 
 import java.util.*;
 
@@ -37,6 +40,9 @@ public class TransferOfferController {
     TransferRepository transferRepository;
 
     @Autowired
+    LoanRepository loanRepository;
+
+    @Autowired
     ManagerInboxRepository managerInboxRepository;
 
     @Autowired
@@ -59,6 +65,12 @@ public class TransferOfferController {
 
     @Autowired
     TransferOfferLifecycleService transferOfferLifecycleService;
+
+    @Autowired
+    com.footballmanagergamesimulator.service.PlayerMarketAvailabilityService marketAvailabilityService;
+
+    @Autowired
+    com.footballmanagergamesimulator.service.PlayerPreviewService playerPreviewService;
 
     @Autowired
     com.footballmanagergamesimulator.service.ClubActionAuthorizationService clubActionAuthorizationService;
@@ -94,6 +106,13 @@ public class TransferOfferController {
         Map<Long, Human> players = humanRepository.findAllById(playerIds).stream()
                 .collect(java.util.stream.Collectors.toMap(Human::getId, player -> player));
         return removeStaleOffers(all, players);
+    }
+
+    /** Complete transfer record of one player, oldest first — powers the
+     *  Transfer History section on the player page. */
+    @GetMapping("/playerHistory/{playerId}")
+    public List<Transfer> getPlayerTransferHistory(@PathVariable(name = "playerId") long playerId) {
+        return transferRepository.findAllByPlayerIdOrderBySeasonNumberAscIdAsc(playerId);
     }
 
     @GetMapping("/history/{teamId}/{season}")
@@ -147,6 +166,9 @@ public class TransferOfferController {
         }
         if (player.isWillNeverLeave()) {
             return ResponseEntity.status(409).body("This player will never leave their current club");
+        }
+        if (!loanRepository.findAllByPlayerIdAndStatus(player.getId(), "active").isEmpty()) {
+            return ResponseEntity.status(409).body("A player currently on loan cannot be transferred permanently");
         }
 
         Team humanTeam = teamRepository.findById(humanTeamId).orElse(null);
@@ -264,6 +286,11 @@ public class TransferOfferController {
             transferOfferLifecycleService.removeActiveOffersForPlayer(lockedPlayer.getId());
             return ResponseEntity.status(409).body("This player will never leave their current club");
         }
+        if (("accept".equals(action) || "counter".equals(action))
+                && !loanRepository.findAllByPlayerIdAndStatus(lockedPlayer.getId(), "active").isEmpty()) {
+            transferOfferLifecycleService.removeActiveOffersForPlayer(lockedPlayer.getId());
+            return ResponseEntity.status(409).body("A player currently on loan cannot be transferred permanently");
+        }
 
         // Accepting an incoming offer (or a counter that the AI then accepts) sells one of our
         // players → guard with canSellPlayers. Owner can lock the squad down.
@@ -353,14 +380,7 @@ public class TransferOfferController {
         List<Human> allPlayers = humanRepository.findAll();
         List<Map<String, Object>> available = new ArrayList<>();
 
-        // Get IDs of players already transferred this season (can't be re-sold)
-        Round round = roundRepository.findById(1L).orElse(new Round());
-        int season = (int) round.getSeason();
-        List<Transfer> seasonTransfers = transferRepository.findAllBySeasonNumber(season);
-        Set<Long> alreadyTransferredIds = new HashSet<>();
-        for (Transfer t : seasonTransfers) {
-            alreadyTransferredIds.add(t.getPlayerId());
-        }
+        Set<Long> unavailablePlayerIds = marketAvailabilityService.unavailablePlayerIds();
 
         // Get scouting level for the requesting team
         TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
@@ -375,7 +395,7 @@ public class TransferOfferController {
             if (player.isRetired()) continue;
             if (player.isWillNeverLeave()) continue;
             if (player.getTypeId() != 1L) continue; // only players, not managers
-            if (alreadyTransferredIds.contains(player.getId())) continue; // already transferred this window
+            if (unavailablePlayerIds.contains(player.getId())) continue;
             if (position != null && !position.isEmpty() && !player.getPosition().equals(position)) continue;
 
             Team team = teamRepository.findById(player.getTeamId()).orElse(null);
@@ -395,7 +415,8 @@ public class TransferOfferController {
             playerInfo.put("scoutingAccuracy", scoutingAccuracy);
             playerInfo.put("teamId", team.getId());
             playerInfo.put("teamName", team.getName());
-            playerInfo.put("transferValue", calculateTransferValue(player.getAge(), player.getPosition(), player.getRating()));
+            playerInfo.put("transferValue", player.getTransferValue());
+            addPlayerPreview(playerInfo, player);
 
             available.add(playerInfo);
         }
@@ -414,26 +435,56 @@ public class TransferOfferController {
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "50") int size,
             @RequestParam(name = "sort", defaultValue = "rating") String sort,
-            @RequestParam(name = "direction", defaultValue = "desc") String direction) {
+            @RequestParam(name = "direction", defaultValue = "desc") String direction,
+            @RequestParam(name = "minValue", defaultValue = "0") long minValue,
+            @RequestParam(name = "maxValue", defaultValue = "9223372036854775807") long maxValue) {
 
         int safePage = Math.max(0, page);
         int safeSize = Math.max(10, Math.min(100, size));
-        Set<String> allowedSorts = Set.of("rating", "age", "transferValue", "name", "position");
+        Set<String> allowedSorts = Set.of("rating", "age", "transferValue", "name", "position", "club");
         String sortField = allowedSorts.contains(sort) ? sort : "rating";
+        boolean sortByClub = "club".equals(sortField);
         Sort.Direction sortDirection = "asc".equalsIgnoreCase(direction)
                 ? Sort.Direction.ASC : Sort.Direction.DESC;
-        PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(sortDirection, sortField));
+        Sort playerSort = Sort.by(sortDirection, sortField).and(Sort.by(Sort.Direction.ASC, "id"));
+        PageRequest pageable = PageRequest.of(safePage, safeSize,
+                sortByClub ? Sort.unsorted() : playerSort);
+        long safeMinValue = Math.max(0, minValue);
+        long safeMaxValue = Math.max(safeMinValue, maxValue);
 
-        Page<Human> playerPage = position == null || position.isBlank() || "ALL".equals(position)
-                ? humanRepository.findAllByTypeIdAndRetiredFalseAndWillNeverLeaveFalseAndTeamIdIsNotNullAndTeamIdNot(
-                        1L, teamId, pageable)
-                : humanRepository.findAllByTypeIdAndRetiredFalseAndWillNeverLeaveFalseAndTeamIdIsNotNullAndTeamIdNotAndPosition(
-                        1L, teamId, position, pageable);
+        Set<Long> unavailablePlayerIds = marketAvailabilityService.unavailablePlayerIds();
+        Specification<Human> availableSpec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>(List.of(
+                    cb.equal(root.get("typeId"), 1L),
+                    cb.isFalse(root.get("retired")),
+                    cb.isFalse(root.get("willNeverLeave")),
+                    cb.isNotNull(root.get("teamId")),
+                    cb.notEqual(root.get("teamId"), teamId),
+                    cb.greaterThanOrEqualTo(root.get("transferValue"), safeMinValue),
+                    cb.lessThanOrEqualTo(root.get("transferValue"), safeMaxValue),
+                    unavailablePlayerIds.isEmpty()
+                            ? cb.conjunction() : cb.not(root.get("id").in(unavailablePlayerIds)),
+                    position == null || position.isBlank() || "ALL".equalsIgnoreCase(position)
+                            ? cb.conjunction() : cb.equal(root.get("position"), position)
+            ));
 
-        int season = (int) roundRepository.findById(1L).orElse(new Round()).getSeason();
-        Set<Long> alreadyTransferredIds = transferRepository.findAllBySeasonNumber(season).stream()
-                .map(Transfer::getPlayerId)
-                .collect(java.util.stream.Collectors.toSet());
+            if (sortByClub) {
+                Root<Team> club = query.from(Team.class);
+                predicates.add(cb.equal(club.get("id"), root.get("teamId")));
+                if (!Long.class.equals(query.getResultType()) && !long.class.equals(query.getResultType())) {
+                    query.orderBy(sortDirection == Sort.Direction.ASC
+                                    ? cb.asc(cb.lower(club.get("name")))
+                                    : cb.desc(cb.lower(club.get("name"))),
+                            cb.asc(root.get("id")));
+                }
+            }
+            return cb.and(predicates.toArray(Predicate[]::new));
+        };
+        Page<Human> playerPage = humanRepository.findAll(availableSpec, pageable);
+
+        int season = marketAvailabilityService.currentSeason();
+        Map<Long, com.footballmanagergamesimulator.service.PlayerPreviewService.Preview> previews =
+                playerPreviewService.previews(playerPage.getContent(), season);
         Map<Long, Team> teams = teamRepository.findAllById(playerPage.getContent().stream()
                         .map(Human::getTeamId)
                         .filter(Objects::nonNull)
@@ -449,7 +500,6 @@ public class TransferOfferController {
 
         List<Map<String, Object>> content = new ArrayList<>();
         for (Human player : playerPage.getContent()) {
-            if (alreadyTransferredIds.contains(player.getId())) continue;
             Team team = teams.get(player.getTeamId());
             if (team == null) continue;
 
@@ -467,8 +517,8 @@ public class TransferOfferController {
             playerInfo.put("scoutingAccuracy", scoutingAccuracy);
             playerInfo.put("teamId", team.getId());
             playerInfo.put("teamName", team.getName());
-            playerInfo.put("transferValue",
-                    calculateTransferValue(player.getAge(), player.getPosition(), player.getRating()));
+            playerInfo.put("transferValue", player.getTransferValue());
+            addPlayerPreview(playerInfo, player, previews.get(player.getId()));
             content.add(playerInfo);
         }
 
@@ -476,10 +526,27 @@ public class TransferOfferController {
         result.put("content", content);
         result.put("page", playerPage.getNumber());
         result.put("size", playerPage.getSize());
-        result.put("totalElements", Math.max(0,
-                playerPage.getTotalElements() - alreadyTransferredIds.size()));
+        result.put("totalElements", playerPage.getTotalElements());
         result.put("totalPages", playerPage.getTotalPages());
         return result;
+    }
+
+    private void addPlayerPreview(Map<String, Object> target, Human player) {
+        addPlayerPreview(target, player, null);
+    }
+
+    private void addPlayerPreview(Map<String, Object> target, Human player,
+                                  com.footballmanagergamesimulator.service.PlayerPreviewService.Preview preview) {
+        target.put("wage", player.getWage());
+        target.put("contractEndSeason", player.getContractEndSeason());
+        target.put("fitness", player.getFitness());
+        target.put("morale", player.getMorale());
+        target.put("currentStatus", player.getCurrentStatus());
+        target.put("releaseClause", player.getReleaseClause());
+        target.put("seasonAppearances", preview == null ? 0 : preview.appearances());
+        target.put("seasonGoals", preview == null ? 0 : preview.goals());
+        target.put("seasonAssists", preview == null ? 0 : preview.assists());
+        target.put("importantAttributes", preview == null ? List.of() : preview.importantAttributes());
     }
 
     private void executeTransfer(Human player, Team sellingTeam, Team buyingTeam, long fee, int season) {
@@ -524,6 +591,9 @@ public class TransferOfferController {
                 "TRANSFER_SALE", "Sold " + player.getName(), effectiveFeeForSeller);
         sellingTeam = teamRepository.findById(sellingTeam.getId()).orElse(sellingTeam);
         sellingTeam.setSalaryBudget(sellingTeam.getSalaryBudget() - playerWage);
+        // The sale money must actually ARRIVE: without this the fee existed
+        // only as a ledger line and the selling club could never spend it.
+        sellingTeam.setTransferBudget(sellingTeam.getTransferBudget() + effectiveFeeForSeller);
         teamRepository.save(sellingTeam);
 
         // Pay sell-on fee to the third-party club

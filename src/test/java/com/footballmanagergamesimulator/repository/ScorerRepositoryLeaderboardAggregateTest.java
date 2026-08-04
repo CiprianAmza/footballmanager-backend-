@@ -39,6 +39,23 @@ class ScorerRepositoryLeaderboardAggregateTest {
     }
 
     @Test
+    void aggregatesPreviewAppearancesGoalsAndAssistsForRequestedPlayersAndSeason() {
+        scorerRepository.save(recordAppearance(10L, 7L, "Sherlock FC", 4L, 3, 2, 1));
+        scorerRepository.save(recordAppearance(10L, 7L, "Sherlock FC", 4L, 3, 1, 3));
+        scorerRepository.save(recordAppearance(10L, 7L, "Sherlock FC", 4L, 2, 9, 9));
+        scorerRepository.save(recordAppearance(11L, 8L, "Moby Dick FC", 4L, 3, 4, 2));
+
+        List<ScorerRepository.SeasonPreviewAggregate> rows =
+                scorerRepository.aggregateSeasonPreview(List.of(10L), 3);
+
+        assertEquals(1, rows.size());
+        assertEquals(10L, rows.get(0).getPlayerId());
+        assertEquals(2L, rows.get(0).getAppearances());
+        assertEquals(3L, rows.get(0).getGoals());
+        assertEquals(4L, rows.get(0).getAssists());
+    }
+
+    @Test
     void aggregatesRatingHistoryPerCompetitionSeasonTeamAndPlayer() {
         scorerRepository.save(ratedAppearance(10L, 7L, "Sherlock FC", 4L,
                 "League of Champions", 4, 3, 7.2));

@@ -299,6 +299,7 @@ public class ChairmanTacticalMandateEnforcementService {
         copy.setDuty(source.getDuty());
         copy.setInstructions(source.getInstructions() == null ? null : List.copyOf(source.getInstructions()));
         copy.setSpecialRole(source.getSpecialRole());
+        copy.setShadow(source.isShadow());
         return copy;
     }
 

@@ -11,6 +11,29 @@ import java.util.List;
 
 public interface ScorerRepository extends JpaRepository<Scorer, Long> {
 
+    interface SeasonPreviewAggregate {
+        Long getPlayerId();
+        Long getAppearances();
+        Long getGoals();
+        Long getAssists();
+    }
+
+    @Query("""
+            select s.playerId as playerId,
+                   count(s.id) as appearances,
+                   coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists
+              from Scorer s
+             where s.seasonNumber = :season
+               and s.playerId in :playerIds
+               and s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<SeasonPreviewAggregate> aggregateSeasonPreview(
+            @Param("playerIds") java.util.Collection<Long> playerIds,
+            @Param("season") int season);
+
     /**
      * Compact source of truth used to repair leaderboard rows that were not
      * created when a player was generated or promoted. Keeping the aggregation

@@ -379,7 +379,7 @@ public class ManagerCareerService {
                         ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
                 humanRepository.save(newManager);
 
-                System.out.println("=== AI MANAGER FIRED: " + manager.getName() + " from " + team.getName()
+                System.out.println("===     AI MANAGER FIRED: " + manager.getName() + " from " + team.getName()
                         + " | Replaced by: " + newManager.getName() + " ===");
             }
         }

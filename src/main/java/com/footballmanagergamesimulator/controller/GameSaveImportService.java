@@ -51,7 +51,8 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_10 = 10;
     static final int SAVE_VERSION_11 = 11;
     static final int SAVE_VERSION_12 = 12;
-    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_12;
+    static final int SAVE_VERSION_13 = 13;
+    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_13;
 
     private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
             new StayForwardSeedIdentity(107L, "Kvekrpur", 14L, "ST"),
@@ -122,6 +123,7 @@ public class GameSaveImportService {
             new TableSpec("teamPlayerHistorical", "TEAM_PLAYER_HISTORICAL_RELATION"),
             new TableSpec("financialRecords", "FINANCIAL_RECORD"),
             new TableSpec("friendlyMatches", "FRIENDLY_MATCH", SAVE_VERSION_6),
+            new TableSpec("friendlyEvents", "FRIENDLY_EVENT", SAVE_VERSION_13),
             new TableSpec("jobOffers", "JOB_OFFER", SAVE_VERSION_6),
             new TableSpec("scouts", "SCOUT", SAVE_VERSION_6),
             new TableSpec("scoutAssignments", "SCOUT_ASSIGNMENT", SAVE_VERSION_6),
@@ -157,7 +159,10 @@ public class GameSaveImportService {
      */
     private static final Set<String> PRESERVED_TABLES = Set.of(
             "USERS", "PERSON_PROFILE", "FLYWAY_SCHEMA_HISTORY",
-            "GAME_ROOM", "GAME_ROOM_MEMBER", "ROOM_CONTINUE_CYCLE", "ROOM_CONTINUE_VOTE");
+            "GAME_ROOM", "GAME_ROOM_MEMBER", "ROOM_CONTINUE_CYCLE", "ROOM_CONTINUE_VOTE",
+            // Dev Phase Lab taste data belongs to this installation, not to the
+            // portable football world, just like account/profile preferences.
+            "PHASE_RATING");
 
     private static final List<NamedSequence> NAMED_SEQUENCES = List.of(
             new NamedSequence("CTI_SEQ", "COMPETITION_TEAM_INFO"),
@@ -1025,7 +1030,7 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10, 11 or 12");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10, 11, 12 or 13");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
@@ -1033,8 +1038,9 @@ public class GameSaveImportService {
                 && version != SAVE_VERSION_9
                 && version != SAVE_VERSION_10
                 && version != SAVE_VERSION_11
+                && version != SAVE_VERSION_12
                 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11 or 12");
+            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11, 12 or 13");
         }
         return version;
     }

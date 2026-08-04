@@ -7,6 +7,7 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TransferOffer;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
+import com.footballmanagergamesimulator.repository.LoanRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.TransferRepository;
@@ -41,6 +42,7 @@ class TransferOfferControllerTest {
     @Mock RoundRepository roundRepository;
     @Mock TeamRepository teamRepository;
     @Mock TransferRepository transferRepository;
+    @Mock LoanRepository loanRepository;
     @Mock ManagerInboxRepository managerInboxRepository;
     @Mock FinanceService financeService;
     @Mock CoachPermissionService coachPermissionService;
@@ -137,6 +139,29 @@ class TransferOfferControllerTest {
                 new MockHttpServletRequest(), 1, Map.of("action", "accept"));
 
         assertEquals(409, response.getStatusCode().value());
+        verify(transferOfferLifecycleService).removeActiveOffersForPlayer(44L);
+        verify(transferRepository, never()).save(any());
+    }
+
+    @Test
+    void activeLoanBlocksPermanentAcceptanceAndRemovesCompetingOffers() {
+        TransferOffer offer = incomingOffer(1, 44, 2, 9);
+        Human player = player(44, 9);
+        Round round = new Round();
+        round.setSeason(4);
+
+        when(offerRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(offer));
+        when(roundRepository.findById(1L)).thenReturn(Optional.of(round));
+        when(userContext.getTeamId(any())).thenReturn(9L);
+        when(humanRepository.findByIdForUpdate(44)).thenReturn(Optional.of(player));
+        when(loanRepository.findAllByPlayerIdAndStatus(44L, "active"))
+                .thenReturn(List.of(new com.footballmanagergamesimulator.model.Loan()));
+
+        ResponseEntity<?> response = controller.respondToOffer(
+                new MockHttpServletRequest(), 1, Map.of("action", "accept"));
+
+        assertEquals(409, response.getStatusCode().value());
+        assertEquals(9L, player.getTeamId());
         verify(transferOfferLifecycleService).removeActiveOffersForPlayer(44L);
         verify(transferRepository, never()).save(any());
     }

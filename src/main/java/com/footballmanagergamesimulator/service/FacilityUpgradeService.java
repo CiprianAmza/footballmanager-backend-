@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
@@ -38,6 +39,7 @@ public class FacilityUpgradeService {
         // facilityType -> [baseCost, baseDurationDays]
         FACILITY_CONFIG.put("TRAINING_GROUND",    new long[]{500_000, 30});
         FACILITY_CONFIG.put("YOUTH_ACADEMY",      new long[]{400_000, 25});
+        FACILITY_CONFIG.put("YOUTH_TRAINING",     new long[]{300_000, 20});
         FACILITY_CONFIG.put("MEDICAL_CENTER",     new long[]{350_000, 20});
         FACILITY_CONFIG.put("STADIUM_EXPANSION",  new long[]{5_000_000, 60});
         FACILITY_CONFIG.put("VIP_BOXES",          new long[]{2_000_000, 40});
@@ -53,9 +55,14 @@ public class FacilityUpgradeService {
         return startUpgrade(teamId, facilityType, season, 0);
     }
 
+    @Transactional
     public FacilityUpgrade startUpgrade(long teamId, String facilityType, int season, int currentDay) {
         long[] config = FACILITY_CONFIG.get(facilityType);
         if (config == null) return null;
+
+        // Serialize spending and duplicate-upgrade checks for the same club.
+        Team team = teamRepository.findByIdForUpdate(teamId).orElse(null);
+        if (team == null) return null;
 
         int currentLevel = getFacilityLevel(teamId, facilityType);
         if (currentLevel >= MAX_LEVEL) return null;
@@ -65,9 +72,6 @@ public class FacilityUpgradeService {
         for (FacilityUpgrade u : inProgress) {
             if (u.getFacilityType().equals(facilityType)) return null;
         }
-
-        Team team = teamRepository.findById(teamId).orElse(null);
-        if (team == null) return null;
 
         long baseCost = config[0];
         int baseDuration = (int) config[1];
@@ -151,6 +155,10 @@ public class FacilityUpgradeService {
                 TeamFacilities f = teamFacilitiesRepository.findByTeamId(teamId);
                 return f != null ? (int) f.getYouthAcademyLevel() : 1;
             }
+            case "YOUTH_TRAINING": {
+                TeamFacilities f = teamFacilitiesRepository.findByTeamId(teamId);
+                return f != null ? (int) f.getYouthTrainingLevel() : 1;
+            }
             case "MEDICAL_CENTER": {
                 TeamFacilities f = teamFacilitiesRepository.findByTeamId(teamId);
                 return f != null ? f.getScoutingLevel() : 1;
@@ -205,6 +213,11 @@ public class FacilityUpgradeService {
             case "YOUTH_ACADEMY": {
                 TeamFacilities f = teamFacilitiesRepository.findByTeamId(teamId);
                 if (f != null) { f.setYouthAcademyLevel(level); teamFacilitiesRepository.save(f); }
+                break;
+            }
+            case "YOUTH_TRAINING": {
+                TeamFacilities f = teamFacilitiesRepository.findByTeamId(teamId);
+                if (f != null) { f.setYouthTrainingLevel(level); teamFacilitiesRepository.save(f); }
                 break;
             }
             case "MEDICAL_CENTER": {
@@ -346,6 +359,7 @@ public class FacilityUpgradeService {
         switch (facilityType) {
             case "TRAINING_GROUND": return "Training Ground";
             case "YOUTH_ACADEMY": return "Youth Academy";
+            case "YOUTH_TRAINING": return "Youth Training Centre";
             case "MEDICAL_CENTER": return "Medical Center";
             case "STADIUM_EXPANSION": return "Stadium Expansion";
             case "VIP_BOXES": return "VIP Boxes";
@@ -363,6 +377,7 @@ public class FacilityUpgradeService {
         switch (facilityType) {
             case "TRAINING_GROUND": return "Improves player development during training sessions.";
             case "YOUTH_ACADEMY": return "Higher potential for youth academy prospects.";
+            case "YOUTH_TRAINING": return "Accelerates the annual development of academy players.";
             case "MEDICAL_CENTER": return "Reduces injury recovery time.";
             case "STADIUM_EXPANSION": return "Adds 5,000 seats per level, increasing match day attendance.";
             case "VIP_BOXES": return "Premium seating areas. +8% match day revenue per level.";

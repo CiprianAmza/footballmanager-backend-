@@ -77,6 +77,23 @@ class NewSeasonSetupProcessorLoanTest {
         verify(loans).save(loan);
     }
 
+    @Test
+    void staleLoanCannotReturnAPlayerWhoAlreadyMovedPermanently() {
+        Loan loan = loan(3, 3);
+        Human player = new Human();
+        player.setId(loan.getPlayerId());
+        player.setTeamId(86L);
+        when(loans.findAllByStatus("active")).thenReturn(List.of(loan));
+        when(humans.findById(player.getId())).thenReturn(Optional.of(player));
+
+        processor.processLoanReturns(3);
+
+        assertEquals(86L, player.getTeamId());
+        assertEquals("cancelled", loan.getStatus());
+        verify(humans, never()).save(player);
+        verify(loans).save(loan);
+    }
+
     private Loan loan(int startSeason, int endSeason) {
         Loan loan = new Loan();
         loan.setPlayerId(7);

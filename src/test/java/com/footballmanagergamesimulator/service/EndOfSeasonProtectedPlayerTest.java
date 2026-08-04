@@ -5,7 +5,10 @@ import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
+import com.footballmanagergamesimulator.repository.LoanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.repository.TransferRepository;
+import com.footballmanagergamesimulator.transfermarket.PlayerTransferView;
 import com.footballmanagergamesimulator.user.UserContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -15,6 +18,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -23,6 +27,43 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class EndOfSeasonProtectedPlayerTest {
+
+    @Test
+    void autonomousMarketCannotSettleAPlayerOwnedByAHumanClub() {
+        EndOfSeasonProcessor processor = new EndOfSeasonProcessor();
+        HumanRepository humans = mock(HumanRepository.class);
+        TeamRepository teams = mock(TeamRepository.class);
+        TransferRepository transfers = mock(TransferRepository.class);
+        LoanRepository loans = mock(LoanRepository.class);
+        UserContext users = mock(UserContext.class);
+
+        Human player = new Human();
+        player.setId(10L);
+        player.setTeamId(3L);
+        player.setName("Saviola");
+        player.setPosition("AMC");
+        player.setRating(300);
+
+        PlayerTransferView staleAiListing = new PlayerTransferView(
+                player.getId(), 3L, player.getRating(), "MC", "AMC",
+                25L, false, false);
+
+        when(humans.findById(10L)).thenReturn(Optional.of(player));
+        when(users.isHumanTeam(3L)).thenReturn(true);
+
+        ReflectionTestUtils.setField(processor, "humanRepository", humans);
+        ReflectionTestUtils.setField(processor, "teamRepository", teams);
+        ReflectionTestUtils.setField(processor, "transferRepository", transfers);
+        ReflectionTestUtils.setField(processor, "loanRepository", loans);
+        ReflectionTestUtils.setField(processor, "userContext", users);
+
+        Object result = ReflectionTestUtils.invokeMethod(
+                processor, "settleTransfer", staleAiListing, 4L, 66_000_000L, 3, 3L);
+
+        assertNull(result);
+        assertEquals(3L, player.getTeamId());
+        verifyNoInteractions(teams, transfers);
+    }
 
     /**
      * A one-club player's contract never runs out — it renews itself.

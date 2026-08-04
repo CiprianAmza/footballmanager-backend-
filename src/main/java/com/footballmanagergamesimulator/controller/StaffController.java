@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.controller;
 
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.service.StaffService;
+import com.footballmanagergamesimulator.service.StaffIntelligenceService;
 import com.footballmanagergamesimulator.user.UserContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,9 @@ public class StaffController {
     private StaffService staffService;
 
     @Autowired
+    private StaffIntelligenceService staffIntelligenceService;
+
+    @Autowired
     private UserContext userContext;
 
     @GetMapping("/overview/{teamId}")
@@ -30,6 +34,22 @@ public class StaffController {
     @GetMapping("/available")
     public List<Human> getAvailableCoaches() {
         return staffService.getFreeAgentCoaches();
+    }
+
+    @GetMapping("/intelligence/{teamId}")
+    public StaffIntelligenceService.StaffIntelligence getStaffIntelligence(@PathVariable long teamId) {
+        return staffIntelligenceService.intelligence(teamId);
+    }
+
+    @GetMapping("/market/{teamId}")
+    public List<StaffIntelligenceService.StaffCandidate> getStaffMarket(@PathVariable long teamId) {
+        return staffIntelligenceService.market(teamId);
+    }
+
+    @PostMapping("/offer")
+    public ResponseEntity<StaffIntelligenceService.OfferResult> makeStaffOffer(
+            HttpServletRequest request, @RequestBody StaffIntelligenceService.StaffOffer offer) {
+        return ResponseEntity.ok(staffIntelligenceService.makeOffer(userContext.getTeamId(request), offer));
     }
 
     @PostMapping("/hire")

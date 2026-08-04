@@ -17,4 +17,6 @@ public interface FriendlyMatchRepository extends JpaRepository<FriendlyMatch, Lo
     List<FriendlyMatch> findAllByScheduledByTeamIdAndSeason(long teamId, int season);
 
     List<FriendlyMatch> findAllBySeasonAndDayAndStatus(int season, int day, String status);
+
+    List<FriendlyMatch> findAllByFriendlyEventIdOrderByDayAsc(Long friendlyEventId);
 }

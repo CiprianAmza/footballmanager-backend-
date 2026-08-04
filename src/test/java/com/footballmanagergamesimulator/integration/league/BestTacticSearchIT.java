@@ -1,14 +1,22 @@
 package com.footballmanagergamesimulator.integration.league;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalTeamEvaluation;
+import com.footballmanagergamesimulator.compartment.adapter.CanonicalLineupPlayer;
+import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.compartment.PlayerTrait;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluationAdapter;
 import com.footballmanagergamesimulator.compartment.match.MatchVenue;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoreSampler;
+import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeInputFactory;
+import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeTeamInput;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.CompetitionFormatConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig.TacticalModel;
+import com.footballmanagergamesimulator.controller.GameController;
 import com.footballmanagergamesimulator.matchplan.MatchPlanService;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
@@ -18,10 +26,14 @@ import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.service.ManagerTacticService;
+import com.footballmanagergamesimulator.service.PrebuiltDataService;
 import com.footballmanagergamesimulator.service.TacticSimulationService;
 import com.footballmanagergamesimulator.testutil.MarkdownTable;
+import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -33,7 +45,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,6 +85,11 @@ class BestTacticSearchIT {
     /** Seasons sampled per tactic. Position is a distribution, so it needs sampling; points do not. */
     private static final String SAMPLES_PROPERTY = "best.tactic.samples";
     private static final String FORMATIONS_PROPERTY = "best.tactic.formations";
+    private static final String THREADS_PROPERTY = "best.tactic.threads";
+    /** Optional exported game JSON loaded before searching. */
+    private static final String SAVE_PROPERTY = "best.tactic.save";
+    /** Optional native H2 SCRIPT snapshot restored before searching. */
+    private static final String SNAPSHOT_PROPERTY = "best.tactic.snapshot";
     private static final int DEFAULT_SAMPLES = 60;
     private static final long BASE_SEED = 20260528L;
 
@@ -82,6 +104,35 @@ class BestTacticSearchIT {
     @Autowired private CompetitionFormatConfig competitionFormat;
     @Autowired private CompartmentEngineConfig compartmentConfig;
     @Autowired private MatchEngineConfig matchEngineConfig;
+    @Autowired private GameController gameController;
+    @Autowired private ObjectMapper objectMapper;
+    @Autowired private PrebuiltDataService prebuiltDataService;
+    @Autowired private CanonicalRuntimeInputFactory runtimeInputFactory;
+    @Autowired private HumanRepository humanRepository;
+
+    @BeforeEach
+    void importRequestedSave() throws IOException {
+        String snapshotPath = System.getProperty(SNAPSHOT_PROPERTY);
+        if (snapshotPath != null && !snapshotPath.isBlank()) {
+            Path path = Path.of(snapshotPath).toAbsolutePath().normalize();
+            assertThat(path).as("H2 snapshot passed through -D%s", SNAPSHOT_PROPERTY).isRegularFile();
+            prebuiltDataService.restore();
+            System.out.println("=== restored current H2 snapshot from " + path + " ===");
+            return;
+        }
+
+        String savePath = System.getProperty(SAVE_PROPERTY);
+        if (savePath == null || savePath.isBlank()) return;
+
+        Path path = Path.of(savePath).toAbsolutePath().normalize();
+        assertThat(path).as("exported game passed through -D%s", SAVE_PROPERTY).isRegularFile();
+        Map<String, Object> save = objectMapper.readValue(
+                Files.readAllBytes(path), new TypeReference<>() { });
+        Map<String, Object> result = gameController.importGame(save);
+        assertThat(result).as("import %s before tactic search", path)
+                .containsEntry("success", true);
+        System.out.println("=== imported current game from " + path + " ===");
+    }
 
     @Test
     void rankEveryTacticByLeagueFinish() throws IOException {
@@ -96,6 +147,7 @@ class BestTacticSearchIT {
         for (Best best : summary) {
             System.out.printf("%s | %s | pos=%.2f | pts=%.1f | titles=%.0f%%%n",
                     best.club(), describe(best), best.position(), best.points(), best.titleRate());
+            printLineup(best.lineup(), best.playerNames());
         }
         assertThat(summary).hasSameSizeAs(requestedTeams);
     }
@@ -123,6 +175,8 @@ class BestTacticSearchIT {
                 .as("club %s must play in some league", requested)
                 .isNotNull();
 
+        final List<Long> searchTeamIds = teamIds;
+        final long searchLeagueId = league.getId();
         long targetId = requested == null ? teamIds.get(0) : requested;
         int target = teamIds.indexOf(targetId);
 
@@ -206,83 +260,211 @@ class BestTacticSearchIT {
         // compartments plus defensive exposure, none of which a rating sum can express.
         List<String> formations = requestedFormations();
 
-        System.out.println("=== searching " + candidates.size() + " tactics x " + formations.size()
-                + " formations for " + names.get(targetId) + " over " + samples + " seasons each ===");
+        Map<Long, String> playerNames = humanRepository
+                .findAllByTeamIdAndTypeId(targetId, TypeNames.PLAYER_TYPE).stream()
+                .collect(Collectors.toMap(player -> player.getId(), player -> player.getName()));
+        Set<Long> mandatoryShadows = humanRepository
+                .findAllByTeamIdAndTypeId(targetId, TypeNames.PLAYER_TYPE).stream()
+                .filter(player -> player.isStayForward()).map(player -> player.getId())
+                .collect(Collectors.toSet());
 
-        List<Row> rows = new ArrayList<>(candidates.size() * formations.size());
-        long started = System.currentTimeMillis();
-        int done = 0;
+        List<FormationSearch> formationSearches = new ArrayList<>();
+        for (String formation : formations) {
+            CanonicalRuntimeTeamInput baseInput = tacticSimulationService
+                    .canonicalFormation(targetId, formation, candidates.get(0)).input();
+            formationSearches.add(new FormationSearch(formation, baseInput,
+                    rolePlans(baseInput, mandatoryShadows)));
+        }
+        List<SearchCase> searchCases = new ArrayList<>();
         for (PersonalizedTactic candidate : candidates) {
-          for (String formation : formations) {
-            done++;
-            CanonicalTeamEvaluation evaluation = tacticSimulationService
-                    .canonicalFormation(targetId, formation, candidate).evaluation();
-
-            Table[] tables = new Table[samples];
-            for (int s = 0; s < samples; s++) tables[s] = background[s].copy();
-            for (Fixture fixture : fixtures.including(target)) {
-                CanonicalTeamEvaluation home = fixture.home() == target ? evaluation : baseline.get(fixture.home());
-                CanonicalTeamEvaluation away = fixture.away() == target ? evaluation : baseline.get(fixture.away());
-                play(adapter, home, away, fixture, teamIds, league.getId(), samples, tables);
-            }
-
-            double positionTotal = 0, pointsTotal = 0, gfTotal = 0, gaTotal = 0;
-            int titles = 0;
-            for (Table table : tables) {
-                int[] order = table.order();
-                for (int position = 0; position < order.length; position++) {
-                    if (order[position] != target) continue;
-                    positionTotal += position + 1;
-                    if (position == 0) titles++;
-                    break;
+            for (FormationSearch formation : formationSearches) {
+                for (RolePlan roles : formation.roles()) {
+                    searchCases.add(new SearchCase(candidate, formation, roles));
                 }
-                pointsTotal += table.points[target];
-                gfTotal += table.goalsFor[target];
-                gaTotal += table.goalsAgainst[target];
             }
-            rows.add(new Row(candidate, formation, positionTotal / samples, pointsTotal / samples,
-                    gfTotal / samples, gaTotal / samples, titles * 100.0 / samples));
-
-            if (done % 250 == 0) {
-                System.out.println("  " + done + "/" + (candidates.size() * formations.size())
-                        + "  (" + (System.currentTimeMillis() - started) + "ms)");
-            }
-          }
         }
 
-        rows.sort(Comparator.comparingDouble(Row::position).thenComparing(
-                Comparator.comparingDouble(Row::points).reversed()));
+        int threads = Integer.getInteger(THREADS_PROPERTY,
+                Math.min(8, Runtime.getRuntime().availableProcessors()));
+        assertThat(threads).as("%s must be positive", THREADS_PROPERTY).isPositive();
+        System.out.println("=== searching " + candidates.size() + " tactics x " + formations.size()
+                + " formations x offensive role variants for " + names.get(targetId)
+                + " over " + samples + " seasons each ===");
+        List<Row> rows = calculateRows("search", searchCases, samples, background, fixtures,
+                target, baseline, searchTeamIds, searchLeagueId, mandatoryShadows, threads);
+        rows.sort(rowComparator());
+
+        Row best = rows.get(0);
+        FormationSearch winningFormation = formationSearches.stream()
+                .filter(search -> search.name().equals(best.formation())).findFirst().orElseThrow();
+        CanonicalRuntimeTeamInput winningInput = withRoles(
+                runtimeInputFactory.withTactic(winningFormation.baseInput(), best.tactic()),
+                best.roles(), mandatoryShadows);
 
         Path report = Path.of("target", "best-tactic-" + targetId + ".md");
         Files.createDirectories(report.getParent());
-        Files.writeString(report, render(rows, names.get(targetId), league.getName(), samples));
+        Files.writeString(report, render(rows, names.get(targetId), league.getName(), samples,
+                playerNames, winningInput.lineup()));
         System.out.println("=== written to " + report.toAbsolutePath() + " ===");
 
-        Row best = rows.get(0);
         Row worst = rows.get(rows.size() - 1);
         System.out.printf("BEST   %s | pos=%.2f | pts=%.1f | GF=%.1f | GA=%.1f | titles=%.0f%%%n",
                 describe(best), best.position(), best.points(), best.goalsFor(), best.goalsAgainst(),
                 best.titleRate());
+        printLineup(winningInput.lineup(), playerNames);
         System.out.printf("WORST  %s | pos=%.2f | pts=%.1f | GF=%.1f | GA=%.1f | titles=%.0f%%%n",
                 describe(worst), worst.position(), worst.points(), worst.goalsFor(), worst.goalsAgainst(),
                 worst.titleRate());
         System.out.printf("SPREAD %.2f places, %.1f points%n",
                 worst.position() - best.position(), best.points() - worst.points());
 
-        assertThat(rows).hasSize(candidates.size() * formations.size());
+        assertThat(rows).hasSize(searchCases.size());
         PersonalizedTactic winner = best.tactic();
         return new Best(names.get(targetId), targetId, best.formation(),
                 String.valueOf(winner.getMentality()), String.valueOf(winner.getTempo()),
                 String.valueOf(winner.getPassingType()), String.valueOf(winner.getDefensiveLine()),
                 String.valueOf(winner.getPressing()), String.valueOf(winner.getWidth()),
                 String.valueOf(winner.getRecovery()),
+                best.roles(), best.passingStyle(), winningInput.lineup(), playerNames,
                 best.position(), best.points(), best.titleRate());
     }
 
     /** Winning tactic for one club, for the end-of-run summary. */
     private record Best(String club, long teamId, String formation, String mentality, String tempo,
                         String passing, String defensiveLine, String pressing, String width, String recovery,
+                        RolePlan roles, boolean passingStyle, List<CanonicalLineupPlayer> lineup,
+                        Map<Long, String> playerNames,
                         double position, double points, double titleRate) {}
+
+    private record FormationSearch(String name, CanonicalRuntimeTeamInput baseInput,
+                                   List<RolePlan> roles) {}
+
+    private record SearchCase(PersonalizedTactic tactic, FormationSearch formation, RolePlan roles) {}
+
+    private record RolePlan(Long shooterId, Long shadowId) {}
+
+    private static List<RolePlan> rolePlans(CanonicalRuntimeTeamInput input, Set<Long> mandatoryShadows) {
+        List<Long> eligible = input.lineup().stream()
+                .filter(player -> isOffensiveRolePosition(player.usedPosition()))
+                .map(CanonicalLineupPlayer::playerId).toList();
+        List<RolePlan> plans = new ArrayList<>();
+        plans.add(new RolePlan(null, null));
+        for (Long playerId : eligible) {
+            plans.add(new RolePlan(playerId, null));
+            if (!mandatoryShadows.contains(playerId)) {
+                plans.add(new RolePlan(null, playerId));
+                plans.add(new RolePlan(playerId, playerId));
+            }
+        }
+        return List.copyOf(plans);
+    }
+
+    private static boolean isOffensiveRolePosition(PlayerPosition position) {
+        return switch (position) {
+            case AML, ML, AMR, MR, MC, AMC, ST -> true;
+            default -> false;
+        };
+    }
+
+    private static CanonicalRuntimeTeamInput withRoles(CanonicalRuntimeTeamInput input,
+                                                        RolePlan plan,
+                                                        Set<Long> mandatoryShadows) {
+        List<CanonicalLineupPlayer> lineup = input.lineup().stream().map(player -> {
+            Set<PlayerTrait> traits = new HashSet<>(player.traits());
+            traits.remove(PlayerTrait.SHOOTER);
+            if (!mandatoryShadows.contains(player.playerId())) {
+                traits.remove(PlayerTrait.REFUSES_DEFENSIVE_WORK);
+            }
+            if (java.util.Objects.equals(plan.shooterId(), player.playerId())) {
+                traits.add(PlayerTrait.SHOOTER);
+            }
+            if (java.util.Objects.equals(plan.shadowId(), player.playerId())) {
+                traits.add(PlayerTrait.REFUSES_DEFENSIVE_WORK);
+            }
+            return new CanonicalLineupPlayer(player.playerId(), player.usedPosition(), player.occurrence(),
+                    player.role(), player.duty(), player.attributes(), player.fitness(), player.morale(),
+                    player.capability(), player.roleSuitability(), traits, player.forwardInstruction(),
+                    player.overallRating());
+        }).toList();
+        return new CanonicalRuntimeTeamInput(input.mentality(), lineup, input.tacticalContexts());
+    }
+
+    private List<Row> calculateRows(String phase, List<SearchCase> cases, int samples,
+                                    Table[] background, Fixtures fixtures, int target,
+                                    List<CanonicalTeamEvaluation> baseline, List<Long> teamIds,
+                                    long leagueId, Set<Long> mandatoryShadows, int threads) {
+        int total = cases.size();
+        if (total == 0) return List.of();
+        Row[] calculated = new Row[total];
+        AtomicInteger done = new AtomicInteger();
+        long started = System.currentTimeMillis();
+        int progressInterval = Math.max(250, total / 100);
+        System.out.println("=== " + phase + " uses " + threads + " parallel workers ===");
+
+        ForkJoinPool workers = new ForkJoinPool(threads);
+        try {
+            workers.submit(() -> IntStream.range(0, total).parallel().forEach(index -> {
+                SearchCase searchCase = cases.get(index);
+                PersonalizedTactic tactic = searchCase.tactic();
+                CanonicalRuntimeTeamInput tacticalInput = runtimeInputFactory.withTactic(
+                        searchCase.formation().baseInput(), tactic);
+                CanonicalRuntimeTeamInput roleInput = withRoles(
+                        tacticalInput, searchCase.roles(), mandatoryShadows);
+                CanonicalMatchEvaluationAdapter adapter =
+                        new CanonicalMatchEvaluationAdapter(compartmentConfig, matchEngineConfig);
+                CanonicalTeamEvaluation evaluation = adapter.evaluateTeam(roleInput);
+
+                Table[] tables = new Table[samples];
+                for (int sample = 0; sample < samples; sample++) {
+                    tables[sample] = background[sample].copy();
+                }
+                for (Fixture fixture : fixtures.including(target)) {
+                    CanonicalTeamEvaluation home = fixture.home() == target
+                            ? evaluation : baseline.get(fixture.home());
+                    CanonicalTeamEvaluation away = fixture.away() == target
+                            ? evaluation : baseline.get(fixture.away());
+                    play(adapter, home, away, fixture, teamIds, leagueId, samples, tables);
+                }
+
+                double positions = 0, points = 0, goalsFor = 0, goalsAgainst = 0;
+                int titles = 0;
+                for (Table table : tables) {
+                    int[] order = table.order();
+                    for (int position = 0; position < order.length; position++) {
+                        if (order[position] != target) continue;
+                        positions += position + 1;
+                        if (position == 0) titles++;
+                        break;
+                    }
+                    points += table.points[target];
+                    goalsFor += table.goalsFor[target];
+                    goalsAgainst += table.goalsAgainst[target];
+                }
+                calculated[index] = new Row(tactic, searchCase.formation().name(), searchCase.roles(),
+                        evaluation.team().passingStyle().active(), positions / samples, points / samples,
+                        goalsFor / samples, goalsAgainst / samples, titles * 100.0 / samples);
+
+                int completed = done.incrementAndGet();
+                if (completed % progressInterval == 0 || completed == total) {
+                    System.out.println("  " + completed + "/" + total
+                            + "  (" + (System.currentTimeMillis() - started) + "ms)");
+                }
+            })).get();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Tactic search interrupted", interrupted);
+        } catch (java.util.concurrent.ExecutionException failure) {
+            throw new IllegalStateException("Parallel tactic search failed", failure.getCause());
+        } finally {
+            workers.shutdown();
+        }
+        return new ArrayList<>(java.util.Arrays.asList(calculated));
+    }
+
+    private static Comparator<Row> rowComparator() {
+        return Comparator.comparingDouble(Row::position)
+                .thenComparing(Comparator.comparingDouble(Row::points).reversed());
+    }
 
     private static PersonalizedTactic canonicalCandidate(PersonalizedTactic base,
                                                           String defensiveLine,
@@ -359,7 +541,10 @@ class BestTacticSearchIT {
         List<CompetitionTeamInfo> entries = competitionTeamInfoRepository.findAll().stream()
                 .filter(entry -> entry.getCompetitionId() == league.getId())
                 .toList();
-        long season = entries.stream().mapToLong(CompetitionTeamInfo::getSeasonNumber).min().orElse(1);
+        // Saves retain historical league rows. Use the latest populated season so a
+        // promoted/relegated club is tested against its current opponents, not its
+        // season-one division.
+        long season = entries.stream().mapToLong(CompetitionTeamInfo::getSeasonNumber).max().orElse(1);
         return entries.stream()
                 .filter(entry -> entry.getSeasonNumber() == season)
                 .map(CompetitionTeamInfo::getTeamId)
@@ -391,7 +576,10 @@ class BestTacticSearchIT {
                 + " | defensiveLine=" + tactic.getDefensiveLine()
                 + " | pressing=" + tactic.getPressing()
                 + " | width=" + tactic.getWidth()
-                + " | recovery=" + tactic.getRecovery();
+                + " | recovery=" + tactic.getRecovery()
+                + " | shooter=" + valueOrNone(row.roles().shooterId())
+                + " | shadow=" + valueOrNone(row.roles().shadowId())
+                + " | passingStyle=" + (row.passingStyle() ? "ACTIVE" : "inactive");
     }
 
     private static String describe(Best best) {
@@ -402,10 +590,39 @@ class BestTacticSearchIT {
                 + " | defensiveLine=" + best.defensiveLine()
                 + " | pressing=" + best.pressing()
                 + " | width=" + best.width()
-                + " | recovery=" + best.recovery();
+                + " | recovery=" + best.recovery()
+                + " | shooter=" + playerName(best.roles().shooterId(), best.playerNames())
+                + " | shadow=" + playerName(best.roles().shadowId(), best.playerNames())
+                + " | passingStyle=" + (best.passingStyle() ? "ACTIVE" : "inactive");
     }
 
-    private static String render(List<Row> rows, String club, String league, int samples) {
+    private static String valueOrNone(Long value) {
+        return value == null ? "none" : value.toString();
+    }
+
+    private static String playerName(Long id, Map<Long, String> names) {
+        return id == null ? "none" : names.getOrDefault(id, "Player#" + id);
+    }
+
+    private static String lineupRole(CanonicalLineupPlayer player) {
+        boolean shooter = player.traits().contains(PlayerTrait.SHOOTER);
+        boolean shadow = player.traits().contains(PlayerTrait.REFUSES_DEFENSIVE_WORK);
+        if (shooter && shadow) return "SHOOTER+SHADOW";
+        if (shooter) return "SHOOTER";
+        if (shadow) return "SHADOW";
+        return "STANDARD";
+    }
+
+    private static void printLineup(List<CanonicalLineupPlayer> lineup, Map<Long, String> names) {
+        System.out.println("FIRST XI:");
+        lineup.forEach(player -> System.out.printf("  %-4s | %-28s | %s%n",
+                player.usedPosition().code(), names.getOrDefault(player.playerId(), "Player#" + player.playerId()),
+                lineupRole(player)));
+    }
+
+    private static String render(List<Row> rows, String club, String league, int samples,
+                                 Map<Long, String> playerNames,
+                                 List<CanonicalLineupPlayer> winningLineup) {
         StringBuilder md = new StringBuilder();
         md.append("# Best tactic — ").append(club).append("\n\n");
         md.append("- league: ").append(league).append('\n');
@@ -415,16 +632,29 @@ class BestTacticSearchIT {
         md.append("tactic. Fixtures the club is not in are sampled once and shared, so the only thing\n");
         md.append("that differs between rows is the club's own tactic.\n\n");
         md.append("The complete canonical team-level grid is searched: mentality, tempo, passing,\n");
-        md.append("defensive line, pressing, width and recovery, plus every requested formation.\n\n");
+        md.append("defensive line, pressing, width and recovery, plus every requested formation.\n");
+        md.append("Every tactic/formation entry is expanded with SHOOTER, SHADOW and\n");
+        md.append("SHOOTER+SHADOW on every eligible offensive starter.\n\n");
         md.append("`Pos` is the mean finishing position across the sampled seasons — lower is better.\n\n");
+
+        md.append("## Winning first XI\n\n");
+        md.append("| Position | Player | Match role |\n|---|---|---|\n");
+        for (CanonicalLineupPlayer player : winningLineup) {
+            md.append("| ").append(player.usedPosition().code()).append(" | ")
+                    .append(playerNames.getOrDefault(player.playerId(), "Player#" + player.playerId()))
+                    .append(" | ").append(lineupRole(player)).append(" |\n");
+        }
+        md.append("\n");
 
         MarkdownTable table = new MarkdownTable(
                 List.of("#", "Formation", "Mentality", "Tempo", "Passing", "Def Line", "Pressing", "Width", "Recovery",
+                        "Shooter", "Shadow", "Passing Style",
                         "Pos", "Pts", "GF", "GA", "Titles"),
                 List.of(MarkdownTable.Align.RIGHT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
                         MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
                         MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
                         MarkdownTable.Align.LEFT,
+                        MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT, MarkdownTable.Align.LEFT,
                         MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT,
                         MarkdownTable.Align.RIGHT, MarkdownTable.Align.RIGHT));
         int rank = 1;
@@ -435,6 +665,9 @@ class BestTacticSearchIT {
                     String.valueOf(t.getPassingType()), String.valueOf(t.getDefensiveLine()),
                     String.valueOf(t.getPressing()), String.valueOf(t.getWidth()),
                     String.valueOf(t.getRecovery()),
+                    playerName(row.roles().shooterId(), playerNames),
+                    playerName(row.roles().shadowId(), playerNames),
+                    row.passingStyle() ? "ACTIVE" : "inactive",
                     String.format("%.2f", row.position()), String.format("%.1f", row.points()),
                     String.format("%.1f", row.goalsFor()), String.format("%.1f", row.goalsAgainst()),
                     String.format("%.0f%%", row.titleRate()));
@@ -442,7 +675,8 @@ class BestTacticSearchIT {
         return md.append(table.render()).toString();
     }
 
-    private record Row(PersonalizedTactic tactic, String formation, double position, double points,
+    private record Row(PersonalizedTactic tactic, String formation, RolePlan roles,
+                       boolean passingStyle, double position, double points,
                        double goalsFor, double goalsAgainst, double titleRate) {}
 
     private record Fixture(int home, int away, int ordinal) {}

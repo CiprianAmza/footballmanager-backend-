@@ -101,6 +101,24 @@ class InboxControllerSecurityTest {
     }
 
     @Test
+    void managerCanMarkAnOwnedManagerMessageUnread() {
+        ManagerInboxRepository messages = mock(ManagerInboxRepository.class);
+        CurrentUserService current = mock(CurrentUserService.class);
+        TeamAccessGuard guard = mock(TeamAccessGuard.class);
+        PersonProfileRepository profiles = mock(PersonProfileRepository.class);
+        ManagerInbox message = message(42L, 0L, InboxAudience.MANAGER);
+        message.setRead(true);
+        when(current.getUserOrNull(any(HttpServletRequest.class))).thenReturn(user(3, CareerRole.MANAGER, 9L));
+        when(messages.findById(42L)).thenReturn(Optional.of(message));
+        when(guard.canAccessInboxMessage(any(), eq(message))).thenReturn(true);
+        InboxController controller = controller(messages, guard, current, profiles);
+
+        assertThat(controller.meUnread(42L, mock(HttpServletRequest.class)).getStatusCode().value()).isEqualTo(200);
+        assertThat(message.isRead()).isFalse();
+        verify(messages).save(message);
+    }
+
+    @Test
     void chairmanReadMatrixAllowsOnlyChairmanAndBothForOwnProfile() {
         for (InboxAudience audience : InboxAudience.values()) {
             ManagerInboxRepository messages = mock(ManagerInboxRepository.class);

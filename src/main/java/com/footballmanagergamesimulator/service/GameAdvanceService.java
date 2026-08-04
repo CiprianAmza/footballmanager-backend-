@@ -536,7 +536,12 @@ public class GameAdvanceService {
             result.put("reason", "LIVE_MATCH_PENDING");
             result.put("hasLiveMatch", true);
             result.put("liveMatchKey", liveKey);
-            result.put("liveMatchInteractive", !session.isFinished());
+            // ALWAYS interactive: any uncommitted session must be driven (and
+            // committed) by the FE — even one whose engine already reached
+            // full time. Marking a finished-but-uncommitted session as
+            // "legacy" left the FE with no /commit path: the fixture stayed
+            // unresolved and every CONTINUE reopened this same match forever.
+            result.put("liveMatchInteractive", true);
             result.put("season", season);
             result.put("day", calendar.getCurrentDay());
             result.put("phase", calendar.getCurrentPhase());

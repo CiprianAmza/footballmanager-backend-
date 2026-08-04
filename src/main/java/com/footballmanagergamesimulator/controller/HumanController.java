@@ -12,6 +12,9 @@ import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.NationService;
 import com.footballmanagergamesimulator.service.PlayerCardService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
+import com.footballmanagergamesimulator.service.PlayerMarketAvailabilityService;
+import com.footballmanagergamesimulator.service.PlayerPreviewService;
+import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,6 +32,8 @@ public class HumanController {
     PlayerSkillsRepository playerSkillsRepository;
     NationService nationService;
     PlayerCardService playerCardService;
+    @Autowired PlayerMarketAvailabilityService marketAvailabilityService;
+    @Autowired PlayerPreviewService playerPreviewService;
 
     @Autowired
     public HumanController(HumanRepository humanRepository,
@@ -53,6 +58,29 @@ public class HumanController {
                 .filter(human -> human.getTypeId() == 1 && !human.isRetired())
                 .map(this::buildPlayerView)
                 .toList();
+    }
+
+    /** Search pool used by Scouting. Players already moved or loaned this
+     * season are hidden by the same rules as the transfer market. */
+    @GetMapping("/scoutingPlayers")
+    public List<PlayerView> getScoutingPlayers() {
+        Set<Long> unavailable = marketAvailabilityService.unavailablePlayerIds();
+        List<Human> players = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE).stream()
+                .filter(player -> !player.isRetired())
+                .filter(player -> !unavailable.contains(player.getId()))
+                .toList();
+        int season = marketAvailabilityService.currentSeason();
+        Map<Long, PlayerPreviewService.Preview> previews = playerPreviewService.previews(players, season);
+        return players.stream().map(player -> {
+            PlayerView view = buildPlayerView(player, false);
+            applyPreview(view, previews.get(player.getId()));
+            return view;
+        }).toList();
+    }
+
+    @GetMapping("/playerPositions")
+    public List<String> getPlayerPositions() {
+        return marketAvailabilityService.activePlayerPositions();
     }
 
     @GetMapping("/{playerId}")
@@ -96,6 +124,10 @@ public class HumanController {
     }
 
     public PlayerView buildPlayerView(Human player) { // todo move into service
+        return buildPlayerView(player, true);
+    }
+
+    private PlayerView buildPlayerView(Human player, boolean loadAllSkills) {
 
         PlayerView playerView = new PlayerView();
         Team team;
@@ -146,7 +178,8 @@ public class HumanController {
         List<String> skillNames = new ArrayList<>();
         List<Long> skillValues = new ArrayList<>();
 
-        Optional<PlayerSkills> playerSkills = playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId());
+        Optional<PlayerSkills> playerSkills = loadAllSkills
+                ? playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()) : Optional.empty();
 
         if (playerSkills.isPresent()) {
             PlayerSkills ps = playerSkills.get();
@@ -203,5 +236,13 @@ public class HumanController {
         playerView.setSpecies(player.getSpecies());
 
         return playerView;
+    }
+
+    private void applyPreview(PlayerView view, PlayerPreviewService.Preview preview) {
+        if (preview == null) return;
+        view.setSeasonAppearances(preview.appearances());
+        view.setSeasonGoals(preview.goals());
+        view.setSeasonAssists(preview.assists());
+        view.setImportantAttributes(preview.importantAttributes());
     }
 }

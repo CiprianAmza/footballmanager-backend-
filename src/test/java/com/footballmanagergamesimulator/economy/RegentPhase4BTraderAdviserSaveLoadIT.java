@@ -116,7 +116,7 @@ class RegentPhase4BTraderAdviserSaveLoadIT {
                 .isEqualByComparingTo(advice.recommendation().getObservedVolatility());
 
         Map<String, Object> save = gameController.exportGame();
-        assertThat(save.get("saveVersion")).isEqualTo(12);
+        assertThat(save.get("saveVersion")).isEqualTo(13);
         assertThat((List<?>) save.get("traderAdviserContracts")).hasSize(1);
         assertThat((List<?>) save.get("traderAdviceRecommendations")).hasSize(1);
         priceService.processDay(1, 14);

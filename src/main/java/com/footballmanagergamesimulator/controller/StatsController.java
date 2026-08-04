@@ -12,6 +12,7 @@ import com.footballmanagergamesimulator.service.StatsService;
 import com.footballmanagergamesimulator.service.LeagueStrengthService;
 import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
 import com.footballmanagergamesimulator.service.CompetitionRecordService;
+import com.footballmanagergamesimulator.service.DataHubIntelligenceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,6 +43,7 @@ public class StatsController {
     @Autowired LeagueStrengthService leagueStrengthService;
     @Autowired ScorerLeaderboardSyncService scorerLeaderboardSyncService;
     @Autowired CompetitionRecordService competitionRecordService;
+    @Autowired DataHubIntelligenceService dataHubIntelligenceService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -123,6 +125,13 @@ public class StatsController {
     @GetMapping(value = "/teamDataHub/{teamId}/{seasonNumber}")
     public TeamDataHubStats getTeamDataHubStats(@PathVariable long teamId, @PathVariable int seasonNumber) {
         return statsAggregationService.getTeamDataHubStats(teamId, seasonNumber);
+    }
+
+    /** Decision-ready form, style, trend and opponent briefing for the Data Hub variants. */
+    @GetMapping("/team/{teamId}/season/{seasonNumber}/intelligence")
+    public DataHubIntelligenceService.DataHubIntelligence getTeamIntelligence(
+            @PathVariable long teamId, @PathVariable int seasonNumber) {
+        return dataHubIntelligenceService.intelligence(teamId, seasonNumber);
     }
 
     /**

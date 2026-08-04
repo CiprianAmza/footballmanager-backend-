@@ -9,12 +9,14 @@ import com.footballmanagergamesimulator.service.CompetitionDisplayService;
 import com.footballmanagergamesimulator.service.CompetitionQueryService;
 import com.footballmanagergamesimulator.service.CompetitionProgressService;
 import com.footballmanagergamesimulator.service.CompetitionOverviewService;
+import com.footballmanagergamesimulator.service.CompetitionCatalogService;
 import com.footballmanagergamesimulator.service.CupBracketService;
 import com.footballmanagergamesimulator.service.EuropeanDisplayService;
 import com.footballmanagergamesimulator.service.EuropeanDrawService;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.GameStateService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
+import com.footballmanagergamesimulator.service.PrizeMoneyOverviewService;
 import com.footballmanagergamesimulator.service.TransferMarketService;
 import com.footballmanagergamesimulator.user.UserContext;
 
@@ -46,6 +48,8 @@ public class CompetitionController {
     private final CompetitionProgressService competitionProgressService;
     private final CompetitionOverviewService competitionOverviewService;
     private final EuropeanDrawService europeanDrawService;
+    private final CompetitionCatalogService competitionCatalogService;
+    private final PrizeMoneyOverviewService prizeMoneyOverviewService;
 
     public CompetitionController(CompetitionDisplayService competitionDisplayService,
                                  CompetitionQueryService competitionQueryService,
@@ -58,7 +62,9 @@ public class CompetitionController {
                                  UserContext userContext,
                                  CompetitionProgressService competitionProgressService,
                                  CompetitionOverviewService competitionOverviewService,
-                                 EuropeanDrawService europeanDrawService) {
+                                 EuropeanDrawService europeanDrawService,
+                                 CompetitionCatalogService competitionCatalogService,
+                                 PrizeMoneyOverviewService prizeMoneyOverviewService) {
         this.competitionDisplayService = competitionDisplayService;
         this.competitionQueryService = competitionQueryService;
         this.cupBracketService = cupBracketService;
@@ -71,6 +77,8 @@ public class CompetitionController {
         this.competitionProgressService = competitionProgressService;
         this.competitionOverviewService = competitionOverviewService;
         this.europeanDrawService = europeanDrawService;
+        this.competitionCatalogService = competitionCatalogService;
+        this.prizeMoneyOverviewService = prizeMoneyOverviewService;
     }
 
     // ============================================================
@@ -104,6 +112,17 @@ public class CompetitionController {
     @GetMapping("/getAllCompetitions")
     public List<Competition> getAllCompetitions() {
         return competitionQueryService.getAllCompetitions();
+    }
+
+    @GetMapping("/catalogOverview")
+    public Map<String, Object> getCompetitionCatalogOverview() {
+        return competitionCatalogService.overview();
+    }
+
+    /** Global economy, planned prize envelopes and exact per-position/stage splits. */
+    @GetMapping("/prizeMoneyOverview/{season}")
+    public PrizeMoneyOverviewService.PrizeMoneyOverview getPrizeMoneyOverview(@PathVariable int season) {
+        return prizeMoneyOverviewService.overview(season);
     }
 
     @GetMapping("/getAllCompetitions/{typeId}")

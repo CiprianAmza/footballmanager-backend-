@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -16,7 +17,15 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-public interface HumanRepository extends JpaRepository<Human, Long> {
+public interface HumanRepository extends JpaRepository<Human, Long>, JpaSpecificationExecutor<Human> {
+
+    @Query("""
+            select distinct player.position from Human player
+             where player.typeId = 1 and player.retired = false
+               and player.position is not null and player.position <> ''
+             order by player.position
+            """)
+    List<String> findDistinctActivePlayerPositions();
 
     /** Serializes ownership-changing operations so the same player cannot be sold twice. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

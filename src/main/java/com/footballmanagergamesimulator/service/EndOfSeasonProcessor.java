@@ -105,8 +105,7 @@ public class EndOfSeasonProcessor {
     @Autowired private TacticService tacticService;
     @Autowired private EuropeanCompetitionService europeanCompetitionService;
     @Autowired private EuropeanCoefficientService europeanCoefficientService;
-    @Autowired private LeagueStrengthService leagueStrengthService;
-    @Autowired private com.footballmanagergamesimulator.config.LeaguePrizePoolConfig leaguePrizePoolConfig;
+    @Autowired private PrizeMoneyOverviewService prizeMoneyOverviewService;
     @Autowired private TransferMarketService transferMarketService;
     @Autowired private SeasonObjectiveService seasonObjectiveService;
     @Autowired private FinanceService financeService;
@@ -948,6 +947,7 @@ public class EndOfSeasonProcessor {
                                     long season) {
         Human human = humanRepository.findById(candidate.getPlayerId()).orElse(null);
         if (human == null || human.isWillNeverLeave() || human.isRetired()) return null;
+        if (!loanRepository.findAllByPlayerIdAndStatus(human.getId(), "active").isEmpty()) return null;
 
         // The view records who owned him when the market was built; the entity records
         // who owns him now. Today they always agree, because the caller rebuilds the
@@ -960,6 +960,15 @@ public class EndOfSeasonProcessor {
             if (currentOwner != null) return null; // signed by somebody since he was listed
         } else if (currentOwner == null || currentOwner != candidate.getTeamId()) {
             return null; // moved, released or retired since the market was built
+        }
+
+        // This method is the final write boundary of the autonomous AI market.
+        // Keep the human-club invariant here as well as in the earlier supply
+        // filtering: if a stale/incorrect market snapshot ever contains a human
+        // player's listing, the AI must not be able to settle it without the
+        // manager accepting a TransferOffer through respondToOffer().
+        if (currentOwner != null && userContext.isHumanTeam(currentOwner)) {
+            return null;
         }
 
         Team buyTeam = teamRepository.findById(buyTeamId).orElse(null);
@@ -1004,6 +1013,9 @@ public class EndOfSeasonProcessor {
                 financeService.recordTransaction(sellTeam.getId(), seasonInt, 0,
                         "TRANSFER_SALE", "Sold " + human.getName(), fee);
                 sellTeam = teamRepository.findById(sellTeam.getId()).orElse(sellTeam);
+                // The fee lands in the selling club's transfer budget, not
+                // just in its ledger.
+                sellTeam.setTransferBudget(sellTeam.getTransferBudget() + fee);
                 teamRepository.save(sellTeam);
             }
         }
@@ -1060,27 +1072,28 @@ public class EndOfSeasonProcessor {
             }
 
             if (humanTeamIds.contains(player.getTeamId())) {
+                // HUMAN clubs are exempt from squad automation: a manager's
+                // player NEVER walks out on an automated expiry. The contract
+                // auto-renews (same 2-4 season terms as the AI renewal path)
+                // and the manager is told — departures from a human club
+                // happen only through the manager's own decisions (accepting
+                // an offer, releasing a player) or retirement.
+                player.setContractEndSeason(newSeason + random.nextInt(2, 5));
+                player.setWage(WageService.baseWage(player.getRating()));
+                humanRepository.save(player);
                 ManagerInbox inbox = new ManagerInbox();
                 inbox.setTeamId(player.getTeamId());
                 inbox.setSeasonNumber(newSeason);
                 inbox.setRoundNumber(1);
-                inbox.setTitle("Player Left - Contract Expired");
+                inbox.setTitle("Contract Renewed");
                 inbox.setContent(player.getName() + " (" + player.getPosition() + ", Rating "
-                        + Math.round(player.getRating()) + ") has left the club as their contract expired.");
+                        + Math.round(player.getRating()) + ") signed a new "
+                        + (player.getContractEndSeason() - newSeason)
+                        + "-season contract on updated wages.");
                 inbox.setCategory("contract");
                 inbox.setRead(false);
                 inbox.setCreatedAt(System.currentTimeMillis());
                 managerInboxRepository.save(inbox);
-
-                Team team = teamRepository.findById(player.getTeamId()).orElse(null);
-                if (team != null) {
-                    team.setSalaryBudget(Math.max(0, team.getSalaryBudget() - player.getWage()));
-                    teamRepository.save(team);
-                }
-                player.setTeamId(null);
-                player.setContractEndSeason(0);
-                humanRepository.save(player);
-                transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
             } else {
                 // AI team: 50% auto-renew, 50% free agent
                 if (coachPermissionService.canNegotiateContracts(player.getTeamId()) && random.nextBoolean()) {
@@ -1103,78 +1116,10 @@ public class EndOfSeasonProcessor {
     /** Prints the redrawn strength ladder and the pool each division has just earned. */
     private void logLeagueStrengthLadder(int season) {
         System.out.println("=== league strength after the transfer window (season " + season + ") ===");
-        for (PrizeShare share : prizePoolsByCompetition(season)) {
+        for (PrizeMoneyOverviewService.LeaguePool share : prizeMoneyOverviewService.leaguePools(season)) {
             System.out.printf("  #%d  %-28s  XI avg %6.1f  pool %.0fM%n",
                     share.rank(), share.competitionName(), share.strength(), share.pool() / 1_000_000.0);
         }
-    }
-
-    /** What each division earned, and why — the numbers behind {@link #prizePoolsByCompetition}. */
-    private record PrizeShare(long competitionId, String competitionName, int tier,
-                              int rank, double strength, long pool) {}
-
-    /**
-     * Shares the game's prize pot between divisions by strength.
-     *
-     * <p>{@link LeagueStrengthService} interleaves first and second divisions in one
-     * table, which is right for normalising a Golden Boot but wrong for prize money,
-     * so each competition type competes for its own pot and its ranks restart at 1.
-     *
-     * <p>Within a pot, weight is {@code strength^exponent} times a small rank bonus,
-     * normalised so the pot is paid out exactly. Divisions of equal quality therefore
-     * earn equal money — the thing a per-rank ladder could never express.
-     */
-    private List<PrizeShare> prizePoolsByCompetition(int season) {
-        Map<Long, Long> nationByCompetition = competitionRepository.findAll().stream()
-                .collect(Collectors.toMap(Competition::getId, Competition::getNationId, (left, right) -> left));
-
-        List<LeagueStrengthService.LeagueStrengthEntry> topFlights = new ArrayList<>();
-        List<LeagueStrengthService.LeagueStrengthEntry> lowerTiers = new ArrayList<>();
-        // The table arrives sorted by average best-eleven rating, strongest first.
-        for (LeagueStrengthService.LeagueStrengthEntry entry
-                : leagueStrengthService.calculate(season).ranking()) {
-            (entry.tier() > 1 ? lowerTiers : topFlights).add(entry);
-        }
-
-        double[] weights = new double[topFlights.size()];
-        double weightTotal = 0;
-        for (int index = 0; index < topFlights.size(); index++) {
-            // A division with no rated players would otherwise take 0^k = 0 and
-            // silently drop out of the split; floor it so it still gets a share.
-            double strength = Math.max(topFlights.get(index).averageTopElevenRating(), 1D);
-            weights[index] = Math.pow(strength, leaguePrizePoolConfig.getStrengthExponent())
-                    * leaguePrizePoolConfig.rankBonus(index + 1);
-            weightTotal += weights[index];
-        }
-        if (weightTotal <= 0) return List.of();
-
-        List<PrizeShare> shares = new ArrayList<>();
-        Map<Long, Long> topFlightPoolByNation = new HashMap<>();
-        for (int index = 0; index < topFlights.size(); index++) {
-            LeagueStrengthService.LeagueStrengthEntry entry = topFlights.get(index);
-            long pool = (long) (leaguePrizePoolConfig.getTotalPool() * (weights[index] / weightTotal));
-            shares.add(new PrizeShare(entry.competitionId(), entry.competitionName(),
-                    entry.tier(), index + 1, entry.averageTopElevenRating(), pool));
-            Long nation = nationByCompetition.get(entry.competitionId());
-            if (nation != null) topFlightPoolByNation.put(nation, pool);
-        }
-
-        // A second tier is paid a slice of ITS OWN country's top flight, not a share of
-        // a pot reserved for second tiers. Only one second division exists today, so a
-        // shared pot would have handed that single division the whole reserve — 500M,
-        // more than four of the seven top flights earn. Anchoring to the parent league
-        // keeps a reserve division proportionate to the country it belongs to, and stays
-        // correct however many second tiers are added later.
-        int lowerRank = 0;
-        for (LeagueStrengthService.LeagueStrengthEntry entry : lowerTiers) {
-            lowerRank++;
-            Long nation = nationByCompetition.get(entry.competitionId());
-            long parentPool = nation == null ? 0L : topFlightPoolByNation.getOrDefault(nation, 0L);
-            shares.add(new PrizeShare(entry.competitionId(), entry.competitionName(),
-                    entry.tier(), lowerRank, entry.averageTopElevenRating(),
-                    (long) (parentPool * leaguePrizePoolConfig.getSecondLeagueFraction())));
-        }
-        return shares;
     }
 
     public void refreshTeamBudgets(int season) {
@@ -1203,8 +1148,9 @@ public class EndOfSeasonProcessor {
         // the division — recomputed from live squads every time this runs, so a
         // transfer window that lifts a division shows up in its next payout. The
         // coefficient ladder above still drives TV tiers and European places.
-        Map<Long, Long> prizePoolByCompetition = prizePoolsByCompetition(season).stream()
-                .collect(Collectors.toMap(PrizeShare::competitionId, PrizeShare::pool));
+        Map<Long, Long> prizePoolByCompetition = prizeMoneyOverviewService.leaguePools(season).stream()
+                .collect(Collectors.toMap(PrizeMoneyOverviewService.LeaguePool::competitionId,
+                        PrizeMoneyOverviewService.LeaguePool::pool));
 
         // 1. League prize money + TV income
         for (Competition comp : allComps) {
@@ -1241,16 +1187,12 @@ public class EndOfSeasonProcessor {
             // the division pays exactly its pool however many clubs are in it. The
             // old code multiplied a per-club base by the same ladder, so a division
             // that gained clubs silently gained prize money too.
-            double spread = leaguePrizePoolConfig.getPositionSpread();
-            double weightTotal = 0;
-            for (int slot = 1; slot <= numTeams; slot++) {
-                weightTotal += 1.0 - (spread * (slot - 1.0) / Math.max(numTeams - 1, 1));
-            }
+            List<PrizeMoneyOverviewService.PositionPrize> positionPrizes =
+                    prizeMoneyOverviewService.positionDistribution(prizePool, numTeams);
 
             int position = 1;
             for (TeamCompetitionDetail detail : standings) {
-                double positionFactor = 1.0 - (spread * (position - 1.0) / Math.max(numTeams - 1, 1));
-                long leagueIncome = (long) (prizePool * (positionFactor / weightTotal));
+                long leagueIncome = positionPrizes.get(position - 1).amount();
 
                 Team team = teamRepository.findById(detail.getTeamId()).orElse(null);
                 if (team == null) { position++; continue; }

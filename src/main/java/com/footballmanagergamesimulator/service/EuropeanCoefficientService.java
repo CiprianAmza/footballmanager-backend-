@@ -68,6 +68,7 @@ public class EuropeanCoefficientService {
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private UserContext userContext;
     @Autowired private CompetitionFormatConfig competitionFormat;
+    @Autowired private com.footballmanagergamesimulator.config.EuropeanPrizePolicy europeanPrizePolicy;
     @Lazy @Autowired private FinanceService financeService;
 
     /** The LoC round's stage in the derived format plan (phase + roundsFromFinal). */
@@ -141,22 +142,22 @@ public class EuropeanCoefficientService {
             if (stage.phase() == EuropeanPhase.GROUP) {
                 // Group Stage participation bonus, once on the first group matchday
                 if (stage.groupDraw()) {
-                    awardPrizeMoney(team1Id, 20_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.groupParticipation(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                             compName + " Group Stage Qualification", "european_prize");
-                    awardPrizeMoney(team2Id, 20_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.groupParticipation(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                             compName + " Group Stage Qualification", "european_prize");
                 }
                 // Group stage: win = 5M, draw = 1.5M
                 if (score1 > score2) {
-                    awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.groupWin(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                             compName + " Group Stage Win", "european_prize");
                 } else if (score2 > score1) {
-                    awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.groupWin(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                             compName + " Group Stage Win", "european_prize");
                 } else {
-                    awardPrizeMoney(team1Id, 1_500_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.groupDrawPerTeam(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                             compName + " Group Stage Draw", "european_prize");
-                    awardPrizeMoney(team2Id, 1_500_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.groupDrawPerTeam(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                             compName + " Group Stage Draw", "european_prize");
                 }
             } else if (stage.phase() == EuropeanPhase.KNOCKOUT) {
@@ -164,33 +165,33 @@ public class EuropeanCoefficientService {
                 if (rff == 1) {
                     // Final: winner gets 100M, runner-up gets 50M
                     if (score1 > score2) {
-                        awardPrizeMoney(team1Id, 100_000_000L, season, roundNumber,
+                        awardPrizeMoney(team1Id, europeanPrizePolicy.winnerPrize(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                                 compName + " Winner", "european_prize");
-                        awardPrizeMoney(team2Id, 50_000_000L, season, roundNumber,
+                        awardPrizeMoney(team2Id, europeanPrizePolicy.runnerUpPrize(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                                 compName + " Runner-Up", "european_prize");
                     } else {
-                        awardPrizeMoney(team2Id, 100_000_000L, season, roundNumber,
+                        awardPrizeMoney(team2Id, europeanPrizePolicy.winnerPrize(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                                 compName + " Winner", "european_prize");
-                        awardPrizeMoney(team1Id, 50_000_000L, season, roundNumber,
+                        awardPrizeMoney(team1Id, europeanPrizePolicy.runnerUpPrize(Competition.LEAGUE_OF_CHAMPIONS), season, roundNumber,
                                 compName + " Runner-Up", "european_prize");
                     }
                 } else if (rff == 2) {
                     // SF qualification bonus
-                    awardPrizeMoney(team1Id, 40_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.LEAGUE_OF_CHAMPIONS, rff), season, roundNumber,
                             compName + " Semi-Final Qualification", "european_prize");
-                    awardPrizeMoney(team2Id, 40_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.LEAGUE_OF_CHAMPIONS, rff), season, roundNumber,
                             compName + " Semi-Final Qualification", "european_prize");
                 } else if (rff == 3) {
                     // QF qualification bonus
-                    awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.LEAGUE_OF_CHAMPIONS, rff), season, roundNumber,
                             compName + " Quarter-Final Qualification", "european_prize");
-                    awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.LEAGUE_OF_CHAMPIONS, rff), season, roundNumber,
                             compName + " Quarter-Final Qualification", "european_prize");
                 } else {
                     // Earlier knockout rounds (larger formats only): generic bonus
-                    awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.LEAGUE_OF_CHAMPIONS, rff), season, roundNumber,
                             compName + " Knockout Qualification", "european_prize");
-                    awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.LEAGUE_OF_CHAMPIONS, rff), season, roundNumber,
                             compName + " Knockout Qualification", "european_prize");
                 }
             }
@@ -202,22 +203,22 @@ public class EuropeanCoefficientService {
             if (roundId >= scFmt.groupStartRound() && roundId <= scFmt.groupEndRound()) {
                 // Group stage participation bonus on the first group matchday
                 if (roundId == scFmt.groupStartRound()) {
-                    awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.groupParticipation(Competition.STARS_CUP), season, roundNumber,
                             compName + " Group Stage Qualification", "european_prize");
-                    awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.groupParticipation(Competition.STARS_CUP), season, roundNumber,
                             compName + " Group Stage Qualification", "european_prize");
                 }
                 // Group stage: win = 1.5M, draw = 500K
                 if (score1 > score2) {
-                    awardPrizeMoney(team1Id, 1_500_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.groupWin(Competition.STARS_CUP), season, roundNumber,
                             compName + " Group Stage Win", "european_prize");
                 } else if (score2 > score1) {
-                    awardPrizeMoney(team2Id, 1_500_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.groupWin(Competition.STARS_CUP), season, roundNumber,
                             compName + " Group Stage Win", "european_prize");
                 } else {
-                    awardPrizeMoney(team1Id, 500_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.groupDrawPerTeam(Competition.STARS_CUP), season, roundNumber,
                             compName + " Group Stage Draw", "european_prize");
-                    awardPrizeMoney(team2Id, 500_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.groupDrawPerTeam(Competition.STARS_CUP), season, roundNumber,
                             compName + " Group Stage Draw", "european_prize");
                 }
             } else if (roundId > scFmt.playoffRound()) {
@@ -225,27 +226,27 @@ public class EuropeanCoefficientService {
                 if (rff == 1) {
                     // Final: winner 15M, runner-up 8M
                     if (score1 > score2) {
-                        awardPrizeMoney(team1Id, 15_000_000L, season, roundNumber,
+                        awardPrizeMoney(team1Id, europeanPrizePolicy.winnerPrize(Competition.STARS_CUP), season, roundNumber,
                                 compName + " Winner", "european_prize");
-                        awardPrizeMoney(team2Id, 8_000_000L, season, roundNumber,
+                        awardPrizeMoney(team2Id, europeanPrizePolicy.runnerUpPrize(Competition.STARS_CUP), season, roundNumber,
                                 compName + " Runner-Up", "european_prize");
                     } else {
-                        awardPrizeMoney(team2Id, 15_000_000L, season, roundNumber,
+                        awardPrizeMoney(team2Id, europeanPrizePolicy.winnerPrize(Competition.STARS_CUP), season, roundNumber,
                                 compName + " Winner", "european_prize");
-                        awardPrizeMoney(team1Id, 8_000_000L, season, roundNumber,
+                        awardPrizeMoney(team1Id, europeanPrizePolicy.runnerUpPrize(Competition.STARS_CUP), season, roundNumber,
                                 compName + " Runner-Up", "european_prize");
                     }
                 } else if (rff == 2) {
                     // SF qualification
-                    awardPrizeMoney(team1Id, 10_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.STARS_CUP, rff), season, roundNumber,
                             compName + " Semi-Final Qualification", "european_prize");
-                    awardPrizeMoney(team2Id, 10_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.STARS_CUP, rff), season, roundNumber,
                             compName + " Semi-Final Qualification", "european_prize");
                 } else {
                     // QF (and any earlier knockout round in larger formats)
-                    awardPrizeMoney(team1Id, 5_000_000L, season, roundNumber,
+                    awardPrizeMoney(team1Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.STARS_CUP, rff), season, roundNumber,
                             compName + " Quarter-Final Qualification", "european_prize");
-                    awardPrizeMoney(team2Id, 5_000_000L, season, roundNumber,
+                    awardPrizeMoney(team2Id, europeanPrizePolicy.knockoutFixtureBonus(Competition.STARS_CUP, rff), season, roundNumber,
                             compName + " Quarter-Final Qualification", "european_prize");
                 }
             }

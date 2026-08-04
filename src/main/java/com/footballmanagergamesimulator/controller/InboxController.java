@@ -87,6 +87,26 @@ public class InboxController {
         return ResponseEntity.ok(Map.of("success", true));
     }
 
+    @PostMapping("/me/{messageId}/unread")
+    public ResponseEntity<Map<String, Object>> meUnread(@PathVariable long messageId, HttpServletRequest request) {
+        var user = currentUserService.getUserOrNull(request);
+        if (user == null) return ResponseEntity.status(401).build();
+        var message = managerInboxRepository.findById(messageId);
+        if (message.isEmpty()) return ResponseEntity.notFound().build();
+        if (user.getCareerRole() == CareerRole.CHAIRMAN) {
+            boolean allowed = profileRepository.findByUserId(user.getId()).map(profile ->
+                    java.util.Objects.equals(profile.getId(), message.get().getRecipientProfileId())
+                            && List.of(InboxAudience.CHAIRMAN, InboxAudience.BOTH).contains(message.get().getAudience())).orElse(false);
+            if (!allowed) return ResponseEntity.status(403).body(Map.of("success", false));
+        } else if (!List.of(InboxAudience.MANAGER, InboxAudience.BOTH).contains(message.get().getAudience())
+                || !teamAccessGuard.canAccessInboxMessage(request, message.get())) {
+            return ResponseEntity.status(403).body(Map.of("success", false));
+        }
+        message.get().setRead(false);
+        managerInboxRepository.save(message.get());
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
     @PostMapping("/me/markAllRead")
     public ResponseEntity<Map<String, Object>> meMarkAllRead(HttpServletRequest request) {
         var user = currentUserService.getUserOrNull(request);

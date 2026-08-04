@@ -113,6 +113,7 @@ class ChairmanTacticalMandateEnforcementServiceTest {
         chairman.setRole("Advanced Playmaker");
         chairman.setDuty("Attack");
         chairman.setInstructions(List.of("Shoot More Often"));
+        chairman.setShadow(true);
         List<FormationData> submitted = new ArrayList<>(List.of(
                 chairman, data(2, 101L), data(1, 102L), data(3, 103L)));
         List<FormationData> result = service.enforceFormation(10L, "433", submitted,
@@ -123,6 +124,7 @@ class ChairmanTacticalMandateEnforcementServiceTest {
                     assertThat(value.getRole()).isEqualTo("Advanced Playmaker");
                     assertThat(value.getDuty()).isEqualTo("Attack");
                     assertThat(value.getInstructions()).containsExactly("Shoot More Often");
+                    assertThat(value.isShadow()).isTrue();
                 });
         assertThat(result).extracting(FormationData::getPlayerId).contains(100L, 102L, 103L).doesNotContain(101L);
         assertThat(submitted).extracting(FormationData::getPositionIndex).containsExactly(2, 2, 1, 3);

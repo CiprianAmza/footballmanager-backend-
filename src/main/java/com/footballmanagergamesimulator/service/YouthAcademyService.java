@@ -22,6 +22,8 @@ public class YouthAcademyService {
     @Autowired
     TeamRepository teamRepository;
     @Autowired
+    TeamFacilitiesRepository teamFacilitiesRepository;
+    @Autowired
     RoundRepository roundRepository;
     @Autowired
     ManagerInboxRepository managerInboxRepository;
@@ -49,7 +51,8 @@ public class YouthAcademyService {
     public void generateYouthReport(long teamId, int season) {
 
         Random random = new Random();
-        int count = random.nextInt(1, 4); // 1-3 new youth players
+        int academyLevel = youthAcademyLevel(teamId);
+        int count = random.nextInt(1, 4) + (academyLevel >= 7 ? 1 : 0); // elite facilities widen the intake
         List<YouthPlayer> newProspects = new ArrayList<>();
 
         // HOYD quality boosts youth player potential (1-20 scale)
@@ -94,7 +97,10 @@ public class YouthAcademyService {
         int basePotential = generateWeightedPotential(random);
         // HOYD quality bonus: up to +10 potential for top HOYD (quality 20)
         int hoydBonus = (int) (hoydQuality * 0.5);
-        prospect.setPotentialAbility(Math.min(99, basePotential + hoydBonus));
+        // Academy infrastructure contributes up to +18 at level 10. This makes
+        // the investment visible in the actual intake instead of being cosmetic.
+        int facilityBonus = Math.max(0, youthAcademyLevel(teamId) - 1) * 2;
+        prospect.setPotentialAbility(Math.min(99, basePotential + hoydBonus + facilityBonus));
         prospect.setCurrentAbility((int) (prospect.getPotentialAbility()
                 * random.nextDouble(0.3, 0.6)));
         prospect.setPosition(generateWeightedPosition(random));
@@ -121,6 +127,9 @@ public class YouthAcademyService {
 
         YouthPlayer yp = youthPlayerRepository.findById(youthPlayerId)
                 .orElseThrow(() -> new RuntimeException("Youth player not found: " + youthPlayerId));
+        if (yp.getTeamId() != teamId || !"IN_ACADEMY".equals(yp.getStatus())) {
+            throw new IllegalArgumentException("Youth player does not belong to this academy");
+        }
 
         Round round = roundRepository.findById(1L).orElse(new Round());
         int currentSeason = (int) round.getSeason();
@@ -217,11 +226,13 @@ public class YouthAcademyService {
         Random random = new Random();
         List<YouthPlayer> youthSquad = youthPlayerRepository.findAllByTeamIdAndStatus(teamId, "IN_ACADEMY");
 
+        int trainingLevel = youthTrainingLevel(teamId);
+        int facilityGrowth = 1 + Math.max(0, trainingLevel - 1) / 3;
         for (YouthPlayer yp : youthSquad) {
             int potentialGap = yp.getPotentialAbility() - yp.getCurrentAbility();
             double growthFactor = Math.min(1.0, potentialGap / 50.0);
-            double growth = 0.1 + (random.nextDouble() * 0.4 * growthFactor);
-            yp.setCurrentAbility(Math.min(yp.getCurrentAbility() + (int) Math.ceil(growth), yp.getPotentialAbility()));
+            int growth = facilityGrowth + (random.nextDouble() < growthFactor ? 1 : 0);
+            yp.setCurrentAbility(Math.min(yp.getCurrentAbility() + growth, yp.getPotentialAbility()));
             yp.setDaysInAcademy(yp.getDaysInAcademy() + 1);
 
             if (yp.getCurrentAbility() >= yp.getPotentialAbility() * 0.8) {
@@ -240,16 +251,29 @@ public class YouthAcademyService {
         youthPlayerRepository.saveAll(youthSquad);
     }
 
-    public void releaseYouthPlayer(long youthPlayerId) {
+    public void releaseYouthPlayer(long youthPlayerId, long teamId) {
 
         YouthPlayer yp = youthPlayerRepository.findById(youthPlayerId)
                 .orElseThrow(() -> new RuntimeException("Youth player not found: " + youthPlayerId));
+        if (yp.getTeamId() != teamId || !"IN_ACADEMY".equals(yp.getStatus())) {
+            throw new IllegalArgumentException("Youth player does not belong to this academy");
+        }
         yp.setStatus("RELEASED");
         youthPlayerRepository.save(yp);
     }
 
     public List<YouthPlayer> getYouthSquad(long teamId) {
         return youthPlayerRepository.findAllByTeamIdAndStatus(teamId, "IN_ACADEMY");
+    }
+
+    private int youthAcademyLevel(long teamId) {
+        TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
+        return facilities == null ? 1 : Math.max(1, (int) facilities.getYouthAcademyLevel());
+    }
+
+    private int youthTrainingLevel(long teamId) {
+        TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
+        return facilities == null ? 1 : Math.max(1, (int) facilities.getYouthTrainingLevel());
     }
 
     private int generateWeightedPotential(Random random) {

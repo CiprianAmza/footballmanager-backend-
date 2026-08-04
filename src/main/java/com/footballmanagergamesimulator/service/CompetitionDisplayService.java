@@ -55,6 +55,7 @@ public class CompetitionDisplayService {
     @Autowired private EuropeanCoefficientService europeanCoefficientService;
     @Autowired private com.footballmanagergamesimulator.config.EuropeanQualificationPolicy qualificationPolicy;
     @Autowired private CompetitionProgressService competitionProgressService;
+    @Autowired private CompetitionMetadataService competitionMetadataService;
 
     private String currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
@@ -261,6 +262,8 @@ public class CompetitionDisplayService {
             comp.put("competitionId", competition.getId());
             comp.put("name", competition.getName());
             comp.put("typeId", competition.getTypeId());
+            comp.put("tier", competition.getTier());
+            comp.putAll(competitionMetadataService.metadata(competition));
             comp.putAll(competitionProgressService.teamProgress(
                     teamId, competition.getId(), curSeason));
 
@@ -317,6 +320,8 @@ public class CompetitionDisplayService {
         if (comp != null) {
             info.put("typeId", comp.getTypeId());
             info.put("name", comp.getName());
+            info.put("tier", comp.getTier());
+            info.putAll(competitionMetadataService.metadata(comp));
 
             if (comp.isLeague()) {
                 Map<String, Object> zones = getQualificationZones(comp);

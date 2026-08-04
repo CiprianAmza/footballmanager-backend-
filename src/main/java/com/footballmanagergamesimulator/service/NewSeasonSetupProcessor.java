@@ -49,6 +49,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -357,6 +358,15 @@ public class NewSeasonSetupProcessor {
             Human player = humanRepository.findById(loan.getPlayerId()).orElse(null);
             if (player == null) {
                 loan.setStatus("completed");
+                loanRepository.save(loan);
+                continue;
+            }
+
+            // A permanent movement may have happened while an old/legacy loan row
+            // was still active. Such a row no longer owns the player's destination
+            // and must never "return" him from his new club to the former parent.
+            if (!Objects.equals(player.getTeamId(), loan.getLoanTeamId())) {
+                loan.setStatus("cancelled");
                 loanRepository.save(loan);
                 continue;
             }
