@@ -1,42 +1,47 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 17:50:37 CEST
+Ultima actualizare: 2026-08-04 17:57:32 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Command palette cu scurtaturi de tastatura.
+Filtre si coloane salvate per utilizator.
 
 Ce a fost implementat
 ---------------------
-- Paleta de cautare a fost transformata intr-un command palette complet.
-- Comenzile Continue, Save game si Load game pot fi cautate si executate din paleta.
-- Cmd/Ctrl+S salveaza cariera, iar Cmd/Ctrl+O deschide selectorul pentru Load game.
-- Cmd/Ctrl+K, / si ? deschid paleta; Escape o inchide.
-- Navigarea rapida foloseste secvente de doua taste: G apoi H/I/S/T/M/R etc.
-- Fiecare actiune si pagina afiseaza shortcut-ul disponibil direct in rezultat.
-- Rezultatele sunt grupate in Commands, Pages, Players, Clubs si Competitions.
-- Sagetile sar peste actiunile temporar indisponibile; Enter executa rezultatul selectat.
-- Continue si Load sunt dezactivate automat in timpul simularilor si dialogurilor critice.
-- A fost adaugat feedback vizual temporar dupa apasarea tastei G.
+- A fost adaugat un API autentificat pentru preferinte UI per utilizator.
+- Preferintele sunt izolate dupa utilizator si cheie de tabel si sunt salvate in baza de date.
+- Frontend-ul foloseste si un cache local per utilizator pentru functionare offline si fallback.
+- Transfer Market salveaza pozitia, valoarea minima/maxima si sortarea aleasa.
+- A fost adaugat un selector de coloane cu 7 coloane configurabile.
+- Coloana Name ramane obligatorie; toate celelalte pot fi ascunse sau reafisate.
+- Numarul coloanelor active este afisat direct in butonul Columns.
+- Reset filters and columns sterge preferinta din cont si restaureaza valorile implicite.
+- Preferintele sunt validate in backend (cheie sigura, obiect JSON si limita de dimensiune).
+
+Fisiere backend modificate
+--------------------------
+- src/main/java/com/footballmanagergamesimulator/user/UserUiPreference.java
+- src/main/java/com/footballmanagergamesimulator/user/UserUiPreferenceRepository.java
+- src/main/java/com/footballmanagergamesimulator/user/UserUiPreferenceService.java
+- src/main/java/com/footballmanagergamesimulator/user/UserUiPreferenceController.java
+- src/test/java/com/footballmanagergamesimulator/user/UserUiPreferenceServiceTest.java
 
 Fisiere frontend modificate
 ---------------------------
-- src/app/app.component.html
-- src/app/app.component.ts
-- src/app/shared/global-search.service.ts
-- src/app/shared/global-search.component.ts
-- src/app/shared/global-search.component.html
-- src/app/shared/global-search.component.css
-- src/app/shared/fm-icon.component.ts
+- src/app/shared/table-preferences.service.ts
+- src/app/transfer-page/transfer-page.component.ts
+- src/app/transfer-page/transfer-page.component.html
+- src/app/transfer-page/transfer-page.component.css
 
 Verificare
 ----------
+- Teste UserUiPreferenceService: 2/2 OK.
 - Build Angular development: OK.
 - Build Angular production: OK.
-- Verificare in browser: Cmd+K deschide paleta si filtrarea comenzii Save functioneaza.
-- Verificare in browser: secventa G apoi I navigheaza direct la /inbox.
+- Verificare browser: coloana Age ascunsa si filtrul GK au ramas dupa reload.
+- Verificare browser: resetarea a restaurat ALL si Columns 7/7.
 - git diff --check backend si frontend: OK.
 - Bundle initial production: 2.17 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
 
