@@ -19,6 +19,7 @@ import com.footballmanagergamesimulator.service.ShotCreationAnalyticsService;
 import com.footballmanagergamesimulator.service.PossessionProgressionAnalyticsService;
 import com.footballmanagergamesimulator.service.PressingDefenceAnalyticsService;
 import com.footballmanagergamesimulator.service.SetPiecesAnalyticsService;
+import com.footballmanagergamesimulator.service.PlayerPerformanceLabService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -56,6 +57,7 @@ public class StatsController {
     @Autowired PossessionProgressionAnalyticsService possessionProgressionAnalyticsService;
     @Autowired PressingDefenceAnalyticsService pressingDefenceAnalyticsService;
     @Autowired SetPiecesAnalyticsService setPiecesAnalyticsService;
+    @Autowired PlayerPerformanceLabService playerPerformanceLabService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -186,6 +188,20 @@ public class StatsController {
     public SetPiecesAnalyticsService.SetPiecesAnalytics getSetPieces(
             @PathVariable long teamId, @PathVariable int seasonNumber) {
         return setPiecesAnalyticsService.analytics(teamId, seasonNumber);
+    }
+
+    /** Season-wide per-90, peer percentiles, form, role, impact, chemistry and similarity lab. */
+    @GetMapping("/player/{playerId}/season/{seasonNumber}/performance-lab")
+    public PlayerPerformanceLabService.PerformanceLab getPlayerPerformanceLab(
+            @PathVariable long playerId, @PathVariable int seasonNumber) {
+        return playerPerformanceLabService.performance(playerId, seasonNumber);
+    }
+
+    /** Goalkeeper-specific shot-stopping, distribution and line-relationship analysis. */
+    @GetMapping("/player/{playerId}/season/{seasonNumber}/goalkeeper-hub")
+    public PlayerPerformanceLabService.GoalkeeperHub getGoalkeeperHub(
+            @PathVariable long playerId, @PathVariable int seasonNumber) {
+        return playerPerformanceLabService.goalkeeper(playerId, seasonNumber);
     }
 
     /**
