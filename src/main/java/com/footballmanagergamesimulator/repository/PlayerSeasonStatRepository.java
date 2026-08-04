@@ -16,4 +16,7 @@ public interface PlayerSeasonStatRepository extends JpaRepository<PlayerSeasonSt
 
     /** All competitions for one season — used by the global Overview statistics page. */
     List<PlayerSeasonStat> findAllBySeasonNumber(int seasonNumber);
+
+    /** One bounded team-season read for Data Hub contribution allocation. */
+    List<PlayerSeasonStat> findAllByTeamIdAndSeasonNumber(long teamId, int seasonNumber);
 }

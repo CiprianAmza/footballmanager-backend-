@@ -37,6 +37,8 @@ public class MatchStatsService {
     private ShotVolumeModel shotVolumeModel;
     @Autowired(required = false)
     private ShotEventService shotEventService;
+    @Autowired(required = false)
+    private PossessionProgressionLedgerService possessionProgressionLedgerService;
 
     /**
      * Shared RNG used by stat generators. Held as a field so determinism IT
@@ -703,6 +705,7 @@ public class MatchStatsService {
     private MatchStats saveWithShotEvents(MatchStats stats) {
         MatchStats saved = matchStatsRepository.save(stats);
         if (shotEventService != null) shotEventService.replaceForMatch(saved);
+        if (possessionProgressionLedgerService != null) possessionProgressionLedgerService.replaceForMatch(saved);
         return saved;
     }
 

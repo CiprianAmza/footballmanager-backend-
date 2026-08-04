@@ -16,6 +16,7 @@ import com.footballmanagergamesimulator.service.DataHubIntelligenceService;
 import com.footballmanagergamesimulator.service.UnderlyingPerformanceService;
 import com.footballmanagergamesimulator.service.CompetitionUnderlyingPerformanceService;
 import com.footballmanagergamesimulator.service.ShotCreationAnalyticsService;
+import com.footballmanagergamesimulator.service.PossessionProgressionAnalyticsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -50,6 +51,7 @@ public class StatsController {
     @Autowired UnderlyingPerformanceService underlyingPerformanceService;
     @Autowired CompetitionUnderlyingPerformanceService competitionUnderlyingPerformanceService;
     @Autowired ShotCreationAnalyticsService shotCreationAnalyticsService;
+    @Autowired PossessionProgressionAnalyticsService possessionProgressionAnalyticsService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -159,6 +161,13 @@ public class StatsController {
     public ShotCreationAnalyticsService.ShotCreationAnalytics getShotCreationAnalytics(
             @PathVariable long teamId, @PathVariable int seasonNumber) {
         return shotCreationAnalyticsService.analytics(teamId, seasonNumber);
+    }
+
+    /** Useful possession, territory, attack style and reconciled player progression contributions. */
+    @GetMapping("/team/{teamId}/season/{seasonNumber}/possession-progression")
+    public PossessionProgressionAnalyticsService.PossessionProgressionAnalytics getPossessionProgression(
+            @PathVariable long teamId, @PathVariable int seasonNumber) {
+        return possessionProgressionAnalyticsService.analytics(teamId, seasonNumber);
     }
 
     /**

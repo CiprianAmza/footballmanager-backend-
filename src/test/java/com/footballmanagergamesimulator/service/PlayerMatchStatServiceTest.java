@@ -210,6 +210,13 @@ class PlayerMatchStatServiceTest {
         }
 
         @Override
+        public List<PlayerSeasonStat> findAllByTeamIdAndSeasonNumber(long teamId, int seasonNumber) {
+            return store.values().stream()
+                    .filter(row -> row.getTeamId() == teamId && row.getSeasonNumber() == seasonNumber)
+                    .toList();
+        }
+
+        @Override
         public <S extends PlayerSeasonStat> S save(S entity) {
             if (entity.getId() == 0) entity.setId(seq++);
             store.put(key(entity.getPlayerId(), entity.getCompetitionId(), entity.getSeasonNumber()), entity);
