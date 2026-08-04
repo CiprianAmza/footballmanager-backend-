@@ -14,6 +14,7 @@ import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
 import com.footballmanagergamesimulator.service.CompetitionRecordService;
 import com.footballmanagergamesimulator.service.DataHubIntelligenceService;
 import com.footballmanagergamesimulator.service.UnderlyingPerformanceService;
+import com.footballmanagergamesimulator.service.CompetitionUnderlyingPerformanceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,6 +47,7 @@ public class StatsController {
     @Autowired CompetitionRecordService competitionRecordService;
     @Autowired DataHubIntelligenceService dataHubIntelligenceService;
     @Autowired UnderlyingPerformanceService underlyingPerformanceService;
+    @Autowired CompetitionUnderlyingPerformanceService competitionUnderlyingPerformanceService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -141,6 +143,13 @@ public class StatsController {
     public UnderlyingPerformanceService.UnderlyingPerformance getUnderlyingPerformance(
             @PathVariable long teamId, @PathVariable int seasonNumber) {
         return underlyingPerformanceService.performance(teamId, seasonNumber);
+    }
+
+    /** League-wide process, rolling form, opponent-tier and result-luck analysis. */
+    @GetMapping("/competition/{competitionId}/{seasonNumber}/underlying-performance")
+    public CompetitionUnderlyingPerformanceService.CompetitionUnderlyingPerformance getCompetitionUnderlyingPerformance(
+            @PathVariable long competitionId, @PathVariable int seasonNumber) {
+        return competitionUnderlyingPerformanceService.performance(competitionId, seasonNumber);
     }
 
     /**

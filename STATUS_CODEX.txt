@@ -1,53 +1,56 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 18:13:40 CEST
+Ultima actualizare: 2026-08-04 18:20:46 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Underlying Performance ca prima pagina vazuta de manager in Data Hub.
+Extinderea analizei Underlying Performance si publicarea ei pe pagina competitiei.
 
 Ce a fost implementat
 ---------------------
-- Data Hub se deschide implicit pe noul tab Underlying Performance.
-- Sunt afisate cinci comparatii: puncte vs Expected Points, goluri vs xG,
-  goluri primite vs xGA, diferenta de conversie si xG difference / 90.
-- Expected Points este calculat pentru fiecare meci din probabilitatile Poisson
-  generate de xG si xGA; rezultatul sezonului este suma valorilor per meci.
-- Statisticile sunt agregate corect din perspectiva echipei, acasa si in deplasare.
-- Sunt afisate diferentele fata de model, nivelul de incredere si metodologia.
-- Ultimele zece meciuri ofera comparatia puncte reale vs xPts si scor vs xG.
-- Exista o stare explicita inainte de primul meci cu date statistice.
-- Frontend-ul poate deriva temporar aceleasi valori din endpoint-ul Data Hub
-  existent daca backend-ul nou nu a fost inca restartat.
-- Layout-ul este responsive pentru desktop, tableta si mobil.
+- Endpoint nou cu analiza tuturor echipelor dintr-o competitie si un sezon.
+- xG difference per 90 pentru intregul sezon.
+- Rolling xGD/90 pentru ultimele 5, 10 si 20 de meciuri, cu esantionul real afisat.
+- Procentul meciurilor in care echipa a produs xG mai mare decat adversarul.
+- Rezultatele in meciurile echilibrate: W-D-L, puncte, xPts si xGD/90.
+- Meci echilibrat este definit transparent ca |xG - xGA| <= 0.25.
+- Performanta contra Top 4, Top Half si Lower Half: W-D-L, puncte, xPts si xGD/90.
+- Grupele valorice sunt calculate din clasamentul sezonului selectat; Top Half include Top 4.
+- Luck index este diferenta dintre puncte/meci si xPts/meci; este afisata si
+  diferenta totala de puncte fata de asteptari.
+- Clasamentul analitic include si echipele inscrise care nu au jucat inca.
+- Pagina competitiei are un tabel nou cu randuri expandabile pentru toate segmentele.
+- Sectiunea este disponibila atat pentru ligi, cat si pentru cupe.
+- Exista stari Loading, Error si Empty si explicatie completa a metodologiei.
 
 Fisiere backend modificate
 --------------------------
 - src/main/java/com/footballmanagergamesimulator/controller/StatsController.java
-- src/main/java/com/footballmanagergamesimulator/service/UnderlyingPerformanceService.java
-- src/test/java/com/footballmanagergamesimulator/service/UnderlyingPerformanceServiceTest.java
+- src/main/java/com/footballmanagergamesimulator/service/CompetitionUnderlyingPerformanceService.java
+- src/test/java/com/footballmanagergamesimulator/service/CompetitionUnderlyingPerformanceServiceTest.java
 
 Fisiere frontend modificate
 ---------------------------
-- src/app/data-hub/data-hub.component.ts
-- src/app/data-hub/data-hub.component.html
-- src/app/data-hub/data-hub.component.css
+- src/app/competition/competition.component.ts
+- src/app/competition/competition.component.html
+- src/app/competition/competition.component.css
 
 Verificare
 ----------
-- Teste unitare UnderlyingPerformanceService: OK.
-- Maven package fara rularea testelor: OK.
+- Teste UnderlyingPerformanceService si CompetitionUnderlyingPerformanceService: OK.
+- Maven package: OK.
 - Build Angular development: OK.
-- Verificare browser: Underlying Performance este primul tab si view-ul implicit.
-- Verificare browser: toate cele cinci carduri sunt randate.
-- Verificare browser: comutarea Overview -> Underlying Performance functioneaza.
+- Build Angular production: OK.
+- Verificare browser pe /competition/1: sectiunea Underlying Performance este prezenta.
+- Backend-ul curent nerestartat afiseaza corect starea explicita de indisponibilitate.
+- Warning-ul existent pentru bundle-ul initial Angular ramane 2.17 MB vs 1.50 MB recomandat.
 
 Nota de rulare
 --------------
-Backend-ul trebuie restartat pentru activarea endpoint-ului nou. Pana atunci,
-fallback-ul frontend foloseste datele endpoint-ului Data Hub deja disponibil.
+Backend-ul trebuie restartat pentru activarea endpoint-ului nou:
+/stats/competition/{competitionId}/{season}/underlying-performance
 
 Regula de urmarire
 ------------------
