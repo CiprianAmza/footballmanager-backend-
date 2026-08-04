@@ -13,6 +13,7 @@ import com.footballmanagergamesimulator.service.LeagueStrengthService;
 import com.footballmanagergamesimulator.service.ScorerLeaderboardSyncService;
 import com.footballmanagergamesimulator.service.CompetitionRecordService;
 import com.footballmanagergamesimulator.service.DataHubIntelligenceService;
+import com.footballmanagergamesimulator.service.UnderlyingPerformanceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +45,7 @@ public class StatsController {
     @Autowired ScorerLeaderboardSyncService scorerLeaderboardSyncService;
     @Autowired CompetitionRecordService competitionRecordService;
     @Autowired DataHubIntelligenceService dataHubIntelligenceService;
+    @Autowired UnderlyingPerformanceService underlyingPerformanceService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -132,6 +134,13 @@ public class StatsController {
     public DataHubIntelligenceService.DataHubIntelligence getTeamIntelligence(
             @PathVariable long teamId, @PathVariable int seasonNumber) {
         return dataHubIntelligenceService.intelligence(teamId, seasonNumber);
+    }
+
+    /** Results compared with the chance quality behind them, used as the Data Hub landing view. */
+    @GetMapping("/team/{teamId}/season/{seasonNumber}/underlying-performance")
+    public UnderlyingPerformanceService.UnderlyingPerformance getUnderlyingPerformance(
+            @PathVariable long teamId, @PathVariable int seasonNumber) {
+        return underlyingPerformanceService.performance(teamId, seasonNumber);
     }
 
     /**

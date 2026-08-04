@@ -1,44 +1,53 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 18:04:18 CEST
+Ultima actualizare: 2026-08-04 18:13:40 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Sidebar mobil tip drawer si eliminarea benzilor albe la overscroll.
+Underlying Performance ca prima pagina vazuta de manager in Data Hub.
 
 Ce a fost implementat
 ---------------------
-- Sub 860px, sidebar-ul fix devine un drawer off-canvas.
-- A fost adaugat un buton hamburger compact, disponibil permanent pe mobil.
-- Drawer-ul are overlay cu blur, animatie, buton Close si scroll propriu.
-- Se inchide automat la alegerea unei pagini si la apasarea tastei Escape.
-- Scrollul paginii din spate este blocat cat timp drawer-ul este deschis.
-- Linkul Multiplayer este mutat in drawer pe mobil pentru a nu suprapune bara de comenzi.
-- Layout-ul principal ocupa intreaga latime pe mobil, fara marginea sidebar-ului desktop.
-- html, body si app-root au acelasi fundal intunecat pe toata inaltimea viewport-ului.
-- Overscroll-ul vertical si overflow-ul orizontal al paginii nu mai expun fundal alb.
-- Sunt folosite unitati dvh si safe-area pentru ecrane mobile moderne.
+- Data Hub se deschide implicit pe noul tab Underlying Performance.
+- Sunt afisate cinci comparatii: puncte vs Expected Points, goluri vs xG,
+  goluri primite vs xGA, diferenta de conversie si xG difference / 90.
+- Expected Points este calculat pentru fiecare meci din probabilitatile Poisson
+  generate de xG si xGA; rezultatul sezonului este suma valorilor per meci.
+- Statisticile sunt agregate corect din perspectiva echipei, acasa si in deplasare.
+- Sunt afisate diferentele fata de model, nivelul de incredere si metodologia.
+- Ultimele zece meciuri ofera comparatia puncte reale vs xPts si scor vs xG.
+- Exista o stare explicita inainte de primul meci cu date statistice.
+- Frontend-ul poate deriva temporar aceleasi valori din endpoint-ul Data Hub
+  existent daca backend-ul nou nu a fost inca restartat.
+- Layout-ul este responsive pentru desktop, tableta si mobil.
+
+Fisiere backend modificate
+--------------------------
+- src/main/java/com/footballmanagergamesimulator/controller/StatsController.java
+- src/main/java/com/footballmanagergamesimulator/service/UnderlyingPerformanceService.java
+- src/test/java/com/footballmanagergamesimulator/service/UnderlyingPerformanceServiceTest.java
 
 Fisiere frontend modificate
 ---------------------------
-- src/app/app.component.ts
-- src/app/app.component.html
-- src/app/app.component.css
-- src/styles.css
+- src/app/data-hub/data-hub.component.ts
+- src/app/data-hub/data-hub.component.html
+- src/app/data-hub/data-hub.component.css
 
 Verificare
 ----------
+- Teste unitare UnderlyingPerformanceService: OK.
+- Maven package fara rularea testelor: OK.
 - Build Angular development: OK.
-- Build Angular production: OK.
-- Verificare browser la 390x844: drawer open/close si overlay OK.
-- Verificare browser: navigarea la Inbox inchide automat drawer-ul.
-- Verificare browser: Escape inchide drawer-ul.
-- Fundal calculat html/body/app-root: rgb(26, 29, 46), fara alb.
-- overscroll-behavior-y: none; overflow-x: hidden.
-- git diff --check backend si frontend: OK.
-- Bundle initial production: 2.17 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
+- Verificare browser: Underlying Performance este primul tab si view-ul implicit.
+- Verificare browser: toate cele cinci carduri sunt randate.
+- Verificare browser: comutarea Overview -> Underlying Performance functioneaza.
+
+Nota de rulare
+--------------
+Backend-ul trebuie restartat pentru activarea endpoint-ului nou. Pana atunci,
+fallback-ul frontend foloseste datele endpoint-ului Data Hub deja disponibil.
 
 Regula de urmarire
 ------------------
