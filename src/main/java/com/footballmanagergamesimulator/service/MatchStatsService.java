@@ -39,6 +39,8 @@ public class MatchStatsService {
     private ShotEventService shotEventService;
     @Autowired(required = false)
     private PossessionProgressionLedgerService possessionProgressionLedgerService;
+    @Autowired(required = false)
+    private DefensivePressureLedgerService defensivePressureLedgerService;
 
     /**
      * Shared RNG used by stat generators. Held as a field so determinism IT
@@ -706,6 +708,7 @@ public class MatchStatsService {
         MatchStats saved = matchStatsRepository.save(stats);
         if (shotEventService != null) shotEventService.replaceForMatch(saved);
         if (possessionProgressionLedgerService != null) possessionProgressionLedgerService.replaceForMatch(saved);
+        if (defensivePressureLedgerService != null) defensivePressureLedgerService.replaceForMatch(saved);
         return saved;
     }
 

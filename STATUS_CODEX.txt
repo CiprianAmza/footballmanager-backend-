@@ -1,66 +1,70 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 18:45 CEST
+Ultima actualizare: 2026-08-04 18:53 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Modul Possession & Progression in Data Hub: masurarea utilitatii posesiei,
-progresiei teritoriale si contributiei fiecarui jucator la constructie.
+Modul Pressing & Defence in Data Hub, inspirat de conceptele FIFA Enhanced
+Football Intelligence si construit cu provenienta stricta pentru fiecare metric.
 
-Ce a fost implementat in motor/backend
---------------------------------------
-- Ledger persistent PossessionProgression, cu cate un rand pentru fiecare echipa
-  din fiecare meci salvat.
-- Generare determinista pentru progressive passes/carries, final-third entries,
-  penalty-area entries, line-breaking passes, passes into box, receptions between
-  lines, switches of play, field tilt, posesii si secvente de minimum 10 pase.
-- Indicatori de ritm: pase per posesie, durata medie a posesiei si viteza directa
-  spre poarta adversa.
-- Clasificarea atacurilor in build-up attacks si direct attacks.
-- Relatii de coerenta garantate: pase progresive <= pase completate, pase care rup
-  linii <= pase progresive, intrari in careu <= intrari in ultima treime, iar
-  field tilt-ul celor doua echipe insumeaza 100%.
-- MatchStatsService persista automat ledger-ul odata cu statisticile si evenimentele
-  de sut; salvarile istorice fara ledger sunt reconstruite doar in memorie.
+Principiul de corectitudine
+---------------------------
+- PPDA real NU este calculat din date incomplete.
+- Raspunsul expune realPpda = null si statusul
+  UNAVAILABLE_REQUIRES_ZONED_EVENTS.
+- PPDA-ul existent ramane PPDA-LIKE PROXY: pasele adversarului pe tot terenul
+  impartite la actiunile defensive, etichetat DERIVED_PROXY.
+- Metricile de pressing, timpi, zone si inaltimea liniei sunt MODELED.
+- xGA, suturi, clearances, blocks, interceptions si duel wins sunt OBSERVED din
+  MatchStats.
+
+Ce a fost implementat in backend
+--------------------------------
+- Ledger persistent DefensivePressure cu doua randuri per meci, unul per echipa.
+- Pressures, successful pressures si counterpressures.
+- Recuperari in maximum 5 si 8 secunde si ball recovery time.
+- High turnovers, high turnovers care produc sut/gol si forced turnovers.
+- Recuperari modelate pe stanga, centru si dreapta.
+- Actiuni defensive in jumatatea adversa si inaltimea liniei defensive.
+- Intrari in careu permise, sincronizate cu ledger-ul PossessionProgression al
+  adversarului.
+- Suturi permise dupa tranzitie, erori care produc sut/gol.
+- Dueluri, dueluri castigate, clearances, blocks si interceptions.
+- xGA per shot si rate de succes pentru pressing, dueluri si high turnovers.
+- Contributii individuale pentru pressures, counterpressures, defensive actions
+  si pressure regains din acumulatorii sezonieri ai jucatorilor.
+- Reconstruire determinista in memorie pentru carierele istorice, fara scrieri
+  ascunse la GET.
 - Endpoint nou:
-  /stats/team/{teamId}/season/{seasonNumber}/possession-progression
-- Agregare sezoniera pentru totaluri, medii, funnel de progresie, control teritorial
-  si conversia intrarilor in careu in suturi.
-- Contributia individuala foloseste pasele, driblingurile si ocaziile sezoniere
-  inregistrate, plus passing, vision, decisions, technique, first touch, off the
-  ball, pace si acceleration.
-- Query bounded pe teamId + seasonNumber pentru a evita incarcarea tuturor
-  statisticilor jucatorilor din lume.
-- Provenienta este expusa explicit ca MODELED_FROM_MATCH_STATS / MODELLED_ALLOCATION;
-  valorile spatiale nu sunt prezentate drept tracking observat.
+  /stats/team/{teamId}/season/{seasonNumber}/pressing-defence
 
 Ce a fost implementat in frontend
 ---------------------------------
-- Tab nou Possession & Progression in pagina Data Hub.
-- KPI-uri pentru progressive passes/carries, field tilt, final-third entries si
-  penalty-area entries.
-- Bara teritoriala field tilt si funnel:
-  completed passes -> progressive passes -> final third -> penalty area -> shots.
-- Panouri pentru penetrare, ritmul posesiei, secvente de 10+ pase si stilul
-  build-up/direct.
-- Tabel individual cu minute, progressive passes/carries, line breaks, passes into
-  box, receptions between lines, switches si procentul contributiei la progresie.
-- Link direct de la jucatorul din tabel la pagina profilului.
-- Layout responsive si stari Loading/Error/Empty compatibile cu sistemul comun.
+- Tab nou Pressing & Defence in Data Hub.
+- Guardrail vizibil care explica de ce PPDA real este indisponibil si separa
+  PPDA-like proxy.
+- KPI-uri pentru pressures, counterpressures, recovery time, high turnovers si
+  xGA per shot.
+- Panouri Pressing Output, Recovery Map si Defensive Resistance.
+- Dueluri, clearances, blocks si interceptions afisate separat ca valori observate.
+- Tabel de contributii individuale cu link catre profilul jucatorului.
+- Data-quality ledger vizibil pentru OBSERVED / MODELED / DERIVED_PROXY /
+  UNAVAILABLE.
+- Navigatia taburilor Data Hub se impacheteaza pe ecrane medii si ramane cu scroll
+  orizontal pe mobil.
 
 Fisiere backend
 ---------------
-- src/main/java/com/footballmanagergamesimulator/model/PossessionProgression.java
-- src/main/java/com/footballmanagergamesimulator/repository/PossessionProgressionRepository.java
-- src/main/java/com/footballmanagergamesimulator/service/PossessionProgressionLedgerService.java
-- src/main/java/com/footballmanagergamesimulator/service/PossessionProgressionAnalyticsService.java
+- src/main/java/com/footballmanagergamesimulator/model/DefensivePressure.java
+- src/main/java/com/footballmanagergamesimulator/repository/DefensivePressureRepository.java
+- src/main/java/com/footballmanagergamesimulator/service/DefensivePressureLedgerService.java
+- src/main/java/com/footballmanagergamesimulator/service/PressingDefenceAnalyticsService.java
 - src/main/java/com/footballmanagergamesimulator/service/MatchStatsService.java
 - src/main/java/com/footballmanagergamesimulator/controller/StatsController.java
-- src/main/java/com/footballmanagergamesimulator/repository/PlayerSeasonStatRepository.java
-- src/test/java/com/footballmanagergamesimulator/service/PossessionProgressionLedgerServiceTest.java
-- src/test/java/com/footballmanagergamesimulator/service/PossessionProgressionAnalyticsServiceTest.java
+- src/test/java/com/footballmanagergamesimulator/service/DefensivePressureLedgerServiceTest.java
+- src/test/java/com/footballmanagergamesimulator/service/PressingDefenceAnalyticsServiceTest.java
 
 Fisiere frontend
 ----------------
@@ -70,21 +74,19 @@ Fisiere frontend
 
 Verificare
 ----------
-- PossessionProgressionLedgerServiceTest: OK.
-- PossessionProgressionAnalyticsServiceTest: OK.
-- ShotEventServiceTest + ShotCreationAnalyticsServiceTest: OK (regresie).
-- PlayerMatchStatServiceTest: OK (regresie).
+- DefensivePressureLedgerServiceTest: OK.
+- PressingDefenceAnalyticsServiceTest: OK.
+- Regresii PossessionProgression, ShotEvent si PlayerMatchStat: OK.
 - mvn -DskipTests package: OK.
 - Build Angular development: OK.
 - Build Angular production: OK; ramane warning-ul existent 2.17 MB vs 1.50 MB.
-- Browser: tabul este prezent, unic si navigabil; backend-ul local vechi afiseaza
-  corect starea explicita de restart.
+- Browser: tab unic, navigabil; starea de restart apare corect cu backend-ul vechi.
 
 Nota de rulare
 --------------
-Backend-ul trebuie restartat pentru crearea tabelului possession_progression si
-activarea endpoint-ului nou. Nu este necesara migrarea manuala a carierelor vechi:
-analytics reconstruieste datele istorice in memorie din MatchStats.
+Backend-ul trebuie restartat pentru crearea tabelului defensive_pressure si
+activarea endpoint-ului. Pentru PPDA real este necesara o etapa viitoare in motor:
+persistarea fiecarei pase adverse si actiuni defensive cu timestamp si coordonate.
 
 Regula de urmarire
 ------------------

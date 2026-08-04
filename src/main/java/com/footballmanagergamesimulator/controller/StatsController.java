@@ -17,6 +17,7 @@ import com.footballmanagergamesimulator.service.UnderlyingPerformanceService;
 import com.footballmanagergamesimulator.service.CompetitionUnderlyingPerformanceService;
 import com.footballmanagergamesimulator.service.ShotCreationAnalyticsService;
 import com.footballmanagergamesimulator.service.PossessionProgressionAnalyticsService;
+import com.footballmanagergamesimulator.service.PressingDefenceAnalyticsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,6 +53,7 @@ public class StatsController {
     @Autowired CompetitionUnderlyingPerformanceService competitionUnderlyingPerformanceService;
     @Autowired ShotCreationAnalyticsService shotCreationAnalyticsService;
     @Autowired PossessionProgressionAnalyticsService possessionProgressionAnalyticsService;
+    @Autowired PressingDefenceAnalyticsService pressingDefenceAnalyticsService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -168,6 +170,13 @@ public class StatsController {
     public PossessionProgressionAnalyticsService.PossessionProgressionAnalytics getPossessionProgression(
             @PathVariable long teamId, @PathVariable int seasonNumber) {
         return possessionProgressionAnalyticsService.analytics(teamId, seasonNumber);
+    }
+
+    /** Pressing, regain, turnover and defensive-resistance analysis with strict provenance. */
+    @GetMapping("/team/{teamId}/season/{seasonNumber}/pressing-defence")
+    public PressingDefenceAnalyticsService.PressingDefenceAnalytics getPressingDefence(
+            @PathVariable long teamId, @PathVariable int seasonNumber) {
+        return pressingDefenceAnalyticsService.analytics(teamId, seasonNumber);
     }
 
     /**
