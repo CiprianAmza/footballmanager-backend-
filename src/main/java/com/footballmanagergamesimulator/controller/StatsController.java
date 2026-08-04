@@ -18,6 +18,7 @@ import com.footballmanagergamesimulator.service.CompetitionUnderlyingPerformance
 import com.footballmanagergamesimulator.service.ShotCreationAnalyticsService;
 import com.footballmanagergamesimulator.service.PossessionProgressionAnalyticsService;
 import com.footballmanagergamesimulator.service.PressingDefenceAnalyticsService;
+import com.footballmanagergamesimulator.service.SetPiecesAnalyticsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,6 +55,7 @@ public class StatsController {
     @Autowired ShotCreationAnalyticsService shotCreationAnalyticsService;
     @Autowired PossessionProgressionAnalyticsService possessionProgressionAnalyticsService;
     @Autowired PressingDefenceAnalyticsService pressingDefenceAnalyticsService;
+    @Autowired SetPiecesAnalyticsService setPiecesAnalyticsService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -177,6 +179,13 @@ public class StatsController {
     public PressingDefenceAnalyticsService.PressingDefenceAnalytics getPressingDefence(
             @PathVariable long teamId, @PathVariable int seasonNumber) {
         return pressingDefenceAnalyticsService.analytics(teamId, seasonNumber);
+    }
+
+    /** Corners, free kicks, penalties, long throws, vulnerabilities and competition benchmarks. */
+    @GetMapping("/team/{teamId}/season/{seasonNumber}/set-pieces")
+    public SetPiecesAnalyticsService.SetPiecesAnalytics getSetPieces(
+            @PathVariable long teamId, @PathVariable int seasonNumber) {
+        return setPiecesAnalyticsService.analytics(teamId, seasonNumber);
     }
 
     /**

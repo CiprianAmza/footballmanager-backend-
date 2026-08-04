@@ -1,70 +1,72 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 18:53 CEST
+Ultima actualizare: 2026-08-04 19:05 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Modul Pressing & Defence in Data Hub, inspirat de conceptele FIFA Enhanced
-Football Intelligence si construit cu provenienta stricta pentru fiecare metric.
-
-Principiul de corectitudine
----------------------------
-- PPDA real NU este calculat din date incomplete.
-- Raspunsul expune realPpda = null si statusul
-  UNAVAILABLE_REQUIRES_ZONED_EVENTS.
-- PPDA-ul existent ramane PPDA-LIKE PROXY: pasele adversarului pe tot terenul
-  impartite la actiunile defensive, etichetat DERIVED_PROXY.
-- Metricile de pressing, timpi, zone si inaltimea liniei sunt MODELED.
-- xGA, suturi, clearances, blocks, interceptions si duel wins sunt OBSERVED din
-  MatchStats.
+Set Pieces Hub separat in Data Hub, cu analiza fazelor fixe pentru/contra,
+benchmark de competitie, jucatori periculosi, vulnerabilitati si insights.
 
 Ce a fost implementat in backend
 --------------------------------
-- Ledger persistent DefensivePressure cu doua randuri per meci, unul per echipa.
-- Pressures, successful pressures si counterpressures.
-- Recuperari in maximum 5 si 8 secunde si ball recovery time.
-- High turnovers, high turnovers care produc sut/gol si forced turnovers.
-- Recuperari modelate pe stanga, centru si dreapta.
-- Actiuni defensive in jumatatea adversa si inaltimea liniei defensive.
-- Intrari in careu permise, sincronizate cu ledger-ul PossessionProgression al
-  adversarului.
-- Suturi permise dupa tranzitie, erori care produc sut/gol.
-- Dueluri, dueluri castigate, clearances, blocks si interceptions.
-- xGA per shot si rate de succes pentru pressing, dueluri si high turnovers.
-- Contributii individuale pentru pressures, counterpressures, defensive actions
-  si pressure regains din acumulatorii sezonieri ai jucatorilor.
-- Reconstruire determinista in memorie pentru carierele istorice, fara scrieri
-  ascunse la GET.
+- Ledger persistent SetPieceEvent, cu fiecare faza fixa a ambelor echipe.
+- Tipuri: CORNER, DIRECT_FREE_KICK, INDIRECT_FREE_KICK, PENALTY si LONG_THROW.
+- Pentru fiecare eveniment: delivery style (short/inswinging/outswinging), zona
+  livrarii, primul contact, recuperarea mingii a doua, rezultat si xG.
+- Numerele de cornere si lovituri libere se reconciliaza cu MatchStats.
+- Penalty-urile si xG-ul fazelor fixe se reconciliaza cu ShotEvent.
+- Salvare automata odata cu MatchStats; carierele istorice sunt reconstruite
+  determinist in memorie, fara mutatii la GET.
 - Endpoint nou:
-  /stats/team/{teamId}/season/{seasonNumber}/pressing-defence
+  /stats/team/{teamId}/season/{seasonNumber}/set-pieces
+
+Ce returneaza agregarea
+----------------------
+- Cornere pentru/contra, suturi si goluri dupa corner.
+- xG total si xG per corner pentru/contra.
+- Short vs inswinging vs outswinging.
+- Zone near post, centre, far post si edge of box.
+- Primul contact si second-ball recovery.
+- Lovituri libere directe/indirecte, penalty-uri si aruncari lungi.
+- Executantii si tintele aeriene cele mai periculoase, folosind executantii
+  configurati in tactica si atributele tehnice/aeriene ale lotului.
+- Vulnerabilitati de marcaj zonal/individual pe zone, cu incidente si xGA.
+- Competitia principala aleasa automat dupa cele mai multe meciuri ale echipei.
+- Media competitiei pentru cornere/meci si xG/corner, plus diferentele echipei.
+- Insights generate din date; exemplu real din model:
+  "X% of total xGA comes from corners delivered to the far post".
+
+Corectitudinea datelor
+----------------------
+- Counts: OBSERVED_COUNTS din MatchStats.
+- xG: reconciliat cu ShotEvent.
+- Delivery, zone, first contact, second ball si marking: marcate explicit
+  MODELED_DELIVERY_FROM_MATCH_STATS pana cand motorul persista aceste actiuni.
+- Niciun insight nu este hardcodat cu un procent fix.
 
 Ce a fost implementat in frontend
 ---------------------------------
-- Tab nou Pressing & Defence in Data Hub.
-- Guardrail vizibil care explica de ce PPDA real este indisponibil si separa
-  PPDA-like proxy.
-- KPI-uri pentru pressures, counterpressures, recovery time, high turnovers si
-  xGA per shot.
-- Panouri Pressing Output, Recovery Map si Defensive Resistance.
-- Dueluri, clearances, blocks si interceptions afisate separat ca valori observate.
-- Tabel de contributii individuale cu link catre profilul jucatorului.
-- Data-quality ledger vizibil pentru OBSERVED / MODELED / DERIVED_PROXY /
-  UNAVAILABLE.
-- Navigatia taburilor Data Hub se impacheteaza pe ecrane medii si ramane cu scroll
-  orizontal pe mobil.
+- Tab nou Set Pieces Hub in Data Hub.
+- KPI-uri, insights, delivery breakdown, attacking/defensive zones.
+- First contact, second-ball recovery si toate tipurile de faze fixe.
+- Top jucatori periculosi cu link direct la profil.
+- Marking vulnerabilities si comparatie cu media competitiei.
+- Layout responsive.
+- Stilurile au fost compactate pentru a nu depasi bugetul CSS al componentei;
+  nu a fost relaxat niciun prag de build.
 
 Fisiere backend
 ---------------
-- src/main/java/com/footballmanagergamesimulator/model/DefensivePressure.java
-- src/main/java/com/footballmanagergamesimulator/repository/DefensivePressureRepository.java
-- src/main/java/com/footballmanagergamesimulator/service/DefensivePressureLedgerService.java
-- src/main/java/com/footballmanagergamesimulator/service/PressingDefenceAnalyticsService.java
+- src/main/java/com/footballmanagergamesimulator/model/SetPieceEvent.java
+- src/main/java/com/footballmanagergamesimulator/repository/SetPieceEventRepository.java
+- src/main/java/com/footballmanagergamesimulator/service/SetPieceEventService.java
+- src/main/java/com/footballmanagergamesimulator/service/SetPiecesAnalyticsService.java
 - src/main/java/com/footballmanagergamesimulator/service/MatchStatsService.java
 - src/main/java/com/footballmanagergamesimulator/controller/StatsController.java
-- src/test/java/com/footballmanagergamesimulator/service/DefensivePressureLedgerServiceTest.java
-- src/test/java/com/footballmanagergamesimulator/service/PressingDefenceAnalyticsServiceTest.java
+- src/test/java/com/footballmanagergamesimulator/service/SetPieceEventServiceTest.java
+- src/test/java/com/footballmanagergamesimulator/service/SetPiecesAnalyticsServiceTest.java
 
 Fisiere frontend
 ----------------
@@ -74,19 +76,19 @@ Fisiere frontend
 
 Verificare
 ----------
-- DefensivePressureLedgerServiceTest: OK.
-- PressingDefenceAnalyticsServiceTest: OK.
-- Regresii PossessionProgression, ShotEvent si PlayerMatchStat: OK.
+- SetPieceEventServiceTest: OK.
+- SetPiecesAnalyticsServiceTest: OK.
+- Regresii ShotEvent, PossessionProgression, DefensivePressure si PlayerMatchStat: OK.
 - mvn -DskipTests package: OK.
 - Build Angular development: OK.
-- Build Angular production: OK; ramane warning-ul existent 2.17 MB vs 1.50 MB.
-- Browser: tab unic, navigabil; starea de restart apare corect cu backend-ul vechi.
+- Build Angular production: OK.
+- Noul warning de buget CSS a fost eliminat; raman doar warning-urile preexistente.
+- Browser: tab unic si navigabil; starea de restart apare corect cu backend-ul vechi.
 
 Nota de rulare
 --------------
-Backend-ul trebuie restartat pentru crearea tabelului defensive_pressure si
-activarea endpoint-ului. Pentru PPDA real este necesara o etapa viitoare in motor:
-persistarea fiecarei pase adverse si actiuni defensive cu timestamp si coordonate.
+Backend-ul trebuie restartat pentru crearea tabelului set_piece_event si activarea
+endpoint-ului nou. Nu este necesara migrarea manuala a carierelor existente.
 
 Regula de urmarire
 ------------------
