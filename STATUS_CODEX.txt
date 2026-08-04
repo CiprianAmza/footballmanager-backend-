@@ -1,0 +1,41 @@
+STATUS CODEX
+============
+
+Ultima actualizare: 2026-08-04 17:33:15 CEST
+Status: FINALIZAT
+
+Task curent
+-----------
+Mod compact pentru controalele globale Continue, urmatorul meci, calendar si notificari.
+
+Ce a fost implementat
+---------------------
+- Bara globala de joc a fost transformata intr-un command bar compact si responsive.
+- Continue are acum icon, stare de procesare si shortcut-ul Space afisat vizibil.
+- Fast Forward ramane disponibil intr-un buton compact separat.
+- Urmatorul meci este incarcat din programul sezonului si deschide calendarul echipei.
+- Calendarul are popover cu data, faza zilei, sezonul si urmatoarea partida.
+- Notificarile au badge comun pentru Inbox si ofertele de job, plus ultimele evenimente procesate.
+- Au fost adaugate scurtaturi directe catre calendarul complet si Inbox.
+- Layout-ul se adapteaza pentru viewport-uri inguste.
+
+Fisiere frontend modificate
+---------------------------
+- src/app/app.component.ts
+- src/app/app.component.html
+- src/app/app.component.css
+- src/app/shared/fm-icon.component.ts
+
+Verificare
+----------
+- Build Angular development: OK.
+- Build Angular production: OK.
+- Verificare vizuala in browser: OK.
+- Calendar popover: OK.
+- Notifications popover: OK.
+- Bundle initial production: 2.15 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
+
+Regula de urmarire
+------------------
+La fiecare cerere viitoare care produce modificari, acest fisier va fi actualizat,
+comis si publicat pe GitHub pana cand utilizatorul cere explicit oprirea acestei reguli.
