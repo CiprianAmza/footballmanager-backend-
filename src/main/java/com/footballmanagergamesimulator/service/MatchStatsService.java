@@ -35,6 +35,8 @@ public class MatchStatsService {
     private MatchEngineConfig engineConfig;
     @Autowired
     private ShotVolumeModel shotVolumeModel;
+    @Autowired(required = false)
+    private ShotEventService shotEventService;
 
     /**
      * Shared RNG used by stat generators. Held as a field so determinism IT
@@ -260,7 +262,7 @@ public class MatchStatsService {
 
         MatchStats stats = generateMatchStats(competitionId, season, round,
                 team1Id, team2Id, homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic);
-        return matchStatsRepository.save(stats);
+        return saveWithShotEvents(stats);
     }
 
     /** Replace fallback chance-derived xG with the canonical pre-match means. */
@@ -269,7 +271,7 @@ public class MatchStatsService {
         if (stats == null) throw new IllegalArgumentException("stats must not be null");
         stats.setHomeXg(toHundredths(homeExpectedGoals));
         stats.setAwayXg(toHundredths(awayExpectedGoals));
-        return matchStatsRepository.save(stats);
+        return saveWithShotEvents(stats);
     }
 
     /**
@@ -306,7 +308,7 @@ public class MatchStatsService {
                 homeShooterGoals, awayShooterGoals, this.random);
         stats.setHomeXg(toHundredths(homeExpectedGoals));
         stats.setAwayXg(toHundredths(awayExpectedGoals));
-        return matchStatsRepository.save(stats);
+        return saveWithShotEvents(stats);
     }
 
     /**
@@ -336,8 +338,7 @@ public class MatchStatsService {
     public MatchStats generateAndSaveCanonicalMatchStats(
             CanonicalMatchEffectsInput input,
             long competitionId, int season, int round) {
-        return matchStatsRepository.save(
-                projectCanonicalMatchStats(input, competitionId, season, round));
+        return saveWithShotEvents(projectCanonicalMatchStats(input, competitionId, season, round));
     }
 
     private MatchStats generateCanonicalMatchStats(
@@ -696,7 +697,13 @@ public class MatchStatsService {
         includeShooterAttempts(stats, homeShooterShots, awayShooterShots,
                 homeShooterGoals, awayShooterGoals, rng);
 
-        return matchStatsRepository.save(stats);
+        return saveWithShotEvents(stats);
+    }
+
+    private MatchStats saveWithShotEvents(MatchStats stats) {
+        MatchStats saved = matchStatsRepository.save(stats);
+        if (shotEventService != null) shotEventService.replaceForMatch(saved);
+        return saved;
     }
 
     /**
@@ -838,6 +845,10 @@ public class MatchStatsService {
             totalXg += chance.xg();
             if (chance.big()) bigChances++;
         }
+        // Multiple goals from an entire set of near-zero-quality attempts are not a
+        // credible event ledger. Keep the one-shot wonder goal possible, while
+        // applying a conservative floor once a side scores more than once.
+        if (goals > 1) totalXg = Math.max(totalXg, goals * .30);
 
         int shotsOnTarget;
         if (fixedShotsOnTarget != null) {

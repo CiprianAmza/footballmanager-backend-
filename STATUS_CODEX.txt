@@ -1,56 +1,85 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 18:20:46 CEST
+Ultima actualizare: 2026-08-04 18:31:58 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Extinderea analizei Underlying Performance si publicarea ei pe pagina competitiei.
+Modul Opta-style Shot & Chance Creation in Data Hub.
 
-Ce a fost implementat
----------------------
-- Endpoint nou cu analiza tuturor echipelor dintr-o competitie si un sezon.
-- xG difference per 90 pentru intregul sezon.
-- Rolling xGD/90 pentru ultimele 5, 10 si 20 de meciuri, cu esantionul real afisat.
-- Procentul meciurilor in care echipa a produs xG mai mare decat adversarul.
-- Rezultatele in meciurile echilibrate: W-D-L, puncte, xPts si xGD/90.
-- Meci echilibrat este definit transparent ca |xG - xGA| <= 0.25.
-- Performanta contra Top 4, Top Half si Lower Half: W-D-L, puncte, xPts si xGD/90.
-- Grupele valorice sunt calculate din clasamentul sezonului selectat; Top Half include Top 4.
-- Luck index este diferenta dintre puncte/meci si xPts/meci; este afisata si
-  diferenta totala de puncte fata de asteptari.
-- Clasamentul analitic include si echipele inscrise care nu au jucat inca.
-- Pagina competitiei are un tabel nou cu randuri expandabile pentru toate segmentele.
-- Sectiunea este disponibila atat pentru ligi, cat si pentru cupe.
-- Exista stari Loading, Error si Empty si explicatie completa a metodologiei.
+Ce a fost implementat in motor/backend
+--------------------------------------
+- Entitate ShotEvent: un eveniment persistent pentru fiecare sut al meciului.
+- Fiecare sut contine pozitie normalizata, minut, distanta, unghi, destinatie
+  in poarta, rezultat, xG, xGOT, situatie, tipul creatiei, canal, body part,
+  big chance, presiune, interior/exterior careu si calitatea sursei.
+- MatchStatsService genereaza si persista automat ledger-ul de suturi dupa
+  salvarea oricarui tip de meci: legacy, canonical, instant sau live.
+- Meciurile istorice fara ShotEvent sunt reconstruite determinist in memorie,
+  fara scrieri ascunse in baza de date si sunt marcate MODELED.
+- Suma xG a evenimentelor este exact egala cu xG oficial din MatchStats.
+- xGOT este calculat numai pentru suturile pe poarta si foloseste pozitia
+  finala in cadrul portii, plus calitatea initiala xG.
+- Shooting Goals Added = xGOT - xG al suturilor pe poarta.
+- Goals Prevented pentru portar = xGOT primit - goluri primite.
+- A fost corectata asocierea neverosimila a mai multor goluri cu xG aproape zero;
+  golul unic dintr-un sut cu xG mic ramane posibil.
 
-Fisiere backend modificate
---------------------------
+Ce ofera endpoint-ul Data Hub
+-----------------------------
+- Shot map complet cu marimea punctului proportionala cu xG.
+- xG total, xG/sut, xGOT, Shooting Goals Added si Goals Prevented.
+- Suturi din careu / afara, big chances, distanta si unghi mediu.
+- Suturi sub presiune si touches in opposition box.
+- xG din open play, corner, lovitura libera si penalty.
+- Suturi create dupa cross, through ball, recovery, combinatie, actiune
+  individuala sau faza fixa.
+- Ocazii create pe stanga, centru si dreapta.
+- Secventele care produc cele mai multe suturi.
+- Chance creation funnel: posesii -> ultima treime -> careu -> suturi -> goluri.
+- Indicator explicit OBSERVED/MODELED; pasii funnel dinaintea sutului sunt
+  marcati ca estimari derivate din statisticile meciului.
+
+Ce a fost implementat in frontend
+---------------------------------
+- Tab nou Shot & Chance Creation in Data Hub.
+- Shot map pe teren, cu legenda Goal/Saved/Wide/Blocked/Big Chance.
+- KPI-uri de calitate si executie, profilul suturilor, funnel vizual,
+  distributii pe sursa/tip/zona si top secvente.
+- Layout responsive si stari Error/Empty.
+
+Fisiere backend
+---------------
+- src/main/java/com/footballmanagergamesimulator/model/ShotEvent.java
+- src/main/java/com/footballmanagergamesimulator/repository/ShotEventRepository.java
+- src/main/java/com/footballmanagergamesimulator/service/ShotEventService.java
+- src/main/java/com/footballmanagergamesimulator/service/ShotCreationAnalyticsService.java
+- src/main/java/com/footballmanagergamesimulator/service/MatchStatsService.java
 - src/main/java/com/footballmanagergamesimulator/controller/StatsController.java
-- src/main/java/com/footballmanagergamesimulator/service/CompetitionUnderlyingPerformanceService.java
-- src/test/java/com/footballmanagergamesimulator/service/CompetitionUnderlyingPerformanceServiceTest.java
+- src/test/java/com/footballmanagergamesimulator/service/ShotEventServiceTest.java
+- src/test/java/com/footballmanagergamesimulator/service/ShotCreationAnalyticsServiceTest.java
 
-Fisiere frontend modificate
----------------------------
-- src/app/competition/competition.component.ts
-- src/app/competition/competition.component.html
-- src/app/competition/competition.component.css
+Fisiere frontend
+----------------
+- src/app/data-hub/data-hub.component.ts
+- src/app/data-hub/data-hub.component.html
+- src/app/data-hub/data-hub.component.css
 
 Verificare
 ----------
-- Teste UnderlyingPerformanceService si CompetitionUnderlyingPerformanceService: OK.
-- Maven package: OK.
+- ShotEventServiceTest: OK.
+- ShotCreationAnalyticsServiceTest: OK.
+- Testul de coerenta multi-goal/xG din MatchStatsServiceTest: OK.
 - Build Angular development: OK.
-- Build Angular production: OK.
-- Verificare browser pe /competition/1: sectiunea Underlying Performance este prezenta.
-- Backend-ul curent nerestartat afiseaza corect starea explicita de indisponibilitate.
-- Warning-ul existent pentru bundle-ul initial Angular ramane 2.17 MB vs 1.50 MB recomandat.
+- Build Angular production: OK; ramane warning-ul existent 2.17 MB vs 1.50 MB.
+- Browser: tabul Shot & Chance Creation este prezent si navigabil.
+- Procesul backend curent, nerestartat, afiseaza corect starea explicita de restart.
 
 Nota de rulare
 --------------
-Backend-ul trebuie restartat pentru activarea endpoint-ului nou:
-/stats/competition/{competitionId}/{season}/underlying-performance
+Backend-ul trebuie restartat pentru crearea tabelului shot_event si activarea:
+/stats/team/{teamId}/season/{season}/shot-creation
 
 Regula de urmarire
 ------------------
