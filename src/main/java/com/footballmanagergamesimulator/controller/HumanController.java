@@ -60,22 +60,34 @@ public class HumanController {
                 .toList();
     }
 
-    /** Search pool used by Scouting. Players already moved or loaned this
-     * season are hidden by the same rules as the transfer market. */
+    /** Search pool used by Scouting. Market state is returned so the client can
+     * show available, transferred and loaned cohorts without another request. */
     @GetMapping("/scoutingPlayers")
     public List<PlayerView> getScoutingPlayers() {
-        Set<Long> unavailable = marketAvailabilityService.unavailablePlayerIds();
+        Map<Long, PlayerMarketAvailabilityService.MarketState> states =
+                marketAvailabilityService.currentSeasonStates();
         List<Human> players = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE).stream()
                 .filter(player -> !player.isRetired())
-                .filter(player -> !unavailable.contains(player.getId()))
                 .toList();
         int season = marketAvailabilityService.currentSeason();
         Map<Long, PlayerPreviewService.Preview> previews = playerPreviewService.previews(players, season);
         return players.stream().map(player -> {
             PlayerView view = buildPlayerView(player, false);
             applyPreview(view, previews.get(player.getId()));
+            applyMarketState(view, marketAvailabilityService.stateFor(player.getId(), states));
             return view;
         }).toList();
+    }
+
+    private void applyMarketState(PlayerView view, PlayerMarketAvailabilityService.MarketState state) {
+        view.setMarketStatus(state.status());
+        view.setTransferredThisSeason(state.transferredThisSeason());
+        view.setLoanedThisSeason(state.loanedThisSeason());
+        view.setLoaned(state.loaned());
+        view.setParentTeamId(state.parentTeamId());
+        view.setParentTeamName(state.parentTeamName());
+        view.setLoanTeamId(state.loanTeamId());
+        view.setLoanTeamName(state.loanTeamName());
     }
 
     @GetMapping("/playerPositions")

@@ -64,6 +64,16 @@ public class PlayerView {
   private int seasonAssists;
   private List<PlayerAttributeView> importantAttributes;
 
+  // Recruitment status for current-season filters and loan highlighting.
+  private String marketStatus;
+  private boolean transferredThisSeason;
+  private boolean loanedThisSeason;
+  private boolean loaned;
+  private long parentTeamId;
+  private String parentTeamName;
+  private long loanTeamId;
+  private String loanTeamName;
+
   // Physical profile
   private String preferredFoot;
   private int heightCm;

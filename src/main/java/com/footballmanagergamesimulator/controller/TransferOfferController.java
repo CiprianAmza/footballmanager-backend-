@@ -437,7 +437,8 @@ public class TransferOfferController {
             @RequestParam(name = "sort", defaultValue = "rating") String sort,
             @RequestParam(name = "direction", defaultValue = "desc") String direction,
             @RequestParam(name = "minValue", defaultValue = "0") long minValue,
-            @RequestParam(name = "maxValue", defaultValue = "9223372036854775807") long maxValue) {
+            @RequestParam(name = "maxValue", defaultValue = "9223372036854775807") long maxValue,
+            @RequestParam(name = "marketStatus", defaultValue = "AVAILABLE") String marketStatus) {
 
         int safePage = Math.max(0, page);
         int safeSize = Math.max(10, Math.min(100, size));
@@ -452,8 +453,31 @@ public class TransferOfferController {
         long safeMinValue = Math.max(0, minValue);
         long safeMaxValue = Math.max(safeMinValue, maxValue);
 
-        Set<Long> unavailablePlayerIds = marketAvailabilityService.unavailablePlayerIds();
+        Map<Long, com.footballmanagergamesimulator.service.PlayerMarketAvailabilityService.MarketState> marketStates =
+                Optional.ofNullable(marketAvailabilityService.currentSeasonStates()).orElse(Map.of());
+        Set<Long> unavailablePlayerIds = marketStates.entrySet().stream()
+                .filter(entry -> entry.getValue().transferredThisSeason()
+                        || entry.getValue().loanedThisSeason() || entry.getValue().loaned())
+                .map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet());
+        Set<Long> transferredPlayerIds = marketStates.entrySet().stream()
+                .filter(entry -> entry.getValue().transferredThisSeason())
+                .map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet());
+        Set<Long> loanedPlayerIds = marketStates.entrySet().stream()
+                .filter(entry -> entry.getValue().loaned())
+                .map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet());
+        String normalizedMarketStatus = Set.of("ALL", "AVAILABLE", "TRANSFERRED", "LOANED")
+                .contains(marketStatus.toUpperCase(Locale.ROOT))
+                ? marketStatus.toUpperCase(Locale.ROOT) : "AVAILABLE";
         Specification<Human> availableSpec = (root, query, cb) -> {
+            Predicate marketStatusPredicate = switch (normalizedMarketStatus) {
+                case "ALL" -> cb.conjunction();
+                case "TRANSFERRED" -> transferredPlayerIds.isEmpty()
+                        ? cb.disjunction() : root.get("id").in(transferredPlayerIds);
+                case "LOANED" -> loanedPlayerIds.isEmpty()
+                        ? cb.disjunction() : root.get("id").in(loanedPlayerIds);
+                default -> unavailablePlayerIds.isEmpty()
+                        ? cb.conjunction() : cb.not(root.get("id").in(unavailablePlayerIds));
+            };
             List<Predicate> predicates = new ArrayList<>(List.of(
                     cb.equal(root.get("typeId"), 1L),
                     cb.isFalse(root.get("retired")),
@@ -462,8 +486,7 @@ public class TransferOfferController {
                     cb.notEqual(root.get("teamId"), teamId),
                     cb.greaterThanOrEqualTo(root.get("transferValue"), safeMinValue),
                     cb.lessThanOrEqualTo(root.get("transferValue"), safeMaxValue),
-                    unavailablePlayerIds.isEmpty()
-                            ? cb.conjunction() : cb.not(root.get("id").in(unavailablePlayerIds)),
+                    marketStatusPredicate,
                     position == null || position.isBlank() || "ALL".equalsIgnoreCase(position)
                             ? cb.conjunction() : cb.equal(root.get("position"), position)
             ));
@@ -519,6 +542,8 @@ public class TransferOfferController {
             playerInfo.put("teamName", team.getName());
             playerInfo.put("transferValue", player.getTransferValue());
             addPlayerPreview(playerInfo, player, previews.get(player.getId()));
+            addMarketState(playerInfo, marketStates.getOrDefault(player.getId(),
+                    com.footballmanagergamesimulator.service.PlayerMarketAvailabilityService.MarketState.available()));
             content.add(playerInfo);
         }
 
@@ -529,6 +554,28 @@ public class TransferOfferController {
         result.put("totalElements", playerPage.getTotalElements());
         result.put("totalPages", playerPage.getTotalPages());
         return result;
+    }
+
+    /** Source-compatible delegate for tests and older internal callers. */
+    Map<String, Object> getAvailablePlayersPage(long teamId, String position, int page, int size,
+                                                String sort, String direction, long minValue, long maxValue) {
+        return getAvailablePlayersPage(teamId, position, page, size, sort, direction,
+                minValue, maxValue, "AVAILABLE");
+    }
+
+    private void addMarketState(Map<String, Object> target,
+                                com.footballmanagergamesimulator.service.PlayerMarketAvailabilityService.MarketState state) {
+        if (state == null) {
+            state = com.footballmanagergamesimulator.service.PlayerMarketAvailabilityService.MarketState.available();
+        }
+        target.put("marketStatus", state.status());
+        target.put("transferredThisSeason", state.transferredThisSeason());
+        target.put("loanedThisSeason", state.loanedThisSeason());
+        target.put("loaned", state.loaned());
+        target.put("parentTeamId", state.parentTeamId());
+        target.put("parentTeamName", state.parentTeamName());
+        target.put("loanTeamId", state.loanTeamId());
+        target.put("loanTeamName", state.loanTeamName());
     }
 
     private void addPlayerPreview(Map<String, Object> target, Human player) {
