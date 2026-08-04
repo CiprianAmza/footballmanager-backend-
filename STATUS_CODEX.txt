@@ -1,47 +1,42 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 17:57:32 CEST
+Ultima actualizare: 2026-08-04 18:04:18 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Filtre si coloane salvate per utilizator.
+Sidebar mobil tip drawer si eliminarea benzilor albe la overscroll.
 
 Ce a fost implementat
 ---------------------
-- A fost adaugat un API autentificat pentru preferinte UI per utilizator.
-- Preferintele sunt izolate dupa utilizator si cheie de tabel si sunt salvate in baza de date.
-- Frontend-ul foloseste si un cache local per utilizator pentru functionare offline si fallback.
-- Transfer Market salveaza pozitia, valoarea minima/maxima si sortarea aleasa.
-- A fost adaugat un selector de coloane cu 7 coloane configurabile.
-- Coloana Name ramane obligatorie; toate celelalte pot fi ascunse sau reafisate.
-- Numarul coloanelor active este afisat direct in butonul Columns.
-- Reset filters and columns sterge preferinta din cont si restaureaza valorile implicite.
-- Preferintele sunt validate in backend (cheie sigura, obiect JSON si limita de dimensiune).
-
-Fisiere backend modificate
---------------------------
-- src/main/java/com/footballmanagergamesimulator/user/UserUiPreference.java
-- src/main/java/com/footballmanagergamesimulator/user/UserUiPreferenceRepository.java
-- src/main/java/com/footballmanagergamesimulator/user/UserUiPreferenceService.java
-- src/main/java/com/footballmanagergamesimulator/user/UserUiPreferenceController.java
-- src/test/java/com/footballmanagergamesimulator/user/UserUiPreferenceServiceTest.java
+- Sub 860px, sidebar-ul fix devine un drawer off-canvas.
+- A fost adaugat un buton hamburger compact, disponibil permanent pe mobil.
+- Drawer-ul are overlay cu blur, animatie, buton Close si scroll propriu.
+- Se inchide automat la alegerea unei pagini si la apasarea tastei Escape.
+- Scrollul paginii din spate este blocat cat timp drawer-ul este deschis.
+- Linkul Multiplayer este mutat in drawer pe mobil pentru a nu suprapune bara de comenzi.
+- Layout-ul principal ocupa intreaga latime pe mobil, fara marginea sidebar-ului desktop.
+- html, body si app-root au acelasi fundal intunecat pe toata inaltimea viewport-ului.
+- Overscroll-ul vertical si overflow-ul orizontal al paginii nu mai expun fundal alb.
+- Sunt folosite unitati dvh si safe-area pentru ecrane mobile moderne.
 
 Fisiere frontend modificate
 ---------------------------
-- src/app/shared/table-preferences.service.ts
-- src/app/transfer-page/transfer-page.component.ts
-- src/app/transfer-page/transfer-page.component.html
-- src/app/transfer-page/transfer-page.component.css
+- src/app/app.component.ts
+- src/app/app.component.html
+- src/app/app.component.css
+- src/styles.css
 
 Verificare
 ----------
-- Teste UserUiPreferenceService: 2/2 OK.
 - Build Angular development: OK.
 - Build Angular production: OK.
-- Verificare browser: coloana Age ascunsa si filtrul GK au ramas dupa reload.
-- Verificare browser: resetarea a restaurat ALL si Columns 7/7.
+- Verificare browser la 390x844: drawer open/close si overlay OK.
+- Verificare browser: navigarea la Inbox inchide automat drawer-ul.
+- Verificare browser: Escape inchide drawer-ul.
+- Fundal calculat html/body/app-root: rgb(26, 29, 46), fara alb.
+- overscroll-behavior-y: none; overflow-x: hidden.
 - git diff --check backend si frontend: OK.
 - Bundle initial production: 2.17 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
 
