@@ -41,6 +41,9 @@ public interface HumanRepository extends JpaRepository<Human, Long>, JpaSpecific
     List<Human> findAllByTeamIdAndTypeIdAndContractEndSeasonLessThanEqual(long teamId, long typeId, int season);
     List<Human> findAllByPreContractTeamId(long teamId);
 
+    List<Human> findTop10ByTypeIdAndRetiredFalseAndNameContainingIgnoreCaseOrderByNameAsc(
+            long typeId, String name);
+
     // Batch IN-clause lookup — used to pre-load all teams' players in one query
     // at the start of simulateRound to avoid N+1 across the per-match helpers.
     List<Human> findAllByTeamIdInAndTypeId(Collection<Long> teamIds, long typeId);

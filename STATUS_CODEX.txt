@@ -1,39 +1,52 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 17:33:15 CEST
+Ultima actualizare: 2026-08-04 17:42:51 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Mod compact pentru controalele globale Continue, urmatorul meci, calendar si notificari.
+Cautare globala pentru jucatori, cluburi, competitii si pagini.
 
 Ce a fost implementat
 ---------------------
-- Bara globala de joc a fost transformata intr-un command bar compact si responsive.
-- Continue are acum icon, stare de procesare si shortcut-ul Space afisat vizibil.
-- Fast Forward ramane disponibil intr-un buton compact separat.
-- Urmatorul meci este incarcat din programul sezonului si deschide calendarul echipei.
-- Calendarul are popover cu data, faza zilei, sezonul si urmatoarea partida.
-- Notificarile au badge comun pentru Inbox si ofertele de job, plus ultimele evenimente procesate.
-- Au fost adaugate scurtaturi directe catre calendarul complet si Inbox.
-- Layout-ul se adapteaza pentru viewport-uri inguste.
+- A fost adaugat endpoint-ul GET /api/search pentru cautare agregata.
+- Cautarea backend returneaza separat jucatori activi, cluburi si competitii.
+- Rezultatele jucatorilor includ pozitia si clubul curent; cluburile includ reputatia,
+  iar competitiile includ tipul sau nivelul competitiei.
+- A fost adaugata o paleta globala accesibila din bara compacta si cu Cmd/Ctrl+K.
+- Shortcut-ul / deschide cautarea atunci cand focusul nu este intr-un camp de editare.
+- Paleta permite navigare cu sagetile, Enter pentru deschidere si Escape pentru inchidere.
+- Sunt indexate si paginile principale ale jocului, cu rute adaptate echipei si sezonului curent.
+- Interfata are stari loading, empty, grupare pe categorii si layout responsive.
+
+Fisiere backend modificate
+--------------------------
+- src/main/java/com/footballmanagergamesimulator/controller/GlobalSearchController.java
+- src/main/java/com/footballmanagergamesimulator/frontend/GlobalSearchResponse.java
+- src/main/java/com/footballmanagergamesimulator/service/GlobalSearchService.java
+- src/main/java/com/footballmanagergamesimulator/repository/HumanRepository.java
+- src/main/java/com/footballmanagergamesimulator/repository/TeamRepository.java
+- src/main/java/com/footballmanagergamesimulator/repository/CompetitionRepository.java
+- src/test/java/com/footballmanagergamesimulator/service/GlobalSearchServiceTest.java
 
 Fisiere frontend modificate
 ---------------------------
-- src/app/app.component.ts
 - src/app/app.component.html
-- src/app/app.component.css
-- src/app/shared/fm-icon.component.ts
+- src/app/shared/global-search.service.ts
+- src/app/shared/global-search.component.ts
+- src/app/shared/global-search.component.html
+- src/app/shared/global-search.component.css
+- src/app/shared/shared.module.ts
 
 Verificare
 ----------
+- Teste GlobalSearchService: 2/2 OK.
 - Build Angular development: OK.
 - Build Angular production: OK.
-- Verificare vizuala in browser: OK.
-- Calendar popover: OK.
-- Notifications popover: OK.
-- Bundle initial production: 2.15 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
+- Verificare vizuala in browser: OK; paleta, filtrarea paginilor si navigarea au fost confirmate.
+- git diff --check backend si frontend: OK.
+- Bundle initial production: 2.16 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
 
 Regula de urmarire
 ------------------

@@ -18,6 +18,8 @@ public interface TeamRepository extends JpaRepository<Team, Long> {
 
   List<Team> findAllByCompetitionId(long competitionId);
 
+  List<Team> findTop10ByNameContainingIgnoreCaseOrderByNameAsc(String name);
+
   @Query("SELECT t.name FROM Team t WHERE t.id = :id")
   String findNameById(long id);
 }

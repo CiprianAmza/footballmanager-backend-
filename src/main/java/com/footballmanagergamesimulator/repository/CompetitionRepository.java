@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import java.util.Set;
+import java.util.List;
 
 public interface CompetitionRepository extends JpaRepository<Competition, Long> {
 
@@ -25,4 +26,6 @@ public interface CompetitionRepository extends JpaRepository<Competition, Long> 
 
     @Query("SELECT c.id FROM Competition c WHERE c.typeId = :typeId")
     Set<Long> findIdsByTypeId(@Param("typeId") long typeId);
+
+    List<Competition> findTop10ByNameContainingIgnoreCaseOrderByNameAsc(String name);
 }
