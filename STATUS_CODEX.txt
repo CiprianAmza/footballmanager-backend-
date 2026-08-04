@@ -1,52 +1,44 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 17:42:51 CEST
+Ultima actualizare: 2026-08-04 17:50:37 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Cautare globala pentru jucatori, cluburi, competitii si pagini.
+Command palette cu scurtaturi de tastatura.
 
 Ce a fost implementat
 ---------------------
-- A fost adaugat endpoint-ul GET /api/search pentru cautare agregata.
-- Cautarea backend returneaza separat jucatori activi, cluburi si competitii.
-- Rezultatele jucatorilor includ pozitia si clubul curent; cluburile includ reputatia,
-  iar competitiile includ tipul sau nivelul competitiei.
-- A fost adaugata o paleta globala accesibila din bara compacta si cu Cmd/Ctrl+K.
-- Shortcut-ul / deschide cautarea atunci cand focusul nu este intr-un camp de editare.
-- Paleta permite navigare cu sagetile, Enter pentru deschidere si Escape pentru inchidere.
-- Sunt indexate si paginile principale ale jocului, cu rute adaptate echipei si sezonului curent.
-- Interfata are stari loading, empty, grupare pe categorii si layout responsive.
-
-Fisiere backend modificate
---------------------------
-- src/main/java/com/footballmanagergamesimulator/controller/GlobalSearchController.java
-- src/main/java/com/footballmanagergamesimulator/frontend/GlobalSearchResponse.java
-- src/main/java/com/footballmanagergamesimulator/service/GlobalSearchService.java
-- src/main/java/com/footballmanagergamesimulator/repository/HumanRepository.java
-- src/main/java/com/footballmanagergamesimulator/repository/TeamRepository.java
-- src/main/java/com/footballmanagergamesimulator/repository/CompetitionRepository.java
-- src/test/java/com/footballmanagergamesimulator/service/GlobalSearchServiceTest.java
+- Paleta de cautare a fost transformata intr-un command palette complet.
+- Comenzile Continue, Save game si Load game pot fi cautate si executate din paleta.
+- Cmd/Ctrl+S salveaza cariera, iar Cmd/Ctrl+O deschide selectorul pentru Load game.
+- Cmd/Ctrl+K, / si ? deschid paleta; Escape o inchide.
+- Navigarea rapida foloseste secvente de doua taste: G apoi H/I/S/T/M/R etc.
+- Fiecare actiune si pagina afiseaza shortcut-ul disponibil direct in rezultat.
+- Rezultatele sunt grupate in Commands, Pages, Players, Clubs si Competitions.
+- Sagetile sar peste actiunile temporar indisponibile; Enter executa rezultatul selectat.
+- Continue si Load sunt dezactivate automat in timpul simularilor si dialogurilor critice.
+- A fost adaugat feedback vizual temporar dupa apasarea tastei G.
 
 Fisiere frontend modificate
 ---------------------------
 - src/app/app.component.html
+- src/app/app.component.ts
 - src/app/shared/global-search.service.ts
 - src/app/shared/global-search.component.ts
 - src/app/shared/global-search.component.html
 - src/app/shared/global-search.component.css
-- src/app/shared/shared.module.ts
+- src/app/shared/fm-icon.component.ts
 
 Verificare
 ----------
-- Teste GlobalSearchService: 2/2 OK.
 - Build Angular development: OK.
 - Build Angular production: OK.
-- Verificare vizuala in browser: OK; paleta, filtrarea paginilor si navigarea au fost confirmate.
+- Verificare in browser: Cmd+K deschide paleta si filtrarea comenzii Save functioneaza.
+- Verificare in browser: secventa G apoi I navigheaza direct la /inbox.
 - git diff --check backend si frontend: OK.
-- Bundle initial production: 2.16 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
+- Bundle initial production: 2.17 MB (ramane warning-ul recomandat de 1.50 MB, sub limita de eroare).
 
 Regula de urmarire
 ------------------
