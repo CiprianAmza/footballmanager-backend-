@@ -1,7 +1,7 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:22 CEST
+Ultima actualizare: 2026-08-05 19:25 CEST
 Status: FINALIZAT
 
 Task curent
@@ -25,6 +25,10 @@ Ce a fost implementat
   Preparation hub pentru amicale.
 - Toate aceste date includ explicit si sezonul, in formatul
   "Season 4 · 5 August", pentru a elimina ambiguitatea intre cariere/sezoane.
+- Managerul poate selecta sezonul curent sau sezonul urmator. In sezonul curent
+  sunt oferite numai date ulterioare zilei curente; pentru sezonul urmator sunt
+  disponibile toate ferestrele valide. Sezoanele trecute si cele aflate la mai
+  mult de un sezon distanta sunt respinse si de backend.
 - Toate meciurile amicale, inclusiv semifinalele/finalele si meciurile unei mini
   ligi, apar in Fixtures si Calendar pentru ambele cluburi participante, nu doar
   pentru organizator. Sunt afisate numele turneului, etapa, data si rezultatul.
@@ -39,7 +43,7 @@ Ce a fost implementat
 Verificare
 ----------
 - FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK.
-- Angular production build: OK, hash e32486f2fd2d809d.
+- Angular production build: OK, hash 0c65a533a922abed.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 

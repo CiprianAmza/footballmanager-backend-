@@ -91,12 +91,15 @@ public class FriendlyEventService {
         result.put("currentDay", calendar.getCurrentDay());
         result.put("currentDate", calendarService.getDateDisplay(calendar.getCurrentDay()));
         result.put("minimumStartDay", calendar.getCurrentDay() + 1);
+        result.put("availableSeasons", List.of(calendar.getSeason(), calendar.getSeason() + 1));
         List<Map<String, Object>> dateOptions = new ArrayList<>();
         for (int day = 1; day <= 30; day++) {
-            if (day > calendar.getCurrentDay()) dateOptions.add(dateOption(day, "PRE_SEASON"));
+            if (day > calendar.getCurrentDay()) dateOptions.add(dateOption(calendar.getSeason(), day, "PRE_SEASON"));
+            dateOptions.add(dateOption(calendar.getSeason() + 1, day, "PRE_SEASON"));
         }
         for (int day = 201; day <= 210; day++) {
-            if (day > calendar.getCurrentDay()) dateOptions.add(dateOption(day, "WINTER_BREAK"));
+            if (day > calendar.getCurrentDay()) dateOptions.add(dateOption(calendar.getSeason(), day, "WINTER_BREAK"));
+            dateOptions.add(dateOption(calendar.getSeason() + 1, day, "WINTER_BREAK"));
         }
         result.put("dateOptions", dateOptions);
         result.put("destinations", destinations);
@@ -449,8 +452,8 @@ public class FriendlyEventService {
         return Map.of("id", id, "label", label, "description", description);
     }
 
-    private Map<String, Object> dateOption(int day, String phase) {
-        return Map.of("day", day, "dateDisplay", calendarService.getDateDisplay(day), "phase", phase);
+    private Map<String, Object> dateOption(int season, int day, String phase) {
+        return Map.of("season", season, "day", day, "dateDisplay", calendarService.getDateDisplay(day), "phase", phase);
     }
 
     private Team requireTeam(long teamId) {
@@ -495,11 +498,11 @@ public class FriendlyEventService {
 
     private void validateFutureDate(int season, int startDay) {
         GameCalendar calendar = currentGameDate();
-        if (season != calendar.getSeason()) {
-            throw new IllegalArgumentException("Friendly events can only be created for the current season (Season "
-                    + calendar.getSeason() + ")");
+        if (season < calendar.getSeason() || season > calendar.getSeason() + 1) {
+            throw new IllegalArgumentException("Friendly events can only be created for Season "
+                    + calendar.getSeason() + " or Season " + (calendar.getSeason() + 1));
         }
-        if (startDay <= calendar.getCurrentDay()) {
+        if (season == calendar.getSeason() && startDay <= calendar.getCurrentDay()) {
             throw new IllegalArgumentException("Friendly events must start after the current day (Day "
                     + calendar.getCurrentDay() + ")");
         }

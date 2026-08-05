@@ -125,7 +125,22 @@ class FriendlyEventServiceTest {
                 .hasMessageContaining("after the current day");
         assertThatThrownBy(() -> service.createDraft(previousSeason))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("current season");
+                .hasMessageContaining("Season 4 or Season 5");
+    }
+
+    @Test
+    void draftAllowsNextSeasonPlanningFromItsPreSeason() {
+        Map<String, Object> nextSeason = Map.of(
+                "organizerTeamId", 1,
+                "season", 5,
+                "eventType", "TRAINING_CAMP",
+                "startDay", 1,
+                "endDay", 7);
+
+        Map<String, Object> result = service.createDraft(nextSeason);
+
+        assertThat(result.get("season")).isEqualTo(5);
+        assertThat(result.get("startDate")).isEqualTo("Date 1");
     }
 
     @Test
