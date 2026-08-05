@@ -18,7 +18,7 @@ import java.util.Map;
 /** Resolves the authenticated club actor for transfer and player-contract mutations. */
 @Service
 public class ClubActionAuthorizationService {
-    public enum Action { TRANSFER, CONTRACT, ACQUISITION }
+    public enum Action { TRANSFER, CONTRACT, ACQUISITION, CLUB_LEGACY }
 
     public record ClubActor(long teamId, boolean chairman) { }
 

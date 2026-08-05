@@ -54,7 +54,8 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_13 = 13;
     static final int SAVE_VERSION_14 = 14;
     static final int SAVE_VERSION_15 = 15;
-    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_15;
+    static final int SAVE_VERSION_16 = 16;
+    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_16;
 
     private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
             new StayForwardSeedIdentity(107L, "Kvekrpur", 14L, "ST"),
@@ -121,6 +122,7 @@ public class GameSaveImportService {
             new TableSpec("awardOverrides", "AWARD_OVERRIDE"),
             new TableSpec("seasonObjectives", "SEASON_OBJECTIVE"),
             new TableSpec("managerHistories", "MANAGER_HISTORY"),
+            new TableSpec("clubLegends", "CLUB_LEGEND", SAVE_VERSION_16),
             new TableSpec("managerInbox", "MANAGER_INBOX"),
             new TableSpec("pressConferences", "PRESS_CONFERENCE"),
             new TableSpec("nationalTeamCallups", "NATIONAL_TEAM_CALLUP"),
@@ -1040,7 +1042,7 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 or 15");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 or 16");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
@@ -1051,8 +1053,9 @@ public class GameSaveImportService {
                 && version != SAVE_VERSION_12
                 && version != SAVE_VERSION_13
                 && version != SAVE_VERSION_14
+                && version != SAVE_VERSION_15
                 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 or 15");
+            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 or 16");
         }
         return version;
     }

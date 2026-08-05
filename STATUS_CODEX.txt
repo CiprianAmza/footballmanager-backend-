@@ -1,41 +1,45 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:43 CEST
+Ultima actualizare: 2026-08-05 19:53 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Adaugarea zvonurilor despre transferuri, bazate pe interes real din joc.
+Adaugarea optiunii de a consacra oficial un jucator drept legenda a clubului.
 
 Ce a fost implementat
 ---------------------
-- O oferta AI aflata in asteptare pentru jucatorul unei echipe umane poate genera
-  o stire de tip TRANSFER_RUMOUR.
-- O negociere initiata de manager care ajunge la contraoferta genereaza acelasi
-  tip de zvon.
-- Zvonul este livrat atat clubului cumparator, cat si clubului vanzator.
-- Fiecare stire afiseaza jucatorul, cluburile implicate, suma vehiculata, sursa,
-  stadiul negocierii si un procent de credibilitate.
-- Textul precizeaza explicit ca informatia nu este confirmata public. Zvonul nu
-  muta jucatorul, nu accepta oferta si nu modifica adevarul transferului.
-- Credibilitatea este mai mare pentru o contraoferta/negociere activa decat pentru
-  o oferta doar aflata in asteptare si ramane limitata sub nivelul de certitudine.
-- Cheia de deduplicare bazata pe oferta si club impiedica publicarea repetata a
-  aceluiasi zvon.
-- Categoria TRANSFER_RUMOUR este disponibila in Inbox, are filtru propriu,
-  eticheta lizibila si identitate vizuala mov in lista si in articol.
-- Zvonurile sunt inregistrari ManagerInbox persistente. Fiindca aceasta tabela
-  este deja inclusa in Save/Load, nu este necesara o schema sau versiune noua de
-  save, iar stirile se restaureaza impreuna cu restul carierei.
+- Club Archive > Legends contine acum un Hall of Fame oficial, separat de
+  clasamentele statistice si de Best XI calculat automat.
+- Managerul propriei echipe poate folosi Club Archive > Player history >
+  Make legend pentru a consacra un jucator.
+- Pot deveni legende atat jucatorii actuali, cat si cei vanduti, transferati sau
+  retrasi, daca exista o aparitie istorica pentru club.
+- Fiecare legenda pastreaza clubul, jucatorul, numele-snapshot, sezonul si momentul
+  consacrarii, precum si motivul recunoasterii.
+- Hall of Fame afiseaza pozitia, aparitiile, golurile, assist-urile si motivul
+  consacrarii, cu link direct spre pagina jucatorului.
+- Statutul este vizibil si in tabelul complet Player history prin badge-ul
+  "Club legend".
+- Managerul poate retrage statutul din Hall of Fame; operatia nu sterge istoricul
+  sportiv al jucatorului.
+- Consacrarea si retragerea folosesc dialogul comun de confirmare al aplicatiei,
+  pentru a evita modificari accidentale.
+- Endpointurile de modificare verifica utilizatorul autentificat si resping
+  incercarea de a administra legendele altui club.
+- Duplicatele sunt impiedicate prin constrangerea unica team_id + player_id.
+- Tabela CLUB_LEGEND este inclusa in manifestul Save/Load v16. Save-urile v5-v15
+  raman compatibile si migreaza cu o lista goala de legende.
 
 Verificare
 ----------
-- MediaNarrativeServiceTest + TransferOfferControllerTest +
-  TransferMarketServiceTest: OK.
-- Testul nou verifica publicarea pentru ambele cluburi, categoria, credibilitatea
-  si avertismentul ca informatia nu este confirmata.
-- Angular production build: OK, hash 3e0dca94a81441a2.
+- ClubLegendServiceTest: OK, inclusiv consacrarea unui fost jucator si pastrarea
+  statisticilor sale istorice.
+- GameSaveManifestCoverageTest + GameSaveRealSchemaTest: OK.
+- GameSaveGeneratorAlignmentTest: OK; identitatea CLUB_LEGEND este realiniata
+  corect dupa restaurarea unei cariere.
+- Angular production build: OK, hash 4b89fc726dc9e667.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 - git diff --check: OK in backend si frontend.
