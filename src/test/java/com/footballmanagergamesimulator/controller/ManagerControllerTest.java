@@ -58,6 +58,12 @@ class ManagerControllerTest {
         manager.setTeamId(teamId);
         manager.setName("Ciprian");
         manager.setAlwaysUseBestPossibleTactic(true);
+        manager.setAge(41);
+        manager.setOffensiveAbility(72);
+        manager.setDefensiveAbility(64);
+        manager.setCoachingTactical(16);
+        manager.setMotivating(15);
+        manager.setBaseFaceId(7);
         Team team = new Team();
         team.setId(teamId);
         team.setName("Sherlock FC");
@@ -85,5 +91,11 @@ class ManagerControllerTest {
         assertEquals(1, breakdown.size());
         assertEquals(13, breakdown.get(0).getSeasonNumber());
         assertEquals(true, profile.get("alwaysUseBestPossibleTactic"));
+        assertEquals(41, profile.get("age"));
+        assertEquals(72.0, profile.get("offensiveAbility"));
+        assertEquals(64.0, profile.get("defensiveAbility"));
+        assertEquals(16, profile.get("coachingTactical"));
+        assertEquals(15, profile.get("motivating"));
+        assertEquals(7, profile.get("baseFaceId"));
     }
 }

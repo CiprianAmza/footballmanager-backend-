@@ -87,6 +87,25 @@ public class ManagerController {
         profile.put("tacticStyle", manager.getTacticStyle());
         profile.put("knownTactics", manager.getKnownTactics());
         profile.put("alwaysUseBestPossibleTactic", manager.isAlwaysUseBestPossibleTactic());
+        profile.put("age", manager.getAge());
+        profile.put("offensiveAbility", manager.getOffensiveAbility());
+        profile.put("defensiveAbility", manager.getDefensiveAbility());
+        profile.put("coachingTactical", manager.getCoachingTactical());
+        profile.put("coachingTechnical", manager.getCoachingTechnical());
+        profile.put("coachingMental", manager.getCoachingMental());
+        profile.put("workingWithYoungsters", manager.getWorkingWithYoungsters());
+        profile.put("motivating", manager.getMotivating());
+        profile.put("baseFaceId", manager.getBaseFaceId());
+        profile.put("skinTone", manager.getSkinTone());
+        profile.put("hairStyle", manager.getHairStyle());
+        profile.put("hairColor", manager.getHairColor());
+        profile.put("eyeColor", manager.getEyeColor());
+        profile.put("faceShape", manager.getFaceShape());
+        profile.put("noseShape", manager.getNoseShape());
+        profile.put("eyeShape", manager.getEyeShape());
+        profile.put("mouthShape", manager.getMouthShape());
+        profile.put("browShape", manager.getBrowShape());
+        profile.put("species", manager.getSpecies());
 
         // Current team
         Team currentTeam = null;

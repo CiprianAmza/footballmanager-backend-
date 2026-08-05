@@ -1,82 +1,51 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-06 00:01 CEST
+Ultima actualizare: 2026-08-06
 Status: FINALIZAT
 
 Task curent
 -----------
-Variante UI/UX paralele inspirate de ecranele clasice Football Manager pentru
-Home, Squad, Tactics si Live Match, fara inlocuirea paginilor existente.
+Completarea variantei Home clasice de la /home4 cu informatiile operationale
+care lipseau fata de referinta, fara modificarea paginilor Home existente.
 
-Analiza aplicata
-----------------
-- Referintele folosesc densitate informationala mare, dar pastreaza contextul:
-  terenul, lotul, statisticile si actiunile relevante sunt vizibile simultan.
-- Paginile vechi separa bine domeniile, dar cer mai multa navigare intre datele
-  care participa la aceeasi decizie.
-- Variantele noi pastreaza aspectul modern al proiectului, adopta ierarhia
-  compacta si reduc numarul de click-uri dintre informatie si actiune.
-- Nu a fost copiat skin-ul jocului original; au fost adaptate principiile de
-  layout, densitate, context persistent si control direct.
-
-Rute noi pentru comparatie
---------------------------
-- /ui-lab: punct central care explica si deschide toate comparatiile.
-- /home4: Director dashboard.
-- /squad4 si /squad4/:teamId: Squad register.
-- /tactics6 si /tactics6/:teamId: Tactical selection studio.
-- /match-centre2/:matchKey: Broadcast match centre; query-ul interactive=0
-  permite folosirea unei sesiuni doar pentru replay.
-
-Home 4 - Director dashboard
+Ce a fost adaugat in Home 4
 ---------------------------
-- Reuneste pe un singur ecran urmatorul meci, clasamentul, liderii lotului,
-  alertele, increderea boardului, forma, programul, finantele si stirile.
-- Actiunile Selection, Tactics, Medical, Staff brief si Analysis sunt plasate
-  langa widgetul care le motiveaza.
-- Foloseste datele reale deja incarcate de Home si nu introduce valori de joc
-  persistate sau endpointuri backend duplicate.
+- Context complet pentru urmatorul meci: competitie, runda, data, teren si
+  indisponibilitatile ambelor echipe.
+- Liderii lotului pe categorii diferite: goluri, rating mediu, assisturi,
+  pase completate si ocazii create.
+- Squad Status real, grupat pe accidentari, suspendari, conditie slaba si
+  contracte care expira, inclusiv numele jucatorilor afectati.
+- Profilul managerului cu portret generat, varsta, reputatie, stil tactic,
+  salariu, bilantul carierei si atributele de coaching.
+- Team Stats cu meciuri, goluri, goluri primite, clean sheets, procentajul
+  victoriilor si ratingul mediu.
+- Training overview cu distributie vizuala pe tipuri si sesiunile prioritare.
+- Scouting overview cu numarul de scouteri, misiunile active, disponibilitatea
+  si abilitatea fiecarui scout.
+- Finance & Salary bazat pe valori reale: utilizarea bugetului salarial,
+  salariile platite in sezon, costul scouterilor, bugetul de transfer si datoria.
+- Graficul financiar decorativ cu valori hardcodate a fost eliminat.
 
-Squad 4 - Squad register
-------------------------
-- Tabel dens, sortabil, cu filtre de cautare, pozitie, disponibilitate, core XI
-  si U21, plus mod compact/comfortable.
-- Afiseaza simultan ability, potential, personality, squad status, condition,
-  sharpness, average rating, value, wage, contract si nationality.
-- Jucatorii indisponibili si alertele de contract/moral sunt vizibile fara a
-  scoate utilizatorul din tabel.
+Backend
+-------
+- GET /managers/profile/{managerId} expune acum varsta, atributele de coaching
+  si descriptorii fetei necesari dashboardului.
+- Contractul anterior al endpointului a fost pastrat compatibil.
 
-Tactics 6 - Tactical selection studio
--------------------------------------
-- Rosterul, instructiunile, terenul, primul XI si banca sunt vizibile impreuna.
-- Pastreaza drag-and-drop, formatiile backend, restrictiile Chairman, Quick Pick,
-  Clear si salvarea reala din Tactics 4.
-- Afiseaza condition, sharpness, rating, selectia curenta, familiaritatea XI si
-  rezumatul planului de meci.
-- Indicatorul SHADOW ramane vizibil pentru sloturile care au instructiunea.
-
-Match Centre 2 - Broadcast workspace
-------------------------------------
-- Foloseste exact contractul si motorul LiveMatch existent.
-- Match facts sau squad fitness raman in stanga, terenul permanent in centru,
-  iar comentariul live este fixat sub teren.
-- Controalele 2D/3D, viteza, sunetul, auto highlights, substitutiile si replay-ul
-  raman functionale; noua ruta modifica doar prezentarea.
-
-Arhitectura si performanta
---------------------------
-- Toate prototipurile sunt standalone si lazy-loaded prin loadComponent.
-- Prima tentativa cu importuri eager a depasit limita hard a bundle-ului si a
-  fost corectata; bundle-ul initial final ramane la dimensiunea existenta.
-- Paginile curente si rutele lor nu au fost inlocuite.
+Compatibilitate
+---------------
+- /home, /home2 si /home3 nu au fost modificate.
+- /home4 ramane standalone si lazy-loaded.
+- Datele suplimentare folosesc endpointurile existente de training, scouting,
+  disponibilitate, staff, finante si statistici.
 
 Verificare
 ----------
-- Angular production build: OK, hash e40b40da2d68062b.
-- Noile pagini sunt livrate in chunk-uri lazy separate.
-- git diff --check: OK pentru toate fisierele taskului.
-- Verificarea vizuala locala s-a oprit corect la autentificare; formularul avea
-  credentiale precompletate, dar Codex nu le-a trimis fara confirmarea expresa.
-- Rularea Karma tintita este blocata de erori TypeScript deja existente in alte
-  spec-uri AppComponent, Market si Multiplayer; nu sunt produse de aceste rute.
+- Maven: ManagerControllerTest OK.
+- Angular production build: OK, hash e175d631c9192ff9.
+- Home 4 este livrat in chunk lazy separat.
+- git diff --check: OK pentru fisierele taskului.
+- Au ramas doar avertismentele globale existente despre bundle budget si CSS;
+  acestea nu sunt introduse de aceasta modificare.
