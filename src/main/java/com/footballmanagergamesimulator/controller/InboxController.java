@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.InboxAudience;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
+import com.footballmanagergamesimulator.service.FanSocialFeedService;
 import com.footballmanagergamesimulator.user.TeamAccessGuard;
 import com.footballmanagergamesimulator.user.CurrentUserService;
 import com.footballmanagergamesimulator.user.CareerRole;
@@ -50,7 +51,8 @@ public class InboxController {
         }
         Long teamId = resolveTeamId(0, request);
         return ResponseEntity.ok(teamId == null ? List.of() : managerInboxRepository
-                .findAllByTeamIdAndAudienceInOrderByIdDesc(teamId, List.of(InboxAudience.MANAGER, InboxAudience.BOTH)));
+                .findAllByTeamIdAndAudienceInOrderByIdDesc(teamId, List.of(InboxAudience.MANAGER, InboxAudience.BOTH))
+                .stream().filter(this::isInboxMessage).toList());
     }
 
     @GetMapping("/me/unreadCount")
@@ -132,7 +134,7 @@ public class InboxController {
         Long effectiveTeamId = resolveTeamId(teamId, request);
         if (effectiveTeamId == null || effectiveTeamId <= 0) return Collections.emptyList();
         return managerInboxRepository.findAllByTeamIdAndAudienceInOrderByIdDesc(effectiveTeamId,
-                List.of(InboxAudience.MANAGER, InboxAudience.BOTH));
+                List.of(InboxAudience.MANAGER, InboxAudience.BOTH)).stream().filter(this::isInboxMessage).toList();
     }
 
     @GetMapping("/messages/{teamId}/{season}")
@@ -142,7 +144,8 @@ public class InboxController {
         Long effectiveTeamId = resolveTeamId(teamId, request);
         if (effectiveTeamId == null || effectiveTeamId <= 0) return Collections.emptyList();
         return managerInboxRepository.findAllByTeamIdAndSeasonNumberOrderByIdDesc(effectiveTeamId, season).stream()
-                .filter(message -> message.getAudience() == InboxAudience.MANAGER || message.getAudience() == InboxAudience.BOTH).toList();
+                .filter(message -> message.getAudience() == InboxAudience.MANAGER || message.getAudience() == InboxAudience.BOTH)
+                .filter(this::isInboxMessage).toList();
     }
 
     @GetMapping("/unreadCount/{teamId}")
@@ -184,6 +187,10 @@ public class InboxController {
             managerInboxRepository.save(message);
         });
         return ResponseEntity.ok(Map.of("success", true, "marked", unread.size()));
+    }
+
+    private boolean isInboxMessage(ManagerInbox message) {
+        return !FanSocialFeedService.CATEGORY.equals(message.getCategory());
     }
 
 }

@@ -18,12 +18,14 @@ public class FinancialTroubleMediaService {
     private final TeamRepository teams;
     private final FinancialRecordRepository financialRecords;
     private final ManagerInboxRepository inbox;
+    private final FanSocialFeedService fanSocialFeed;
 
     public FinancialTroubleMediaService(TeamRepository teams, FinancialRecordRepository financialRecords,
-                                        ManagerInboxRepository inbox) {
+                                        ManagerInboxRepository inbox, FanSocialFeedService fanSocialFeed) {
         this.teams = teams;
         this.financialRecords = financialRecords;
         this.inbox = inbox;
+        this.fanSocialFeed = fanSocialFeed;
     }
 
     public void publishIfNeeded(long teamId, int season, int day, long monthlyPayroll) {
@@ -78,6 +80,7 @@ public class FinancialTroubleMediaService {
         message.setAudience(InboxAudience.MANAGER);
         message.setDeduplicationKey(deduplicationKey);
         inbox.save(message);
+        fanSocialFeed.publishFinancialPosts(teamId, team.getName(), season, day, severity.name());
     }
 
     private Severity severity(Team team, long monthlyPayroll, long seasonNet) {

@@ -13,6 +13,8 @@ public interface ManagerInboxRepository extends JpaRepository<ManagerInbox, Long
 
     List<ManagerInbox> findAllByTeamIdAndSeasonNumberOrderByIdDesc(long teamId, int seasonNumber);
 
+    List<ManagerInbox> findAllByTeamIdAndCategoryOrderByIdDesc(long teamId, String category);
+
     List<ManagerInbox> findAllByTeamIdAndIsReadFalse(long teamId);
     List<ManagerInbox> findAllByTeamIdAndAudienceInAndIsReadFalse(long teamId, List<InboxAudience> audiences);
 

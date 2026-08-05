@@ -1,55 +1,45 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 20:11 CEST
+Ultima actualizare: 2026-08-05 20:19 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Presa incepe sa relateze atunci cand un club are probleme financiare reale.
+Social Feed separat, cu reactii persistente ale fanilor la meciuri si la
+problemele financiare ale clubului.
 
 Ce a fost implementat
 ---------------------
-- Situatia este evaluata lunar dupa plata salariilor, venitul comercial, dobanda
-  datoriei si transformarea deficitului de numerar in datorie.
-- Evaluarea foloseste cifrele deja persistate ale clubului: sold, datorie, salarii
-  lunare si miscarea neta de numerar din sezon.
-- Pragurile sunt relative la salariile clubului, astfel incat aceeasi datorie nu
-  este interpretata identic pentru un club mic si unul foarte bogat.
-- Exista trei niveluri editoriale:
-  Financial watch: lichiditate redusa, pierdere operationala sau prima datorie.
-  Financial crisis: datorie de minimum doua salarii lunare protejate ori numerar
-  insuficient combinat cu datorie si pierdere.
-  Critical: datorie de minimum sase salarii lunare sau datorie foarte mare
-  combinata cu pierderi severe.
-- Titlul, lead-ul si consecintele discutate se schimba la fiecare nivel. Presa
-  poate vorbi despre restrangerea transferurilor, reducerea salariilor, amanarea
-  investitiilor sau vanzari urgente de jucatori.
-- Articolul afiseaza transparent soldul, datoria, payroll-ul lunar, cash-flow-ul
-  sezonului si echivalentul datoriei in luni de salarii.
-- Textul nu inventeaza insolventa: precizeaza explicit ca foloseste conturile
-  curente si ca nu presupune un eveniment juridic daca jocul nu l-a inregistrat.
-- O stire este publicata o singura data pentru fiecare nivel si sezon. Daca
-  situatia escaladeaza, presa revine cu un articol nou si mai sever.
-- Stirile sunt create numai pentru cluburile controlate de utilizatori; cluburile
-  AI nu acumuleaza mesaje Inbox fara destinatar.
-- Raportul financiar lunar este salvat primul, apoi articolul presei, astfel incat
-  escaladarea publica sa fie cea mai noua informatie din Inbox.
-- Categoria MEDIA_FINANCIAL_TROUBLE apare drept Financial Watch si are identitate
-  vizuala rosu-portocalie. Variantele Media o recunosc automat.
-- Mesajele sunt ManagerInbox persistente si sunt deja acoperite de Save/Load.
+- Ruta noua /social-feed, disponibila direct din meniul principal.
+- Dupa fiecare meci al echipei utilizatorului sunt generate trei sau patru
+  postari distincte ale suporterilor.
+- Continutul depinde de rezultat si marja scorului: euforie, optimism, analiza,
+  exigenta, frustrare, furie, critica dura si loialitate.
+- Infrangerile grele produc reactii dure si realiste despre prestatie, jucatori
+  sau deciziile managerului, fara amenintari ori atacuri discriminatorii.
+- Avertismentele si crizele financiare produc discutii despre transparenta,
+  raspunderea conducerii, vanzarile de jucatori si protejarea clubului.
+- Pseudonimele suporterilor sunt alese determinist; aceeasi cariera nu primeste
+  continut aleator diferit la reincarcare.
+- Fiecare postare are ton, context, voturi, raspunsuri, sezon si zi. Voturile si
+  raspunsurile sunt stabile, derivate determinist din eveniment.
+- Feed-ul permite cautare, filtre All / Positive / Critical / Harsh si sortare
+  Hot / New. Include si un rezumat al dispozitiei generale a fanilor.
+- Postarile sunt persistate prin ManagerInbox pentru compatibilitate imediata cu
+  Save/Load, dar sunt marcate citite si eliminate din listele Inbox. Apar doar in
+  Social Feed, fara sa umfle numarul de notificari.
+- Cheile de deduplicare impiedica regenerarea acelorasi reactii pentru acelasi
+  meci sau acelasi nivel de criza financiara.
+- Pagina este responsive si foloseste culori separate pentru reactiile dure.
 
 Verificare
 ----------
-- FinancialTroubleMediaServiceTest: OK pentru club critic, club sanatos si
-  deduplicarea aceluiasi nivel in acelasi sezon.
-- FinanceServiceTest + GameAdvanceServiceTest: OK.
-- Angular production build: OK, hash 4616dd7eecccbb1d.
+- FanSocialFeedServiceTest: OK pentru infrangere grea, criza financiara si
+  deduplicare.
+- FinancialTroubleMediaServiceTest, MediaNarrativeServiceTest si
+  InboxControllerSecurityTest: OK.
+- Angular production build: OK, hash e65375db1f8a97f3.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 - git diff --check: OK in backend si frontend.
-
-Regula de urmarire
-------------------
-La fiecare cerere viitoare care produce modificari, acest fisier va fi actualizat,
-comis si publicat pe GitHub pana cand utilizatorul cere explicit oprirea acestei reguli.

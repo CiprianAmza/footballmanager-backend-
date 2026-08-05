@@ -23,7 +23,7 @@ class FinancialTroubleMediaServiceTest {
         TeamRepository teams = mock(TeamRepository.class);
         FinancialRecordRepository records = mock(FinancialRecordRepository.class);
         ManagerInboxRepository inbox = mock(ManagerInboxRepository.class);
-        FinancialTroubleMediaService service = new FinancialTroubleMediaService(teams, records, inbox);
+        FinancialTroubleMediaService service = new FinancialTroubleMediaService(teams, records, inbox, mock(FanSocialFeedService.class));
         Team club = club(86, "Sherlock FC", 0, 12_000_000);
         when(teams.findById(86L)).thenReturn(Optional.of(club));
         when(records.sumByTeamIdAndSeasonNumber(86, 8)).thenReturn(-7_000_000L);
@@ -43,7 +43,7 @@ class FinancialTroubleMediaServiceTest {
         TeamRepository teams = mock(TeamRepository.class);
         FinancialRecordRepository records = mock(FinancialRecordRepository.class);
         ManagerInboxRepository inbox = mock(ManagerInboxRepository.class);
-        FinancialTroubleMediaService service = new FinancialTroubleMediaService(teams, records, inbox);
+        FinancialTroubleMediaService service = new FinancialTroubleMediaService(teams, records, inbox, mock(FanSocialFeedService.class));
         when(teams.findById(86L)).thenReturn(Optional.of(club(86, "Sherlock FC", 20_000_000, 0)));
         when(records.sumByTeamIdAndSeasonNumber(86, 8)).thenReturn(2_000_000L);
 
@@ -57,7 +57,7 @@ class FinancialTroubleMediaServiceTest {
         TeamRepository teams = mock(TeamRepository.class);
         FinancialRecordRepository records = mock(FinancialRecordRepository.class);
         ManagerInboxRepository inbox = mock(ManagerInboxRepository.class);
-        FinancialTroubleMediaService service = new FinancialTroubleMediaService(teams, records, inbox);
+        FinancialTroubleMediaService service = new FinancialTroubleMediaService(teams, records, inbox, mock(FanSocialFeedService.class));
         when(teams.findById(86L)).thenReturn(Optional.of(club(86, "Sherlock FC", 0, 3_000_000)));
         when(records.sumByTeamIdAndSeasonNumber(86, 8)).thenReturn(-3_000_000L);
         when(inbox.existsByTeamIdAndDeduplicationKey(86, "FINANCIAL_MEDIA:8:86:CRISIS")).thenReturn(true);
