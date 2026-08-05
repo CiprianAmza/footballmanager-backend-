@@ -1,12 +1,13 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 08:49 CEST
+Ultima actualizare: 2026-08-05 08:52 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Tema globala Boho, adaugata langa Classic, Retro, Medieval, Matrix si Disco.
+Tema globala Harry Potter, adaugata langa Classic, Retro, Medieval, Matrix,
+Disco si Boho.
 
 Analiza si arhitectura
 ----------------------
@@ -23,10 +24,10 @@ Analiza si arhitectura
 Ce a fost implementat
 ---------------------
 - Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Sase carduri mari cu preview, descriere, paleta si mini-interfata.
+- Sapte carduri mari cu preview, descriere, paleta si mini-interfata.
 - Aplicarea temei este instantanee la click, fara buton Save separat.
 - Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta inclusiv pentru temele disco si boho.
+- ThemeService global cu validare stricta inclusiv pentru harry-potter.
 - Preferinta este salvata local si sincronizata in user_ui_preferences sub
   cheia appearance.theme.
 - Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
@@ -48,6 +49,10 @@ Teme
   pentru utilizatorii care solicita miscari reduse.
 - Boho: fundal brun cald, teracota, nisip si verde salvie, colturi organice,
   font editorial si texturi textile discrete, fara animatii decorative.
+- Harry Potter: bleumarin nocturn, burgundy, pergament si auriu, font serif,
+  lumina de lumanare si particule stelare create exclusiv prin CSS.
+- Marcajul temei active foloseste acum numele din definitie, astfel incat
+  identificatorii compusi precum harry-potter nu mai apar cu cratima in UI.
 
 Acoperire globala
 -----------------
@@ -55,7 +60,7 @@ Acoperire globala
 - Sidebar, active links, hover, separatoare si top command bar.
 - Titluri, fonturi, page headers, tabs si active states.
 - Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings foloseste acum un grid auto-responsive pentru toate cele sase teme,
+- Settings foloseste acum un grid auto-responsive pentru toate cele sapte teme,
   cu doua coloane pe tableta si una pe mobil.
 
 Fisiere frontend
@@ -75,9 +80,9 @@ Fisiere frontend
 
 Verificare
 ----------
-- Build Angular production: OK (hash 1e201c9893d4cf71).
+- Build Angular production: OK (hash c59855f2e991fc3c).
 - Verificarea diff --check: OK.
-- Browser: pagina locala a incarcat cinci reguli CSS Boho, iar atributul initial
+- Browser: pagina locala a incarcat sase reguli CSS Harry Potter, iar atributul initial
   data-fm-theme=classic este aplicat inainte de randare.
 - Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
   ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
