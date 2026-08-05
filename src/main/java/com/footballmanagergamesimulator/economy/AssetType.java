@@ -4,5 +4,6 @@ public enum AssetType {
     APARTMENT,
     VILLA,
     HOTEL,
-    CAR
+    CAR,
+    YACHT
 }
