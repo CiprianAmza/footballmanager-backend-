@@ -1,47 +1,50 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 20:05 CEST
+Ultima actualizare: 2026-08-05 20:11 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Declaratii media oferite de fostii antrenori despre cluburile conduse anterior.
+Presa incepe sa relateze atunci cand un club are probleme financiare reale.
 
 Ce a fost implementat
 ---------------------
-- Fostii antrenori principali pot publica analize dupa meciuri importante sau,
-  periodic, dupa alte rezultate relevante.
-- Sistemul foloseste ManagerHistory, deci autorul a condus cu adevarat clubul si
-  declaratia se bazeaza pe mandatul sau real.
-- Sezoanele aceluiasi antrenor sunt grupate intr-un singur mandat statistic:
-  primul/ultimul sezon, meciuri, victorii, rata victoriilor si sezoane cu trofee.
-- Antrenorul aflat in prezent la club este exclus chiar daca are deja sezoane
-  arhivate in ManagerHistory; nu poate fi prezentat gresit drept fost tehnician.
-- Sunt preferati fostii antrenori cu trofee, apoi cei cu mandate mai lungi si mai
-  recente. Primele trei voci eligibile sunt rotite determinist.
-- Frecventa este controlata separat de cea a fostilor jucatori: sunt tratate
-  automat victoriile la minimum trei goluri, infrangerile la minimum doua goluri,
-  meciurile cu minimum cinci goluri si cate un rezultat periodic.
-- Declaratiile au o voce specifica de antrenor si discuta selectia, compactitatea,
-  tranzitiile, distantele dintre compartimente, managementul avantajului si
-  reactia staffului tehnic.
-- Daca fostul antrenor are un stil tactic cunoscut, analiza poate face referire la
-  acel stil si la echilibrul sau.
-- Mesajele folosesc categoria MEDIA_FORMER_MANAGER si o identitate vizuala
-  turcoaz distincta in Inbox. Paginile Media le recunosc automat drept continut
-  media.
-- Fiecare articol precizeaza ca reprezinta analiza personala a fostului antrenor,
-  nu pozitia clubului sau a staffului actual.
-- Cheia de deduplicare bazata pe meci, club si autor elimina declaratiile repetate.
+- Situatia este evaluata lunar dupa plata salariilor, venitul comercial, dobanda
+  datoriei si transformarea deficitului de numerar in datorie.
+- Evaluarea foloseste cifrele deja persistate ale clubului: sold, datorie, salarii
+  lunare si miscarea neta de numerar din sezon.
+- Pragurile sunt relative la salariile clubului, astfel incat aceeasi datorie nu
+  este interpretata identic pentru un club mic si unul foarte bogat.
+- Exista trei niveluri editoriale:
+  Financial watch: lichiditate redusa, pierdere operationala sau prima datorie.
+  Financial crisis: datorie de minimum doua salarii lunare protejate ori numerar
+  insuficient combinat cu datorie si pierdere.
+  Critical: datorie de minimum sase salarii lunare sau datorie foarte mare
+  combinata cu pierderi severe.
+- Titlul, lead-ul si consecintele discutate se schimba la fiecare nivel. Presa
+  poate vorbi despre restrangerea transferurilor, reducerea salariilor, amanarea
+  investitiilor sau vanzari urgente de jucatori.
+- Articolul afiseaza transparent soldul, datoria, payroll-ul lunar, cash-flow-ul
+  sezonului si echivalentul datoriei in luni de salarii.
+- Textul nu inventeaza insolventa: precizeaza explicit ca foloseste conturile
+  curente si ca nu presupune un eveniment juridic daca jocul nu l-a inregistrat.
+- O stire este publicata o singura data pentru fiecare nivel si sezon. Daca
+  situatia escaladeaza, presa revine cu un articol nou si mai sever.
+- Stirile sunt create numai pentru cluburile controlate de utilizatori; cluburile
+  AI nu acumuleaza mesaje Inbox fara destinatar.
+- Raportul financiar lunar este salvat primul, apoi articolul presei, astfel incat
+  escaladarea publica sa fie cea mai noua informatie din Inbox.
+- Categoria MEDIA_FINANCIAL_TROUBLE apare drept Financial Watch si are identitate
+  vizuala rosu-portocalie. Variantele Media o recunosc automat.
 - Mesajele sunt ManagerInbox persistente si sunt deja acoperite de Save/Load.
 
 Verificare
 ----------
-- FormerManagerStatementServiceTest: OK; verifica alegerea fostului antrenor,
-  excluderea tehnicianului actual, istoricul mandatului si contextul tactic.
-- FormerPlayerStatementServiceTest + TeamPostMatchServiceTest: OK.
-- Angular production build: OK, hash 3d41fbf46c124f5c.
+- FinancialTroubleMediaServiceTest: OK pentru club critic, club sanatos si
+  deduplicarea aceluiasi nivel in acelasi sezon.
+- FinanceServiceTest + GameAdvanceServiceTest: OK.
+- Angular production build: OK, hash 4616dd7eecccbb1d.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 - git diff --check: OK in backend si frontend.

@@ -88,6 +88,7 @@ public class CalendarEventDispatcher {
     @Autowired @Lazy private ScoutManagementController scoutManagementController;
     @Autowired private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired @Lazy private FinanceService financeService;
+    @Autowired private FinancialTroubleMediaService financialTroubleMediaService;
     @Autowired private PersonalPayrollService personalPayrollService;
     @Autowired private ChairmanModeProperties chairmanModeProperties;
     @Autowired private DeterministicMarketPriceService deterministicMarketPriceService;
@@ -409,6 +410,7 @@ public class CalendarEventDispatcher {
             // Send financial report to human managers
             if (userContext.isHumanTeam(team.getId())) {
                 financeService.sendMonthlyFinancialReport(team.getId(), season, currentDay, wagesPaid);
+                financialTroubleMediaService.publishIfNeeded(team.getId(), season, currentDay, wagesPaid);
             }
         }
         System.out.println("=== Monthly wages processed for season " + season + " ===");
