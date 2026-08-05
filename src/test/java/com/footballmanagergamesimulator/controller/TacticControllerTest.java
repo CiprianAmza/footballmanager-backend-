@@ -49,6 +49,8 @@ class TacticControllerTest {
         team.setName("Test");
         Human human = player(7L);
         human.setName("Playmaker");
+        human.setCurrentAbility(142);
+        human.setPotentialAbility(168);
         Round round = new Round();
         round.setSeason(4);
         Scorer first = scorer(7L, 1, 2, 7.4);
@@ -77,6 +79,9 @@ class TacticControllerTest {
             assertThat(view.getSeasonAssists()).isEqualTo(2);
             assertThat(view.getSeasonAverageRating()).isEqualTo(8.0);
             assertThat(view.getLastFiveAverageRating()).isEqualTo(8.0);
+            assertThat(view.getCurrentAbility()).isEqualTo(142);
+            assertThat(view.getPotentialAbility()).isEqualTo(168);
+            assertThat(view.getPersonalityLabel()).isNotBlank();
         });
     }
 

@@ -9,6 +9,7 @@ import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.PlayerInstructionService;
+import com.footballmanagergamesimulator.service.PlayerPersonalityService;
 import com.footballmanagergamesimulator.service.PlayerRoleService;
 import com.footballmanagergamesimulator.service.PlayerSkillsService;
 import com.footballmanagergamesimulator.service.PlayerValueService;
@@ -55,6 +56,8 @@ public class TacticController {
     InjuryRepository injuryRepository;
     @Autowired
     ScorerRepository scorerRepository;
+    @Autowired
+    PlayerPersonalityService playerPersonalityService = new PlayerPersonalityService();
     @Autowired
     PlayerRoleService playerRoleService;
     @Autowired
@@ -1223,6 +1226,9 @@ public class TacticController {
         playerView.setAge(human.getAge());
         playerView.setPosition(human.getPosition());
         playerView.setRating(human.getRating());
+        playerView.setCurrentAbility(human.getCurrentAbility());
+        playerView.setPotentialAbility(human.getPotentialAbility());
+        playerView.setPersonalityLabel(playerPersonalityService.profile(human).personalityLabel());
         playerView.setName(human.getName());
         playerView.setTeamId(team.getId());
         playerView.setTeamName(team.getName());
@@ -1237,6 +1243,9 @@ public class TacticController {
         playerView.setTransferValue(human.getTransferValue());
         playerView.setWealth(human.getWealth());
         playerView.setStayForward(human.isStayForward());
+        playerView.setPreferredFoot(human.getPreferredFoot());
+        playerView.setHeightCm(human.getHeightCm());
+        playerView.setWeightKg(human.getWeightKg());
 
         // Nation (so squad/pitch faces can show the per-nation signature).
         com.footballmanagergamesimulator.service.NationService.NationInfo nation = nationService.infoForTeam(team.getId());

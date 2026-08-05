@@ -6,45 +6,47 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Completarea variantei tactice clasice /tactics6 cu informatiile si controalele
-care lipseau fata de referinta, pastrand editorul tactic existent functional.
+Completarea variantei Squad clasice /squad4 cu informatiile, filtrele si
+sectiunile lipsa fata de referinta, fara inlocuirea paginii Squad existente.
 
-Ce a fost adaugat in Tactics 6
-------------------------------
-- Bara de navigare tactica pentru overview, roluri, set pieces, opozitie si
-  analiza, plus contextul urmatorului meci in header.
-- Sumar persistent al instructiunilor active ale echipei.
-- Avertismente de selectie pentru locurile libere din XI/banca si riscurile
-  raportate de assistant manager.
-- Tabel de selectie extins cu Role/Duty, fitness real, moral, aparitii,
-  goluri+assisturi si forma medie din ultimele cinci meciuri.
-- Rolul si duty-ul pot fi editate direct din tabel sau prin click pe jucatorul
-  de pe teren.
-- Modal complet pentru rol, duty, SHADOW si instructiuni individuale.
-- Panou compact de match preparation: assistant, adversar, formatie recomandata
-  si numarul riscurilor de selectie.
-- Terenul, banca, drag-and-drop, Quick Pick, restrictiile Chairman si salvarea
-  tactica existenta au fost pastrate.
+Ce a fost adaugat in Squad 4
+----------------------------
+- Contextul urmatorului meci in header si acces direct la Match Selection.
+- Subnavigare pentru lot, indisponibili, international duty, jucatori
+  imprumutati si extended leave.
+- Filtre rapide pe grupele GK, DEF, MID si ATT, pe langa filtrul exact de post.
+- Statutul selectiei curente pentru fiecare jucator: XI, S1-S7 sau OUT.
+- Coloane noi pentru aparitii, goluri+assisturi, forma ultimelor 5 meciuri,
+  media sezonului si profilul fizic (inaltime, greutate, picior preferat).
+- Tabelul pastreaza ability, potential, personalitate, rol in lot, conditie,
+  moral, valoare, salariu, contract si nationalitate.
+- Toate coloanele de date au control de sortare.
+- Sectiune separata Players on loan cu clubul temporar, sezonul, taxa,
+  contributia salariala si optiunea de cumparare; include si loans in.
+- Linkuri directe spre profilul jucatorului, centrul de imprumuturi si tactica.
 
 Corectii de date
 ----------------
-- Conditia nu mai foloseste valoarea implicita 95; afiseaza fitness-ul real.
-- Coloana sharpness cu valoare artificiala 88 a fost inlocuita cu moralul real.
-- GET /tactic/getPlayers/{teamId} include acum statisticile sezonului curent:
-  aparitii, goluri, assisturi, rating mediu si rating mediu in ultimele 5 meciuri.
-- Statisticile sunt incarcate printr-o singura interogare team-season si grupate
-  in memorie, evitand interogari separate pentru fiecare jucator.
+- PlayerView expune acum Current Ability, Potential Ability si personalitatea
+  stabila derivata de PlayerPersonalityService.
+- Endpointul tactic include si profilul fizic deja stocat pe Human.
+- Moralul real inlocuieste coloana Sharpness care afisa 0 deoarece motorul nu
+  persista in prezent o metrica separata de match sharpness.
+- Pentru cariere vechi cu CA/PA zero, interfata foloseste ratingul existent ca
+  fallback si nu afiseaza bare goale.
+- Numarul indisponibililor este calculat pe jucatori unici, nu pe numarul de
+  motive medicale/suspendari.
 
 Compatibilitate
 ---------------
-- Ruta existenta /tactics6 si formatul salvarii tactice au fost pastrate.
-- Campurile noi din PlayerView sunt aditive si nu rup clientii existenti.
-- Nu au fost modificate tacticile sau selectiile deja salvate.
+- /squad, /squad2 si /squad3 nu au fost modificate.
+- /squad4 ramane standalone si lazy-loaded.
+- Campurile PlayerView sunt aditive si nu modifica salvarile existente.
 
 Verificare
 ----------
-- Maven: TacticControllerTest OK, inclusiv un test nou pentru forma sezonului.
-- Angular production build: OK, hash 7e8db24cfd5f6f16.
-- Tactics 6 ramane intr-un chunk lazy separat.
+- Maven: TacticControllerTest OK.
+- Angular production build: OK, hash d95c178199ed02bc.
+- Squad 4 este livrat in chunk lazy separat.
 - git diff --check: OK pentru toate fisierele taskului.
 - Au ramas doar avertismentele globale existente despre bundle budget si CSS.

@@ -15,6 +15,9 @@ public class PlayerView {
   private String teamName;
   private String position;
   private double rating;
+  private int currentAbility;
+  private int potentialAbility;
+  private String personalityLabel;
   private int age;
 
   private double bestEverRating;
