@@ -90,7 +90,7 @@ class RegentPhase3ClubSaveLoadIT {
 
         Map<String, Object> exported = objectMapper.readValue(
                 objectMapper.writeValueAsBytes(gameController.exportGame()), new TypeReference<>() { });
-        assertThat(exported.get("saveVersion")).isEqualTo(14);
+        assertThat(exported.get("saveVersion")).isEqualTo(15);
         assertThat((List<?>) exported.get("clubCapTableStates")).isNotEmpty();
         assertThat((List<?>) exported.get("takeoverQuotes")).isNotEmpty();
         assertThat((List<?>) exported.get("takeoverExecutions")).isNotEmpty();

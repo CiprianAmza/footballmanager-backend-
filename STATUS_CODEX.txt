@@ -1,56 +1,58 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 11:12 CEST
+Ultima actualizare: 2026-08-05 11:34 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Extinderea paginii Assistant Manager cu informatii tactice, statistice si
-analize de tip Opta.
+Misiuni de scouting pentru cluburi, competitii si natiuni, cu brief-uri
+configurabile si rapoarte persistente de recrutare.
 
 Ce a fost implementat
 ---------------------
-- Noua vedere implicita Season Performance, cu rezultate vs Expected Points,
-  goluri vs xG, goluri primite vs xGA, xG difference/90 si conversie.
-- Assistant Verdict transforma abaterile statistice in recomandari explicabile:
-  semnal, dovada, actiune recomandata si nivel de incredere.
-- Chance Creation: xG/sut, big chances, suturi din careu, touches in box,
-  distanta medie si provenienta datelor observate/modelate.
-- Possession & Progression: field tilt, progressive passes/carries, funnel
-  pase -> progresie -> ultima treime -> careu -> suturi.
-- Pressing & Defence: PPDA-like, rata presiunilor reusite, recovery time,
-  high turnovers, xGA/sut si dueluri. PPDA este etichetat explicit PROXY.
-- Set Pieces: xG/corner pentru si contra, ponderea fazelor fixe in xGA,
-  recuperarea mingii a doua si insight-ul principal.
-- Clasamente scurte pentru liderii progresiei si pressingului, cu link direct
-  spre pagina jucatorului.
-- Scurtaturi catre Tactics, Squad, Training si Data Hub.
-- Design responsive, compatibil cu toate temele, cu tab-uri sticky pe mobil.
+- Pe pagina Scouting exista acum trei zone: Player database, Recruitment
+  focuses si Focus reports.
+- Un scout disponibil poate fi trimis sa analizeze o echipa, o competitie
+  intreaga sau toate cluburile unei natiuni.
+- Brief-ul permite pozitie, interval de rating aproximativ, interval de varsta,
+  maximum sase atribute-cheie, prag minim 1-20 si prioritate: profil echilibrat,
+  valoare actuala, potential, atribute-cheie sau raport calitate/pret.
+- Tinta, filtrele, costul, durata, progresul si rezultatele sunt persistente.
+- Experienta scout-ului reduce durata; cunoasterea competitiei reduce durata si
+  costul; scouting ability si judging potential controleaza eroarea estimarilor.
+- La final sunt returnati maximum 20 de candidati, ordonati dupa fit score, cu
+  rating/potential estimate, valoare, recomandare si dovezi pe atribute.
+- Managerul primeste in Inbox un rezumat cu numarul de candidati si tinta
+  principala.
+- Misiunile pot fi anulate, iar concedierea sau expirarea contractului unui
+  scout anuleaza corect toate misiunile active.
+- Un scout nu poate porni simultan o misiune individuala si un recruitment
+  focus; crearea foloseste lock tranzactional pentru a evita dublarea concurenta.
+- Staff afiseaza si noile misiuni in starea scout-ului.
 
-Corectii incluse
-----------------
-- Formation foloseste acum cheile reale `recommended` si `allFormations`.
-- Pre-match briefing citeste corect obiectele imbricate formation,
-  lineupConcerns si opponentAnalysis.
-- Opposition afiseaza lista reala positionAnalysis, puterea comparata,
-  punctele slabe si punctele forte.
-- Iconurile de risc recunosc tipurile backend INJURED, LOW_MORALE,
-  LOW_FITNESS, CONTRACT_EXPIRING si WANTS_TRANSFER.
-- Fiecare endpoint statistic poate esua independent; rapoartele disponibile
-  raman vizibile si pentru salvarile mai vechi.
+Save / Load
+-----------
+- Formatul de save este acum v15.
+- SCOUTING_FOCUS si SCOUTING_FOCUS_RESULT sunt incluse in manifest, in
+  verificarea schemei si in realinierea generatorilor de ID.
+- Save-urile v5-v14 raman compatibile; noile sectiuni sunt migrate ca liste
+  goale, fara a invalida carierele existente.
 
 Verificare
 ----------
-- Angular production build: OK.
-- Build hash: c4321db3e9b27422.
-- Fara erori TypeScript sau Angular template.
-- Avertismentele ramase sunt cele globale existente despre bundle budget si
-  doua reguli CSS din alte pagini.
-
-Publicare
----------
-- Frontend commit: 80f2cb6 (main), publicat pe GitHub.
+- Backend compile: OK.
+- 3 teste ScoutingFocusService: OK (creare/cost, exclusivitate, filtrare pe
+  toate atributele si finalizare).
+- 14 teste de schema/manifest/generator Save-Load: OK.
+- 4 teste integration Save-Load pentru market/club/adviser: OK.
+- Angular production build: OK, hash fd95eccd204d892c.
+- Frontend commit publicat: 9d9f6a1 (main).
+- Verificarea interactiva in browser s-a oprit la ecranul de autentificare;
+  credentialele precompletate nu au fost trimise automat.
+- Suita backend completa ruleaza 1007 teste, dar ramane rosie din cauza a 34
+  de esecuri/erori preexistente in calibration, multiplayer, live match,
+  animation si auth test wiring; testele dedicate acestei modificari trec.
 
 Regula de urmarire
 ------------------

@@ -23,6 +23,12 @@ public class ScoutManagementController {
     private ScoutAssignmentRepository scoutAssignmentRepository;
 
     @Autowired
+    private ScoutingFocusRepository scoutingFocusRepository;
+
+    @Autowired
+    private com.footballmanagergamesimulator.service.ScoutingFocusService scoutingFocusService;
+
+    @Autowired
     private HumanRepository humanRepository;
 
     @Autowired
@@ -172,11 +178,19 @@ public class ScoutManagementController {
             // Check if currently on assignment
             List<ScoutAssignment> activeAssignments = scoutAssignmentRepository
                     .findAllByScoutIdAndStatus(scout.getId(), "in_progress");
-            info.put("onAssignment", !activeAssignments.isEmpty());
+            List<ScoutingFocus> activeFocuses = scoutingFocusRepository
+                    .findAllByScoutIdAndStatus(scout.getId(), "in_progress");
+            info.put("onAssignment", !activeAssignments.isEmpty() || !activeFocuses.isEmpty());
             if (!activeAssignments.isEmpty()) {
                 ScoutAssignment current = activeAssignments.get(0);
                 info.put("assignmentPlayerName", current.getPlayerName());
                 info.put("assignmentEndDay", current.getEndDay());
+                info.put("assignmentType", "PLAYER");
+            } else if (!activeFocuses.isEmpty()) {
+                ScoutingFocus current = activeFocuses.get(0);
+                info.put("assignmentPlayerName", current.getTargetName());
+                info.put("assignmentEndDay", current.getEndDay());
+                info.put("assignmentType", "FOCUS");
             }
 
             result.add(info);
@@ -299,6 +313,10 @@ public class ScoutManagementController {
             assignment.setStatus("cancelled");
         }
         if (!active.isEmpty()) scoutAssignmentRepository.saveAll(active);
+        List<ScoutingFocus> activeFocuses = scoutingFocusRepository
+                .findAllByScoutIdAndStatus(scout.getId(), "in_progress");
+        activeFocuses.forEach(focus -> focus.setStatus("cancelled"));
+        if (!activeFocuses.isEmpty()) scoutingFocusRepository.saveAll(activeFocuses);
 
         // Update salary budget before releasing
         Team team = teamRepository.findById(scout.getTeamId()).orElse(null);
@@ -398,7 +416,9 @@ public class ScoutManagementController {
         // Check if scout is already on assignment
         List<ScoutAssignment> activeAssignments = scoutAssignmentRepository
                 .findAllByScoutIdAndStatus(scout.getId(), "in_progress");
-        if (!activeAssignments.isEmpty()) {
+        List<ScoutingFocus> activeFocuses = scoutingFocusRepository
+                .findAllByScoutIdAndStatus(scout.getId(), "in_progress");
+        if (!activeAssignments.isEmpty() || !activeFocuses.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("success", false,
                     "message", scout.getName() + " is already on an assignment. Wait for it to complete."));
         }
@@ -680,6 +700,7 @@ public class ScoutManagementController {
         if (!completedToday.isEmpty()) {
             scoutAssignmentRepository.saveAll(completedToday);
         }
+        scoutingFocusService.processCompleted(season, currentDay);
     }
 
     /**
@@ -693,6 +714,15 @@ public class ScoutManagementController {
                 // Contract expired — release scout
                 long teamId = scout.getTeamId();
                 String name = scout.getName();
+
+                List<ScoutAssignment> activeAssignments = scoutAssignmentRepository
+                        .findAllByScoutIdAndStatus(scout.getId(), "in_progress");
+                activeAssignments.forEach(assignment -> assignment.setStatus("cancelled"));
+                if (!activeAssignments.isEmpty()) scoutAssignmentRepository.saveAll(activeAssignments);
+                List<ScoutingFocus> activeFocuses = scoutingFocusRepository
+                        .findAllByScoutIdAndStatus(scout.getId(), "in_progress");
+                activeFocuses.forEach(focus -> focus.setStatus("cancelled"));
+                if (!activeFocuses.isEmpty()) scoutingFocusRepository.saveAll(activeFocuses);
 
                 // Update salary budget
                 Team team = teamRepository.findById(teamId).orElse(null);
