@@ -1,7 +1,7 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:33 CEST
+Ultima actualizare: 2026-08-05 19:35 CEST
 Status: FINALIZAT
 
 Task curent
@@ -43,6 +43,11 @@ Ce a fost implementat
   ajustarea lor pentru sezonul disponibil.
 - O competitie nu poate avea doua editii active in acelasi sezon, iar formatul
   traditiei nu poate fi schimbat accidental.
+- Traditia pastreaza doar identitatea si formatul competitiei. Fiecare editie
+  poate avea alt fond de premiere, alta taxa, alt buget, alta locatie si alte
+  echipe participante.
+- Pagina competitiei afiseaza separat pentru fiecare editie premiul si lista
+  nominala a participantilor, astfel incat schimbarile dintre ani sunt vizibile.
 - Toate meciurile amicale, inclusiv semifinalele/finalele si meciurile unei mini
   ligi, apar in Fixtures si Calendar pentru ambele cluburi participante, nu doar
   pentru organizator. Sunt afisate numele turneului, etapa, data si rezultatul.
@@ -57,9 +62,9 @@ Ce a fost implementat
 Verificare
 ----------
 - FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK, inclusiv
-  crearea traditiei si repetarea ca Editia 2.
+  crearea traditiei si repetarea ca Editia 2 cu alt premiu si alti participanti.
 - GameSaveRealSchemaTest + GameSaveManifestCoverageTest: OK.
-- Angular production build: OK, hash 8443bb18d9383e70.
+- Angular production build: OK, hash f92326ad53d3e71f.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 

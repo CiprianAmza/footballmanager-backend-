@@ -52,7 +52,7 @@ class FriendlyEventServiceTest {
     void setUp() {
         service = new FriendlyEventService(eventRepository, matchRepository, teamRepository,
                 calendarEventRepository, gameCalendarRepository, calendarService, nationService, financeService);
-        teams = List.of(team(1, "Host"), team(2, "Alpha"), team(3, "Beta"), team(4, "Gamma"));
+        teams = List.of(team(1, "Host"), team(2, "Alpha"), team(3, "Beta"), team(4, "Gamma"), team(5, "Delta"));
         for (Team team : teams) {
             when(teamRepository.findById(team.getId())).thenReturn(Optional.of(team));
         }
@@ -173,13 +173,18 @@ class FriendlyEventServiceTest {
                 "eventType", "MINI_CUP",
                 "startDay", 1,
                 "endDay", 5,
-                "participantTeamIds", List.of(2, 3, 4));
+                "participantTeamIds", List.of(2, 3, 5),
+                "prizePool", 2_500_000);
 
         Map<String, Object> nextEdition = service.proposeEdition(seriesId, nextEditionRequest);
 
         assertThat(nextEdition.get("seriesId")).isEqualTo(seriesId);
         assertThat(nextEdition.get("seriesName")).isEqualTo("Host Summer Cup");
         assertThat(nextEdition.get("editionNumber")).isEqualTo(2);
+        assertThat(nextEdition.get("prizePool")).isEqualTo(2_500_000L);
+        assertThat((List<Map<String, Object>>) nextEdition.get("participants"))
+                .extracting(participant -> participant.get("teamId"))
+                .containsExactly(1L, 2L, 3L, 5L);
     }
 
     @Test
