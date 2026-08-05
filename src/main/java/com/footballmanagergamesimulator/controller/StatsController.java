@@ -21,6 +21,7 @@ import com.footballmanagergamesimulator.service.PressingDefenceAnalyticsService;
 import com.footballmanagergamesimulator.service.SetPiecesAnalyticsService;
 import com.footballmanagergamesimulator.service.PlayerPerformanceLabService;
 import com.footballmanagergamesimulator.service.PerfectRatingLeaderboardService;
+import com.footballmanagergamesimulator.service.LegacyRecordsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -60,6 +61,7 @@ public class StatsController {
     @Autowired SetPiecesAnalyticsService setPiecesAnalyticsService;
     @Autowired PlayerPerformanceLabService playerPerformanceLabService;
     @Autowired PerfectRatingLeaderboardService perfectRatingLeaderboardService;
+    @Autowired LegacyRecordsService legacyRecordsService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -251,6 +253,30 @@ public class StatsController {
             @PathVariable long competitionId,
             @RequestParam(defaultValue = "20") int limit) {
         return competitionRecordService.records(competitionId, limit);
+    }
+
+    /** Club records preserve every player who represented the club, even after retirement or sale. */
+    @GetMapping("/records/club/{teamId}")
+    public LegacyRecordsService.LegacyRecords getClubLegacyRecords(
+            @PathVariable long teamId, @RequestParam(required = false) Integer season,
+            @RequestParam(defaultValue = "20") int limit) {
+        return legacyRecordsService.club(teamId, season, limit);
+    }
+
+    /** Competition-wide goals, assists, appearances, trophy leaders and best elevens. */
+    @GetMapping("/records/competition/{competitionId}")
+    public LegacyRecordsService.LegacyRecords getCompetitionLegacyRecords(
+            @PathVariable long competitionId, @RequestParam(required = false) Integer season,
+            @RequestParam(defaultValue = "20") int limit) {
+        return legacyRecordsService.competition(competitionId, season, limit);
+    }
+
+    /** The complete save-game hall of fame across every club and competition. */
+    @GetMapping("/records/world")
+    public LegacyRecordsService.LegacyRecords getWorldLegacyRecords(
+            @RequestParam(required = false) Integer season,
+            @RequestParam(defaultValue = "20") int limit) {
+        return legacyRecordsService.world(season, limit);
     }
 
     /** One eligible rating leader per team, compared with that team's average. */

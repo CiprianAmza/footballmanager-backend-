@@ -145,6 +145,37 @@ class ScorerRepositoryLeaderboardAggregateTest {
         assertEquals(10L, allTimeAssists.get(0).getPlayerId());
     }
 
+    @Test
+    void aggregatesLegacyRecordsAtClubCompetitionAndWorldScopes() {
+        Scorer first = recordAppearance(10L, 7L, "Sherlock FC", 4L, 2, 3, 1);
+        first.setRating(8.0);
+        Scorer second = recordAppearance(10L, 7L, "Sherlock FC", 4L, 3, 2, 4);
+        second.setRating(7.0);
+        scorerRepository.save(first);
+        scorerRepository.save(second);
+        scorerRepository.save(recordAppearance(11L, 8L, "Xenon", 4L, 3, 1, 2));
+
+        var club = scorerRepository.aggregateClubLegacy(7L);
+        var clubSeason = scorerRepository.aggregateClubLegacySeason(7L, 3);
+        var competition = scorerRepository.aggregateCompetitionLegacy(4L);
+        var competitionSeason = scorerRepository.aggregateCompetitionLegacySeason(4L, 3);
+        var world = scorerRepository.aggregateWorldLegacy();
+        var worldSeason = scorerRepository.aggregateWorldLegacySeason(3);
+
+        assertEquals(1, club.size());
+        assertEquals(2L, club.get(0).getAppearances());
+        assertEquals(5L, club.get(0).getGoals());
+        assertEquals(5L, club.get(0).getAssists());
+        assertEquals(15.0, club.get(0).getRatingTotal(), 0.001);
+        assertEquals(1, clubSeason.size());
+        assertEquals(2, competition.size());
+        assertEquals(2, competitionSeason.size());
+        assertEquals(2, world.size());
+        assertEquals(2, worldSeason.size());
+        assertEquals(List.of(3, 2), scorerRepository.findClubLegacySeasons(7L));
+        assertEquals(2, scorerRepository.findTrophyParticipations(7L, 4L).size());
+    }
+
     private Scorer appearance(long playerId, int season, int type, int goals) {
         Scorer scorer = new Scorer();
         scorer.setPlayerId(playerId);

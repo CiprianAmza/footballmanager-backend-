@@ -112,6 +112,29 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
         String getTeamName();
     }
 
+    /** One compact career/season row used by club, competition and world legacy pages. */
+    interface LegacyRecordAggregate {
+        Long getPlayerId();
+        Integer getFirstSeason();
+        Integer getLastSeason();
+        Long getAppearances();
+        Long getGoals();
+        Long getAssists();
+        Long getRatingCount();
+        Double getRatingTotal();
+        Long getTeamCount();
+        Long getTeamId();
+        String getTeamName();
+    }
+
+    /** A player actually appeared for this team in this competition-winning season. */
+    interface TrophyParticipationAggregate {
+        Long getPlayerId();
+        Long getTeamId();
+        Long getCompetitionId();
+        Integer getSeasonNumber();
+    }
+
     @Query("""
             select s.playerId as playerId,
                    count(s.id) as matches,
@@ -263,6 +286,111 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
             """)
     List<CompetitionAllTimeRecordAggregate> findCompetitionAllTimeAssistRecords(
             @Param("competitionId") long competitionId, Pageable pageable);
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason, max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances, coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then 1 else 0 end), 0) as ratingCount,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then s.rating else 0 end), 0.0) as ratingTotal,
+                   count(distinct s.teamId) as teamCount, max(s.teamId) as teamId, max(s.teamName) as teamName
+              from Scorer s
+             where s.teamId = :teamId and s.teamScore >= 0 and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<LegacyRecordAggregate> aggregateClubLegacy(@Param("teamId") long teamId);
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason, max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances, coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then 1 else 0 end), 0) as ratingCount,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then s.rating else 0 end), 0.0) as ratingTotal,
+                   count(distinct s.teamId) as teamCount, max(s.teamId) as teamId, max(s.teamName) as teamName
+              from Scorer s
+             where s.teamId = :teamId and s.seasonNumber = :season
+               and s.teamScore >= 0 and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<LegacyRecordAggregate> aggregateClubLegacySeason(@Param("teamId") long teamId,
+                                                           @Param("season") int season);
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason, max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances, coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then 1 else 0 end), 0) as ratingCount,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then s.rating else 0 end), 0.0) as ratingTotal,
+                   count(distinct s.teamId) as teamCount, max(s.teamId) as teamId, max(s.teamName) as teamName
+              from Scorer s
+             where s.competitionId = :competitionId and s.teamScore >= 0 and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<LegacyRecordAggregate> aggregateCompetitionLegacy(@Param("competitionId") long competitionId);
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason, max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances, coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then 1 else 0 end), 0) as ratingCount,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then s.rating else 0 end), 0.0) as ratingTotal,
+                   count(distinct s.teamId) as teamCount, max(s.teamId) as teamId, max(s.teamName) as teamName
+              from Scorer s
+             where s.competitionId = :competitionId and s.seasonNumber = :season
+               and s.teamScore >= 0 and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<LegacyRecordAggregate> aggregateCompetitionLegacySeason(@Param("competitionId") long competitionId,
+                                                                  @Param("season") int season);
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason, max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances, coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then 1 else 0 end), 0) as ratingCount,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then s.rating else 0 end), 0.0) as ratingTotal,
+                   count(distinct s.teamId) as teamCount, max(s.teamId) as teamId, max(s.teamName) as teamName
+              from Scorer s
+             where s.teamScore >= 0 and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<LegacyRecordAggregate> aggregateWorldLegacy();
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason, max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances, coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then 1 else 0 end), 0) as ratingCount,
+                   coalesce(sum(case when s.rating >= 1 and s.rating <= 10 then s.rating else 0 end), 0.0) as ratingTotal,
+                   count(distinct s.teamId) as teamCount, max(s.teamId) as teamId, max(s.teamName) as teamName
+              from Scorer s
+             where s.seasonNumber = :season and s.teamScore >= 0 and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<LegacyRecordAggregate> aggregateWorldLegacySeason(@Param("season") int season);
+
+    @Query("""
+            select distinct s.playerId as playerId, s.teamId as teamId,
+                            s.competitionId as competitionId, s.seasonNumber as seasonNumber
+              from Scorer s
+             where (:teamId is null or s.teamId = :teamId)
+               and (:competitionId is null or s.competitionId = :competitionId)
+               and s.teamScore >= 0 and s.opponentTeamId >= 0
+            """)
+    List<TrophyParticipationAggregate> findTrophyParticipations(@Param("teamId") Long teamId,
+                                                                 @Param("competitionId") Long competitionId);
+
+    @Query("select distinct s.seasonNumber from Scorer s where s.teamId = :teamId and s.teamScore >= 0 order by s.seasonNumber desc")
+    List<Integer> findClubLegacySeasons(@Param("teamId") long teamId);
+
+    @Query("select distinct s.seasonNumber from Scorer s where s.competitionId = :competitionId and s.teamScore >= 0 order by s.seasonNumber desc")
+    List<Integer> findCompetitionLegacySeasons(@Param("competitionId") long competitionId);
 
     List<Scorer> findByPlayerIdAndSeasonNumber(long playerId, int seasonNumber);
     List<Scorer> findAllByPlayerId(long scorerId);

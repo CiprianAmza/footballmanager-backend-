@@ -1,72 +1,63 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 10:19 CEST
+Ultima actualizare: 2026-08-05 10:38 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Intrebari noi pentru conferintele de presa ale managerului, bazate pe tiparele
-editoriale intalnite la GSP, Digi Sport si Fanatik.
+Records & Legends: clasamente istorice ale jucatorilor la nivel de club,
+competitie si intreaga lume, cu Best XI si arhiva speciala a clubului.
 
 Ce a fost implementat
 ---------------------
-- Catalogul are acum 97 de intrebari contextuale, dintre care 67 sunt noi.
-- 28 de intrebari pre-match.
-- 22 de intrebari dupa victorie.
-- 22 de intrebari dupa egal.
-- 25 de intrebari dupa infrangere.
-- Subiectele includ tactica, titularizari, schimbari, arbitraj, transferuri,
-  vestiar, conducere, demisie, suporteri, derby-uri si obiective europene.
-- Formularile sunt originale; research-ul a identificat teme, nu a copiat
-  declaratii sau text din articole.
-- Fiecare conferinta alege determinist o singura intrebare, astfel incat ea
-  ramane aceeasi dupa Save/Load.
-- Nu se mai concateneaza catalogul complet in coloana topic de 255 caractere.
-- Salvările vechi care contin mai multe intrebari separate prin | sunt citite
-  compatibil si afiseaza prima intrebare valida.
-- Intrebarea este transmisa pentru conferintele pre-match, post-match normale
-  si cele create dupa Live Match.
-- Modalul frontend afiseaza intrebarea reala, nu doar mesajul generic.
+- All-time top scorers, top assists si cele mai multe aparitii.
+- Clasamente separate pe club, competitie si global; clasamentele se
+  recalculeaza din meciurile reale, deci un wonderkid urca imediat in istorie.
+- Clasament al jucatorilor cu cele mai multe trofee, numarate numai daca
+  jucatorul a bifat o aparitie in sezonul castigat.
+- Best XI pentru fiecare sezon selectat si All-time Best XI, echilibrat pe
+  posturi si calculat din longevitate, productie, note si trofee.
+- Arhiva completa a jucatorilor unui club, inclusiv cei vanduti sau retrasi,
+  cu sezoane, meciuri, goluri, assisturi, nota medie si trofee.
+- Record sales la nivel de club si global; pentru o competitie sunt afisate
+  cele mai mari transferuri ale jucatorilor care au evoluat in acea competitie.
+- Pagina Competition Records include acum Goals, Assists, Appearances,
+  Trophies, Best XI anual/global si recorduri de transfer.
+- Clasamentul global este disponibil la /competition-records/0.
+- Pagina existenta /team-history/:teamId a devenit Club Archive si are taburi
+  Legends, Player history, Honours si Record sales.
+- Linkul HONOURS din Club Info a fost redenumit CLUB ARCHIVE - RECORDS & HONOURS.
 
-Research
---------
-- Documentatia si sursele sunt in docs/press-conference-question-research.md.
-- GSP: presiunea suporterilor, obiective, adversar, transferuri si viitorul
-  profesional al antrenorului.
-- Digi Sport: forma slaba, teama, vestiar, sustinerea conducerii si demisia.
-- Fanatik: arbitraj, lot subtire, achizitii, rotatie, imprumuturi si asumarea
-  selectiei echipei.
+API nou
+-------
+- GET /stats/records/club/{teamId}?season=&limit=
+- GET /stats/records/competition/{competitionId}?season=&limit=
+- GET /stats/records/world?season=&limit=
 
-Fisiere backend
----------------
-- src/main/java/com/footballmanagergamesimulator/service/PressConferenceService.java
-- src/main/java/com/footballmanagergamesimulator/service/CalendarEventDispatcher.java
-- src/main/java/com/footballmanagergamesimulator/service/MatchdayBatchProcessor.java
-- src/main/java/com/footballmanagergamesimulator/controller/MatchController.java
-- src/test/java/com/footballmanagergamesimulator/service/PressConferenceQuestionCatalogTest.java
-- docs/press-conference-question-research.md
-
-Fisiere frontend
-----------------
-- src/app/app.component.ts
-- src/app/live-match/live-match.component.ts
-- src/app/models/live-match.model.ts
+Corectitudine si performanta
+----------------------------
+- Istoria este calculata din tabela scorer, nu din lotul curent: transferurile
+  si retragerile nu sterg recordurile.
+- Agregarile mari sunt executate in SQL si returneaza un singur rand per
+  jucator, nu incarca toate aparitiile in memorie.
+- Egalitatile impart acelasi loc in clasament.
+- Interogarile exclud randurile care nu reprezinta meciuri jucate.
 
 Verificare
 ----------
-- PressConferenceQuestionCatalogTest: OK.
-- Catalogurile sunt distincte, au minimum 20 de intrebari si fiecare intrebare
-  incape in limita bazei de date: OK.
-- Compatibilitatea topicurilor din salvarile vechi: OK.
-- Build backend fara teste: OK.
-- Angular production build: OK (hash 9286ba2a4f9d0ac4).
-- git diff --check pentru fisierele taskului: OK.
+- LegacyRecordsServiceTest: OK.
+- ScorerRepositoryLeaderboardAggregateTest, inclusiv toate cele 3 scope-uri: OK.
+- Maven package fara teste: OK.
+- Angular production build: OK (hash 665bad8f19b2b755).
+- Suita backend completa existenta: 997 teste rulate, dar ramane rosie din 44
+  esecuri preexistente/nelegate (motor tactic, save schema, auth si live match).
+  Testele noi si interogarile JPA ale acestui task trec separat.
 
 Nota de rulare
 --------------
-Backend-ul si frontend-ul trebuie repornite pentru activarea completa a noului
-flux al conferintelor de presa.
+Backend-ul si frontend-ul trebuie repornite pentru activarea noilor endpoint-uri
+si pagini.
 
 Regula de urmarire
 ------------------
