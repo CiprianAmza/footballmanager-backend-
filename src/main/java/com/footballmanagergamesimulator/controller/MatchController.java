@@ -740,6 +740,8 @@ public class MatchController {
                     result.put("postMatchPressConferenceOutcome",
                             teamScore > opponentScore ? "WIN"
                                     : teamScore < opponentScore ? "LOSS" : "DRAW");
+                    result.put("postMatchPressConferenceQuestion",
+                            pressConferenceService.questionFor(postMatchPc));
                     // Boardroom dynamics: if the owner restricts this coach, raise the arrogance/
                     // humiliation question too (null when the owner imposes nothing).
                     PressConference boardroomPc = pressConferenceService.generateBoardroomPressConference(

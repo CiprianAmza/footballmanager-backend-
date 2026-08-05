@@ -195,6 +195,7 @@ public class CalendarEventDispatcher {
                         pressCompId, event.getMatchday(), calendar.getSeason());
                 result.put("details", "Press conference available");
                 result.put("pressConferenceId", pc.getId());
+                result.put("pressConferenceQuestion", pressConferenceService.questionFor(pc));
                 result.put("awaitingInput", true);
                 // Mark all other PRESS_CONFERENCE events for this day as completed
                 // so only one press conference modal appears per day

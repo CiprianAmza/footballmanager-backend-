@@ -228,6 +228,8 @@ public class MatchdayBatchProcessor {
                         result.put("postMatchPressConferenceOutcome",
                                 teamScore > opponentScore ? "WIN"
                                         : teamScore < opponentScore ? "LOSS" : "DRAW");
+                        result.put("postMatchPressConferenceQuestion",
+                                pressConferenceService.questionFor(postMatchPc));
                     }
                 }
                 break;

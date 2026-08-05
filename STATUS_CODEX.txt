@@ -1,54 +1,72 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 10:06 CEST
+Ultima actualizare: 2026-08-05 10:19 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Adaugarea filtrului Max rating in cautarile Scouting si Transfer Market.
+Intrebari noi pentru conferintele de presa ale managerului, bazate pe tiparele
+editoriale intalnite la GSP, Digi Sport si Fanatik.
 
 Ce a fost implementat
 ---------------------
-- Scouting are acum un interval complet Rating: minim - maxim.
-- Valoarea implicita pentru maximum este 300, conform scalei canonice a jocului.
-- Filtrarea Scouting exclude jucatorii cu rating peste limita selectata.
-- Transfer Market are un camp separat Max rating, cu limite 0-300 si pas 5.
-- Valoarea este normalizata in frontend si trimisa ca parametrul maxRating.
-- Preferinta Max rating este pastrata impreuna cu celelalte filtre ale tabelului.
-- Backend-ul aplica rating <= maxRating direct in query, inainte de paginare.
-- Endpoint-ul ramane compatibil cu apelurile vechi care nu trimit parametrul.
+- Catalogul are acum 97 de intrebari contextuale, dintre care 67 sunt noi.
+- 28 de intrebari pre-match.
+- 22 de intrebari dupa victorie.
+- 22 de intrebari dupa egal.
+- 25 de intrebari dupa infrangere.
+- Subiectele includ tactica, titularizari, schimbari, arbitraj, transferuri,
+  vestiar, conducere, demisie, suporteri, derby-uri si obiective europene.
+- Formularile sunt originale; research-ul a identificat teme, nu a copiat
+  declaratii sau text din articole.
+- Fiecare conferinta alege determinist o singura intrebare, astfel incat ea
+  ramane aceeasi dupa Save/Load.
+- Nu se mai concateneaza catalogul complet in coloana topic de 255 caractere.
+- Salvările vechi care contin mai multe intrebari separate prin | sunt citite
+  compatibil si afiseaza prima intrebare valida.
+- Intrebarea este transmisa pentru conferintele pre-match, post-match normale
+  si cele create dupa Live Match.
+- Modalul frontend afiseaza intrebarea reala, nu doar mesajul generic.
 
-Endpoint actualizat
--------------------
-GET /transferOffer/availablePlayersPage/{teamId}?maxRating=150
+Research
+--------
+- Documentatia si sursele sunt in docs/press-conference-question-research.md.
+- GSP: presiunea suporterilor, obiective, adversar, transferuri si viitorul
+  profesional al antrenorului.
+- Digi Sport: forma slaba, teama, vestiar, sustinerea conducerii si demisia.
+- Fanatik: arbitraj, lot subtire, achizitii, rotatie, imprumuturi si asumarea
+  selectiei echipei.
 
 Fisiere backend
 ---------------
-- src/main/java/com/footballmanagergamesimulator/controller/TransferOfferController.java
-- src/test/java/com/footballmanagergamesimulator/controller/TransferMarketMaxRatingJpaTest.java
+- src/main/java/com/footballmanagergamesimulator/service/PressConferenceService.java
+- src/main/java/com/footballmanagergamesimulator/service/CalendarEventDispatcher.java
+- src/main/java/com/footballmanagergamesimulator/service/MatchdayBatchProcessor.java
+- src/main/java/com/footballmanagergamesimulator/controller/MatchController.java
+- src/test/java/com/footballmanagergamesimulator/service/PressConferenceQuestionCatalogTest.java
+- docs/press-conference-question-research.md
 
 Fisiere frontend
 ----------------
-- src/app/scouting/scouting.component.ts
-- src/app/scouting/scouting.component.html
-- src/app/scouting/scouting.component.spec.ts
-- src/app/transfer-page/transfer-page.component.ts
-- src/app/transfer-page/transfer-page.component.html
-- src/app/transfer-page/transfer-page.component.spec.ts
-- src/app/services/transfer.service.ts
+- src/app/app.component.ts
+- src/app/live-match/live-match.component.ts
+- src/app/models/live-match.model.ts
 
 Verificare
 ----------
-- TransferMarketMaxRatingJpaTest: OK, inclusiv filtrare inainte de paginare.
-- Angular production build: OK (hash 9f29dcc6ee3025c8).
+- PressConferenceQuestionCatalogTest: OK.
+- Catalogurile sunt distincte, au minimum 20 de intrebari si fiecare intrebare
+  incape in limita bazei de date: OK.
+- Compatibilitatea topicurilor din salvarile vechi: OK.
+- Build backend fara teste: OK.
+- Angular production build: OK (hash 9286ba2a4f9d0ac4).
 - git diff --check pentru fisierele taskului: OK.
-- Avertismentele existente despre bundle budget si CSS nu blocheaza buildul.
 
 Nota de rulare
 --------------
-Backend-ul trebuie repornit pentru noul parametru maxRating. Frontend-ul necesita
-refresh sau restart Angular daca hot reload nu preia schimbarea.
+Backend-ul si frontend-ul trebuie repornite pentru activarea completa a noului
+flux al conferintelor de presa.
 
 Regula de urmarire
 ------------------

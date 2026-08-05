@@ -43,7 +43,27 @@ public class PressConferenceService {
             "Will recent performances influence your team selection?",
             "Do you feel the pressure from the supporters?",
             "Has transfer speculation distracted the squad?",
-            "What tactical threat concerns you most about the opposition?"
+            "What tactical threat concerns you most about the opposition?",
+            "Your side has started recent matches slowly. Is that a mental or tactical problem?",
+            "Do you still feel you have the full support of the board?",
+            "Reports suggest there is tension in the dressing room. How do you respond?",
+            "Have you asked the club for more signings because the squad is too thin?",
+            "Are you concerned by the referee appointment for this match?",
+            "Is this match decisive for your chances of reaching the stated objective?",
+            "Will you rotate the squad, or is the risk too great?",
+            "Has one player done enough in training to force his way into the starting eleven?",
+            "Are you considering a change of formation after the recent results?",
+            "How much could a full stadium influence this match?",
+            "Do you expect your players to cope with the pressure of a derby?",
+            "The opposition coach has questioned your team. Will that motivate the players?",
+            "Would anything other than a win be considered a failure?",
+            "Are fatigue and the crowded schedule affecting your selection?",
+            "Could an academy player receive an opportunity in this match?",
+            "Are contract and transfer rumours affecting any of your key players?",
+            "Do you need to protect a player who has been heavily criticised this week?",
+            "Are you satisfied with the club's work in the transfer market?",
+            "Would you accept an offer from a bigger club or a national team?",
+            "What must improve most: finishing, defending, or the team's attitude?"
     );
 
     private static final List<String> POST_MATCH_QUESTIONS_WIN = List.of(
@@ -53,7 +73,22 @@ public class PressConferenceService {
             "Can you keep this momentum going?",
             "Was this your most complete performance of the season?",
             "How important was the reaction from the substitutes?",
-            "Are expectations around the club rising?"
+            "Are expectations around the club rising?",
+            "Does this result prove your critics were too quick to judge the team?",
+            "Can you now say that your side is a genuine title contender?",
+            "Why did you leave an in-form player out of the starting eleven?",
+            "Did the referee make the correct decision in the match's controversial moment?",
+            "Was the score a fair reflection of the performance?",
+            "Does this win change what you need from the transfer market?",
+            "How important was the support from the stands tonight?",
+            "Did your tactical changes win the match?",
+            "Can this victory repair the relationship with disappointed supporters?",
+            "Were you surprised by how little the opposition threatened your team?",
+            "Is the competition objective now within your control?",
+            "Did a player answer the criticism aimed at him before the match?",
+            "How do you keep the squad grounded after a result like this?",
+            "Was the clean sheet as satisfying as the goals?",
+            "Do you expect the board to reward this run with new signings?"
     );
 
     private static final List<String> POST_MATCH_QUESTIONS_DRAW = List.of(
@@ -63,7 +98,22 @@ public class PressConferenceService {
             "What are you taking away from today?",
             "Did your side manage the decisive moments well enough?",
             "Were you satisfied with the refereeing decisions?",
-            "Does the team need more attacking options?"
+            "Does the team need more attacking options?",
+            "Why did you wait so long before making the substitutions?",
+            "Did fear of losing stop the team from taking more risks?",
+            "Is the lack of efficiency becoming a serious concern?",
+            "Was the equaliser conceded because of an individual error or the system?",
+            "Do you understand why some supporters expressed their frustration?",
+            "Has this draw damaged your chances of reaching the objective?",
+            "Does the squad still believe in your ideas?",
+            "Did the referee influence the final result?",
+            "Would another striker have changed this match?",
+            "Are the players struggling physically at this stage of the season?",
+            "Was the team too cautious after taking the lead?",
+            "How concerned are you by the number of chances being missed?",
+            "Will this result force changes to the starting eleven?",
+            "Is the pressure around the club affecting the players?",
+            "Can you guarantee that the dressing room remains united?"
     );
 
     private static final List<String> POST_MATCH_QUESTIONS_LOSS = List.of(
@@ -74,7 +124,24 @@ public class PressConferenceService {
             "Do you accept responsibility for the tactical plan?",
             "Did the players show enough attitude?",
             "What is your message to the supporters?",
-            "Has the dressing room lost confidence?"
+            "Has the dressing room lost confidence?",
+            "Do you still have the full backing of the board?",
+            "Have you considered resigning after this result?",
+            "Is there a rupture between you and the dressing room?",
+            "Why did you persist with players who were clearly struggling?",
+            "Was the defeat caused by your selection or by the players' execution?",
+            "Do you blame the referee, or would that only hide the team's problems?",
+            "Were your substitutions made too late to change the match?",
+            "Does this defeat show that the club failed in the transfer market?",
+            "Can you understand the boos from your own supporters?",
+            "Did the team play with fear in the decisive moments?",
+            "Is this now a crisis rather than a poor run of form?",
+            "Will there be consequences for players who did not show enough commitment?",
+            "How can you convince the supporters that the objective is still achievable?",
+            "Has a lack of leaders in the squad become a problem?",
+            "Are you worried that key players want to leave the club?",
+            "What will you change immediately before the next match?",
+            "Do you accept that the opposition coach won the tactical battle?"
     );
 
     public PressConference generatePreMatchPressConference(long teamId, long competitionId, int matchday, int season) {
@@ -84,7 +151,8 @@ public class PressConferenceService {
         pressConference.setSeasonNumber(season);
         pressConference.setDay(matchday);
         pressConference.setMatchDay(matchday);
-        pressConference.setTopic("PRE_MATCH:" + String.join("|", PRE_MATCH_QUESTIONS));
+        String question = selectQuestion(PRE_MATCH_QUESTIONS, teamId, competitionId, matchday, season, "PRE_MATCH");
+        pressConference.setTopic("PRE_MATCH:" + question);
         pressConference.setResponseChosen(null); // null means PENDING
         pressConference.setMoraleEffect(0);
         pressConference.setReputationEffect(0);
@@ -120,7 +188,8 @@ public class PressConferenceService {
         pressConference.setSeasonNumber(season);
         pressConference.setDay(matchday);
         pressConference.setMatchDay(matchday);
-        pressConference.setTopic("POST_MATCH:" + outcome + "|" + String.join("|", questions));
+        String question = selectQuestion(questions, teamId, competitionId, matchday, season, "POST_MATCH:" + outcome);
+        pressConference.setTopic("POST_MATCH:" + outcome + "|" + question);
         pressConference.setResponseChosen(null);
         pressConference.setMoraleEffect(0);
         pressConference.setReputationEffect(0);
@@ -133,6 +202,40 @@ public class PressConferenceService {
                 "PRESS_CONFERENCE");
 
         return pressConference;
+    }
+
+    static String selectQuestion(List<String> questions, long teamId, long competitionId,
+                                 int matchday, int season, String phase) {
+        int index = Math.floorMod(Objects.hash(teamId, competitionId, matchday, season, phase), questions.size());
+        return questions.get(index);
+    }
+
+    public String questionFor(PressConference pressConference) {
+        if (pressConference == null || pressConference.getTopic() == null) return "";
+        String topic = pressConference.getTopic();
+        if (topic.startsWith("POST_MATCH:")) {
+            int separator = topic.indexOf('|');
+            return separator >= 0 && separator + 1 < topic.length()
+                    ? firstQuestion(topic.substring(separator + 1)) : "";
+        }
+        int separator = topic.indexOf(':');
+        return firstQuestion(separator >= 0 && separator + 1 < topic.length()
+                ? topic.substring(separator + 1) : topic);
+    }
+
+    private String firstQuestion(String value) {
+        int legacySeparator = value.indexOf('|');
+        return legacySeparator >= 0 ? value.substring(0, legacySeparator) : value;
+    }
+
+    static List<String> questionCatalog(String phase) {
+        return switch (phase) {
+            case "PRE_MATCH" -> PRE_MATCH_QUESTIONS;
+            case "WIN" -> POST_MATCH_QUESTIONS_WIN;
+            case "DRAW" -> POST_MATCH_QUESTIONS_DRAW;
+            case "LOSS" -> POST_MATCH_QUESTIONS_LOSS;
+            default -> List.of();
+        };
     }
 
     private static final String BOARDROOM_COACH_QUESTION =
@@ -266,6 +369,7 @@ public class PressConferenceService {
         Map<String, Object> result = new HashMap<>();
         result.put("pressConferenceId", pressConferenceId);
         result.put("responseType", responseType);
+        result.put("question", questionFor(pressConference));
         result.put("moraleEffect", moraleEffect);
         result.put("reputationIfWin", reputationIfWin);
         result.put("reputationIfLose", reputationIfLose);
