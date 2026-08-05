@@ -1,13 +1,13 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 09:00 CEST
+Ultima actualizare: 2026-08-05 09:03 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Tema globala Nature, adaugata langa Classic, Dark, Light, Retro, Medieval,
-Matrix, Disco, Boho si Harry Potter.
+Tema globala Ocean, adaugata langa Classic, Dark, Light, Retro, Medieval,
+Matrix, Disco, Boho, Nature si Harry Potter.
 
 Analiza si arhitectura
 ----------------------
@@ -24,10 +24,10 @@ Analiza si arhitectura
 Ce a fost implementat
 ---------------------
 - Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Zece carduri mari cu preview, descriere, paleta si mini-interfata.
+- Unsprezece carduri mari cu preview, descriere, paleta si mini-interfata.
 - Aplicarea temei este instantanee la click, fara buton Save separat.
 - Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta inclusiv pentru nature.
+- ThemeService global cu validare stricta inclusiv pentru ocean.
 - Preferinta este salvata local si sincronizata in user_ui_preferences sub
   cheia appearance.theme.
 - Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
@@ -63,6 +63,8 @@ Teme
   si in scriptul pre-bootstrap, astfel incat si controalele native sunt light.
 - Nature: verde de padure, muschi, scoarta si ceata, cu forme organice,
   accente vegetale si o textura discreta inspirata de fibre naturale.
+- Ocean: albastru abisal, teal, aqua si spuma marina, cu gradiente de adancime,
+  suprafete racoroase si un model discret de valuri concentrice.
 
 Acoperire globala
 -----------------
@@ -70,7 +72,7 @@ Acoperire globala
 - Sidebar, active links, hover, separatoare si top command bar.
 - Titluri, fonturi, page headers, tabs si active states.
 - Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings foloseste acum un grid auto-responsive pentru toate cele zece teme,
+- Settings foloseste acum un grid auto-responsive pentru toate cele unsprezece teme,
   cu doua coloane pe tableta si una pe mobil.
 
 Fisiere frontend
@@ -90,9 +92,9 @@ Fisiere frontend
 
 Verificare
 ----------
-- Build Angular production: OK (hash def6183dd4e5a5e0).
+- Build Angular production: OK (hash 32c3998f69ee4569).
 - Verificarea diff --check: OK.
-- Browser: pagina locala a incarcat cinci reguli CSS Nature, iar atributul initial
+- Browser: pagina locala a incarcat cinci reguli CSS Ocean, iar atributul initial
   data-fm-theme=classic este aplicat inainte de randare.
 - Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
   ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
