@@ -76,6 +76,11 @@ public class FriendlyController {
         return friendlyEventService.getWorldEvents(season);
     }
 
+    @GetMapping("/honours/{teamId}")
+    public Map<String, Object> getFriendlyHonours(@PathVariable long teamId) {
+        return friendlyEventService.getFriendlyHonours(teamId);
+    }
+
     @GetMapping("/plannerOptions/{teamId}")
     public Map<String, Object> getPlannerOptions(@PathVariable long teamId) {
         return friendlyEventService.plannerOptions(teamId);

@@ -1,58 +1,40 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 11:34 CEST
+Ultima actualizare: 2026-08-05 19:18 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Misiuni de scouting pentru cluburi, competitii si natiuni, cu brief-uri
-configurabile si rapoarte persistente de recrutare.
+Corectarea turneelor amicale: numai date viitoare din sezonul curent,
+meciuri vizibile in Schedule si trofee afisate separat in palmaresul clubului.
 
 Ce a fost implementat
 ---------------------
-- Pe pagina Scouting exista acum trei zone: Player database, Recruitment
-  focuses si Focus reports.
-- Un scout disponibil poate fi trimis sa analizeze o echipa, o competitie
-  intreaga sau toate cluburile unei natiuni.
-- Brief-ul permite pozitie, interval de rating aproximativ, interval de varsta,
-  maximum sase atribute-cheie, prag minim 1-20 si prioritate: profil echilibrat,
-  valoare actuala, potential, atribute-cheie sau raport calitate/pret.
-- Tinta, filtrele, costul, durata, progresul si rezultatele sunt persistente.
-- Experienta scout-ului reduce durata; cunoasterea competitiei reduce durata si
-  costul; scouting ability si judging potential controleaza eroarea estimarilor.
-- La final sunt returnati maximum 20 de candidati, ordonati dupa fit score, cu
-  rating/potential estimate, valoare, recomandare si dovezi pe atribute.
-- Managerul primeste in Inbox un rezumat cu numarul de candidati si tinta
-  principala.
-- Misiunile pot fi anulate, iar concedierea sau expirarea contractului unui
-  scout anuleaza corect toate misiunile active.
-- Un scout nu poate porni simultan o misiune individuala si un recruitment
-  focus; crearea foloseste lock tranzactional pentru a evita dublarea concurenta.
-- Staff afiseaza si noile misiuni in starea scout-ului.
-
-Save / Load
------------
-- Formatul de save este acum v15.
-- SCOUTING_FOCUS si SCOUTING_FOCUS_RESULT sunt incluse in manifest, in
-  verificarea schemei si in realinierea generatorilor de ID.
-- Save-urile v5-v14 raman compatibile; noile sectiuni sunt migrate ca liste
-  goale, fara a invalida carierele existente.
+- Drafturile de turnee/cantonamente amicale sunt acceptate numai pentru sezonul
+  curent si trebuie sa inceapa dupa ziua curenta.
+- Aceeasi regula este verificata din nou la confirmare, astfel incat un draft
+  ramas deschis nu poate fi confirmat dupa ce data sa de start a trecut.
+- Planner-ul returneaza sezonul, ziua curenta si prima zi permisa; formularul
+  afiseaza aceste informatii, propune urmatoarea fereastra valida si blocheaza
+  perioadele trecute sau din afara pre-sezonului/pauzei de iarna.
+- Toate meciurile amicale, inclusiv semifinalele/finalele si meciurile unei mini
+  ligi, apar in Fixtures si Calendar pentru ambele cluburi participante, nu doar
+  pentru organizator. Sunt afisate numele turneului, etapa, data si rezultatul.
+- Meciurile anulate sunt excluse din Schedule.
+- Castigatorii turneelor finalizate sunt expusi printr-un endpoint de palmares si
+  apar in Club archive > Honours intr-o sectiune separata Friendly honours, cu
+  sezon, locatie, organizator si premiu.
+- FriendlyEvent ramane sursa unica de adevar pentru aceste trofee, deci nu este
+  necesara o tabela noua si save-urile care contin deja evenimente raman
+  compatibile.
 
 Verificare
 ----------
-- Backend compile: OK.
-- 3 teste ScoutingFocusService: OK (creare/cost, exclusivitate, filtrare pe
-  toate atributele si finalizare).
-- 14 teste de schema/manifest/generator Save-Load: OK.
-- 4 teste integration Save-Load pentru market/club/adviser: OK.
-- Angular production build: OK, hash fd95eccd204d892c.
-- Frontend commit publicat: 9d9f6a1 (main).
-- Verificarea interactiva in browser s-a oprit la ecranul de autentificare;
-  credentialele precompletate nu au fost trimise automat.
-- Suita backend completa ruleaza 1007 teste, dar ramane rosie din cauza a 34
-  de esecuri/erori preexistente in calibration, multiplayer, live match,
-  animation si auth test wiring; testele dedicate acestei modificari trec.
+- FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK.
+- Angular production build: OK, hash bf5a3d7621cd00cf.
+- Build-ul pastreaza avertismentele globale existente pentru bundle budget,
+  selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 
 Regula de urmarire
 ------------------

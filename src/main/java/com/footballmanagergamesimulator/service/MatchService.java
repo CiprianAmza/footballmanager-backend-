@@ -4,15 +4,21 @@ import com.footballmanagergamesimulator.frontend.CalendarEntryView;
 import com.footballmanagergamesimulator.frontend.ScheduleView;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
+import com.footballmanagergamesimulator.model.FriendlyEvent;
+import com.footballmanagergamesimulator.model.FriendlyMatch;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
+import com.footballmanagergamesimulator.repository.FriendlyEventRepository;
+import com.footballmanagergamesimulator.repository.FriendlyMatchRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,6 +33,10 @@ public class MatchService {
     CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
     @Autowired
     CalendarService calendarService;
+    @Autowired
+    FriendlyMatchRepository friendlyMatchRepository;
+    @Autowired
+    FriendlyEventRepository friendlyEventRepository;
 
     public List<ScheduleView> getScheduleViewsFromCompetitionTeamInfoMatchesAndTeamId(List<CompetitionTeamInfoMatch> competitionTeamInfoMatches, long teamId, long seasonNumber) {
 
@@ -86,6 +96,8 @@ public class MatchService {
 
             scheduleViews.add(scheduleView);
         }
+
+        appendFriendlySchedule(scheduleViews, teamId, (int) seasonNumber);
 
         // Sort by calendar day (chronological order across all competitions)
         scheduleViews.sort(Comparator.comparingInt(ScheduleView::getDay));
@@ -177,10 +189,111 @@ public class MatchService {
             entries.add(entry);
         }
 
+        appendFriendlyCalendar(entries, teamId, (int) seasonNumber);
+
         // Sort by calendar day (chronological order across all competitions)
         entries.sort(Comparator.comparingInt(CalendarEntryView::getDay));
 
         return entries;
+    }
+
+    private void appendFriendlySchedule(List<ScheduleView> schedule, long teamId, int season) {
+        List<FriendlyMatch> friendlies = teamFriendlies(teamId, season);
+        Map<Long, FriendlyEvent> events = friendlyEvents(friendlies);
+        for (FriendlyMatch match : friendlies) {
+            boolean home = match.getHomeTeamId() == teamId;
+            String opponentName = home ? match.getAwayTeamName() : match.getHomeTeamName();
+            ScheduleView view = new ScheduleView();
+            view.setOpponentTeam(opponentName);
+            view.setHomeOrAway(home ? "H" : "A");
+            view.setHomeTeamAbbr(abbreviateTeamName(match.getHomeTeamName()));
+            view.setAwayTeamAbbr(abbreviateTeamName(match.getAwayTeamName()));
+            view.setCompetitionName(friendlyCompetitionName(match, events));
+            view.setScore(friendlyScore(match, home));
+            view.setDate(calendarService.getDateDisplay(match.getDay()));
+            view.setCompetitionId(friendlyCompetitionId(match));
+            view.setSeasonNumber(season);
+            view.setRoundNumber(safeMatchId(match.getId()));
+            view.setTeamId1(match.getHomeTeamId());
+            view.setTeamId2(match.getAwayTeamId());
+            view.setDay(match.getDay());
+            if ("COMPLETED".equals(match.getStatus()) && match.getHomeGoals() != match.getAwayGoals()) {
+                view.setWinnerTeamId(match.getHomeGoals() > match.getAwayGoals()
+                        ? match.getHomeTeamId() : match.getAwayTeamId());
+            }
+            view.setDecidedBy("COMPLETED".equals(match.getStatus()) ? "FRIENDLY" : null);
+            schedule.add(view);
+        }
+    }
+
+    private void appendFriendlyCalendar(List<CalendarEntryView> entries, long teamId, int season) {
+        List<FriendlyMatch> friendlies = teamFriendlies(teamId, season);
+        Map<Long, FriendlyEvent> events = friendlyEvents(friendlies);
+        for (FriendlyMatch match : friendlies) {
+            boolean home = match.getHomeTeamId() == teamId;
+            String opponentName = home ? match.getAwayTeamName() : match.getHomeTeamName();
+            CalendarEntryView entry = new CalendarEntryView();
+            entry.setRoundNumber(safeMatchId(match.getId()));
+            entry.setCompetitionName(friendlyCompetitionName(match, events));
+            entry.setCompetitionId(friendlyCompetitionId(match));
+            entry.setCompetitionType("Friendly");
+            entry.setOpponentTeamName(opponentName);
+            entry.setOpponentTeamId(home ? match.getAwayTeamId() : match.getHomeTeamId());
+            entry.setHomeOrAway(home ? "H" : "A");
+            entry.setHomeTeamAbbr(abbreviateTeamName(match.getHomeTeamName()));
+            entry.setAwayTeamAbbr(abbreviateTeamName(match.getAwayTeamName()));
+            entry.setDateDisplay(calendarService.getDateDisplay(match.getDay()));
+            entry.setTeamId1(match.getHomeTeamId());
+            entry.setTeamId2(match.getAwayTeamId());
+            entry.setSeasonNumber(season);
+            entry.setDay(match.getDay());
+            entry.setScore(friendlyScore(match, home));
+            if ("COMPLETED".equals(match.getStatus())) {
+                entry.setStatus("played");
+                int ownGoals = home ? match.getHomeGoals() : match.getAwayGoals();
+                int opponentGoals = home ? match.getAwayGoals() : match.getHomeGoals();
+                entry.setResultOutcome(ownGoals > opponentGoals ? "W" : ownGoals < opponentGoals ? "L" : "D");
+            } else {
+                entry.setStatus("upcoming");
+                entry.setResultOutcome(null);
+            }
+            entries.add(entry);
+        }
+    }
+
+    private List<FriendlyMatch> teamFriendlies(long teamId, int season) {
+        return friendlyMatchRepository
+                .findAllBySeasonAndHomeTeamIdOrSeasonAndAwayTeamId(season, teamId, season, teamId).stream()
+                .filter(match -> !"CANCELLED".equals(match.getStatus()))
+                .toList();
+    }
+
+    private Map<Long, FriendlyEvent> friendlyEvents(List<FriendlyMatch> matches) {
+        List<Long> ids = matches.stream().map(FriendlyMatch::getFriendlyEventId).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, FriendlyEvent> events = new HashMap<>();
+        friendlyEventRepository.findAllById(ids).forEach(event -> events.put(event.getId(), event));
+        return events;
+    }
+
+    private String friendlyCompetitionName(FriendlyMatch match, Map<Long, FriendlyEvent> events) {
+        FriendlyEvent event = match.getFriendlyEventId() == null ? null : events.get(match.getFriendlyEventId());
+        if (event == null) return "Friendly";
+        String stage = match.getEventStage() == null ? "" : " · " + match.getEventStage().replace('_', ' ');
+        return event.getName() + stage;
+    }
+
+    private long friendlyCompetitionId(FriendlyMatch match) {
+        return match.getFriendlyEventId() == null ? -1L : -Math.max(1L, match.getFriendlyEventId());
+    }
+
+    private int safeMatchId(long matchId) {
+        return matchId > Integer.MAX_VALUE ? (int) (matchId % Integer.MAX_VALUE) : (int) matchId;
+    }
+
+    private String friendlyScore(FriendlyMatch match, boolean home) {
+        if (!"COMPLETED".equals(match.getStatus())) return "-";
+        return home ? match.getHomeGoals() + " - " + match.getAwayGoals()
+                : match.getAwayGoals() + " - " + match.getHomeGoals();
     }
 
     private String abbreviateTeamName(String name) {
