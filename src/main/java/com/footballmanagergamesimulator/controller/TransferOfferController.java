@@ -75,6 +75,9 @@ public class TransferOfferController {
     @Autowired
     com.footballmanagergamesimulator.service.ClubActionAuthorizationService clubActionAuthorizationService;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.MediaNarrativeService mediaNarrativeService;
+
     private final Random random = new Random();
 
     @GetMapping("/incoming/{teamId}")
@@ -229,7 +232,8 @@ public class TransferOfferController {
         } else if (offerAmount >= (long)(askingPrice * 0.8)) {
             // Counter with asking price
             offer.setStatus("counter");
-            transferOfferRepository.save(offer);
+            offer = transferOfferRepository.save(offer);
+            mediaNarrativeService.publishTransferRumour(offer, (int) round.getRound());
             sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Counter-Offer",
                     sellingTeam.getName() + " have rejected your offer of " + offerAmount +
                     " for " + player.getName() + " but are willing to negotiate. " +

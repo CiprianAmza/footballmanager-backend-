@@ -43,6 +43,7 @@ public class TransferMarketService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private UserContext userContext;
     @Autowired private CoachPermissionService coachPermissionService;
+    @Autowired private MediaNarrativeService mediaNarrativeService;
 
     /** Diagnostic only: which path the most recent successful match used. Single
      *  threaded within a window; read immediately after canBeTransfered returns true. */
@@ -204,7 +205,8 @@ public class TransferMarketService {
                     offer.setSeasonNumber(season);
                     offer.setDirection("incoming");
                     offer.setCreatedAt(System.currentTimeMillis());
-                    transferOfferRepository.save(offer);
+                    offer = transferOfferRepository.save(offer);
+                    mediaNarrativeService.publishTransferRumour(offer, roundNumber);
 
                     ManagerInbox inbox = new ManagerInbox();
                     inbox.setTeamId(humanTeamId);

@@ -1,72 +1,44 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:35 CEST
+Ultima actualizare: 2026-08-05 19:43 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Transformarea turneelor amicale recurente in competitii cu identitate, istoric
-si traditie proprie intre sezoane.
+Adaugarea zvonurilor despre transferuri, bazate pe interes real din joc.
 
 Ce a fost implementat
 ---------------------
-- Drafturile de turnee/cantonamente amicale sunt acceptate numai pentru sezonul
-  curent si trebuie sa inceapa dupa ziua curenta.
-- Aceeasi regula este verificata din nou la confirmare, astfel incat un draft
-  ramas deschis nu poate fi confirmat dupa ce data sa de start a trecut.
-- Planner-ul returneaza sezonul, ziua curenta si prima zi permisa; formularul
-  afiseaza aceste informatii, propune urmatoarea fereastra valida si blocheaza
-  perioadele trecute sau din afara pre-sezonului/pauzei de iarna.
-- Selectoarele, lista evenimentelor, intervalul turneului si programul meciurilor
-  afiseaza datele calendaristice reale (de exemplu 5 August), nu "Day 5".
-- Aceeasi afisare calendaristica este folosita si in paginile Classic si
-  Preparation hub pentru amicale.
-- Toate aceste date includ explicit si sezonul, in formatul
-  "Season 4 · 5 August", pentru a elimina ambiguitatea intre cariere/sezoane.
-- Managerul poate selecta sezonul curent sau sezonul urmator. In sezonul curent
-  sunt oferite numai date ulterioare zilei curente; pentru sezonul urmator sunt
-  disponibile toate ferestrele valide. Sezoanele trecute si cele aflate la mai
-  mult de un sezon distanta sunt respinse si de backend.
-- Fiecare mini-cupa sau mini-liga noua primeste un seriesId stabil si devine o
-  competitie amicala separata de editia jucata intr-un anumit sezon.
-- Editiile aceleiasi competitii pastreaza numele traditiei, formatul si istoricul
-  comun, avand numere de editie consecutive.
-- Turneele existente din save-uri mai vechi sunt grupate automat in traditii pe
-  baza organizatorului, formatului si numelui; noile campuri raman in tabela
-  FRIENDLY_EVENT deja inclusa in save/load.
-- Tours & tournaments contine un catalog "Regular invitationals". Fiecare
-  competitie are o pagina dedicata cu sezonul fondarii, numarul de editii,
-  castigatorul recent, gazda si istoricul complet al editiilor.
-- Din pagina competitiei poate fi propusa editia urmatoare. Formularul mosteneste
-  formatul, numele, locatia, economia si invitatii ultimei editii, apoi permite
-  ajustarea lor pentru sezonul disponibil.
-- O competitie nu poate avea doua editii active in acelasi sezon, iar formatul
-  traditiei nu poate fi schimbat accidental.
-- Traditia pastreaza doar identitatea si formatul competitiei. Fiecare editie
-  poate avea alt fond de premiere, alta taxa, alt buget, alta locatie si alte
-  echipe participante.
-- Pagina competitiei afiseaza separat pentru fiecare editie premiul si lista
-  nominala a participantilor, astfel incat schimbarile dintre ani sunt vizibile.
-- Toate meciurile amicale, inclusiv semifinalele/finalele si meciurile unei mini
-  ligi, apar in Fixtures si Calendar pentru ambele cluburi participante, nu doar
-  pentru organizator. Sunt afisate numele turneului, etapa, data si rezultatul.
-- Meciurile anulate sunt excluse din Schedule.
-- Castigatorii turneelor finalizate sunt expusi printr-un endpoint de palmares si
-  apar in Club archive > Honours intr-o sectiune separata Friendly honours, cu
-  sezon, locatie, organizator si premiu.
-- FriendlyEvent ramane sursa unica de adevar pentru aceste trofee, deci nu este
-  necesara o tabela noua si save-urile care contin deja evenimente raman
-  compatibile.
+- O oferta AI aflata in asteptare pentru jucatorul unei echipe umane poate genera
+  o stire de tip TRANSFER_RUMOUR.
+- O negociere initiata de manager care ajunge la contraoferta genereaza acelasi
+  tip de zvon.
+- Zvonul este livrat atat clubului cumparator, cat si clubului vanzator.
+- Fiecare stire afiseaza jucatorul, cluburile implicate, suma vehiculata, sursa,
+  stadiul negocierii si un procent de credibilitate.
+- Textul precizeaza explicit ca informatia nu este confirmata public. Zvonul nu
+  muta jucatorul, nu accepta oferta si nu modifica adevarul transferului.
+- Credibilitatea este mai mare pentru o contraoferta/negociere activa decat pentru
+  o oferta doar aflata in asteptare si ramane limitata sub nivelul de certitudine.
+- Cheia de deduplicare bazata pe oferta si club impiedica publicarea repetata a
+  aceluiasi zvon.
+- Categoria TRANSFER_RUMOUR este disponibila in Inbox, are filtru propriu,
+  eticheta lizibila si identitate vizuala mov in lista si in articol.
+- Zvonurile sunt inregistrari ManagerInbox persistente. Fiindca aceasta tabela
+  este deja inclusa in Save/Load, nu este necesara o schema sau versiune noua de
+  save, iar stirile se restaureaza impreuna cu restul carierei.
 
 Verificare
 ----------
-- FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK, inclusiv
-  crearea traditiei si repetarea ca Editia 2 cu alt premiu si alti participanti.
-- GameSaveRealSchemaTest + GameSaveManifestCoverageTest: OK.
-- Angular production build: OK, hash f92326ad53d3e71f.
+- MediaNarrativeServiceTest + TransferOfferControllerTest +
+  TransferMarketServiceTest: OK.
+- Testul nou verifica publicarea pentru ambele cluburi, categoria, credibilitatea
+  si avertismentul ca informatia nu este confirmata.
+- Angular production build: OK, hash 3e0dca94a81441a2.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
+- git diff --check: OK in backend si frontend.
 
 Regula de urmarire
 ------------------
