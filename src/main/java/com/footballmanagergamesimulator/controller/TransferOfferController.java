@@ -438,6 +438,7 @@ public class TransferOfferController {
             @RequestParam(name = "direction", defaultValue = "desc") String direction,
             @RequestParam(name = "minValue", defaultValue = "0") long minValue,
             @RequestParam(name = "maxValue", defaultValue = "9223372036854775807") long maxValue,
+            @RequestParam(name = "maxRating", defaultValue = "1.7976931348623157E308") double maxRating,
             @RequestParam(name = "marketStatus", defaultValue = "AVAILABLE") String marketStatus) {
 
         int safePage = Math.max(0, page);
@@ -452,6 +453,7 @@ public class TransferOfferController {
                 sortByClub ? Sort.unsorted() : playerSort);
         long safeMinValue = Math.max(0, minValue);
         long safeMaxValue = Math.max(safeMinValue, maxValue);
+        double safeMaxRating = Double.isFinite(maxRating) ? Math.max(0, maxRating) : Double.MAX_VALUE;
 
         Map<Long, com.footballmanagergamesimulator.service.PlayerMarketAvailabilityService.MarketState> marketStates =
                 Optional.ofNullable(marketAvailabilityService.currentSeasonStates()).orElse(Map.of());
@@ -486,6 +488,7 @@ public class TransferOfferController {
                     cb.notEqual(root.get("teamId"), teamId),
                     cb.greaterThanOrEqualTo(root.get("transferValue"), safeMinValue),
                     cb.lessThanOrEqualTo(root.get("transferValue"), safeMaxValue),
+                    cb.lessThanOrEqualTo(root.get("rating"), safeMaxRating),
                     marketStatusPredicate,
                     position == null || position.isBlank() || "ALL".equalsIgnoreCase(position)
                             ? cb.conjunction() : cb.equal(root.get("position"), position)
@@ -560,7 +563,15 @@ public class TransferOfferController {
     Map<String, Object> getAvailablePlayersPage(long teamId, String position, int page, int size,
                                                 String sort, String direction, long minValue, long maxValue) {
         return getAvailablePlayersPage(teamId, position, page, size, sort, direction,
-                minValue, maxValue, "AVAILABLE");
+                minValue, maxValue, Double.MAX_VALUE, "AVAILABLE");
+    }
+
+    /** Source-compatible delegate with a maximum-rating filter for focused tests. */
+    Map<String, Object> getAvailablePlayersPage(long teamId, String position, int page, int size,
+                                                String sort, String direction, long minValue, long maxValue,
+                                                double maxRating) {
+        return getAvailablePlayersPage(teamId, position, page, size, sort, direction,
+                minValue, maxValue, maxRating, "AVAILABLE");
     }
 
     private void addMarketState(Map<String, Object> target,

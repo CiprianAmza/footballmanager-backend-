@@ -1,80 +1,54 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 10:02 CEST
+Ultima actualizare: 2026-08-05 10:06 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Imagini cartoon pentru pagina Personal Economy si pentru apartamente, masini,
-vile, hoteluri si yachturi.
+Adaugarea filtrului Max rating in cautarile Scouting si Transfer Market.
 
 Ce a fost implementat
 ---------------------
-- Catalogul si lista de bunuri detinute afiseaza imagini mari, responsive.
-- Cardurile au hover discret, eticheta de tip si stare vizuala distincta OWNED.
-- Imaginile au alt text descriptiv, lazy loading si fallback per tip de bun.
-- Au fost generate 10 imagini originale, fara persoane, text, marci sau logo-uri:
-  4 apartamente, o vila, un hotel, 2 masini si 2 yachturi.
-- Fiecare grupa are o directie artistica proprie, dar pastreaza stilul cartoon:
-  Scandinavian editorial, mid-century graphic novel, storybook gouache,
-  Art Deco, travel poster, cel-shaded coast si stylized 3D twilight.
-- Imaginile sunt WebP, latime 1200 px, aproximativ 1.3 MB in total.
-- Backend-ul suporta acum tipul YACHT si livreaza doua bunuri noi:
-  Classic Yacht (EUR 4.5m) si Super Yacht (EUR 28m).
-- Migrarea V12 este idempotenta si actualizeaza catalogul existent.
+- Scouting are acum un interval complet Rating: minim - maxim.
+- Valoarea implicita pentru maximum este 300, conform scalei canonice a jocului.
+- Filtrarea Scouting exclude jucatorii cu rating peste limita selectata.
+- Transfer Market are un camp separat Max rating, cu limite 0-300 si pas 5.
+- Valoarea este normalizata in frontend si trimisa ca parametrul maxRating.
+- Preferinta Max rating este pastrata impreuna cu celelalte filtre ale tabelului.
+- Backend-ul aplica rating <= maxRating direct in query, inainte de paginare.
+- Endpoint-ul ramane compatibil cu apelurile vechi care nu trimit parametrul.
 
-Prompt set ImageGen
+Endpoint actualizat
 -------------------
-- Apartment 1: cozy Scandinavian studio, warm editorial cartoon interior.
-- Apartment 2: mid-century urban loft, blue-hour graphic-novel cartoon.
-- Apartment 3: spacious family condo, colorful storybook gouache cartoon.
-- Apartment 4: elite Art Deco penthouse at night, luxurious cartoon scene.
-- Villa: Mediterranean villa, sunlit travel-poster/gouache cartoon.
-- Hotel: European boutique hotel at twilight, Art Deco animation background.
-- Sports car: dynamic cel-shaded sports coupe on a coastal road at sunset.
-- Luxury car: elegant Art Deco editorial/gouache grand tourer.
-- Classic yacht: Mediterranean travel-poster cartoon yacht in daylight.
-- Super yacht: stylized 3D cartoon superyacht at tropical twilight.
-
-Generator
----------
-- OpenAI built-in ImageGen. Sase scene au fost generate in taskul principal,
-  iar cele patru scene auto/yacht au fost generate si verificate de agentul
-  delegat cerut de utilizator.
+GET /transferOffer/availablePlayersPage/{teamId}?maxRating=150
 
 Fisiere backend
 ---------------
-- prebuilt-data.sql
-- src/main/java/com/footballmanagergamesimulator/economy/AssetType.java
-- src/main/resources/db/migration/h2/V12__personal_economy_yachts.sql
-- src/test/java/com/footballmanagergamesimulator/person/FlywayPhase0MigrationTest.java
+- src/main/java/com/footballmanagergamesimulator/controller/TransferOfferController.java
+- src/test/java/com/footballmanagergamesimulator/controller/TransferMarketMaxRatingJpaTest.java
 
 Fisiere frontend
 ----------------
-- src/app/economy/economy-dashboard.component.html
-- src/app/economy/economy-dashboard.component.ts
-- src/app/economy/economy-dashboard.component.spec.ts
-- src/app/economy/economy.component.css
-- src/app/economy/economy.models.ts
-- src/assets/economy/*.webp
+- src/app/scouting/scouting.component.ts
+- src/app/scouting/scouting.component.html
+- src/app/scouting/scouting.component.spec.ts
+- src/app/transfer-page/transfer-page.component.ts
+- src/app/transfer-page/transfer-page.component.html
+- src/app/transfer-page/transfer-page.component.spec.ts
+- src/app/services/transfer.service.ts
 
 Verificare
 ----------
-- FlywayPhase0MigrationTest + RegentPhase1EconomyIT: OK.
-- Migrare curata pana la V12, 10 bunuri in catalog si 2 yachturi: OK.
-- Build backend fara teste: OK.
-- Angular production build: OK (hash e0ba3ffaf407584b).
-- Cele 10 fisiere WebP sunt valide si trei categorii au fost reverificate vizual.
-- Testul Angular punctual este adaugat, dar runnerul global este blocat de erori
-  TypeScript preexistente in app.component si multiplayer specs; buildul aplicatiei
-  ramane verde.
+- TransferMarketMaxRatingJpaTest: OK, inclusiv filtrare inainte de paginare.
+- Angular production build: OK (hash 9f29dcc6ee3025c8).
 - git diff --check pentru fisierele taskului: OK.
+- Avertismentele existente despre bundle budget si CSS nu blocheaza buildul.
 
 Nota de rulare
 --------------
-Backend-ul trebuie repornit pentru aplicarea migrarii V12. Frontend-ul necesita
-refresh sau restart Angular pentru copierea noilor asset-uri.
+Backend-ul trebuie repornit pentru noul parametru maxRating. Frontend-ul necesita
+refresh sau restart Angular daca hot reload nu preia schimbarea.
 
 Regula de urmarire
 ------------------
