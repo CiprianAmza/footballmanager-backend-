@@ -24,6 +24,8 @@ public class FacilityUpgradeService {
     @Autowired
     private StadiumRepository stadiumRepository;
     @Autowired
+    private StadiumDesignService stadiumDesignService;
+    @Autowired
     private TeamRepository teamRepository;
     @Autowired
     private ManagerInboxRepository managerInboxRepository;
@@ -315,6 +317,14 @@ public class FacilityUpgradeService {
         overview.put("stadium", stadium);
         overview.put("effectiveCapacity", stadium.getEffectiveCapacity());
         overview.put("revenueMultiplier", stadium.getRevenueMultiplier());
+        Team team = teamRepository.findById(teamId).orElseGet(() -> {
+            Team fallback = new Team();
+            fallback.setId(teamId);
+            fallback.setName(stadium.getStadiumName());
+            fallback.setStadiumCapacity(stadium.getCapacity());
+            return fallback;
+        });
+        overview.put("design", stadiumDesignService.design(team, stadium));
         overview.put("upgradesInProgress", inProgress);
 
         // Build available upgrades list

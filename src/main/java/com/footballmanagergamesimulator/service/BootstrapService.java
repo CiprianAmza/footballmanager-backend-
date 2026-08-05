@@ -786,8 +786,8 @@ public class BootstrapService {
             team.setCompetitionId(leagueId);
             team.setTransferBudget(0L);
             team.setTotalFinances(0L);
-            // Stadium capacity based on reputation: 10,000 base + reputation * 8
-            int stadiumCapacity = 10_000 + teamValues.get(i).get(0) * 8;
+            // Reputation is the dominant size input; publish a realistic rounded capacity.
+            int stadiumCapacity = StadiumDesignService.initialCapacityForReputation(teamValues.get(i).get(0));
             team.setStadiumCapacity(stadiumCapacity);
             team.setStadiumName(teamNames.get(i).get(0) + " Stadium");
             team.setBoardConfidence(50);

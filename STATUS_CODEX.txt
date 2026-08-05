@@ -1,63 +1,58 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 10:38 CEST
+Ultima actualizare: 2026-08-05 10:48 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Records & Legends: clasamente istorice ale jucatorilor la nivel de club,
-competitie si intreaga lume, cu Best XI si arhiva speciala a clubului.
+Stadioane generate diferit pentru fiecare club, dimensionate si finisate in
+functie de capacitate, reputatie, facilitati si identitatea echipei.
 
 Ce a fost implementat
 ---------------------
-- All-time top scorers, top assists si cele mai multe aparitii.
-- Clasamente separate pe club, competitie si global; clasamentele se
-  recalculeaza din meciurile reale, deci un wonderkid urca imediat in istorie.
-- Clasament al jucatorilor cu cele mai multe trofee, numarate numai daca
-  jucatorul a bifat o aparitie in sezonul castigat.
-- Best XI pentru fiecare sezon selectat si All-time Best XI, echilibrat pe
-  posturi si calculat din longevitate, productie, note si trofee.
-- Arhiva completa a jucatorilor unui club, inclusiv cei vanduti sau retrasi,
-  cu sezoane, meciuri, goluri, assisturi, nota medie si trofee.
-- Record sales la nivel de club si global; pentru o competitie sunt afisate
-  cele mai mari transferuri ale jucatorilor care au evoluat in acea competitie.
-- Pagina Competition Records include acum Goals, Assists, Appearances,
-  Trophies, Best XI anual/global si recorduri de transfer.
-- Clasamentul global este disponibil la /competition-records/0.
-- Pagina existenta /team-history/:teamId a devenit Club Archive si are taburi
-  Legends, Player history, Honours si Record sales.
-- Linkul HONOURS din Club Info a fost redenumit CLUB ARCHIVE - RECORDS & HONOURS.
+- Fiecare club primeste un design determinist unic, derivat din id, nume si
+  culori. Designul ramane identic dupa Save/Load si functioneaza si in salvarile
+  vechi fara migrare de schema.
+- Sase familii arhitecturale: Continuous Bowl, Oval, Rectangular, Compact Bowl,
+  Four Stands si Asymmetric/Horseshoe.
+- Capacitatea stabileste scara stadionului si 1, 2 sau 3 niveluri de tribune.
+- Reputatia stabileste in principal capacitatea initiala, prestigiul vizual si
+  acoperirea acoperisului. Cluburile de elita primesc arene mai mari si finisaje
+  superioare.
+- Variante pentru acoperis, colturi, fatada, nocturna, modelul gazonului si
+  proportiile fiecarei tribune.
+- Scaunele folosesc culorile reale ale clubului; denumirile de culori vechi,
+  inclusiv lila, sunt normalizate la culori CSS valide.
+- Extinderea stadionului modifica efectiv desenul: capacitatea efectiva poate
+  promova stadionul la un nou nivel de tribune fara a-i schimba identitatea.
+- Pagina Stadium afiseaza arhitectura, nivelurile si scorul de prestigiu sub
+  noua ilustratie.
 
-API nou
+Backend
 -------
-- GET /stats/records/club/{teamId}?season=&limit=
-- GET /stats/records/competition/{competitionId}?season=&limit=
-- GET /stats/records/world?season=&limit=
-
-Corectitudine si performanta
-----------------------------
-- Istoria este calculata din tabela scorer, nu din lotul curent: transferurile
-  si retragerile nu sterg recordurile.
-- Agregarile mari sunt executate in SQL si returneaza un singur rand per
-  jucator, nu incarca toate aparitiile in memorie.
-- Egalitatile impart acelasi loc in clasament.
-- Interogarile exclud randurile care nu reprezinta meciuri jucate.
+- StadiumDesignService genereaza descriptorul vizual stabil.
+- GET /game/facilities/{teamId} include acum campul design.
+- BootstrapService foloseste o formula monotona, limitata si rotunjita pentru
+  capacitatea initiala: o reputatie mai mare produce un stadion mai mare.
+- Nu au fost adaugate coloane noi, deci importul salvarilor vechi ramane
+  compatibil.
 
 Verificare
 ----------
-- LegacyRecordsServiceTest: OK.
-- ScorerRepositoryLeaderboardAggregateTest, inclusiv toate cele 3 scope-uri: OK.
+- StadiumDesignServiceTest: 3/3 OK.
+- Stabilitate determinista si culori diferite per club: OK.
+- Capacitate/prestigiu corelate cu reputatia: OK.
+- Extindere 30.000 -> 40.000 si trecere 1 -> 2 niveluri: OK.
 - Maven package fara teste: OK.
-- Angular production build: OK (hash 665bad8f19b2b755).
-- Suita backend completa existenta: 997 teste rulate, dar ramane rosie din 44
-  esecuri preexistente/nelegate (motor tactic, save schema, auth si live match).
-  Testele noi si interogarile JPA ale acestui task trec separat.
+- Angular production build: OK (hash b5f8152c1b71e4aa).
+- Verificarea in browser a ajuns la pagina de autentificare; credențialele
+  precompletate nu au fost trimise fara autorizarea utilizatorului.
 
 Nota de rulare
 --------------
-Backend-ul si frontend-ul trebuie repornite pentru activarea noilor endpoint-uri
-si pagini.
+Backend-ul si frontend-ul trebuie repornite. Dupa restart, orice cariera
+existenta primeste imediat designurile distincte, fara New Game obligatoriu.
 
 Regula de urmarire
 ------------------
