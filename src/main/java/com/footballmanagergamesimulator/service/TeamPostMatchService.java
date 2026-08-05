@@ -60,6 +60,7 @@ public class TeamPostMatchService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private MediaNarrativeService mediaNarrativeService;
+    @Autowired private FormerPlayerStatementService formerPlayerStatementService;
     @Autowired private PredeterminedScoreRepository predeterminedScoreRepository;
     @PersistenceContext private EntityManager entityManager;
     @Autowired private UserContext userContext;
@@ -585,6 +586,8 @@ public class TeamPostMatchService {
 
         managerInboxRepository.save(inbox);
         mediaNarrativeService.publishPostMatchReaction(teamId, teamName, opponentTeamId, opponentName,
+                teamScore, opponentScore, competitionName, seasonNumber, roundNumber);
+        formerPlayerStatementService.publishPostMatchStatement(teamId, teamName, opponentTeamId, opponentName,
                 teamScore, opponentScore, competitionName, seasonNumber, roundNumber);
     }
 }

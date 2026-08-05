@@ -1,45 +1,45 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:53 CEST
+Ultima actualizare: 2026-08-05 20:00 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Adaugarea optiunii de a consacra oficial un jucator drept legenda a clubului.
+Declaratii media oferite de fostii jucatori despre cluburile lor.
 
 Ce a fost implementat
 ---------------------
-- Club Archive > Legends contine acum un Hall of Fame oficial, separat de
-  clasamentele statistice si de Best XI calculat automat.
-- Managerul propriei echipe poate folosi Club Archive > Player history >
-  Make legend pentru a consacra un jucator.
-- Pot deveni legende atat jucatorii actuali, cat si cei vanduti, transferati sau
-  retrasi, daca exista o aparitie istorica pentru club.
-- Fiecare legenda pastreaza clubul, jucatorul, numele-snapshot, sezonul si momentul
-  consacrarii, precum si motivul recunoasterii.
-- Hall of Fame afiseaza pozitia, aparitiile, golurile, assist-urile si motivul
-  consacrarii, cu link direct spre pagina jucatorului.
-- Statutul este vizibil si in tabelul complet Player history prin badge-ul
-  "Club legend".
-- Managerul poate retrage statutul din Hall of Fame; operatia nu sterge istoricul
-  sportiv al jucatorului.
-- Consacrarea si retragerea folosesc dialogul comun de confirmare al aplicatiei,
-  pentru a evita modificari accidentale.
-- Endpointurile de modificare verifica utilizatorul autentificat si resping
-  incercarea de a administra legendele altui club.
-- Duplicatele sunt impiedicate prin constrangerea unica team_id + player_id.
-- Tabela CLUB_LEGEND este inclusa in manifestul Save/Load v16. Save-urile v5-v15
-  raman compatibile si migreaza cu o lista goala de legende.
+- Dupa un meci relevant, un fost jucator poate publica o reactie despre rezultat,
+  standardele clubului, tactica si raspunsul asteptat de la echipa.
+- Sunt considerate relevante victoriile/infrangerile la minimum doua goluri,
+  meciurile cu minimum patru goluri si, periodic, alte rezultate, pentru varietate
+  fara a aglomera Inbox-ul dupa fiecare partida.
+- Sursa este aleasa exclusiv dintre jucatorii care au minimum zece aparitii
+  istorice pentru club si care nu mai sunt in lotul actual.
+- Selectia prioritizeaza legendele oficiale ale clubului, apoi jucatorii cu cele
+  mai multe aparitii. Primele voci eligibile sunt rotite determinist intre meciuri.
+- Declaratia foloseste numele, pozitia, aparitiile, golurile si assist-urile reale
+  ale fostului jucator.
+- Tonul se adapteaza rezultatului: la victorie poate lauda mentinerea standardelor,
+  la egal discuta despre control, iar dupa infrangere cere reactie si asumare.
+- Continutul se adapteaza si pozitiei fostului jucator: atac, mijloc sau unitate
+  defensiva.
+- Mesajele au categoria MEDIA_FORMER_PLAYER, titlu si prezentare proprie in Inbox.
+  Variantele Media/Newsroom le recunosc automat drept continut media.
+- Fiecare articol precizeaza ca opinia este personala si nu reprezinta o declaratie
+  oficiala a clubului.
+- Cheia de deduplicare bazata pe meci, club si autor impiedica repetarea aceleiasi
+  declaratii.
+- Declaratiile sunt ManagerInbox persistente, deci sunt deja incluse in Save/Load
+  fara o noua modificare de schema sau versiune.
 
 Verificare
 ----------
-- ClubLegendServiceTest: OK, inclusiv consacrarea unui fost jucator si pastrarea
-  statisticilor sale istorice.
-- GameSaveManifestCoverageTest + GameSaveRealSchemaTest: OK.
-- GameSaveGeneratorAlignmentTest: OK; identitatea CLUB_LEGEND este realiniata
-  corect dupa restaurarea unei cariere.
-- Angular production build: OK, hash 4b89fc726dc9e667.
+- FormerPlayerStatementServiceTest: OK, inclusiv prioritatea unei legende oficiale
+  care a parasit clubul si excluderea unui jucator ramas in lot.
+- MediaNarrativeServiceTest + TeamPostMatchServiceTest: OK.
+- Angular production build: OK, hash b095f956cde0ca93.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 - git diff --check: OK in backend si frontend.
