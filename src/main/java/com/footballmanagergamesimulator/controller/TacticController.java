@@ -54,6 +54,8 @@ public class TacticController {
     @Autowired
     InjuryRepository injuryRepository;
     @Autowired
+    ScorerRepository scorerRepository;
+    @Autowired
     PlayerRoleService playerRoleService;
     @Autowired
     PlayerSkillsRepository playerSkillsRepository;
@@ -520,6 +522,20 @@ public class TacticController {
                 .stream()
                 .map(player -> adaptPlayer(player, team))
                 .toList();
+
+        int season = roundRepository.findById(1L).map(round -> (int) round.getSeason()).orElse(1);
+        Map<Long, List<Scorer>> seasonRows = scorerRepository.findAllByTeamIdAndSeasonNumber(_teamId, season)
+                .stream().collect(Collectors.groupingBy(Scorer::getPlayerId));
+        for (PlayerView player : allPlayers) {
+            List<Scorer> rows = seasonRows.getOrDefault(player.getId(), List.of());
+            player.setSeasonAppearances(rows.size());
+            player.setSeasonGoals(rows.stream().mapToInt(Scorer::getGoals).sum());
+            player.setSeasonAssists(rows.stream().mapToInt(Scorer::getAssists).sum());
+            List<Scorer> rated = rows.stream().filter(row -> row.getRating() > 0 && row.getRating() <= 10).toList();
+            player.setSeasonAverageRating(rated.stream().mapToDouble(Scorer::getRating).average().orElse(0));
+            player.setLastFiveAverageRating(rated.stream().sorted(Comparator.comparingLong(Scorer::getId).reversed())
+                    .limit(5).mapToDouble(Scorer::getRating).average().orElse(0));
+        }
 
         return allPlayers;
     }

@@ -2,15 +2,21 @@ package com.footballmanagergamesimulator.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
+import com.footballmanagergamesimulator.chairman.mandate.EffectiveChairmanMandate;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateRepository;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandate;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.PersonalizedTactic;
+import com.footballmanagergamesimulator.model.Round;
+import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.frontend.PersonalizedTacticView;
 import com.footballmanagergamesimulator.frontend.FormationData;
+import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.PersonalizedTacticRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
+import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.service.CoachPermissionService;
 import com.footballmanagergamesimulator.service.TacticService;
@@ -31,6 +37,49 @@ import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TacticControllerTest {
+    @Test
+    void selectionPlayersIncludeCurrentSeasonFormAndOutput() {
+        TeamRepository teams = mock(TeamRepository.class);
+        HumanRepository humans = mock(HumanRepository.class);
+        RoundRepository rounds = mock(RoundRepository.class);
+        ScorerRepository scorers = mock(ScorerRepository.class);
+        NationService nations = mock(NationService.class);
+        Team team = new Team();
+        team.setId(10L);
+        team.setName("Test");
+        Human human = player(7L);
+        human.setName("Playmaker");
+        Round round = new Round();
+        round.setSeason(4);
+        Scorer first = scorer(7L, 1, 2, 7.4);
+        Scorer second = scorer(7L, 2, 0, 8.6);
+        first.setId(1L);
+        second.setId(2L);
+
+        when(teams.findById(10L)).thenReturn(Optional.of(team));
+        when(humans.findAllByTeamIdAndTypeId(10L, TypeNames.PLAYER_TYPE)).thenReturn(List.of(human));
+        when(rounds.findById(1L)).thenReturn(Optional.of(round));
+        when(scorers.findAllByTeamIdAndSeasonNumber(10L, 4)).thenReturn(List.of(first, second));
+        when(nations.infoForTeam(10L)).thenReturn(new NationService.NationInfo(1L, "Testland", "te"));
+
+        TacticController controller = new TacticController();
+        ReflectionTestUtils.setField(controller, "teamRepository", teams);
+        ReflectionTestUtils.setField(controller, "humanRepository", humans);
+        ReflectionTestUtils.setField(controller, "roundRepository", rounds);
+        ReflectionTestUtils.setField(controller, "scorerRepository", scorers);
+        ReflectionTestUtils.setField(controller, "nationService", nations);
+
+        List<PlayerView> result = ReflectionTestUtils.invokeMethod(controller, "getPlayers", "10");
+
+        assertThat(result).singleElement().satisfies(view -> {
+            assertThat(view.getSeasonAppearances()).isEqualTo(2);
+            assertThat(view.getSeasonGoals()).isEqualTo(3);
+            assertThat(view.getSeasonAssists()).isEqualTo(2);
+            assertThat(view.getSeasonAverageRating()).isEqualTo(8.0);
+            assertThat(view.getLastFiveAverageRating()).isEqualTo(8.0);
+        });
+    }
+
     @Test
     void bestElevenUsesCurrentChairmanFormationInsteadOfRequestedFormation() {
         TeamRepository teams = mock(TeamRepository.class);
@@ -117,6 +166,7 @@ class TacticControllerTest {
         team.setId(10L);
         team.setName("Test");
         when(teams.findById(10L)).thenReturn(Optional.of(team));
+        when(teams.existsById(10L)).thenReturn(true);
         when(nations.infoForTeam(10L)).thenReturn(new NationService.NationInfo(1L, "Testland", "te"));
         when(values.fitnessFactor(anyDouble())).thenReturn(1.0);
         when(permissions.lockedSlots(10L)).thenReturn(List.of());
@@ -146,6 +196,7 @@ class TacticControllerTest {
         when(personalized.findPersonalizedTacticByTeamId(10L)).thenReturn(Optional.of(saved));
         when(enforcement.effectiveFormation(10L, "442")).thenReturn("442");
         when(enforcement.effectiveFormation(anyLong(), anyString())).thenReturn("442");
+        when(enforcement.mandate(10L)).thenReturn(EffectiveChairmanMandate.absent());
         when(enforcement.resolvedLockedSlots(anyLong(), anyString(), any(), any())).thenReturn(List.of());
         when(enforcement.enforceFormation(anyLong(), anyString(), any(), any(), any(), anyBoolean()))
                 .thenReturn(afterRuntimeFiltering);
@@ -200,5 +251,14 @@ class TacticControllerTest {
         data.setPositionIndex(position);
         data.setPlayerId(playerId);
         return data;
+    }
+
+    private static Scorer scorer(long playerId, int goals, int assists, double rating) {
+        Scorer scorer = new Scorer();
+        scorer.setPlayerId(playerId);
+        scorer.setGoals(goals);
+        scorer.setAssists(assists);
+        scorer.setRating(rating);
+        return scorer;
     }
 }

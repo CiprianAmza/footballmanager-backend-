@@ -62,6 +62,8 @@ public class PlayerView {
   private int seasonAppearances;
   private int seasonGoals;
   private int seasonAssists;
+  private double seasonAverageRating;
+  private double lastFiveAverageRating;
   private List<PlayerAttributeView> importantAttributes;
 
   // Recruitment status for current-season filters and loan highlighting.

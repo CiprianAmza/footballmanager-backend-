@@ -6,46 +6,45 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Completarea variantei Home clasice de la /home4 cu informatiile operationale
-care lipseau fata de referinta, fara modificarea paginilor Home existente.
+Completarea variantei tactice clasice /tactics6 cu informatiile si controalele
+care lipseau fata de referinta, pastrand editorul tactic existent functional.
 
-Ce a fost adaugat in Home 4
----------------------------
-- Context complet pentru urmatorul meci: competitie, runda, data, teren si
-  indisponibilitatile ambelor echipe.
-- Liderii lotului pe categorii diferite: goluri, rating mediu, assisturi,
-  pase completate si ocazii create.
-- Squad Status real, grupat pe accidentari, suspendari, conditie slaba si
-  contracte care expira, inclusiv numele jucatorilor afectati.
-- Profilul managerului cu portret generat, varsta, reputatie, stil tactic,
-  salariu, bilantul carierei si atributele de coaching.
-- Team Stats cu meciuri, goluri, goluri primite, clean sheets, procentajul
-  victoriilor si ratingul mediu.
-- Training overview cu distributie vizuala pe tipuri si sesiunile prioritare.
-- Scouting overview cu numarul de scouteri, misiunile active, disponibilitatea
-  si abilitatea fiecarui scout.
-- Finance & Salary bazat pe valori reale: utilizarea bugetului salarial,
-  salariile platite in sezon, costul scouterilor, bugetul de transfer si datoria.
-- Graficul financiar decorativ cu valori hardcodate a fost eliminat.
+Ce a fost adaugat in Tactics 6
+------------------------------
+- Bara de navigare tactica pentru overview, roluri, set pieces, opozitie si
+  analiza, plus contextul urmatorului meci in header.
+- Sumar persistent al instructiunilor active ale echipei.
+- Avertismente de selectie pentru locurile libere din XI/banca si riscurile
+  raportate de assistant manager.
+- Tabel de selectie extins cu Role/Duty, fitness real, moral, aparitii,
+  goluri+assisturi si forma medie din ultimele cinci meciuri.
+- Rolul si duty-ul pot fi editate direct din tabel sau prin click pe jucatorul
+  de pe teren.
+- Modal complet pentru rol, duty, SHADOW si instructiuni individuale.
+- Panou compact de match preparation: assistant, adversar, formatie recomandata
+  si numarul riscurilor de selectie.
+- Terenul, banca, drag-and-drop, Quick Pick, restrictiile Chairman si salvarea
+  tactica existenta au fost pastrate.
 
-Backend
--------
-- GET /managers/profile/{managerId} expune acum varsta, atributele de coaching
-  si descriptorii fetei necesari dashboardului.
-- Contractul anterior al endpointului a fost pastrat compatibil.
+Corectii de date
+----------------
+- Conditia nu mai foloseste valoarea implicita 95; afiseaza fitness-ul real.
+- Coloana sharpness cu valoare artificiala 88 a fost inlocuita cu moralul real.
+- GET /tactic/getPlayers/{teamId} include acum statisticile sezonului curent:
+  aparitii, goluri, assisturi, rating mediu si rating mediu in ultimele 5 meciuri.
+- Statisticile sunt incarcate printr-o singura interogare team-season si grupate
+  in memorie, evitand interogari separate pentru fiecare jucator.
 
 Compatibilitate
 ---------------
-- /home, /home2 si /home3 nu au fost modificate.
-- /home4 ramane standalone si lazy-loaded.
-- Datele suplimentare folosesc endpointurile existente de training, scouting,
-  disponibilitate, staff, finante si statistici.
+- Ruta existenta /tactics6 si formatul salvarii tactice au fost pastrate.
+- Campurile noi din PlayerView sunt aditive si nu rup clientii existenti.
+- Nu au fost modificate tacticile sau selectiile deja salvate.
 
 Verificare
 ----------
-- Maven: ManagerControllerTest OK.
-- Angular production build: OK, hash e175d631c9192ff9.
-- Home 4 este livrat in chunk lazy separat.
-- git diff --check: OK pentru fisierele taskului.
-- Au ramas doar avertismentele globale existente despre bundle budget si CSS;
-  acestea nu sunt introduse de aceasta modificare.
+- Maven: TacticControllerTest OK, inclusiv un test nou pentru forma sezonului.
+- Angular production build: OK, hash 7e8db24cfd5f6f16.
+- Tactics 6 ramane intr-un chunk lazy separat.
+- git diff --check: OK pentru toate fisierele taskului.
+- Au ramas doar avertismentele globale existente despre bundle budget si CSS.
