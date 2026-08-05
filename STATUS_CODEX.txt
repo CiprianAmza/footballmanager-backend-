@@ -1,13 +1,13 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 09:03 CEST
+Ultima actualizare: 2026-08-05 09:06 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Tema globala Ocean, adaugata langa Classic, Dark, Light, Retro, Medieval,
-Matrix, Disco, Boho, Nature si Harry Potter.
+Tema globala Space / Galaxy, adaugata langa Classic, Dark, Light, Retro,
+Medieval, Matrix, Disco, Boho, Nature, Ocean si Harry Potter.
 
 Analiza si arhitectura
 ----------------------
@@ -24,10 +24,10 @@ Analiza si arhitectura
 Ce a fost implementat
 ---------------------
 - Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Unsprezece carduri mari cu preview, descriere, paleta si mini-interfata.
+- Douasprezece carduri mari cu preview, descriere, paleta si mini-interfata.
 - Aplicarea temei este instantanee la click, fara buton Save separat.
 - Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta inclusiv pentru ocean.
+- ThemeService global cu validare stricta inclusiv pentru space-galaxy.
 - Preferinta este salvata local si sincronizata in user_ui_preferences sub
   cheia appearance.theme.
 - Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
@@ -65,6 +65,10 @@ Teme
   accente vegetale si o textura discreta inspirata de fibre naturale.
 - Ocean: albastru abisal, teal, aqua si spuma marina, cu gradiente de adancime,
   suprafete racoroase si un model discret de valuri concentrice.
+- Space / Galaxy: negru cosmic, indigo, violet si cyan, cu nebuloase, camp
+  stelar si glow discret pentru titluri si suprafetele principale.
+- Miscarea foarte lenta a fundalului cosmic este dezactivata automat prin
+  prefers-reduced-motion, la fel ca animatia temei Disco.
 
 Acoperire globala
 -----------------
@@ -72,7 +76,7 @@ Acoperire globala
 - Sidebar, active links, hover, separatoare si top command bar.
 - Titluri, fonturi, page headers, tabs si active states.
 - Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings foloseste acum un grid auto-responsive pentru toate cele unsprezece teme,
+- Settings foloseste acum un grid auto-responsive pentru toate cele douasprezece teme,
   cu doua coloane pe tableta si una pe mobil.
 
 Fisiere frontend
@@ -92,9 +96,9 @@ Fisiere frontend
 
 Verificare
 ----------
-- Build Angular production: OK (hash 32c3998f69ee4569).
+- Build Angular production: OK (hash 5ef58c37be1dfae8).
 - Verificarea diff --check: OK.
-- Browser: pagina locala a incarcat cinci reguli CSS Ocean, iar atributul initial
+- Browser: pagina locala a incarcat sase reguli CSS Space / Galaxy, iar atributul initial
   data-fm-theme=classic este aplicat inainte de randare.
 - Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
   ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
