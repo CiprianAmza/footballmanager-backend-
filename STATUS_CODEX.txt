@@ -6,47 +6,52 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Completarea variantei Squad clasice /squad4 cu informatiile, filtrele si
-sectiunile lipsa fata de referinta, fara inlocuirea paginii Squad existente.
+Redesign vizual agresiv al /match-centre2 pentru a functiona ca un match
+viewer TV full-screen, nu ca un dashboard modern cu trei carduri.
 
-Ce a fost adaugat in Squad 4
-----------------------------
-- Contextul urmatorului meci in header si acces direct la Match Selection.
-- Subnavigare pentru lot, indisponibili, international duty, jucatori
-  imprumutati si extended leave.
-- Filtre rapide pe grupele GK, DEF, MID si ATT, pe langa filtrul exact de post.
-- Statutul selectiei curente pentru fiecare jucator: XI, S1-S7 sau OUT.
-- Coloane noi pentru aparitii, goluri+assisturi, forma ultimelor 5 meciuri,
-  media sezonului si profilul fizic (inaltime, greutate, picior preferat).
-- Tabelul pastreaza ability, potential, personalitate, rol in lot, conditie,
-  moral, valoare, salariu, contract si nationalitate.
-- Toate coloanele de date au control de sortare.
-- Sectiune separata Players on loan cu clubul temporar, sezonul, taxa,
-  contributia salariala si optiunea de cumparare; include si loans in.
-- Linkuri directe spre profilul jucatorului, centrul de imprumuturi si tactica.
+Ce s-a schimbat
+---------------
+- Match Centre 2 ocupa intregul viewport si elimina marginile aplicatiei pe
+  durata transmisiunii.
+- Terenul ocupa exact aproximativ 70% din latimea desktopului si toata
+  inaltimea utila dintre HUD si comentariu.
+- Headerul competitiei are 27px, scoreboardul 45px si controalele media 29px.
+- Scorul este prezentat intr-o singura banda TV compacta, cu numele echipelor
+  integrate in aceeasi grafica.
+- Statisticile din stanga sunt un panou glass ingust, semitransparent, peste
+  atmosfera stadionului; Match Facts si Squad Fitness raman interactive.
+- Zona dreapta nu mai contine text explicativ sau un card informational. Este
+  decor de stadion, cu tribuna, reflectoare si bug TV discret.
+- Controalele 2D/3D, discs/sprites, manual/auto, sunetul, viteza, Skip si
+  substitutions sunt pastrate intr-o bara media foarte compacta.
+- Comentariul este o singura banda neagra de broadcast sub teren, cu text
+  galben si actiunea Replay pastrata.
+- Terenul nu mai are margini, card, radius sau padding si foloseste implicit
+  camera clasica 2D cu discuri mici, apropiata de referinta.
+- Replay zoom, synthetic extra time, penalty shootout, substitution modal si
+  actiunile post-match continua sa foloseasca motorul existent.
 
-Corectii de date
-----------------
-- PlayerView expune acum Current Ability, Potential Ability si personalitatea
-  stabila derivata de PlayerPersonalityService.
-- Endpointul tactic include si profilul fizic deja stocat pe Human.
-- Moralul real inlocuieste coloana Sharpness care afisa 0 deoarece motorul nu
-  persista in prezent o metrica separata de match sharpness.
-- Pentru cariere vechi cu CA/PA zero, interfata foloseste ratingul existent ca
-  fallback si nu afiseaza bare goale.
-- Numarul indisponibililor este calculat pe jucatori unici, nu pe numarul de
-  motive medicale/suspendari.
+Raport vizual desktop
+---------------------
+- Coloana statistici: 15vw.
+- Teren: 70vw.
+- Atmosfera stadion / broadcast: 15vw.
+- HUD total deasupra terenului: 101px.
+- Comentariu broadcast: 28px.
 
 Compatibilitate
 ---------------
-- /squad, /squad2 si /squad3 nu au fost modificate.
-- /squad4 ramane standalone si lazy-loaded.
-- Campurile PlayerView sunt aditive si nu modifica salvarile existente.
+- Modificarea este izolata in /match-centre2.
+- /live-match si celelalte prezentari ale motorului nu primesc noul skin.
+- Contractele backend si starea meciului nu au fost modificate.
+- La sub 980px, viewerul trece intr-un layout orizontal scrollabil, pastrand
+  terenul utilizabil in loc sa il comprime pana devine ilizibil.
 
 Verificare
 ----------
-- Maven: TacticControllerTest OK.
-- Angular production build: OK, hash d95c178199ed02bc.
-- Squad 4 este livrat in chunk lazy separat.
-- git diff --check: OK pentru toate fisierele taskului.
+- Angular production build: OK, hash fbb2b079c965e895.
+- Match Centre 2 ramane intr-un chunk lazy separat.
+- git diff --check: OK pentru fisierele taskului.
+- Serverul local localhost:4200 raspunde; verificarea cu date de meci necesita
+  o sesiune autentificata si un matchKey activ.
 - Au ramas doar avertismentele globale existente despre bundle budget si CSS.
