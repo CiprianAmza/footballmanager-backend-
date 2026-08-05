@@ -1,55 +1,71 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 09:32 CEST
+Ultima actualizare: 2026-08-05 09:43 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Corectarea paginii /media-prediction/:competitionId astfel incat panoul tactic
-din dreapta sa ramana vizibil cand competitia contine multe echipe.
-
-Problema identificata
----------------------
-- Inaltimea randului CSS Grid era determinata de intregul tabel cu echipe.
-- Panoul tactic era intins la aceeasi inaltime, iar terenul era centrat vertical
-  in acel spatiu; de aceea aparea mult prea jos in dreapta.
-- Containerul avea overflow: hidden, ceea ce ar fi impiedicat position: sticky
-  sa urmareasca scroll-ul paginii.
+Afisarea corecta a retrogradarii si a calificarilor europene in clasamentul
+unei competitii, inclusiv ruta rezervata castigatoarei cupei nationale.
 
 Ce a fost implementat
 ---------------------
-- Coloanele grid folosesc acum limite minmax, pentru o impartire stabila.
-- Elementele sunt aliniate sus, iar grid-ul nu mai intinde panoul tactic pana
-  la inaltimea listei.
-- Panoul tactic foloseste position: sticky si ramane la 76 px sub bara globala
-  cand utilizatorul deruleaza lista echipelor.
-- Inaltimea panoului este raportata la viewport si limitata la 760 px, astfel
-  incat terenul si jucatorii raman vizibili pe ecran.
-- A fost eliminata taierea scroll-ului de catre containerul grid.
-- La latimi sub 820 px, layout-ul devine o singura coloana si sticky este
-  dezactivat, evitand suprapuneri pe tableta si mobil.
-- La latimi sub 560 px au fost ajustate headerul, padding-ul, numele si
-  dimensiunea jucatorilor, precum si cardul de detalii.
+- Informatia Relegation este afisata numai daca in aceeasi natiune exista o
+  liga la tier-ul imediat inferior.
+- Pragul de retrogradare nu mai este hardcodat la pozitia 18; este calculat
+  din numarul real de echipe, pentru ultimele doua pozitii.
+- Backend-ul produce un context exact per competitie si sezon, inclusiv pentru
+  sezoanele istorice.
+- Fiecare echipa primeste explicit una dintre rutele LOC sau STARS_CUP, in loc
+  ca frontend-ul sa presupuna ca toate locurile Stars Cup sunt consecutive.
+- Castigatoarea cupei nationale primeste badge-ul CW si ruta Stars Cup.
+- Daca castigatoarea cupei este deja calificata in League of Champions, LoC are
+  prioritate, iar locul rezervat cupei este realocat primei echipe eligibile.
+- Aceeasi realocare se aplica daca detinatoarea cupei are deja ruta Stars Cup
+  prin pozitia din campionat.
+- Legenda clasamentului afiseaza numele castigatoarei cupei si destinatia sa
+  europeana; marcajele disponibile sunt C, CW, LoC, SC si R.
+- Contextul este reincarcat la schimbarea sezonului si dupa evenimente care
+  actualizeaza clasamentul, astfel incat finala cupei apare fara refresh manual.
 
-Fisier frontend
+Backend
+-------
+- Endpoint nou:
+  GET /competition/leagueQualification/{competitionId}/{season}
+- Raspunsul include hasLowerTier, relegationFrom, locSpots, starsCupSpots,
+  castigatoarea cupei si lista calificarilor exacte per echipa.
+- Castigatoarea istorica este citita din CompetitionHistory.
+- Pentru sezonul curent este acceptat un castigator numai daca exista rezultatul
+  rundei finale calculate din numarul real de participante; o semifinala jucata
+  nu este confundata cu finala.
+
+Fisiere backend
 ---------------
-- src/app/media-prediction/media-prediction.component.css
+- src/main/java/com/footballmanagergamesimulator/controller/CompetitionController.java
+- src/main/java/com/footballmanagergamesimulator/service/LeagueQualificationDisplayService.java
+- src/test/java/com/footballmanagergamesimulator/service/LeagueQualificationDisplayServiceTest.java
+
+Fisiere frontend
+----------------
+- src/app/competition/competition.component.ts
+- src/app/competition/competition.component.html
+- src/app/competition/competition.component.css
 
 Verificare
 ----------
-- Angular production build: OK (hash 049dd41d6d7053cc).
-- Verificarea git diff --check: OK.
-- Ruta locala a fost deschisa in browser; sesiunea nu era autentificata, astfel
-  ca browserul a afisat ecranul Sign in si nu au fost folosite credentialele
-  utilizatorului pentru a forta accesul la cariera.
-- Avertismentele existente de bundle budget, selector minification si
-  autoprefixer nu sunt produse de acest fix si nu blocheaza build-ul.
+- LeagueQualificationDisplayServiceTest: OK, 3 scenarii.
+- EuropeanCompetitionServiceTest: OK.
+- Build backend fara teste: OK.
+- Angular production build: OK (hash bc3ae4c3b94fd267).
+- Verificarea git diff --check pentru backend si frontend: OK.
+- Warning-urile existente de bundle budget, selector minification si
+  autoprefixer nu sunt produse de aceasta schimbare si nu blocheaza build-ul.
 
 Nota de rulare
 --------------
-Nu este necesara nicio modificare sau repornire backend. Cu hot reload activ,
-frontend-ul preia automat CSS-ul; altfel trebuie repornit serverul Angular.
+Backend-ul trebuie repornit pentru endpoint-ul nou. Frontend-ul poate fi preluat
+prin hot reload; altfel trebuie repornit si serverul Angular.
 
 Regula de urmarire
 ------------------

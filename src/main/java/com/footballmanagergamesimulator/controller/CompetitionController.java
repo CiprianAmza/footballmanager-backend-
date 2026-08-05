@@ -16,6 +16,7 @@ import com.footballmanagergamesimulator.service.EuropeanDrawService;
 import com.footballmanagergamesimulator.service.FixtureSchedulingService;
 import com.footballmanagergamesimulator.service.GameStateService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
+import com.footballmanagergamesimulator.service.LeagueQualificationDisplayService;
 import com.footballmanagergamesimulator.service.PrizeMoneyOverviewService;
 import com.footballmanagergamesimulator.service.TransferMarketService;
 import com.footballmanagergamesimulator.user.UserContext;
@@ -50,6 +51,7 @@ public class CompetitionController {
     private final EuropeanDrawService europeanDrawService;
     private final CompetitionCatalogService competitionCatalogService;
     private final PrizeMoneyOverviewService prizeMoneyOverviewService;
+    private final LeagueQualificationDisplayService leagueQualificationDisplayService;
 
     public CompetitionController(CompetitionDisplayService competitionDisplayService,
                                  CompetitionQueryService competitionQueryService,
@@ -64,7 +66,8 @@ public class CompetitionController {
                                  CompetitionOverviewService competitionOverviewService,
                                  EuropeanDrawService europeanDrawService,
                                  CompetitionCatalogService competitionCatalogService,
-                                 PrizeMoneyOverviewService prizeMoneyOverviewService) {
+                                 PrizeMoneyOverviewService prizeMoneyOverviewService,
+                                 LeagueQualificationDisplayService leagueQualificationDisplayService) {
         this.competitionDisplayService = competitionDisplayService;
         this.competitionQueryService = competitionQueryService;
         this.cupBracketService = cupBracketService;
@@ -79,6 +82,7 @@ public class CompetitionController {
         this.europeanDrawService = europeanDrawService;
         this.competitionCatalogService = competitionCatalogService;
         this.prizeMoneyOverviewService = prizeMoneyOverviewService;
+        this.leagueQualificationDisplayService = leagueQualificationDisplayService;
     }
 
     // ============================================================
@@ -148,6 +152,13 @@ public class CompetitionController {
     @GetMapping("/getCompetitionInfo/{id}")
     public Map<String, Object> getCompetitionInfo(@PathVariable Long id) {
         return competitionDisplayService.getCompetitionInfo(id);
+    }
+
+    @GetMapping("/leagueQualification/{competitionId}/{season}")
+    public LeagueQualificationDisplayService.LeagueQualificationContext getLeagueQualification(
+            @PathVariable long competitionId,
+            @PathVariable long season) {
+        return leagueQualificationDisplayService.context(competitionId, season);
     }
 
     // ============================================================
