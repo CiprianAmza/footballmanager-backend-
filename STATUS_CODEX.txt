@@ -1,13 +1,13 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 08:52 CEST
+Ultima actualizare: 2026-08-05 08:54 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Tema globala Harry Potter, adaugata langa Classic, Retro, Medieval, Matrix,
-Disco si Boho.
+Tema globala Dark, adaugata langa Classic, Retro, Medieval, Matrix, Disco,
+Boho si Harry Potter.
 
 Analiza si arhitectura
 ----------------------
@@ -24,10 +24,10 @@ Analiza si arhitectura
 Ce a fost implementat
 ---------------------
 - Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Sapte carduri mari cu preview, descriere, paleta si mini-interfata.
+- Opt carduri mari cu preview, descriere, paleta si mini-interfata.
 - Aplicarea temei este instantanee la click, fara buton Save separat.
 - Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta inclusiv pentru harry-potter.
+- ThemeService global cu validare stricta inclusiv pentru dark.
 - Preferinta este salvata local si sincronizata in user_ui_preferences sub
   cheia appearance.theme.
 - Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
@@ -53,6 +53,10 @@ Teme
   lumina de lumanare si particule stelare create exclusiv prin CSS.
 - Marcajul temei active foloseste acum numele din definitie, astfel incat
   identificatorii compusi precum harry-potter nu mai apar cu cratima in UI.
+- Dark: negru si antracit neutru, contrast ridicat, accente albastre reci,
+  umbre profunde si un fundal foarte discret, fara texturi decorative.
+- Dark ramane distincta de Classic: elimina nuantele purple/navy si accentul
+  galben in favoarea unei interfete aproape monocrome, cu focus albastru.
 
 Acoperire globala
 -----------------
@@ -60,7 +64,7 @@ Acoperire globala
 - Sidebar, active links, hover, separatoare si top command bar.
 - Titluri, fonturi, page headers, tabs si active states.
 - Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings foloseste acum un grid auto-responsive pentru toate cele sapte teme,
+- Settings foloseste acum un grid auto-responsive pentru toate cele opt teme,
   cu doua coloane pe tableta si una pe mobil.
 
 Fisiere frontend
@@ -80,9 +84,9 @@ Fisiere frontend
 
 Verificare
 ----------
-- Build Angular production: OK (hash c59855f2e991fc3c).
+- Build Angular production: OK (hash 2a0648b87fbb8c3f).
 - Verificarea diff --check: OK.
-- Browser: pagina locala a incarcat sase reguli CSS Harry Potter, iar atributul initial
+- Browser: pagina locala a incarcat trei reguli CSS Dark, iar atributul initial
   data-fm-theme=classic este aplicat inainte de randare.
 - Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
   ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
