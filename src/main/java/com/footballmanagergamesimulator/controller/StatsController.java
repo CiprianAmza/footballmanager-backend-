@@ -20,6 +20,7 @@ import com.footballmanagergamesimulator.service.PossessionProgressionAnalyticsSe
 import com.footballmanagergamesimulator.service.PressingDefenceAnalyticsService;
 import com.footballmanagergamesimulator.service.SetPiecesAnalyticsService;
 import com.footballmanagergamesimulator.service.PlayerPerformanceLabService;
+import com.footballmanagergamesimulator.service.PerfectRatingLeaderboardService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -58,6 +59,7 @@ public class StatsController {
     @Autowired PressingDefenceAnalyticsService pressingDefenceAnalyticsService;
     @Autowired SetPiecesAnalyticsService setPiecesAnalyticsService;
     @Autowired PlayerPerformanceLabService playerPerformanceLabService;
+    @Autowired PerfectRatingLeaderboardService perfectRatingLeaderboardService;
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -120,6 +122,15 @@ public class StatsController {
                                                        @RequestParam(defaultValue = "10") int limit,
                                                        @RequestParam(defaultValue = "LEAGUE") String scope) {
         return statsAggregationService.getSeasonOverviewStats(seasonNumber, limit, scope);
+    }
+
+    /** All-time ranking of players whose displayed match rating was 10.0. */
+    @GetMapping("/perfect-ratings")
+    public PerfectRatingLeaderboardService.PerfectRatingLeaderboard getPerfectRatings(
+            @RequestParam(required = false) Long competitionId,
+            @RequestParam(defaultValue = "ALL") String level,
+            @RequestParam(defaultValue = "50") int limit) {
+        return perfectRatingLeaderboardService.leaderboard(competitionId, level, limit);
     }
 
     /** Compact current-season leaderboard for the Home screen of one club. */

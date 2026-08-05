@@ -84,6 +84,32 @@ class ScorerRepositoryLeaderboardAggregateTest {
     }
 
     @Test
+    void aggregatesOnlyRatingsDisplayedAsTenPerPlayerCompetitionSeasonAndTeam() {
+        scorerRepository.save(ratedAppearance(10L, 7L, "Sherlock FC", 4L,
+                "League of Champions", 4, 3, 10.0));
+        scorerRepository.save(ratedAppearance(10L, 7L, "Sherlock FC", 4L,
+                "League of Champions", 4, 3, 9.95));
+        scorerRepository.save(ratedAppearance(10L, 7L, "Sherlock FC", 4L,
+                "League of Champions", 4, 3, 9.9));
+        scorerRepository.save(ratedAppearance(11L, 8L, "Moby Dick FC", 2L,
+                "National Cup", 2, 3, 10.0));
+
+        List<ScorerRepository.PerfectRatingAggregate> rows = scorerRepository.aggregatePerfectRatings();
+
+        assertEquals(2, rows.size());
+        ScorerRepository.PerfectRatingAggregate player = rows.stream()
+                .filter(row -> row.getPlayerId() == 10L)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(4L, player.getCompetitionId());
+        assertEquals("League of Champions", player.getCompetitionName());
+        assertEquals(4, player.getCompetitionTypeId());
+        assertEquals(3, player.getSeasonNumber());
+        assertEquals(7L, player.getTeamId());
+        assertEquals(2L, player.getPerfectRatings());
+    }
+
+    @Test
     void aggregatesSingleSeasonAndAllTimeCompetitionRecordsInTheDatabase() {
         scorerRepository.save(recordAppearance(10L, 7L, "Sherlock FC", 4L, 2, 3, 1));
         scorerRepository.save(recordAppearance(10L, 7L, "Sherlock FC", 4L, 2, 2, 2));

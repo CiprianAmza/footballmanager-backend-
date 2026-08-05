@@ -1,120 +1,82 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 09:12 CEST
+Ultima actualizare: 2026-08-05 09:28 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Tema globala Christmas, adaugata langa Classic, Dark, Light, Retro, Medieval,
-Matrix, Disco, Boho, Nature, Ocean, Space / Galaxy, Halloween si Harry Potter.
-
-Analiza si arhitectura
-----------------------
-- Aplicatia nu avea o pagina Settings si nici un mecanism global de tema.
-- Exista deja endpoint-ul generic per utilizator /api/ui-preferences/{key};
-  acesta a fost reutilizat, deci nu a fost necesar un endpoint backend nou.
-- Tema este reprezentata prin tokenuri CSS globale, nu prin copii separate ale
-  fiecarei pagini. Astfel, o componenta noua poate folosi automat aceeasi tema.
-- Stilurile vechi contin multe culori hardcodate; a fost adaugat un strat de
-  compatibilitate pentru shell, wrappers, carduri, tabele, formulare si tabs.
-- Terenurile, heatmap-urile, fetele, stemele si culorile semantice ale
-  succesului/erorilor nu sunt recolorate fortat.
+Clasament al jucatorilor care au obtinut nota 10.0 intr-un meci, ordonat dupa
+numarul de reusite si filtrabil general, per competitie sau per nivel
+CHAMPIONSHIP / CUP.
 
 Ce a fost implementat
 ---------------------
-- Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Paisprezece carduri mari cu preview, descriere, paleta si mini-interfata.
-- Aplicarea temei este instantanee la click, fara buton Save separat.
-- Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta inclusiv pentru christmas.
-- Preferinta este salvata local si sincronizata in user_ui_preferences sub
-  cheia appearance.theme.
-- Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
-- Un script minimal din index.html aplica tema locala inainte de bootstrap,
-  eliminand flash-ul temporar al temei Classic la refresh.
+- Tab nou "Perfect 10s" in Data Hub, cu un header dedicat "The Perfect 10 Club".
+- Clasament descrescator dupa numarul de note 10; jucatorii cu acelasi numar
+  primesc acelasi loc in clasament.
+- Filtre rapide General, Championship si Cup.
+- Selector pentru o competitie exacta; lista include numarul total de note 10
+  si numarul de jucatori pentru fiecare competitie.
+- Linkuri directe spre pagina jucatorului si pagina ultimului club la care a
+  obtinut o nota perfecta.
+- Coloane pentru total, Championship, Cup, numar de competitii si intervalul
+  de sezoane in care au fost obtinute notele perfecte.
+- Stari Loading, Error si Empty, plus layout responsive pentru mobil.
+- Stilurile folosesc tokenurile sistemului global de teme si se adapteaza
+  automat la tema selectata.
 
-Teme
-----
-- Classic: designul FM modern existent, dark si data-first.
-- Retro: navy/purple, cyan si magenta, font monospace, colturi drepte,
-  umbre pixelate si grila discreta de computer din anii 1990.
-- Medieval: maro inchis, pergament, alama, rosu heraldic, font serif si
-  suprafete inspirate de lemn/documente regale.
-- Matrix: negru si verde fosforescent, monospace, colturi drepte, glow subtil,
-  fundal terminal si scanlines globale.
-- Disco: violet profund, roz electric si cyan, panouri lucioase, gradiente,
-  glow de scena si o animatie atmosferica discreta.
-- Animatia Disco respecta prefers-reduced-motion si este dezactivata automat
-  pentru utilizatorii care solicita miscari reduse.
-- Boho: fundal brun cald, teracota, nisip si verde salvie, colturi organice,
-  font editorial si texturi textile discrete, fara animatii decorative.
-- Harry Potter: bleumarin nocturn, burgundy, pergament si auriu, font serif,
-  lumina de lumanare si particule stelare create exclusiv prin CSS.
-- Marcajul temei active foloseste acum numele din definitie, astfel incat
-  identificatorii compusi precum harry-potter nu mai apar cu cratima in UI.
-- Dark: negru si antracit neutru, contrast ridicat, accente albastre reci,
-  umbre profunde si un fundal foarte discret, fara texturi decorative.
-- Dark ramane distincta de Classic: elimina nuantele purple/navy si accentul
-  galben in favoarea unei interfete aproape monocrome, cu focus albastru.
-- Light: alb cald si ivory, text navy inchis, accente albastre, separatoare
-  gri-albastrui si umbre foarte discrete pentru utilizarea pe timp de zi.
-- color-scheme este sincronizat acum cu tema activa atat in ThemeService, cat
-  si in scriptul pre-bootstrap, astfel incat si controalele native sunt light.
-- Nature: verde de padure, muschi, scoarta si ceata, cu forme organice,
-  accente vegetale si o textura discreta inspirata de fibre naturale.
-- Ocean: albastru abisal, teal, aqua si spuma marina, cu gradiente de adancime,
-  suprafete racoroase si un model discret de valuri concentrice.
-- Space / Galaxy: negru cosmic, indigo, violet si cyan, cu nebuloase, camp
-  stelar si glow discret pentru titluri si suprafetele principale.
-- Miscarea foarte lenta a fundalului cosmic este dezactivata automat prin
-  prefers-reduced-motion, la fel ca animatia temei Disco.
-- Halloween: negru de carbune, portocaliu dovleac, violet inchis si verde
-  spectral, cu ceata, glow nocturn si dungi diagonale foarte discrete.
-- Christmas: verde brad, rosu burgundy, auriu si alb de zapada, cu lumina
-  calda, fulgi statici discreti si accente festive fara animatii intruzive.
+Backend
+-------
+- Endpoint nou: GET /stats/perfect-ratings.
+- Parametri optionali:
+  - level=ALL|CHAMPIONSHIP|CUP;
+  - competitionId=<id> (are prioritate fata de level);
+  - limit=1..200.
+- Sursa este tabela Scorer, deci clasamentul foloseste performantele reale
+  salvate dupa meci, nu o estimare derivata.
+- O nota este considerata 10.0 daca valoarea stocata este intre 9.95 si 10.0,
+  acelasi interval care se afiseaza ca 10.0 la o zecimala.
+- CHAMPIONSHIP include tipurile de liga 1 si tipul legacy 3; CUP include toate
+  celelalte formate pozitive, inclusiv cupe nationale, europene si Super Cup.
+- Agregarea se face direct in baza de date pe jucator, competitie, sezon si
+  club, iar tabela Scorer are un index dedicat interogarii.
+- Numele si clubul provin din snapshot-ul istoric al aparitiei; jucatorii care
+  nu mai exista in lot primesc un fallback stabil Player #id.
 
-Acoperire globala
------------------
-- Body, app-root, pagina rutata si shell-ul Manager/Chairman.
-- Sidebar, active links, hover, separatoare si top command bar.
-- Titluri, fonturi, page headers, tabs si active states.
-- Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings foloseste acum un grid auto-responsive pentru toate cele paisprezece teme,
-  cu doua coloane pe tableta si una pe mobil.
+Fisiere backend
+---------------
+- src/main/java/com/footballmanagergamesimulator/controller/StatsController.java
+- src/main/java/com/footballmanagergamesimulator/model/Scorer.java
+- src/main/java/com/footballmanagergamesimulator/repository/ScorerRepository.java
+- src/main/java/com/footballmanagergamesimulator/service/PerfectRatingLeaderboardService.java
+- src/test/java/com/footballmanagergamesimulator/repository/ScorerRepositoryLeaderboardAggregateTest.java
+- src/test/java/com/footballmanagergamesimulator/service/PerfectRatingLeaderboardServiceTest.java
 
 Fisiere frontend
 ----------------
-- src/app/services/theme.service.ts
-- src/app/services/theme.service.spec.ts
-- src/app/settings/settings.component.ts
-- src/app/settings/settings.component.html
-- src/app/settings/settings.component.css
+- src/app/data-hub/data-hub.component.ts
+- src/app/data-hub/data-hub.component.html
 - src/styles.css
-- src/index.html
-- src/app/app.component.ts
-- src/app/app.component.html
-- src/app/app.component.css
-- src/app/app-routing.module.ts
-- src/app/app.module.ts
 
 Verificare
 ----------
-- Build Angular production: OK (hash e6ce8134598311ab).
-- Verificarea diff --check: OK.
-- Browser: pagina locala a incarcat cinci reguli CSS Christmas, iar atributul initial
-  data-fm-theme=classic este aplicat inainte de randare.
-- Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
-  ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
-- Suita Karma ramane blocata inainte de executie de cele patru erori de
-  compilare preexistente din app.component.spec si spec-urile multiplayer.
-- Cele doua avertismente autoprefixer din chairman-club si friendlies3 sunt
-  preexistente si nu sunt legate de teme.
+- Teste unitare si JPA pentru Perfect Rating leaderboard: OK.
+- Query-ul include 10.0 si 9.95 si exclude 9.90: verificat prin test JPA.
+- Build backend fara teste: OK.
+- Build Angular production: OK (hash 5f3e75d78380b2a7).
+- Verificarea diff --check pentru backend si frontend: OK.
+- Browserul local a incarcat ruta Data Hub si stilurile Perfect 10; sesiunea
+  browserului nu era autentificata, deci datele protejate nu au putut fi
+  inspectate interactiv fara folosirea credentialelor utilizatorului.
+- Avertismentele existente de bundle budget/autoprefixer si warning-ul H2
+  SHOT_EVENT sunt preexistente si nu blocheaza build-ul sau testele.
 
 Nota de rulare
 --------------
-Nu este necesara repornirea sau migrarea backend-ului. Cu hot reload activ,
-frontend-ul preia schimbarea; altfel trebuie repornit serverul Angular.
+Backend-ul local trebuie repornit pentru a expune endpoint-ul nou si pentru ca
+Hibernate sa creeze indexul nou. Frontend-ul il preia prin hot reload; altfel
+trebuie repornit si serverul Angular.
 
 Regula de urmarire
 ------------------

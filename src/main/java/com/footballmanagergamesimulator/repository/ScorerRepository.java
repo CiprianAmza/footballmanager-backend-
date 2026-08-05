@@ -74,6 +74,19 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
         Double getRatingTotal();
     }
 
+    /** One compact bucket of displayed 10.0 match ratings. */
+    interface PerfectRatingAggregate {
+        Long getPlayerId();
+        Long getCompetitionId();
+        String getCompetitionName();
+        Integer getCompetitionTypeId();
+        Integer getSeasonNumber();
+        Long getTeamId();
+        String getTeamName();
+        Long getPerfectRatings();
+        Long getLatestRowId();
+    }
+
     /** One compact record candidate per player and season in a competition. */
     interface CompetitionSeasonRecordAggregate {
         Long getPlayerId();
@@ -139,6 +152,31 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
              group by s.competitionId, s.competitionTypeId, s.seasonNumber, s.teamId, s.playerId
             """)
     List<RatingImpactHistoryAggregate> aggregateRatingImpactHistory();
+
+    /**
+     * Ratings are displayed with one decimal. Values at or above 9.95 therefore
+     * appear as 10.0 even in older imported saves that did not persist the rounded value.
+     */
+    @Query("""
+            select s.playerId as playerId,
+                   s.competitionId as competitionId,
+                   max(s.competitionName) as competitionName,
+                   s.competitionTypeId as competitionTypeId,
+                   s.seasonNumber as seasonNumber,
+                   s.teamId as teamId,
+                   max(s.teamName) as teamName,
+                   count(s.id) as perfectRatings,
+                   max(s.id) as latestRowId
+              from Scorer s
+             where s.rating >= 9.95
+               and s.rating <= 10.0
+               and s.competitionTypeId > 0
+               and s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.playerId, s.competitionId, s.competitionTypeId,
+                      s.seasonNumber, s.teamId
+            """)
+    List<PerfectRatingAggregate> aggregatePerfectRatings();
 
     @Query("""
             select s.playerId as playerId,
