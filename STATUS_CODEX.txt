@@ -1,7 +1,7 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:20 CEST
+Ultima actualizare: 2026-08-05 19:22 CEST
 Status: FINALIZAT
 
 Task curent
@@ -23,6 +23,8 @@ Ce a fost implementat
   afiseaza datele calendaristice reale (de exemplu 5 August), nu "Day 5".
 - Aceeasi afisare calendaristica este folosita si in paginile Classic si
   Preparation hub pentru amicale.
+- Toate aceste date includ explicit si sezonul, in formatul
+  "Season 4 · 5 August", pentru a elimina ambiguitatea intre cariere/sezoane.
 - Toate meciurile amicale, inclusiv semifinalele/finalele si meciurile unei mini
   ligi, apar in Fixtures si Calendar pentru ambele cluburi participante, nu doar
   pentru organizator. Sunt afisate numele turneului, etapa, data si rezultatul.
@@ -37,7 +39,7 @@ Ce a fost implementat
 Verificare
 ----------
 - FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK.
-- Angular production build: OK, hash 039fcb02f3d66459.
+- Angular production build: OK, hash e32486f2fd2d809d.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 
