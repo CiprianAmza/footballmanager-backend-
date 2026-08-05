@@ -1,71 +1,88 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-04 19:32 CEST
+Ultima actualizare: 2026-08-05 08:24 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Stare vizuala si filtre sezoniere pentru jucatorii transferati sau imprumutati
-in paginile Transfers si Scouting.
+Restaurarea subpaginii active la navigarea Back/Forward.
 
-Ce a fost implementat in backend
---------------------------------
-- PlayerMarketAvailabilityService construieste o singura imagine a pietei
-  pentru sezonul curent: disponibil, transferat in sezon sau imprumutat.
-- Starea contine clubul sursa/destinatie pentru transfer si clubul parinte/
-  destinatie pentru imprumut.
-- GET /transfer-offer/available-players-page accepta parametrul marketStatus:
-  AVAILABLE, ALL, TRANSFERRED sau LOANED.
-- AVAILABLE ramane filtrul implicit si exclude jucatorii care s-au transferat
-  ori au fost imprumutati in sezon, pastrand comportamentul anterior.
-- GET /human/scoutingPlayers livreaza acum tot lotul de scouting impreuna cu
-  campurile marketStatus, transferredThisSeason, loanedThisSeason si loaned.
-- Raspunsurile includ numele clubului parinte si al clubului de imprumut.
+Problema identificata
+---------------------
+- Majoritatea paginilor pastrau activeTab doar in memoria componentei Angular.
+- La parasirea rutei componenta era distrusa, iar Back o recrea cu tabul implicit.
+- Astfel Player > Contract revenea in Player > Overview dupa o vizita pe Fixtures.
 
-Ce a fost implementat in frontend
----------------------------------
-- Transfers si Scouting au filtre separate pentru:
-  Available only, All players, Transferred this season si On loan.
-- Jucatorii aflati activ sub imprumut au fundal si accent albastru plus badge
-  LOAN; clubul parinte este afisat in explicatia starii.
-- Jucatorii transferati in sezon au un accent distinct si badge NEW.
-- Pentru jucatorii indisponibili nu mai apar actiunile de ofertare.
-- Filtrul Transfers este inclus in preferintele salvate ale tabelului.
-- Controalele Market status au etichete accesibile pentru tastatura si
-  tehnologii asistive.
+Solutia implementata
+--------------------
+- A fost creat utilitarul comun shared/url-tab-state.ts.
+- Tabul activ este validat si sincronizat cu parametrul URL `tab`.
+- Schimbarea subpaginii foloseste Router.navigate fara replaceUrl, deci creeaza
+  o intrare reala in istoricul browserului.
+- Parametrii existenti, inclusiv actingTeamId, sunt pastrati prin merge.
+- Tabul implicit elimina parametrul `tab`, pastrand URL-ul canonic scurt.
+- O valoare necunoscuta din URL revine sigur la tabul implicit.
+- Componentele imbricate folosesc chei independente pentru a nu reseta pagina
+  parinte: analyticsTab, fixturesTab si tacticsTab.
 
-Fisiere backend
----------------
-- src/main/java/com/footballmanagergamesimulator/service/PlayerMarketAvailabilityService.java
-- src/main/java/com/footballmanagergamesimulator/controller/HumanController.java
-- src/main/java/com/footballmanagergamesimulator/controller/TransferOfferController.java
-- src/main/java/com/footballmanagergamesimulator/frontend/PlayerView.java
-- src/test/java/com/footballmanagergamesimulator/service/PlayerMarketAvailabilityServiceTest.java
-
-Fisiere frontend
+Pagini acoperite
 ----------------
-- src/app/services/transfer.service.ts
+- Player: Overview, Stats, Contract, History, Analytics, Trophies.
+- Player Analytics: Performance Lab, Competition radar, Goalkeeper Hub.
+- Transfers si toate cele opt subpagini.
+- Fixtures / Calendar, inclusiv varianta inclusa in pagina Club.
+- Club, Coefficients, Data Hub, Staff, Finances si Training.
+- Training Lab, Medical Centre si Assistant Manager.
+- Top Scorers, Tactics Advisor, Tactics view si Season Summary.
+- Squad Planner nu necesita schimbare deoarece are o singura subpagina activa.
+- Development Centre nu este momentan rutat catre componenta sa, ci catre
+  FeatureUnavailable, deci nu are stare activa de restaurat.
+
+Exemplu rezultat
+----------------
+1. /player/119?actingTeamId=86
+2. Click Contract -> /player/119?actingTeamId=86&tab=contract
+3. Navigare la /fixtures/86
+4. Back -> acelasi profil cu tabul Contract activ.
+
+Fisiere principale frontend
+---------------------------
+- src/app/shared/url-tab-state.ts
+- src/app/shared/url-tab-state.spec.ts
+- src/app/player/player.component.ts
+- src/app/player-analytics/player-analytics.component.ts
+- src/app/fixtures/fixtures.component.ts
 - src/app/transfer-page/transfer-page.component.ts
-- src/app/transfer-page/transfer-page.component.html
-- src/app/transfer-page/transfer-page.component.css
-- src/app/scouting/scouting.component.ts
-- src/app/scouting/scouting.component.html
-- src/app/scouting/scouting.component.css
+- src/app/club-info/club-info.component.ts
+- src/app/coefficients/coefficients.component.ts
+- src/app/data-hub/data-hub.component.ts
+- src/app/staff/staff.component.ts
+- src/app/finances/finances.component.ts
+- src/app/training/training.component.ts
+- src/app/training1/training1.component.ts
+- src/app/medical-centre/medical-centre.component.ts
+- src/app/assistant-manager/assistant-manager.component.ts
+- src/app/scorer-leaderboard/scorer-leaderboard.component.ts
+- src/app/tactics-advisor/tactics-advisor.component.ts
+- src/app/tactics3/tactics3.component.ts
+- src/app/season-summary/season-summary.component.ts
 
 Verificare
 ----------
-- PlayerMarketAvailabilityServiceTest: OK.
-- TransferMarketSortingJpaTest: OK.
-- mvn -DskipTests package: OK.
-- Build Angular development: OK; doar doua avertismente autoprefixer existente.
-- Browser local: filtrul On loan a fost selectat si confirmat pe Transfers;
-  filtrul Transferred this season a fost selectat si confirmat pe Scouting.
+- Build Angular development: OK.
+- Verificarea diff --check: OK.
+- Erorile noi de compilare din spec-urile Training/Player/Transfers au fost
+  eliminate prin actualizarea fixture-urilor lor.
+- Suita Karma completa ramane blocata inainte de executie de patru erori de
+  compilare preexistente in app.component.spec si doua spec-uri multiplayer.
+- Browserul local de test a ajuns la ecranul Sign in; nu exista o sesiune deja
+  autentificata, iar datele de acces afisate nu au fost trimise automat.
 
 Nota de rulare
 --------------
-Backend-ul local trebuie restartat pentru ca noile campuri si filtre API sa
-devina active. Nu este necesara migrarea carierelor existente.
+Nu este necesara nicio schimbare sau repornire a backend-ului. Frontend-ul cu
+hot reload activ preia schimbarea; altfel trebuie repornit serverul Angular.
 
 Regula de urmarire
 ------------------
