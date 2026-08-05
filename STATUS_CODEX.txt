@@ -1,12 +1,12 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 08:41 CEST
+Ultima actualizare: 2026-08-05 08:46 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Selector global de teme in Settings: Classic, Retro, Medieval si Matrix.
+Tema globala Disco, adaugata langa Classic, Retro, Medieval si Matrix.
 
 Analiza si arhitectura
 ----------------------
@@ -23,10 +23,10 @@ Analiza si arhitectura
 Ce a fost implementat
 ---------------------
 - Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Patru carduri mari cu preview, descriere, paleta si mini-interfata.
+- Cinci carduri mari cu preview, descriere, paleta si mini-interfata.
 - Aplicarea temei este instantanee la click, fara buton Save separat.
 - Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta pentru classic/retro/medieval/matrix.
+- ThemeService global cu validare stricta inclusiv pentru tema disco.
 - Preferinta este salvata local si sincronizata in user_ui_preferences sub
   cheia appearance.theme.
 - Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
@@ -42,6 +42,10 @@ Teme
   suprafete inspirate de lemn/documente regale.
 - Matrix: negru si verde fosforescent, monospace, colturi drepte, glow subtil,
   fundal terminal si scanlines globale.
+- Disco: violet profund, roz electric si cyan, panouri lucioase, gradiente,
+  glow de scena si o animatie atmosferica discreta.
+- Animatia Disco respecta prefers-reduced-motion si este dezactivata automat
+  pentru utilizatorii care solicita miscari reduse.
 
 Acoperire globala
 -----------------
@@ -49,8 +53,8 @@ Acoperire globala
 - Sidebar, active links, hover, separatoare si top command bar.
 - Titluri, fonturi, page headers, tabs si active states.
 - Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings este responsive: patru coloane desktop, doua pe tableta si una pe
-  mobil.
+- Settings foloseste acum un grid auto-responsive pentru toate cele cinci teme,
+  cu doua coloane pe tableta si una pe mobil.
 
 Fisiere frontend
 ----------------
@@ -69,10 +73,10 @@ Fisiere frontend
 
 Verificare
 ----------
-- Build Angular development: OK.
+- Build Angular production: OK (hash 8323b2263efa0d62).
 - Verificarea diff --check: OK.
-- Browser: atributul data-fm-theme=classic si tokenurile initiale sunt aplicate
-  inainte de randare; zero erori in consola.
+- Browser: pagina locala a incarcat sase reguli CSS Disco, iar atributul initial
+  data-fm-theme=classic este aplicat inainte de randare.
 - Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
   ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
 - Suita Karma ramane blocata inainte de executie de cele patru erori de
