@@ -1,12 +1,12 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 08:46 CEST
+Ultima actualizare: 2026-08-05 08:49 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Tema globala Disco, adaugata langa Classic, Retro, Medieval si Matrix.
+Tema globala Boho, adaugata langa Classic, Retro, Medieval, Matrix si Disco.
 
 Analiza si arhitectura
 ----------------------
@@ -23,10 +23,10 @@ Analiza si arhitectura
 Ce a fost implementat
 ---------------------
 - Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Cinci carduri mari cu preview, descriere, paleta si mini-interfata.
+- Sase carduri mari cu preview, descriere, paleta si mini-interfata.
 - Aplicarea temei este instantanee la click, fara buton Save separat.
 - Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta inclusiv pentru tema disco.
+- ThemeService global cu validare stricta inclusiv pentru temele disco si boho.
 - Preferinta este salvata local si sincronizata in user_ui_preferences sub
   cheia appearance.theme.
 - Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
@@ -46,6 +46,8 @@ Teme
   glow de scena si o animatie atmosferica discreta.
 - Animatia Disco respecta prefers-reduced-motion si este dezactivata automat
   pentru utilizatorii care solicita miscari reduse.
+- Boho: fundal brun cald, teracota, nisip si verde salvie, colturi organice,
+  font editorial si texturi textile discrete, fara animatii decorative.
 
 Acoperire globala
 -----------------
@@ -53,7 +55,7 @@ Acoperire globala
 - Sidebar, active links, hover, separatoare si top command bar.
 - Titluri, fonturi, page headers, tabs si active states.
 - Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings foloseste acum un grid auto-responsive pentru toate cele cinci teme,
+- Settings foloseste acum un grid auto-responsive pentru toate cele sase teme,
   cu doua coloane pe tableta si una pe mobil.
 
 Fisiere frontend
@@ -73,9 +75,9 @@ Fisiere frontend
 
 Verificare
 ----------
-- Build Angular production: OK (hash 8323b2263efa0d62).
+- Build Angular production: OK (hash 1e201c9893d4cf71).
 - Verificarea diff --check: OK.
-- Browser: pagina locala a incarcat sase reguli CSS Disco, iar atributul initial
+- Browser: pagina locala a incarcat cinci reguli CSS Boho, iar atributul initial
   data-fm-theme=classic este aplicat inainte de randare.
 - Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
   ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
