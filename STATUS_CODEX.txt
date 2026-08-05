@@ -1,48 +1,56 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 11:02 CEST
+Ultima actualizare: 2026-08-05 11:12 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Repararea erorii SQL la generarea/citirea evenimentelor de sut si verificarea
-legaturii cu turneele si Save/Load.
-
-Cauza confirmata
-----------------
-- Campul Java `minute` era mapat implicit pe coloana SQL `MINUTE`, cuvant
-  rezervat in H2.
-- Comanda CREATE TABLE SHOT_EVENT esua la pornire. Interogarea raportata de UI
-  era doar eroarea ulterioara: Hibernate incerca sa citeasca o tabela inexistenta.
-- Crearea/accesarea unui turneu putea declansa prima citire Data Hub, dar nu
-  algoritmul turneului stergea tabela.
+Extinderea paginii Assistant Manager cu informatii tactice, statistice si
+analize de tip Opta.
 
 Ce a fost implementat
 ---------------------
-- `ShotEvent.minute` foloseste acum coloana sigura `EVENT_MINUTE`.
-- Formatul Save Game a fost ridicat la v14.
-- Save/Load include acum SHOT_EVENT, POSSESSION_PROGRESSION,
-  DEFENSIVE_PRESSURE si SET_PIECE_EVENT.
-- Salvarile v5-v13 raman compatibile; pentru sectiunile Data Hub inexistente se
-  aplica o migrare determinista la liste goale.
-- USER_UI_PREFERENCES ramane stare locala per utilizator si nu este suprascrisa
-  de incarcarea unei cariere.
-- Testul de aliniere a generatoarelor a fost actualizat pentru FRIENDLY_EVENT
-  si tabelele Data Hub introduse dupa v8.
+- Noua vedere implicita Season Performance, cu rezultate vs Expected Points,
+  goluri vs xG, goluri primite vs xGA, xG difference/90 si conversie.
+- Assistant Verdict transforma abaterile statistice in recomandari explicabile:
+  semnal, dovada, actiune recomandata si nivel de incredere.
+- Chance Creation: xG/sut, big chances, suturi din careu, touches in box,
+  distanta medie si provenienta datelor observate/modelate.
+- Possession & Progression: field tilt, progressive passes/carries, funnel
+  pase -> progresie -> ultima treime -> careu -> suturi.
+- Pressing & Defence: PPDA-like, rata presiunilor reusite, recovery time,
+  high turnovers, xGA/sut si dueluri. PPDA este etichetat explicit PROXY.
+- Set Pieces: xG/corner pentru si contra, ponderea fazelor fixe in xGA,
+  recuperarea mingii a doua si insight-ul principal.
+- Clasamente scurte pentru liderii progresiei si pressingului, cu link direct
+  spre pagina jucatorului.
+- Scurtaturi catre Tactics, Squad, Training si Data Hub.
+- Design responsive, compatibil cu toate temele, cu tab-uri sticky pe mobil.
+
+Corectii incluse
+----------------
+- Formation foloseste acum cheile reale `recommended` si `allFormations`.
+- Pre-match briefing citeste corect obiectele imbricate formation,
+  lineupConcerns si opponentAnalysis.
+- Opposition afiseaza lista reala positionAnalysis, puterea comparata,
+  punctele slabe si punctele forte.
+- Iconurile de risc recunosc tipurile backend INJURED, LOW_MORALE,
+  LOW_FITNESS, CONTRACT_EXPIRING si WANTS_TRANSFER.
+- Fiecare endpoint statistic poate esua independent; rapoartele disponibile
+  raman vizibile si pentru salvarile mai vechi.
 
 Verificare
 ----------
-- SHOT_EVENT este creat cu EVENT_MINUTE, apoi scris si interogat prin repository: OK.
-- Acoperire completa a manifestului Save/Load (92 tabele): OK.
-- Import v14 cu ShotEvent si migrare v13 fara sectiunile Data Hub: OK.
-- Preflight, schema reala, generator alignment si suitele Save/Load economie:
-  22 teste rulate, toate OK dupa corectarea asteptarii versionate.
+- Angular production build: OK.
+- Build hash: c4321db3e9b27422.
+- Fara erori TypeScript sau Angular template.
+- Avertismentele ramase sunt cele globale existente despre bundle budget si
+  doua reguli CSS din alte pagini.
 
-Nota de rulare
---------------
-Backend-ul trebuie repornit pentru ca Hibernate sa creeze SHOT_EVENT cu schema
-corecta. Nu este necesar un New Game; carierele v13 si mai vechi pot fi incarcate.
+Publicare
+---------
+- Frontend commit: 80f2cb6 (main), publicat pe GitHub.
 
 Regula de urmarire
 ------------------
