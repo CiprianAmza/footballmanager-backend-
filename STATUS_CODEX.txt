@@ -1,14 +1,13 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:25 CEST
+Ultima actualizare: 2026-08-05 19:33 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Corectarea turneelor amicale: numai date viitoare din sezonul curent,
-meciuri vizibile in Schedule, date calendaristice si trofee afisate separat in
-palmaresul clubului.
+Transformarea turneelor amicale recurente in competitii cu identitate, istoric
+si traditie proprie intre sezoane.
 
 Ce a fost implementat
 ---------------------
@@ -29,6 +28,21 @@ Ce a fost implementat
   sunt oferite numai date ulterioare zilei curente; pentru sezonul urmator sunt
   disponibile toate ferestrele valide. Sezoanele trecute si cele aflate la mai
   mult de un sezon distanta sunt respinse si de backend.
+- Fiecare mini-cupa sau mini-liga noua primeste un seriesId stabil si devine o
+  competitie amicala separata de editia jucata intr-un anumit sezon.
+- Editiile aceleiasi competitii pastreaza numele traditiei, formatul si istoricul
+  comun, avand numere de editie consecutive.
+- Turneele existente din save-uri mai vechi sunt grupate automat in traditii pe
+  baza organizatorului, formatului si numelui; noile campuri raman in tabela
+  FRIENDLY_EVENT deja inclusa in save/load.
+- Tours & tournaments contine un catalog "Regular invitationals". Fiecare
+  competitie are o pagina dedicata cu sezonul fondarii, numarul de editii,
+  castigatorul recent, gazda si istoricul complet al editiilor.
+- Din pagina competitiei poate fi propusa editia urmatoare. Formularul mosteneste
+  formatul, numele, locatia, economia si invitatii ultimei editii, apoi permite
+  ajustarea lor pentru sezonul disponibil.
+- O competitie nu poate avea doua editii active in acelasi sezon, iar formatul
+  traditiei nu poate fi schimbat accidental.
 - Toate meciurile amicale, inclusiv semifinalele/finalele si meciurile unei mini
   ligi, apar in Fixtures si Calendar pentru ambele cluburi participante, nu doar
   pentru organizator. Sunt afisate numele turneului, etapa, data si rezultatul.
@@ -42,8 +56,10 @@ Ce a fost implementat
 
 Verificare
 ----------
-- FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK.
-- Angular production build: OK, hash 0c65a533a922abed.
+- FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK, inclusiv
+  crearea traditiei si repetarea ca Editia 2.
+- GameSaveRealSchemaTest + GameSaveManifestCoverageTest: OK.
+- Angular production build: OK, hash 8443bb18d9383e70.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 

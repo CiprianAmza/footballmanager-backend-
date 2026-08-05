@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /** Domain service for camps, tours and unofficial club-hosted tournaments. */
@@ -162,7 +163,46 @@ public class FriendlyEventService {
         event.setPrizePool(Math.max(0, number(request, "prizePool", 0).longValue()));
         event.setOrganizerCost(Math.max(0, number(request, "organizerCost", 0).longValue()));
         event.setCreatedAt(System.currentTimeMillis());
+        configureSeries(event, request);
         return view(eventRepository.save(event));
+    }
+
+    /** Catalogue of persistent unofficial competitions, distinct from their seasonal editions. */
+    @Transactional
+    public List<Map<String, Object>> getFriendlyCompetitions(long teamId) {
+        backfillLegacySeries();
+        return eventRepository.findAll().stream()
+                .filter(this::isTournament)
+                .filter(event -> teamId <= 0 || event.getOrganizerTeamId() == teamId || participantIds(event).contains(teamId))
+                .collect(Collectors.groupingBy(FriendlyEvent::getSeriesId, LinkedHashMap::new, Collectors.toList()))
+                .values().stream()
+                .map(this::seriesSummary)
+                .sorted(Comparator.<Map<String, Object>>comparingInt(value -> (int) value.get("lastSeason")).reversed()
+                        .thenComparing(value -> String.valueOf(value.get("name"))))
+                .toList();
+    }
+
+    @Transactional
+    public Map<String, Object> getFriendlyCompetition(String seriesId) {
+        backfillLegacySeries();
+        List<FriendlyEvent> editions = eventRepository.findAllBySeriesIdOrderBySeasonAscEditionNumberAsc(seriesId);
+        if (editions.isEmpty()) throw new IllegalArgumentException("Friendly competition not found");
+        Map<String, Object> result = new LinkedHashMap<>(seriesSummary(editions));
+        result.put("editions", editions.stream().map(this::view).toList());
+        FriendlyEvent latest = editions.get(editions.size() - 1);
+        int currentSeason = currentGameDate().getSeason();
+        int nextEditionSeason = Math.max(currentSeason, latest.getSeason() + 1);
+        result.put("nextEditionSeason", nextEditionSeason);
+        result.put("proposalAvailable", nextEditionSeason <= currentSeason + 1);
+        result.put("latestEdition", view(latest));
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> proposeEdition(String seriesId, Map<String, Object> request) {
+        Map<String, Object> editionRequest = new LinkedHashMap<>(request);
+        editionRequest.put("seriesId", seriesId);
+        return createDraft(editionRequest);
     }
 
     @Transactional
@@ -412,6 +452,9 @@ public class FriendlyEventService {
         result.put("organizerTeamId", event.getOrganizerTeamId());
         result.put("organizerTeamName", teamRepository.findNameById(event.getOrganizerTeamId()));
         result.put("name", event.getName());
+        result.put("seriesId", event.getSeriesId());
+        result.put("seriesName", event.getSeriesName());
+        result.put("editionNumber", event.getEditionNumber());
         result.put("eventType", event.getEventType());
         result.put("status", event.getStatus());
         result.put("hostNationId", event.getHostNationId());
@@ -450,6 +493,84 @@ public class FriendlyEventService {
 
     private Map<String, Object> option(String id, String label, String description) {
         return Map.of("id", id, "label", label, "description", description);
+    }
+
+    private void configureSeries(FriendlyEvent event, Map<String, Object> request) {
+        if (!isTournament(event)) return;
+        String requestedSeriesId = text(request, "seriesId", "").trim();
+        if (requestedSeriesId.isBlank()) {
+            event.setSeriesId(UUID.randomUUID().toString());
+            event.setSeriesName(text(request, "seriesName", event.getName()).trim());
+            event.setEditionNumber(1);
+            return;
+        }
+        List<FriendlyEvent> editions = eventRepository.findAllBySeriesIdOrderBySeasonAscEditionNumberAsc(requestedSeriesId);
+        if (editions.isEmpty()) throw new IllegalArgumentException("Friendly competition tradition not found");
+        FriendlyEvent inaugural = editions.get(0);
+        if (!Objects.equals(inaugural.getEventType(), event.getEventType())) {
+            throw new IllegalArgumentException("A new edition must keep the competition format");
+        }
+        boolean duplicateSeason = editions.stream().anyMatch(existing -> existing.getSeason() == event.getSeason()
+                && !"CANCELLED".equals(existing.getStatus()));
+        if (duplicateSeason) throw new IllegalArgumentException("This friendly competition already has an edition in Season " + event.getSeason());
+        event.setSeriesId(requestedSeriesId);
+        event.setSeriesName(inaugural.getSeriesName() == null ? inaugural.getName() : inaugural.getSeriesName());
+        event.setEditionNumber(editions.stream().mapToInt(FriendlyEvent::getEditionNumber).max().orElse(editions.size()) + 1);
+    }
+
+    private boolean isTournament(FriendlyEvent event) {
+        return "MINI_CUP".equals(event.getEventType()) || "MINI_LEAGUE".equals(event.getEventType());
+    }
+
+    private void backfillLegacySeries() {
+        List<FriendlyEvent> legacy = eventRepository.findAll().stream()
+                .filter(this::isTournament)
+                .filter(event -> event.getSeriesId() == null || event.getSeriesId().isBlank())
+                .toList();
+        Map<String, List<FriendlyEvent>> groups = legacy.stream().collect(Collectors.groupingBy(event ->
+                event.getOrganizerTeamId() + "|" + event.getEventType() + "|" + normalizeSeriesName(event.getName())));
+        List<FriendlyEvent> changed = new ArrayList<>();
+        for (List<FriendlyEvent> group : groups.values()) {
+            group.sort(Comparator.comparingInt(FriendlyEvent::getSeason).thenComparingLong(FriendlyEvent::getId));
+            String id = "friendly-series-" + group.get(0).getId();
+            String name = group.get(0).getName();
+            for (int index = 0; index < group.size(); index++) {
+                FriendlyEvent event = group.get(index);
+                event.setSeriesId(id);
+                event.setSeriesName(name);
+                event.setEditionNumber(index + 1);
+                changed.add(event);
+            }
+        }
+        if (!changed.isEmpty()) eventRepository.saveAll(changed);
+    }
+
+    private String normalizeSeriesName(String name) {
+        return (name == null ? "friendly competition" : name).trim().toLowerCase().replaceAll("[^a-z0-9]+", "-");
+    }
+
+    private Map<String, Object> seriesSummary(List<FriendlyEvent> unsortedEditions) {
+        List<FriendlyEvent> editions = unsortedEditions.stream()
+                .sorted(Comparator.comparingInt(FriendlyEvent::getSeason).thenComparingInt(FriendlyEvent::getEditionNumber))
+                .toList();
+        FriendlyEvent first = editions.get(0);
+        FriendlyEvent latest = editions.get(editions.size() - 1);
+        long completed = editions.stream().filter(event -> "COMPLETED".equals(event.getStatus())).count();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("seriesId", first.getSeriesId());
+        result.put("name", first.getSeriesName() == null ? first.getName() : first.getSeriesName());
+        result.put("eventType", first.getEventType());
+        result.put("foundedSeason", first.getSeason());
+        result.put("lastSeason", latest.getSeason());
+        result.put("editionCount", editions.size());
+        result.put("completedEditions", completed);
+        result.put("organizerTeamId", latest.getOrganizerTeamId());
+        result.put("organizerTeamName", teamRepository.findNameById(latest.getOrganizerTeamId()));
+        result.put("latestWinnerTeamId", latest.getWinnerTeamId());
+        result.put("latestWinnerTeamName", latest.getWinnerTeamName());
+        result.put("latestStatus", latest.getStatus());
+        result.put("latestLocationName", latest.getLocationName());
+        return result;
     }
 
     private Map<String, Object> dateOption(int season, int day, String phase) {

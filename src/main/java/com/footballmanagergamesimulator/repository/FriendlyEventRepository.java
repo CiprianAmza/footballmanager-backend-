@@ -9,4 +9,5 @@ public interface FriendlyEventRepository extends JpaRepository<FriendlyEvent, Lo
     List<FriendlyEvent> findAllBySeasonOrderByStartDayAsc(int season);
     List<FriendlyEvent> findAllByOrganizerTeamIdAndSeasonOrderByStartDayAsc(long organizerTeamId, int season);
     List<FriendlyEvent> findAllByWinnerTeamIdOrderBySeasonDesc(long winnerTeamId);
+    List<FriendlyEvent> findAllBySeriesIdOrderBySeasonAscEditionNumberAsc(String seriesId);
 }

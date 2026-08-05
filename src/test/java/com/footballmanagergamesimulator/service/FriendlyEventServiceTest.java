@@ -144,6 +144,45 @@ class FriendlyEventServiceTest {
     }
 
     @Test
+    void tournamentCreatesPersistentTraditionAndNextEditionKeepsItsIdentity() {
+        Map<String, Object> inauguralRequest = Map.of(
+                "organizerTeamId", 1,
+                "season", 4,
+                "name", "Host Summer Cup",
+                "eventType", "MINI_CUP",
+                "startDay", 10,
+                "endDay", 14,
+                "participantTeamIds", List.of(2, 3, 4));
+
+        Map<String, Object> inaugural = service.createDraft(inauguralRequest);
+        String seriesId = String.valueOf(inaugural.get("seriesId"));
+        assertThat(seriesId).isNotBlank();
+        assertThat(inaugural.get("editionNumber")).isEqualTo(1);
+
+        FriendlyEvent firstEdition = miniCup();
+        firstEdition.setSeriesId(seriesId);
+        firstEdition.setSeriesName("Host Summer Cup");
+        firstEdition.setEditionNumber(1);
+        firstEdition.setStatus("COMPLETED");
+        when(eventRepository.findAllBySeriesIdOrderBySeasonAscEditionNumberAsc(seriesId))
+                .thenReturn(List.of(firstEdition));
+        Map<String, Object> nextEditionRequest = Map.of(
+                "organizerTeamId", 1,
+                "season", 5,
+                "name", "Host Summer Cup",
+                "eventType", "MINI_CUP",
+                "startDay", 1,
+                "endDay", 5,
+                "participantTeamIds", List.of(2, 3, 4));
+
+        Map<String, Object> nextEdition = service.proposeEdition(seriesId, nextEditionRequest);
+
+        assertThat(nextEdition.get("seriesId")).isEqualTo(seriesId);
+        assertThat(nextEdition.get("seriesName")).isEqualTo("Host Summer Cup");
+        assertThat(nextEdition.get("editionNumber")).isEqualTo(2);
+    }
+
+    @Test
     void confirmationRevalidatesDraftDateBeforePostingMoney() {
         FriendlyEvent event = miniCup();
         event.setStartDay(5);

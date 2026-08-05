@@ -21,6 +21,12 @@ public class FriendlyEvent {
     private long organizerTeamId;
     private String name;
 
+    /** Stable identity shared by every seasonal edition of an unofficial competition. */
+    @Column(length = 80)
+    private String seriesId;
+    private String seriesName;
+    private int editionNumber;
+
     /** TRAINING_CAMP, MINI_LEAGUE or MINI_CUP. */
     private String eventType;
 

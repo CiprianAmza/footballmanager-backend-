@@ -81,6 +81,21 @@ public class FriendlyController {
         return friendlyEventService.getFriendlyHonours(teamId);
     }
 
+    @GetMapping("/competitions")
+    public List<Map<String, Object>> getFriendlyCompetitions(@RequestParam(defaultValue = "0") long teamId) {
+        return friendlyEventService.getFriendlyCompetitions(teamId);
+    }
+
+    @GetMapping("/competitions/{seriesId}")
+    public Map<String, Object> getFriendlyCompetition(@PathVariable String seriesId) {
+        return friendlyEventService.getFriendlyCompetition(seriesId);
+    }
+
+    @PostMapping("/competitions/{seriesId}/editions")
+    public Map<String, Object> proposeEdition(@PathVariable String seriesId, @RequestBody Map<String, Object> request) {
+        return friendlyEventService.proposeEdition(seriesId, request);
+    }
+
     @GetMapping("/plannerOptions/{teamId}")
     public Map<String, Object> getPlannerOptions(@PathVariable long teamId) {
         return friendlyEventService.plannerOptions(teamId);
