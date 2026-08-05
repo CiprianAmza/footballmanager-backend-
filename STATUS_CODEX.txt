@@ -1,82 +1,55 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 09:28 CEST
+Ultima actualizare: 2026-08-05 09:32 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Clasament al jucatorilor care au obtinut nota 10.0 intr-un meci, ordonat dupa
-numarul de reusite si filtrabil general, per competitie sau per nivel
-CHAMPIONSHIP / CUP.
+Corectarea paginii /media-prediction/:competitionId astfel incat panoul tactic
+din dreapta sa ramana vizibil cand competitia contine multe echipe.
+
+Problema identificata
+---------------------
+- Inaltimea randului CSS Grid era determinata de intregul tabel cu echipe.
+- Panoul tactic era intins la aceeasi inaltime, iar terenul era centrat vertical
+  in acel spatiu; de aceea aparea mult prea jos in dreapta.
+- Containerul avea overflow: hidden, ceea ce ar fi impiedicat position: sticky
+  sa urmareasca scroll-ul paginii.
 
 Ce a fost implementat
 ---------------------
-- Tab nou "Perfect 10s" in Data Hub, cu un header dedicat "The Perfect 10 Club".
-- Clasament descrescator dupa numarul de note 10; jucatorii cu acelasi numar
-  primesc acelasi loc in clasament.
-- Filtre rapide General, Championship si Cup.
-- Selector pentru o competitie exacta; lista include numarul total de note 10
-  si numarul de jucatori pentru fiecare competitie.
-- Linkuri directe spre pagina jucatorului si pagina ultimului club la care a
-  obtinut o nota perfecta.
-- Coloane pentru total, Championship, Cup, numar de competitii si intervalul
-  de sezoane in care au fost obtinute notele perfecte.
-- Stari Loading, Error si Empty, plus layout responsive pentru mobil.
-- Stilurile folosesc tokenurile sistemului global de teme si se adapteaza
-  automat la tema selectata.
+- Coloanele grid folosesc acum limite minmax, pentru o impartire stabila.
+- Elementele sunt aliniate sus, iar grid-ul nu mai intinde panoul tactic pana
+  la inaltimea listei.
+- Panoul tactic foloseste position: sticky si ramane la 76 px sub bara globala
+  cand utilizatorul deruleaza lista echipelor.
+- Inaltimea panoului este raportata la viewport si limitata la 760 px, astfel
+  incat terenul si jucatorii raman vizibili pe ecran.
+- A fost eliminata taierea scroll-ului de catre containerul grid.
+- La latimi sub 820 px, layout-ul devine o singura coloana si sticky este
+  dezactivat, evitand suprapuneri pe tableta si mobil.
+- La latimi sub 560 px au fost ajustate headerul, padding-ul, numele si
+  dimensiunea jucatorilor, precum si cardul de detalii.
 
-Backend
--------
-- Endpoint nou: GET /stats/perfect-ratings.
-- Parametri optionali:
-  - level=ALL|CHAMPIONSHIP|CUP;
-  - competitionId=<id> (are prioritate fata de level);
-  - limit=1..200.
-- Sursa este tabela Scorer, deci clasamentul foloseste performantele reale
-  salvate dupa meci, nu o estimare derivata.
-- O nota este considerata 10.0 daca valoarea stocata este intre 9.95 si 10.0,
-  acelasi interval care se afiseaza ca 10.0 la o zecimala.
-- CHAMPIONSHIP include tipurile de liga 1 si tipul legacy 3; CUP include toate
-  celelalte formate pozitive, inclusiv cupe nationale, europene si Super Cup.
-- Agregarea se face direct in baza de date pe jucator, competitie, sezon si
-  club, iar tabela Scorer are un index dedicat interogarii.
-- Numele si clubul provin din snapshot-ul istoric al aparitiei; jucatorii care
-  nu mai exista in lot primesc un fallback stabil Player #id.
-
-Fisiere backend
+Fisier frontend
 ---------------
-- src/main/java/com/footballmanagergamesimulator/controller/StatsController.java
-- src/main/java/com/footballmanagergamesimulator/model/Scorer.java
-- src/main/java/com/footballmanagergamesimulator/repository/ScorerRepository.java
-- src/main/java/com/footballmanagergamesimulator/service/PerfectRatingLeaderboardService.java
-- src/test/java/com/footballmanagergamesimulator/repository/ScorerRepositoryLeaderboardAggregateTest.java
-- src/test/java/com/footballmanagergamesimulator/service/PerfectRatingLeaderboardServiceTest.java
-
-Fisiere frontend
-----------------
-- src/app/data-hub/data-hub.component.ts
-- src/app/data-hub/data-hub.component.html
-- src/styles.css
+- src/app/media-prediction/media-prediction.component.css
 
 Verificare
 ----------
-- Teste unitare si JPA pentru Perfect Rating leaderboard: OK.
-- Query-ul include 10.0 si 9.95 si exclude 9.90: verificat prin test JPA.
-- Build backend fara teste: OK.
-- Build Angular production: OK (hash 5f3e75d78380b2a7).
-- Verificarea diff --check pentru backend si frontend: OK.
-- Browserul local a incarcat ruta Data Hub si stilurile Perfect 10; sesiunea
-  browserului nu era autentificata, deci datele protejate nu au putut fi
-  inspectate interactiv fara folosirea credentialelor utilizatorului.
-- Avertismentele existente de bundle budget/autoprefixer si warning-ul H2
-  SHOT_EVENT sunt preexistente si nu blocheaza build-ul sau testele.
+- Angular production build: OK (hash 049dd41d6d7053cc).
+- Verificarea git diff --check: OK.
+- Ruta locala a fost deschisa in browser; sesiunea nu era autentificata, astfel
+  ca browserul a afisat ecranul Sign in si nu au fost folosite credentialele
+  utilizatorului pentru a forta accesul la cariera.
+- Avertismentele existente de bundle budget, selector minification si
+  autoprefixer nu sunt produse de acest fix si nu blocheaza build-ul.
 
 Nota de rulare
 --------------
-Backend-ul local trebuie repornit pentru a expune endpoint-ul nou si pentru ca
-Hibernate sa creeze indexul nou. Frontend-ul il preia prin hot reload; altfel
-trebuie repornit si serverul Angular.
+Nu este necesara nicio modificare sau repornire backend. Cu hot reload activ,
+frontend-ul preia automat CSS-ul; altfel trebuie repornit serverul Angular.
 
 Regula de urmarire
 ------------------
