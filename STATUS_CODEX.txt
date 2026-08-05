@@ -1,13 +1,13 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 09:06 CEST
+Ultima actualizare: 2026-08-05 09:09 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Tema globala Space / Galaxy, adaugata langa Classic, Dark, Light, Retro,
-Medieval, Matrix, Disco, Boho, Nature, Ocean si Harry Potter.
+Tema globala Halloween, adaugata langa Classic, Dark, Light, Retro, Medieval,
+Matrix, Disco, Boho, Nature, Ocean, Space / Galaxy si Harry Potter.
 
 Analiza si arhitectura
 ----------------------
@@ -24,10 +24,10 @@ Analiza si arhitectura
 Ce a fost implementat
 ---------------------
 - Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
-- Douasprezece carduri mari cu preview, descriere, paleta si mini-interfata.
+- Treisprezece carduri mari cu preview, descriere, paleta si mini-interfata.
 - Aplicarea temei este instantanee la click, fara buton Save separat.
 - Buton Restore Classic si confirmare vizuala dupa salvare.
-- ThemeService global cu validare stricta inclusiv pentru space-galaxy.
+- ThemeService global cu validare stricta inclusiv pentru halloween.
 - Preferinta este salvata local si sincronizata in user_ui_preferences sub
   cheia appearance.theme.
 - Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
@@ -69,6 +69,8 @@ Teme
   stelar si glow discret pentru titluri si suprafetele principale.
 - Miscarea foarte lenta a fundalului cosmic este dezactivata automat prin
   prefers-reduced-motion, la fel ca animatia temei Disco.
+- Halloween: negru de carbune, portocaliu dovleac, violet inchis si verde
+  spectral, cu ceata, glow nocturn si dungi diagonale foarte discrete.
 
 Acoperire globala
 -----------------
@@ -76,7 +78,7 @@ Acoperire globala
 - Sidebar, active links, hover, separatoare si top command bar.
 - Titluri, fonturi, page headers, tabs si active states.
 - Carduri, panouri, modale, tabele, randuri si formulare.
-- Settings foloseste acum un grid auto-responsive pentru toate cele douasprezece teme,
+- Settings foloseste acum un grid auto-responsive pentru toate cele treisprezece teme,
   cu doua coloane pe tableta si una pe mobil.
 
 Fisiere frontend
@@ -96,9 +98,9 @@ Fisiere frontend
 
 Verificare
 ----------
-- Build Angular production: OK (hash 5ef58c37be1dfae8).
+- Build Angular production: OK (hash 3dbce115021011e1).
 - Verificarea diff --check: OK.
-- Browser: pagina locala a incarcat sase reguli CSS Space / Galaxy, iar atributul initial
+- Browser: pagina locala a incarcat cinci reguli CSS Halloween, iar atributul initial
   data-fm-theme=classic este aplicat inainte de randare.
 - Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
   ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
