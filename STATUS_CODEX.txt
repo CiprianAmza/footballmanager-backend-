@@ -1,59 +1,82 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 23:48 CEST
+Ultima actualizare: 2026-08-06 00:01 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Redesign UI/UX pentru pagina Market, inspirat din produse financiare usor de folosit.
+Variante UI/UX paralele inspirate de ecranele clasice Football Manager pentru
+Home, Squad, Tactics si Live Match, fara inlocuirea paginilor existente.
 
-Ce a fost analizat
-------------------
-- TradingView: watchlist compact, coloane sortabile, indicatori esentiali si
-  panou separat pentru detaliul instrumentului.
-- Baymard: filtrele active trebuie sa fie vizibile, usor de inteles si usor de
-  eliminat individual sau toate odata.
-- Robinhood: ordinul porneste din pagina instrumentului si are un pas separat
-  de review, cu pretul estimat afisat inainte de confirmare.
+Analiza aplicata
+----------------
+- Referintele folosesc densitate informationala mare, dar pastreaza contextul:
+  terenul, lotul, statisticile si actiunile relevante sunt vizibile simultan.
+- Paginile vechi separa bine domeniile, dar cer mai multa navigare intre datele
+  care participa la aceeasi decizie.
+- Variantele noi pastreaza aspectul modern al proiectului, adopta ierarhia
+  compacta si reduc numarul de click-uri dintre informatie si actiune.
+- Nu a fost copiat skin-ul jocului original; au fost adaptate principiile de
+  layout, densitate, context persistent si control direct.
 
-Ce a fost implementat in frontend
----------------------------------
-- Pagina Market are acum un rezumat de portofoliu: buying power, market value,
-  unrealized P/L si realized P/L.
-- Lista instrumentelor functioneaza ca un watchlist: cautare dupa simbol/nume,
-  filtre dupa risc si tip, sortare dupa variatia zilnica, pret, nume sau oferta.
-- Filtrele active apar ca chips si pot fi eliminate individual sau toate odata.
-- Fiecare rand arata simbolul, tipul, detinerea curenta, pretul, variatia zilnica
-  si disponibilitatea; selectarea randului deschide detaliile fara actiuni
-  aglomerate repetate in fiecare rand.
-- Panoul de detaliu este sticky pe desktop si include pretul, variatia, graficul
-  pentru 7/30/90/366 zile, riscul, limita zilnica, oferta si evaluarea clubului.
-- Ordinul Buy/Sell are cantitate, +/- si Max, buying power/detinere disponibila,
-  cost sau credit estimat si validare inainte de trimitere.
-- Confirmarea nu mai executa direct: exista un dialog Review order cu side,
-  cantitate, pret de executie, total estimat si pozitia/cash-ul rezultat.
-- Erorile serverului raman in dialog, iar protectia idempotenta existenta este
-  pastrata la retry.
-- Adviser este mutat intr-un tab separat, progressive disclosure, pentru ca
-  fluxul principal de tranzactionare sa ramana simplu.
-- Layout-ul este responsive: pe ecrane inguste KPI-urile si filtrele se reaseaza,
-  tabelul pastreaza doar informatiile esentiale, iar detaliul trece sub lista.
+Rute noi pentru comparatie
+--------------------------
+- /ui-lab: punct central care explica si deschide toate comparatiile.
+- /home4: Director dashboard.
+- /squad4 si /squad4/:teamId: Squad register.
+- /tactics6 si /tactics6/:teamId: Tactical selection studio.
+- /match-centre2/:matchKey: Broadcast match centre; query-ul interactive=0
+  permite folosirea unei sesiuni doar pentru replay.
 
-Ce a fost implementat in backend
---------------------------------
-- Instrumentele expun dailyChangeBps din ultimul snapshot al zilei, incarcat
-  batch pentru toate instrumentele active.
-- Portofoliul expune cashBalance, folosit de UI ca buying power si pentru
-  estimarea cash-ului ramas dupa ordin.
-- Nu exista modificari de schema sau incompatibilitati cu save/load.
+Home 4 - Director dashboard
+---------------------------
+- Reuneste pe un singur ecran urmatorul meci, clasamentul, liderii lotului,
+  alertele, increderea boardului, forma, programul, finantele si stirile.
+- Actiunile Selection, Tactics, Medical, Staff brief si Analysis sunt plasate
+  langa widgetul care le motiveaza.
+- Foloseste datele reale deja incarcate de Home si nu introduce valori de joc
+  persistate sau endpointuri backend duplicate.
+
+Squad 4 - Squad register
+------------------------
+- Tabel dens, sortabil, cu filtre de cautare, pozitie, disponibilitate, core XI
+  si U21, plus mod compact/comfortable.
+- Afiseaza simultan ability, potential, personality, squad status, condition,
+  sharpness, average rating, value, wage, contract si nationality.
+- Jucatorii indisponibili si alertele de contract/moral sunt vizibile fara a
+  scoate utilizatorul din tabel.
+
+Tactics 6 - Tactical selection studio
+-------------------------------------
+- Rosterul, instructiunile, terenul, primul XI si banca sunt vizibile impreuna.
+- Pastreaza drag-and-drop, formatiile backend, restrictiile Chairman, Quick Pick,
+  Clear si salvarea reala din Tactics 4.
+- Afiseaza condition, sharpness, rating, selectia curenta, familiaritatea XI si
+  rezumatul planului de meci.
+- Indicatorul SHADOW ramane vizibil pentru sloturile care au instructiunea.
+
+Match Centre 2 - Broadcast workspace
+------------------------------------
+- Foloseste exact contractul si motorul LiveMatch existent.
+- Match facts sau squad fitness raman in stanga, terenul permanent in centru,
+  iar comentariul live este fixat sub teren.
+- Controalele 2D/3D, viteza, sunetul, auto highlights, substitutiile si replay-ul
+  raman functionale; noua ruta modifica doar prezentarea.
+
+Arhitectura si performanta
+--------------------------
+- Toate prototipurile sunt standalone si lazy-loaded prin loadComponent.
+- Prima tentativa cu importuri eager a depasit limita hard a bundle-ului si a
+  fost corectata; bundle-ul initial final ramane la dimensiunea existenta.
+- Paginile curente si rutele lor nu au fost inlocuite.
 
 Verificare
 ----------
-- mvn -q -DskipTests compile: OK.
-- RegentPhase2MarketIT: OK; 4 teste, 0 failures, 0 errors. Testul verifica acum
-  explicit dailyChangeBps si cashBalance expuse de query service.
-- Angular production build: OK, hash 3e580a285dc8614d.
-- Build-ul pastreaza avertismentele globale existente pentru bundle budget,
-  selectori CSS si autoprefixer; nu sunt erori introduse de pagina Market.
-- git diff --check: OK in backend si frontend.
+- Angular production build: OK, hash e40b40da2d68062b.
+- Noile pagini sunt livrate in chunk-uri lazy separate.
+- git diff --check: OK pentru toate fisierele taskului.
+- Verificarea vizuala locala s-a oprit corect la autentificare; formularul avea
+  credentiale precompletate, dar Codex nu le-a trimis fara confirmarea expresa.
+- Rularea Karma tintita este blocata de erori TypeScript deja existente in alte
+  spec-uri AppComponent, Market si Multiplayer; nu sunt produse de aceste rute.
