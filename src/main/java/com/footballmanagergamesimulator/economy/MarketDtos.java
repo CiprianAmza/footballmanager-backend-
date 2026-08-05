@@ -15,6 +15,7 @@ public final class MarketDtos {
     public record InstrumentView(long id, String code, MarketInstrumentType type, Long teamId,
                                  String name, EconomyDtos.Money price, long totalSupply,
                                  long availableSupply, MarketRiskClass riskClass,
+                                 int dailyChangeBps,
                                  int dailyLimitBps, int weeklyLimitBps,
                                  String algorithmVersion, EconomyDtos.Money underlyingClubValuation,
                                  String clubValuationVersion) { }
@@ -26,7 +27,7 @@ public final class MarketDtos {
                                EconomyDtos.Money marketValue, EconomyDtos.Money unrealizedGain) { }
     public record PortfolioView(List<PositionView> positions, EconomyDtos.Money totalCostBasis,
                                 EconomyDtos.Money marketValue, EconomyDtos.Money unrealizedGain,
-                                EconomyDtos.Money realizedGain) { }
+                                EconomyDtos.Money realizedGain, EconomyDtos.Money cashBalance) { }
     public record TradeRequest(@Positive long instrumentId, @NotNull MarketTradeSide side,
                                @Positive long quantity, @NotBlank String idempotencyKey) { }
     public record TradeView(long id, long instrumentId, String code, MarketTradeSide side,

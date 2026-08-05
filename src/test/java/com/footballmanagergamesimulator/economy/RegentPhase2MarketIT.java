@@ -90,6 +90,14 @@ class RegentPhase2MarketIT {
                     .containsOnly(DeterministicMarketPriceService.MARKET_V1);
             assertPriceBounds(active, snapshots);
         }
+        MarketPriceSnapshot latest = snapshotRepository
+                .findTopByInstrumentIdOrderBySeasonNumberDescGameDayDesc(instrument.getId())
+                .orElseThrow();
+        MarketDtos.InstrumentView instrumentView = queryService.instruments().stream()
+                .filter(view -> view.id() == instrument.getId())
+                .findFirst()
+                .orElseThrow();
+        assertThat(instrumentView.dailyChangeBps()).isEqualTo(latest.getDailyChangeBps());
     }
 
     @Test
@@ -129,6 +137,7 @@ class RegentPhase2MarketIT {
         MarketDtos.PortfolioView portfolio = queryService.portfolio(profile.getId());
         assertThat(portfolio.marketValue().amount()).isEqualTo((price + 100) * 600);
         assertThat(portfolio.unrealizedGain().amount()).isEqualTo(60_000L);
+        assertThat(portfolio.cashBalance().amount()).isEqualTo(account.getCashBalance());
         assertThat(wealthQueryService.wealth(profile.getId()).investmentValue().amount())
                 .isEqualTo(portfolio.marketValue().amount());
 

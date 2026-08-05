@@ -1,44 +1,59 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 20:29 CEST
+Ultima actualizare: 2026-08-05 23:48 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Where are they now? pentru Best XI-ul fiecarui sezon din arhiva unui club.
+Redesign UI/UX pentru pagina Market, inspirat din produse financiare usor de folosit.
 
-Ce a fost implementat
----------------------
-- Best XI — Season X din Club Archive are acum o sectiune expandabila pentru
-  fiecare jucator: Where are they now?
-- Este afisat clubul sau organizatia actuala si rolul real al persoanei.
-- Sunt recunoscute separat starile Active player, Free agent, Retired, Manager,
-  Staff, Club owner, Other si Unknown.
-- Rolurile de staff folosesc functia exacta: assistant manager, first-team coach,
-  fitness coach, goalkeeping coach, youth coach sau head of youth development.
-- Statutul de patron este citit din Ownership, adica din proprietatea majoritara
-  persistata, nu este dedus doar din avere sau reputatie.
-- Pentru fiecare fost component al Best XI este afisat traseul transferurilor
-  incepand cu plecarea din club in sezonul selectat si toate mutarile ulterioare.
-- Fiecare mutare include sezonul, clubul de plecare, destinatia si suma; mutarile
-  fara taxa sunt marcate Free.
-- Sunt agregate toate meciurile, golurile si assisturile realizate dupa sezonul
-  Best XI, impreuna cu ultimul sezon in care jucatorul a fost activ.
-- Jucatorii retrasi pastreaza varsta retragerii. Daca persoana a devenit staff,
-  manager sau patron, noul rol si cluburile relevante au prioritate in sumar.
-- Daca profilul curent nu mai exista, istoricul de meciuri si transferuri ramane
-  vizibil si UI-ul spune explicit Status unknown, fara a inventa informatii.
-- Selectarea altui sezon din dropdown reincarca automat Where are they now?
-  pentru Best XI-ul acelui an.
-- Implementarea foloseste trei interogari batch pentru cei maximum 11 jucatori:
-  traseu de transfer, cifre ulterioare si proprietati; nu produce N+1 queries.
+Ce a fost analizat
+------------------
+- TradingView: watchlist compact, coloane sortabile, indicatori esentiali si
+  panou separat pentru detaliul instrumentului.
+- Baymard: filtrele active trebuie sa fie vizibile, usor de inteles si usor de
+  eliminat individual sau toate odata.
+- Robinhood: ordinul porneste din pagina instrumentului si are un pas separat
+  de review, cu pretul estimat afisat inainte de confirmare.
+
+Ce a fost implementat in frontend
+---------------------------------
+- Pagina Market are acum un rezumat de portofoliu: buying power, market value,
+  unrealized P/L si realized P/L.
+- Lista instrumentelor functioneaza ca un watchlist: cautare dupa simbol/nume,
+  filtre dupa risc si tip, sortare dupa variatia zilnica, pret, nume sau oferta.
+- Filtrele active apar ca chips si pot fi eliminate individual sau toate odata.
+- Fiecare rand arata simbolul, tipul, detinerea curenta, pretul, variatia zilnica
+  si disponibilitatea; selectarea randului deschide detaliile fara actiuni
+  aglomerate repetate in fiecare rand.
+- Panoul de detaliu este sticky pe desktop si include pretul, variatia, graficul
+  pentru 7/30/90/366 zile, riscul, limita zilnica, oferta si evaluarea clubului.
+- Ordinul Buy/Sell are cantitate, +/- si Max, buying power/detinere disponibila,
+  cost sau credit estimat si validare inainte de trimitere.
+- Confirmarea nu mai executa direct: exista un dialog Review order cu side,
+  cantitate, pret de executie, total estimat si pozitia/cash-ul rezultat.
+- Erorile serverului raman in dialog, iar protectia idempotenta existenta este
+  pastrata la retry.
+- Adviser este mutat intr-un tab separat, progressive disclosure, pentru ca
+  fluxul principal de tranzactionare sa ramana simplu.
+- Layout-ul este responsive: pe ecrane inguste KPI-urile si filtrele se reaseaza,
+  tabelul pastreaza doar informatiile esentiale, iar detaliul trece sub lista.
+
+Ce a fost implementat in backend
+--------------------------------
+- Instrumentele expun dailyChangeBps din ultimul snapshot al zilei, incarcat
+  batch pentru toate instrumentele active.
+- Portofoliul expune cashBalance, folosit de UI ca buying power si pentru
+  estimarea cash-ului ramas dupa ordin.
+- Nu exista modificari de schema sau incompatibilitati cu save/load.
 
 Verificare
 ----------
-- LegacyRecordsServiceTest: OK; verifica jucator activ transferat, cifrele
-  ulterioare, retragerea, conversia in staff si statutul de patron.
-- Angular production build: OK, hash 4ff7ba1783f02dcf.
+- mvn -q -DskipTests compile: OK.
+- RegentPhase2MarketIT: OK; 4 teste, 0 failures, 0 errors. Testul verifica acum
+  explicit dailyChangeBps si cashBalance expuse de query service.
+- Angular production build: OK, hash 3e580a285dc8614d.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
-  selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
+  selectori CSS si autoprefixer; nu sunt erori introduse de pagina Market.
 - git diff --check: OK in backend si frontend.

@@ -64,8 +64,10 @@ public class MarketQueryService {
                 .toList();
         List<Team> teams = teamIds.isEmpty() ? List.of() : teamRepository.findAllById(teamIds);
         Map<Long, ClubValuationService.Valuation> valuations = clubValuationService.valueBatch(teams);
+        Map<Long, MarketPriceSnapshot> latestSnapshots = latestSnapshotBatch();
         return instruments.stream().map(instrument ->
-                instrumentView(instrument, valuations.get(instrument.getTeamId()))).toList();
+                instrumentView(instrument, valuations.get(instrument.getTeamId()),
+                        latestSnapshots.get(instrument.getId()))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -99,7 +101,8 @@ public class MarketQueryService {
                     position.getQuantity(), money(position.getTotalCostBasis()), money(marketValue), money(unrealized)));
         }
         return new MarketDtos.PortfolioView(List.copyOf(views), money(totalBasis), money(totalMarket),
-                money(subtract(totalMarket, totalBasis)), money(account.getRealizedInvestmentGain()));
+                money(subtract(totalMarket, totalBasis)), money(account.getRealizedInvestmentGain()),
+                money(account.getCashBalance()));
     }
 
     @Transactional(readOnly = true)
@@ -123,12 +126,26 @@ public class MarketQueryService {
     }
 
     private MarketDtos.InstrumentView instrumentView(MarketInstrument value,
-                                                     ClubValuationService.Valuation valuation) {
+                                                     ClubValuationService.Valuation valuation,
+                                                     MarketPriceSnapshot latestSnapshot) {
         return new MarketDtos.InstrumentView(value.getId(), value.getCode(), value.getInstrumentType(),
                 value.getTeamId(), value.getName(), money(value.getCurrentPrice()), value.getTotalSupply(),
-                value.getAvailableSupply(), value.getRiskClass(), value.getDailyLimitBps(), value.getWeeklyLimitBps(),
+                value.getAvailableSupply(), value.getRiskClass(),
+                latestSnapshot == null ? 0 : latestSnapshot.getDailyChangeBps(),
+                value.getDailyLimitBps(), value.getWeeklyLimitBps(),
                 value.getPriceAlgorithmVersion(), valuation == null ? null : money(valuation.totalValue()),
                 valuation == null ? null : valuation.formulaVersion());
+    }
+
+    private Map<Long, MarketPriceSnapshot> latestSnapshotBatch() {
+        MarketPriceSnapshot latest = snapshotRepository.findTopByOrderBySeasonNumberDescGameDayDescInstrumentIdAsc()
+                .orElse(null);
+        if (latest == null) return Map.of();
+        Map<Long, MarketPriceSnapshot> result = new HashMap<>();
+        snapshotRepository.findAllBySeasonNumberAndGameDayOrderByInstrumentIdAsc(
+                latest.getSeasonNumber(), latest.getGameDay()).forEach(snapshot ->
+                result.put(snapshot.getInstrumentId(), snapshot));
+        return result;
     }
 
     private MarketDtos.PriceView priceView(MarketPriceSnapshot value) {
