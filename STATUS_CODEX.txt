@@ -1,88 +1,89 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 08:24 CEST
+Ultima actualizare: 2026-08-05 08:41 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Restaurarea subpaginii active la navigarea Back/Forward.
+Selector global de teme in Settings: Classic, Retro, Medieval si Matrix.
 
-Problema identificata
+Analiza si arhitectura
+----------------------
+- Aplicatia nu avea o pagina Settings si nici un mecanism global de tema.
+- Exista deja endpoint-ul generic per utilizator /api/ui-preferences/{key};
+  acesta a fost reutilizat, deci nu a fost necesar un endpoint backend nou.
+- Tema este reprezentata prin tokenuri CSS globale, nu prin copii separate ale
+  fiecarei pagini. Astfel, o componenta noua poate folosi automat aceeasi tema.
+- Stilurile vechi contin multe culori hardcodate; a fost adaugat un strat de
+  compatibilitate pentru shell, wrappers, carduri, tabele, formulare si tabs.
+- Terenurile, heatmap-urile, fetele, stemele si culorile semantice ale
+  succesului/erorilor nu sunt recolorate fortat.
+
+Ce a fost implementat
 ---------------------
-- Majoritatea paginilor pastrau activeTab doar in memoria componentei Angular.
-- La parasirea rutei componenta era distrusa, iar Back o recrea cu tabul implicit.
-- Astfel Player > Contract revenea in Player > Overview dupa o vizita pe Fixtures.
+- Ruta noua /settings, accesibila din sidebar-ul Manager si bara Chairman.
+- Patru carduri mari cu preview, descriere, paleta si mini-interfata.
+- Aplicarea temei este instantanee la click, fara buton Save separat.
+- Buton Restore Classic si confirmare vizuala dupa salvare.
+- ThemeService global cu validare stricta pentru classic/retro/medieval/matrix.
+- Preferinta este salvata local si sincronizata in user_ui_preferences sub
+  cheia appearance.theme.
+- Preferinta per utilizator este reincarcata dupa restaurarea sesiunii.
+- Un script minimal din index.html aplica tema locala inainte de bootstrap,
+  eliminand flash-ul temporar al temei Classic la refresh.
 
-Solutia implementata
---------------------
-- A fost creat utilitarul comun shared/url-tab-state.ts.
-- Tabul activ este validat si sincronizat cu parametrul URL `tab`.
-- Schimbarea subpaginii foloseste Router.navigate fara replaceUrl, deci creeaza
-  o intrare reala in istoricul browserului.
-- Parametrii existenti, inclusiv actingTeamId, sunt pastrati prin merge.
-- Tabul implicit elimina parametrul `tab`, pastrand URL-ul canonic scurt.
-- O valoare necunoscuta din URL revine sigur la tabul implicit.
-- Componentele imbricate folosesc chei independente pentru a nu reseta pagina
-  parinte: analyticsTab, fixturesTab si tacticsTab.
+Teme
+----
+- Classic: designul FM modern existent, dark si data-first.
+- Retro: navy/purple, cyan si magenta, font monospace, colturi drepte,
+  umbre pixelate si grila discreta de computer din anii 1990.
+- Medieval: maro inchis, pergament, alama, rosu heraldic, font serif si
+  suprafete inspirate de lemn/documente regale.
+- Matrix: negru si verde fosforescent, monospace, colturi drepte, glow subtil,
+  fundal terminal si scanlines globale.
 
-Pagini acoperite
+Acoperire globala
+-----------------
+- Body, app-root, pagina rutata si shell-ul Manager/Chairman.
+- Sidebar, active links, hover, separatoare si top command bar.
+- Titluri, fonturi, page headers, tabs si active states.
+- Carduri, panouri, modale, tabele, randuri si formulare.
+- Settings este responsive: patru coloane desktop, doua pe tableta si una pe
+  mobil.
+
+Fisiere frontend
 ----------------
-- Player: Overview, Stats, Contract, History, Analytics, Trophies.
-- Player Analytics: Performance Lab, Competition radar, Goalkeeper Hub.
-- Transfers si toate cele opt subpagini.
-- Fixtures / Calendar, inclusiv varianta inclusa in pagina Club.
-- Club, Coefficients, Data Hub, Staff, Finances si Training.
-- Training Lab, Medical Centre si Assistant Manager.
-- Top Scorers, Tactics Advisor, Tactics view si Season Summary.
-- Squad Planner nu necesita schimbare deoarece are o singura subpagina activa.
-- Development Centre nu este momentan rutat catre componenta sa, ci catre
-  FeatureUnavailable, deci nu are stare activa de restaurat.
-
-Exemplu rezultat
-----------------
-1. /player/119?actingTeamId=86
-2. Click Contract -> /player/119?actingTeamId=86&tab=contract
-3. Navigare la /fixtures/86
-4. Back -> acelasi profil cu tabul Contract activ.
-
-Fisiere principale frontend
----------------------------
-- src/app/shared/url-tab-state.ts
-- src/app/shared/url-tab-state.spec.ts
-- src/app/player/player.component.ts
-- src/app/player-analytics/player-analytics.component.ts
-- src/app/fixtures/fixtures.component.ts
-- src/app/transfer-page/transfer-page.component.ts
-- src/app/club-info/club-info.component.ts
-- src/app/coefficients/coefficients.component.ts
-- src/app/data-hub/data-hub.component.ts
-- src/app/staff/staff.component.ts
-- src/app/finances/finances.component.ts
-- src/app/training/training.component.ts
-- src/app/training1/training1.component.ts
-- src/app/medical-centre/medical-centre.component.ts
-- src/app/assistant-manager/assistant-manager.component.ts
-- src/app/scorer-leaderboard/scorer-leaderboard.component.ts
-- src/app/tactics-advisor/tactics-advisor.component.ts
-- src/app/tactics3/tactics3.component.ts
-- src/app/season-summary/season-summary.component.ts
+- src/app/services/theme.service.ts
+- src/app/services/theme.service.spec.ts
+- src/app/settings/settings.component.ts
+- src/app/settings/settings.component.html
+- src/app/settings/settings.component.css
+- src/styles.css
+- src/index.html
+- src/app/app.component.ts
+- src/app/app.component.html
+- src/app/app.component.css
+- src/app/app-routing.module.ts
+- src/app/app.module.ts
 
 Verificare
 ----------
 - Build Angular development: OK.
 - Verificarea diff --check: OK.
-- Erorile noi de compilare din spec-urile Training/Player/Transfers au fost
-  eliminate prin actualizarea fixture-urilor lor.
-- Suita Karma completa ramane blocata inainte de executie de patru erori de
-  compilare preexistente in app.component.spec si doua spec-uri multiplayer.
-- Browserul local de test a ajuns la ecranul Sign in; nu exista o sesiune deja
-  autentificata, iar datele de acces afisate nu au fost trimise automat.
+- Browser: atributul data-fm-theme=classic si tokenurile initiale sunt aplicate
+  inainte de randare; zero erori in consola.
+- Browserul local nu avea sesiune autentificata, deci /settings a afisat corect
+  ecranul Sign in; selectarea vizuala a celorlalte teme nu a fost automatizata.
+- Suita Karma ramane blocata inainte de executie de cele patru erori de
+  compilare preexistente din app.component.spec si spec-urile multiplayer.
+- Cele doua avertismente autoprefixer din chairman-club si friendlies3 sunt
+  preexistente si nu sunt legate de teme.
 
 Nota de rulare
 --------------
-Nu este necesara nicio schimbare sau repornire a backend-ului. Frontend-ul cu
-hot reload activ preia schimbarea; altfel trebuie repornit serverul Angular.
+Nu este necesara repornirea sau migrarea backend-ului. Cu hot reload activ,
+frontend-ul preia schimbarea; altfel trebuie repornit serverul Angular.
 
 Regula de urmarire
 ------------------
