@@ -39,6 +39,9 @@ public class ShotEvent {
     @Column(name = "opponent_team_id", nullable = false)
     private long opponentTeamId;
 
+    // MINUTE is a reserved keyword in H2. Leaving Hibernate's implicit column
+    // name here prevents the entire SHOT_EVENT table from being created.
+    @Column(name = "event_minute", nullable = false)
     private int minute;
     private double originX;
     private double originY;

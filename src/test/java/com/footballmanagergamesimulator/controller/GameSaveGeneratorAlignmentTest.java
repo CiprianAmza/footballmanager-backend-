@@ -43,7 +43,8 @@ class GameSaveGeneratorAlignmentTest {
             "TAKEOVER_EXECUTION", "CLUB_CASH_TRANSFER", "TRADER_ADVISER_CONTRACT",
             "TRADER_ADVICE_RECOMMENDATION", "CHAIRMAN_TACTICAL_MANDATE",
             "CHAIRMAN_TACTICAL_MANDATE_SLOT", "PLAYER_POSITION_FAMILIARITY",
-            "PLAYER_ROLE_FAMILIARITY", "PLAYER_FOOT_PROFILE");
+            "PLAYER_ROLE_FAMILIARITY", "PLAYER_FOOT_PROFILE", "FRIENDLY_EVENT",
+            "SHOT_EVENT", "POSSESSION_PROGRESSION", "DEFENSIVE_PRESSURE", "SET_PIECE_EVENT");
 
     @jakarta.annotation.Resource private GameSaveImportService service;
     @jakarta.annotation.Resource private JdbcTemplate jdbc;

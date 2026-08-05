@@ -1,58 +1,48 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 10:48 CEST
+Ultima actualizare: 2026-08-05 11:02 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Stadioane generate diferit pentru fiecare club, dimensionate si finisate in
-functie de capacitate, reputatie, facilitati si identitatea echipei.
+Repararea erorii SQL la generarea/citirea evenimentelor de sut si verificarea
+legaturii cu turneele si Save/Load.
+
+Cauza confirmata
+----------------
+- Campul Java `minute` era mapat implicit pe coloana SQL `MINUTE`, cuvant
+  rezervat in H2.
+- Comanda CREATE TABLE SHOT_EVENT esua la pornire. Interogarea raportata de UI
+  era doar eroarea ulterioara: Hibernate incerca sa citeasca o tabela inexistenta.
+- Crearea/accesarea unui turneu putea declansa prima citire Data Hub, dar nu
+  algoritmul turneului stergea tabela.
 
 Ce a fost implementat
 ---------------------
-- Fiecare club primeste un design determinist unic, derivat din id, nume si
-  culori. Designul ramane identic dupa Save/Load si functioneaza si in salvarile
-  vechi fara migrare de schema.
-- Sase familii arhitecturale: Continuous Bowl, Oval, Rectangular, Compact Bowl,
-  Four Stands si Asymmetric/Horseshoe.
-- Capacitatea stabileste scara stadionului si 1, 2 sau 3 niveluri de tribune.
-- Reputatia stabileste in principal capacitatea initiala, prestigiul vizual si
-  acoperirea acoperisului. Cluburile de elita primesc arene mai mari si finisaje
-  superioare.
-- Variante pentru acoperis, colturi, fatada, nocturna, modelul gazonului si
-  proportiile fiecarei tribune.
-- Scaunele folosesc culorile reale ale clubului; denumirile de culori vechi,
-  inclusiv lila, sunt normalizate la culori CSS valide.
-- Extinderea stadionului modifica efectiv desenul: capacitatea efectiva poate
-  promova stadionul la un nou nivel de tribune fara a-i schimba identitatea.
-- Pagina Stadium afiseaza arhitectura, nivelurile si scorul de prestigiu sub
-  noua ilustratie.
-
-Backend
--------
-- StadiumDesignService genereaza descriptorul vizual stabil.
-- GET /game/facilities/{teamId} include acum campul design.
-- BootstrapService foloseste o formula monotona, limitata si rotunjita pentru
-  capacitatea initiala: o reputatie mai mare produce un stadion mai mare.
-- Nu au fost adaugate coloane noi, deci importul salvarilor vechi ramane
-  compatibil.
+- `ShotEvent.minute` foloseste acum coloana sigura `EVENT_MINUTE`.
+- Formatul Save Game a fost ridicat la v14.
+- Save/Load include acum SHOT_EVENT, POSSESSION_PROGRESSION,
+  DEFENSIVE_PRESSURE si SET_PIECE_EVENT.
+- Salvarile v5-v13 raman compatibile; pentru sectiunile Data Hub inexistente se
+  aplica o migrare determinista la liste goale.
+- USER_UI_PREFERENCES ramane stare locala per utilizator si nu este suprascrisa
+  de incarcarea unei cariere.
+- Testul de aliniere a generatoarelor a fost actualizat pentru FRIENDLY_EVENT
+  si tabelele Data Hub introduse dupa v8.
 
 Verificare
 ----------
-- StadiumDesignServiceTest: 3/3 OK.
-- Stabilitate determinista si culori diferite per club: OK.
-- Capacitate/prestigiu corelate cu reputatia: OK.
-- Extindere 30.000 -> 40.000 si trecere 1 -> 2 niveluri: OK.
-- Maven package fara teste: OK.
-- Angular production build: OK (hash b5f8152c1b71e4aa).
-- Verificarea in browser a ajuns la pagina de autentificare; credențialele
-  precompletate nu au fost trimise fara autorizarea utilizatorului.
+- SHOT_EVENT este creat cu EVENT_MINUTE, apoi scris si interogat prin repository: OK.
+- Acoperire completa a manifestului Save/Load (92 tabele): OK.
+- Import v14 cu ShotEvent si migrare v13 fara sectiunile Data Hub: OK.
+- Preflight, schema reala, generator alignment si suitele Save/Load economie:
+  22 teste rulate, toate OK dupa corectarea asteptarii versionate.
 
 Nota de rulare
 --------------
-Backend-ul si frontend-ul trebuie repornite. Dupa restart, orice cariera
-existenta primeste imediat designurile distincte, fara New Game obligatoriu.
+Backend-ul trebuie repornit pentru ca Hibernate sa creeze SHOT_EVENT cu schema
+corecta. Nu este necesar un New Game; carierele v13 si mai vechi pot fi incarcate.
 
 Regula de urmarire
 ------------------

@@ -51,6 +51,46 @@ class GameSaveRealSchemaTest {
     }
 
     @Test
+    void v14PersistsDataHubRowsAndV13MigratesThemAsEmpty() {
+        Map<String, Object> v14 = realSchemaSave(14);
+        v14.put("shotEvents", List.of(Map.ofEntries(
+                Map.entry("ID", 1401L),
+                Map.entry("MATCH_STATS_ID", 77L),
+                Map.entry("SHOT_INDEX", 0),
+                Map.entry("COMPETITION_ID", 8L),
+                Map.entry("SEASON_NUMBER", 4),
+                Map.entry("ROUND_NUMBER", 2),
+                Map.entry("TEAM_ID", 86L),
+                Map.entry("OPPONENT_TEAM_ID", 91L),
+                Map.entry("minute", 34),
+                Map.entry("ORIGINX", 0.0),
+                Map.entry("ORIGINY", 0.0),
+                Map.entry("GOAL_MOUTHY", 0.0),
+                Map.entry("GOAL_MOUTHZ", 0.0),
+                Map.entry("DISTANCE_METERS", 0.0),
+                Map.entry("ANGLE_DEGREES", 0.0),
+                Map.entry("XG", 0),
+                Map.entry("XGOT", 0),
+                Map.entry("INSIDE_BOX", false),
+                Map.entry("BIG_CHANCE", false),
+                Map.entry("UNDER_PRESSURE", false),
+                Map.entry("ON_TARGET", false))));
+
+        GameSaveImportService.ImportPlan current = importService.prepare(v14);
+        assertThat(rowsByTable(current, "SHOT_EVENT")).hasSize(1);
+        assertThat(rowsByTable(current, "SHOT_EVENT").get(0))
+                .containsEntry("EVENT_MINUTE", 34);
+
+        Map<String, Object> v13 = realSchemaSave(13);
+        v13.remove("shotEvents");
+        v13.remove("possessionProgressions");
+        v13.remove("defensivePressures");
+        v13.remove("setPieceEvents");
+        GameSaveImportService.ImportPlan legacy = importService.prepare(v13);
+        assertThat(rowsByTable(legacy, "SHOT_EVENT")).isEmpty();
+    }
+
+    @Test
     void humanStayForwardImportDefaultsLegacyMissingAndNullValuesToFalse() {
         Map<String, Object> v10 = realSchemaSave(10);
         Map<String, Object> missing = humanRow(10L, "Legacy missing");

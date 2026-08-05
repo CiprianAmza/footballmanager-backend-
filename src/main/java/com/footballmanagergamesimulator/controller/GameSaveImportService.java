@@ -52,7 +52,8 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_11 = 11;
     static final int SAVE_VERSION_12 = 12;
     static final int SAVE_VERSION_13 = 13;
-    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_13;
+    static final int SAVE_VERSION_14 = 14;
+    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_14;
 
     private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
             new StayForwardSeedIdentity(107L, "Kvekrpur", 14L, "ST"),
@@ -92,6 +93,10 @@ public class GameSaveImportService {
             new TableSpec("matchEvents", "MATCH_EVENT"),
             new TableSpec("matchStats", "MATCH_STATS"),
             new TableSpec("playerSeasonStats", "PLAYER_SEASON_STAT"),
+            new TableSpec("shotEvents", "SHOT_EVENT", SAVE_VERSION_14),
+            new TableSpec("possessionProgressions", "POSSESSION_PROGRESSION", SAVE_VERSION_14),
+            new TableSpec("defensivePressures", "DEFENSIVE_PRESSURE", SAVE_VERSION_14),
+            new TableSpec("setPieceEvents", "SET_PIECE_EVENT", SAVE_VERSION_14),
             new TableSpec("matchPlayerRatings", "MATCH_PLAYER_RATING", SAVE_VERSION_6),
             new TableSpec("matchSquads", "MATCH_SQUAD", SAVE_VERSION_6),
             new TableSpec("matchPlans", "MATCH_PLAN", SAVE_VERSION_6),
@@ -160,6 +165,7 @@ public class GameSaveImportService {
     private static final Set<String> PRESERVED_TABLES = Set.of(
             "USERS", "PERSON_PROFILE", "FLYWAY_SCHEMA_HISTORY",
             "GAME_ROOM", "GAME_ROOM_MEMBER", "ROOM_CONTINUE_CYCLE", "ROOM_CONTINUE_VOTE",
+            "USER_UI_PREFERENCES",
             // Dev Phase Lab taste data belongs to this installation, not to the
             // portable football world, just like account/profile preferences.
             "PHASE_RATING");
@@ -183,6 +189,7 @@ public class GameSaveImportService {
             Map.entry("COMPETITION_TEAM_INFO_DETAIL", Map.of("day", "MATCH_DAY")),
             Map.entry("FINANCIAL_RECORD", Map.of("day", "RECORD_DAY")),
             Map.entry("MATCH_EVENT", Map.of("minute", "EVENT_MINUTE")),
+            Map.entry("SHOT_EVENT", Map.of("minute", "EVENT_MINUTE")),
             Map.entry("PLAYER_INTERACTION", Map.of("day", "INTERACTION_DAY")),
             Map.entry("PRESS_CONFERENCE", Map.of("day", "CONFERENCE_DAY")),
             Map.entry("HUMAN", Map.of("isRetired", "RETIRED", "retired", "RETIRED")),
@@ -1030,7 +1037,7 @@ public class GameSaveImportService {
     private int parseVersion(Object raw) {
         if (!(raw instanceof Number number)
                 || number.doubleValue() != Math.rint(number.doubleValue())) {
-            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10, 11, 12 or 13");
+            throw invalid("saveVersion must be integer 5, 6, 7, 8, 9, 10, 11, 12, 13 or 14");
         }
         int version = number.intValue();
         if (version != LEGACY_SAVE_VERSION && version != SAVE_VERSION_6
@@ -1039,8 +1046,9 @@ public class GameSaveImportService {
                 && version != SAVE_VERSION_10
                 && version != SAVE_VERSION_11
                 && version != SAVE_VERSION_12
+                && version != SAVE_VERSION_13
                 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11, 12 or 13");
+            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11, 12, 13 or 14");
         }
         return version;
     }
