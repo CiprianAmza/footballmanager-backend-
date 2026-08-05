@@ -35,6 +35,7 @@ public class FriendlyEventService {
     private final TeamRepository teamRepository;
     private final CalendarEventRepository calendarEventRepository;
     private final GameCalendarRepository gameCalendarRepository;
+    private final CalendarService calendarService;
     private final NationService nationService;
     private final FinanceService financeService;
 
@@ -43,6 +44,7 @@ public class FriendlyEventService {
                                 TeamRepository teamRepository,
                                 CalendarEventRepository calendarEventRepository,
                                 GameCalendarRepository gameCalendarRepository,
+                                CalendarService calendarService,
                                 NationService nationService,
                                 FinanceService financeService) {
         this.eventRepository = eventRepository;
@@ -50,6 +52,7 @@ public class FriendlyEventService {
         this.teamRepository = teamRepository;
         this.calendarEventRepository = calendarEventRepository;
         this.gameCalendarRepository = gameCalendarRepository;
+        this.calendarService = calendarService;
         this.nationService = nationService;
         this.financeService = financeService;
     }
@@ -86,7 +89,16 @@ public class FriendlyEventService {
         GameCalendar calendar = currentGameDate();
         result.put("currentSeason", calendar.getSeason());
         result.put("currentDay", calendar.getCurrentDay());
+        result.put("currentDate", calendarService.getDateDisplay(calendar.getCurrentDay()));
         result.put("minimumStartDay", calendar.getCurrentDay() + 1);
+        List<Map<String, Object>> dateOptions = new ArrayList<>();
+        for (int day = 1; day <= 30; day++) {
+            if (day > calendar.getCurrentDay()) dateOptions.add(dateOption(day, "PRE_SEASON"));
+        }
+        for (int day = 201; day <= 210; day++) {
+            if (day > calendar.getCurrentDay()) dateOptions.add(dateOption(day, "WINTER_BREAK"));
+        }
+        result.put("dateOptions", dateOptions);
         result.put("destinations", destinations);
         result.put("eventTypes", List.of(
                 option("TRAINING_CAMP", "Training camp", "3-14 days · fitness, tactics, cohesion or commercial focus"),
@@ -405,6 +417,8 @@ public class FriendlyEventService {
         result.put("locationName", event.getLocationName());
         result.put("startDay", event.getStartDay());
         result.put("endDay", event.getEndDay());
+        result.put("startDate", calendarService.getDateDisplay(event.getStartDay()));
+        result.put("endDate", calendarService.getDateDisplay(event.getEndDay()));
         result.put("focus", event.getFocus());
         result.put("format", event.getFormat());
         result.put("participants", participants);
@@ -423,6 +437,7 @@ public class FriendlyEventService {
     private Map<String, Object> matchView(FriendlyMatch match) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("matchId", match.getId()); view.put("day", match.getDay());
+        view.put("dateDisplay", calendarService.getDateDisplay(match.getDay()));
         view.put("homeTeamId", match.getHomeTeamId()); view.put("homeTeamName", match.getHomeTeamName());
         view.put("awayTeamId", match.getAwayTeamId()); view.put("awayTeamName", match.getAwayTeamName());
         view.put("stage", match.getEventStage()); view.put("status", match.getStatus());
@@ -432,6 +447,10 @@ public class FriendlyEventService {
 
     private Map<String, Object> option(String id, String label, String description) {
         return Map.of("id", id, "label", label, "description", description);
+    }
+
+    private Map<String, Object> dateOption(int day, String phase) {
+        return Map.of("day", day, "dateDisplay", calendarService.getDateDisplay(day), "phase", phase);
     }
 
     private Team requireTeam(long teamId) {

@@ -1,13 +1,14 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 19:18 CEST
+Ultima actualizare: 2026-08-05 19:20 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
 Corectarea turneelor amicale: numai date viitoare din sezonul curent,
-meciuri vizibile in Schedule si trofee afisate separat in palmaresul clubului.
+meciuri vizibile in Schedule, date calendaristice si trofee afisate separat in
+palmaresul clubului.
 
 Ce a fost implementat
 ---------------------
@@ -18,6 +19,10 @@ Ce a fost implementat
 - Planner-ul returneaza sezonul, ziua curenta si prima zi permisa; formularul
   afiseaza aceste informatii, propune urmatoarea fereastra valida si blocheaza
   perioadele trecute sau din afara pre-sezonului/pauzei de iarna.
+- Selectoarele, lista evenimentelor, intervalul turneului si programul meciurilor
+  afiseaza datele calendaristice reale (de exemplu 5 August), nu "Day 5".
+- Aceeasi afisare calendaristica este folosita si in paginile Classic si
+  Preparation hub pentru amicale.
 - Toate meciurile amicale, inclusiv semifinalele/finalele si meciurile unei mini
   ligi, apar in Fixtures si Calendar pentru ambele cluburi participante, nu doar
   pentru organizator. Sunt afisate numele turneului, etapa, data si rezultatul.
@@ -32,7 +37,7 @@ Ce a fost implementat
 Verificare
 ----------
 - FriendlyEventServiceTest + MatchServiceFriendlyScheduleTest: OK.
-- Angular production build: OK, hash bf5a3d7621cd00cf.
+- Angular production build: OK, hash 039fcb02f3d66459.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 

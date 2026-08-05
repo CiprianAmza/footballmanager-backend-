@@ -22,6 +22,8 @@ public class FriendlyMatchService {
     @Autowired
     private CalendarEventRepository calendarEventRepository;
     @Autowired
+    private CalendarService calendarService;
+    @Autowired
     private MatchSimulationService matchSimulationService;
     @Autowired
     private MatchStatsService matchStatsService;
@@ -99,6 +101,7 @@ public class FriendlyMatchService {
             if (!busyDays.contains(day)) {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("day", day);
+                m.put("dateDisplay", calendarService.getDateDisplay(day));
                 m.put("phase", "PRE_SEASON");
                 availableDays.add(m);
             }
@@ -109,6 +112,7 @@ public class FriendlyMatchService {
             if (!busyDays.contains(day)) {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("day", day);
+                m.put("dateDisplay", calendarService.getDateDisplay(day));
                 m.put("phase", "WINTER_BREAK");
                 availableDays.add(m);
             }
@@ -266,6 +270,7 @@ public class FriendlyMatchService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("matchId", fm.getId());
             m.put("day", fm.getDay());
+            m.put("dateDisplay", calendarService.getDateDisplay(fm.getDay()));
             m.put("homeTeamId", fm.getHomeTeamId());
             m.put("awayTeamId", fm.getAwayTeamId());
             m.put("homeTeamName", fm.getHomeTeamName());

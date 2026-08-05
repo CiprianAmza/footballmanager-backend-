@@ -41,6 +41,7 @@ class FriendlyEventServiceTest {
     @Mock TeamRepository teamRepository;
     @Mock CalendarEventRepository calendarEventRepository;
     @Mock GameCalendarRepository gameCalendarRepository;
+    @Mock CalendarService calendarService;
     @Mock NationService nationService;
     @Mock FinanceService financeService;
 
@@ -50,7 +51,7 @@ class FriendlyEventServiceTest {
     @BeforeEach
     void setUp() {
         service = new FriendlyEventService(eventRepository, matchRepository, teamRepository,
-                calendarEventRepository, gameCalendarRepository, nationService, financeService);
+                calendarEventRepository, gameCalendarRepository, calendarService, nationService, financeService);
         teams = List.of(team(1, "Host"), team(2, "Alpha"), team(3, "Beta"), team(4, "Gamma"));
         for (Team team : teams) {
             when(teamRepository.findById(team.getId())).thenReturn(Optional.of(team));
@@ -71,6 +72,7 @@ class FriendlyEventServiceTest {
         calendar.setSeason(4);
         calendar.setCurrentDay(5);
         when(gameCalendarRepository.findTopByOrderBySeasonDesc()).thenReturn(Optional.of(calendar));
+        when(calendarService.getDateDisplay(anyInt())).thenAnswer(invocation -> "Date " + invocation.getArgument(0));
     }
 
     @Test
@@ -81,6 +83,7 @@ class FriendlyEventServiceTest {
         Map<String, Object> result = service.confirm(44L);
 
         assertThat(result.get("status")).isEqualTo("CONFIRMED");
+        assertThat(result.get("startDate")).isEqualTo("Date 10");
         verify(financeService, times(5)).recordExpense(anyLong(), anyInt(), anyInt(), any(), any(), anyLong());
         verify(financeService, times(3)).recordTransaction(anyLong(), anyInt(), anyInt(), any(), any(), anyLong());
         verify(matchRepository, times(2)).save(any(FriendlyMatch.class));
