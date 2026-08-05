@@ -135,6 +135,34 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
         Integer getSeasonNumber();
     }
 
+    /** Career output recorded after the selected historical Best XI season. */
+    interface PostSeasonCareerAggregate {
+        Long getPlayerId();
+        Integer getFirstSeason();
+        Integer getLastSeason();
+        Long getAppearances();
+        Long getGoals();
+        Long getAssists();
+    }
+
+    @Query("""
+            select s.playerId as playerId,
+                   min(s.seasonNumber) as firstSeason,
+                   max(s.seasonNumber) as lastSeason,
+                   count(s.id) as appearances,
+                   coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists
+              from Scorer s
+             where s.playerId in :playerIds
+               and s.seasonNumber > :season
+               and s.teamScore >= 0
+               and s.opponentTeamId >= 0
+             group by s.playerId
+            """)
+    List<PostSeasonCareerAggregate> aggregatePlayerCareersAfterSeason(
+            @Param("playerIds") java.util.Collection<Long> playerIds,
+            @Param("season") int season);
+
     @Query("""
             select s.playerId as playerId,
                    count(s.id) as matches,

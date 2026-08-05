@@ -20,6 +20,8 @@ public interface TransferRepository extends JpaRepository<Transfer, Long> {
 
     List<Transfer> findAllByPlayerIdOrderBySeasonNumberAscIdAsc(long playerId);
 
+    List<Transfer> findAllByPlayerIdInOrderByPlayerIdAscSeasonNumberAscIdAsc(Collection<Long> playerIds);
+
     @Query("select t from Transfer t where t.sellTeamId = :teamId order by t.playerTransferValue desc, t.id desc")
     List<Transfer> findRecordSalesByTeam(@Param("teamId") long teamId, Pageable pageable);
 

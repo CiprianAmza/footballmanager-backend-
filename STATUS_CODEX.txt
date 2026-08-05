@@ -1,45 +1,44 @@
 STATUS CODEX
 ============
 
-Ultima actualizare: 2026-08-05 20:19 CEST
+Ultima actualizare: 2026-08-05 20:29 CEST
 Status: FINALIZAT
 
 Task curent
 -----------
-Social Feed separat, cu reactii persistente ale fanilor la meciuri si la
-problemele financiare ale clubului.
+Where are they now? pentru Best XI-ul fiecarui sezon din arhiva unui club.
 
 Ce a fost implementat
 ---------------------
-- Ruta noua /social-feed, disponibila direct din meniul principal.
-- Dupa fiecare meci al echipei utilizatorului sunt generate trei sau patru
-  postari distincte ale suporterilor.
-- Continutul depinde de rezultat si marja scorului: euforie, optimism, analiza,
-  exigenta, frustrare, furie, critica dura si loialitate.
-- Infrangerile grele produc reactii dure si realiste despre prestatie, jucatori
-  sau deciziile managerului, fara amenintari ori atacuri discriminatorii.
-- Avertismentele si crizele financiare produc discutii despre transparenta,
-  raspunderea conducerii, vanzarile de jucatori si protejarea clubului.
-- Pseudonimele suporterilor sunt alese determinist; aceeasi cariera nu primeste
-  continut aleator diferit la reincarcare.
-- Fiecare postare are ton, context, voturi, raspunsuri, sezon si zi. Voturile si
-  raspunsurile sunt stabile, derivate determinist din eveniment.
-- Feed-ul permite cautare, filtre All / Positive / Critical / Harsh si sortare
-  Hot / New. Include si un rezumat al dispozitiei generale a fanilor.
-- Postarile sunt persistate prin ManagerInbox pentru compatibilitate imediata cu
-  Save/Load, dar sunt marcate citite si eliminate din listele Inbox. Apar doar in
-  Social Feed, fara sa umfle numarul de notificari.
-- Cheile de deduplicare impiedica regenerarea acelorasi reactii pentru acelasi
-  meci sau acelasi nivel de criza financiara.
-- Pagina este responsive si foloseste culori separate pentru reactiile dure.
+- Best XI — Season X din Club Archive are acum o sectiune expandabila pentru
+  fiecare jucator: Where are they now?
+- Este afisat clubul sau organizatia actuala si rolul real al persoanei.
+- Sunt recunoscute separat starile Active player, Free agent, Retired, Manager,
+  Staff, Club owner, Other si Unknown.
+- Rolurile de staff folosesc functia exacta: assistant manager, first-team coach,
+  fitness coach, goalkeeping coach, youth coach sau head of youth development.
+- Statutul de patron este citit din Ownership, adica din proprietatea majoritara
+  persistata, nu este dedus doar din avere sau reputatie.
+- Pentru fiecare fost component al Best XI este afisat traseul transferurilor
+  incepand cu plecarea din club in sezonul selectat si toate mutarile ulterioare.
+- Fiecare mutare include sezonul, clubul de plecare, destinatia si suma; mutarile
+  fara taxa sunt marcate Free.
+- Sunt agregate toate meciurile, golurile si assisturile realizate dupa sezonul
+  Best XI, impreuna cu ultimul sezon in care jucatorul a fost activ.
+- Jucatorii retrasi pastreaza varsta retragerii. Daca persoana a devenit staff,
+  manager sau patron, noul rol si cluburile relevante au prioritate in sumar.
+- Daca profilul curent nu mai exista, istoricul de meciuri si transferuri ramane
+  vizibil si UI-ul spune explicit Status unknown, fara a inventa informatii.
+- Selectarea altui sezon din dropdown reincarca automat Where are they now?
+  pentru Best XI-ul acelui an.
+- Implementarea foloseste trei interogari batch pentru cei maximum 11 jucatori:
+  traseu de transfer, cifre ulterioare si proprietati; nu produce N+1 queries.
 
 Verificare
 ----------
-- FanSocialFeedServiceTest: OK pentru infrangere grea, criza financiara si
-  deduplicare.
-- FinancialTroubleMediaServiceTest, MediaNarrativeServiceTest si
-  InboxControllerSecurityTest: OK.
-- Angular production build: OK, hash e65375db1f8a97f3.
+- LegacyRecordsServiceTest: OK; verifica jucator activ transferat, cifrele
+  ulterioare, retragerea, conversia in staff si statutul de patron.
+- Angular production build: OK, hash 4ff7ba1783f02dcf.
 - Build-ul pastreaza avertismentele globale existente pentru bundle budget,
   selectori CSS si autoprefixer; nu sunt erori introduse de aceasta modificare.
 - git diff --check: OK in backend si frontend.

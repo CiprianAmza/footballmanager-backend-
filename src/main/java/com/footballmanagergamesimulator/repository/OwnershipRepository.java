@@ -4,11 +4,14 @@ import com.footballmanagergamesimulator.model.Ownership;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 public interface OwnershipRepository extends JpaRepository<Ownership, Long> {
 
     List<Ownership> findAllByHumanId(long humanId);
+
+    List<Ownership> findAllByHumanIdIn(Collection<Long> humanIds);
 
     List<Ownership> findAllByTeamId(long teamId);
 
