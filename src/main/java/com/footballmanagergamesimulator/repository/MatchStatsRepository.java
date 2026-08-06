@@ -18,6 +18,8 @@ public interface MatchStatsRepository extends JpaRepository<MatchStats, Long> {
 
     List<MatchStats> findAllBySeasonNumber(int seasonNumber);
 
+    List<MatchStats> findAllBySeasonNumberAndRoundNumber(int seasonNumber, int roundNumber);
+
     List<MatchStats> findAllByTeam1IdAndSeasonNumber(long team1Id, int seasonNumber);
 
     List<MatchStats> findAllByTeam2IdAndSeasonNumber(long team2Id, int seasonNumber);

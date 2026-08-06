@@ -4,6 +4,7 @@ import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.InboxAudience;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.service.FanSocialFeedService;
+import com.footballmanagergamesimulator.service.InboxMatchReportReferenceService;
 import com.footballmanagergamesimulator.user.TeamAccessGuard;
 import com.footballmanagergamesimulator.user.CurrentUserService;
 import com.footballmanagergamesimulator.user.CareerRole;
@@ -30,6 +31,7 @@ public class InboxController {
     TeamAccessGuard teamAccessGuard;
     @Autowired CurrentUserService currentUserService;
     @Autowired PersonProfileRepository profileRepository;
+    @Autowired InboxMatchReportReferenceService matchReportReferences;
 
     /**
      * Resolve the effective teamId for inbox queries.
@@ -50,9 +52,10 @@ public class InboxController {
                     .orElseGet(() -> ResponseEntity.ok(List.of()));
         }
         Long teamId = resolveTeamId(0, request);
-        return ResponseEntity.ok(teamId == null ? List.of() : managerInboxRepository
-                .findAllByTeamIdAndAudienceInOrderByIdDesc(teamId, List.of(InboxAudience.MANAGER, InboxAudience.BOTH))
-                .stream().filter(this::isInboxMessage).toList());
+        return ResponseEntity.ok(teamId == null ? List.of() : matchReportReferences.attachMissingReferences(
+                managerInboxRepository
+                        .findAllByTeamIdAndAudienceInOrderByIdDesc(teamId, List.of(InboxAudience.MANAGER, InboxAudience.BOTH))
+                        .stream().filter(this::isInboxMessage).toList()));
     }
 
     @GetMapping("/me/unreadCount")
@@ -133,8 +136,10 @@ public class InboxController {
     public List<ManagerInbox> getMessages(@PathVariable(name = "teamId") long teamId, HttpServletRequest request) {
         Long effectiveTeamId = resolveTeamId(teamId, request);
         if (effectiveTeamId == null || effectiveTeamId <= 0) return Collections.emptyList();
-        return managerInboxRepository.findAllByTeamIdAndAudienceInOrderByIdDesc(effectiveTeamId,
-                List.of(InboxAudience.MANAGER, InboxAudience.BOTH)).stream().filter(this::isInboxMessage).toList();
+        return matchReportReferences.attachMissingReferences(managerInboxRepository
+                .findAllByTeamIdAndAudienceInOrderByIdDesc(effectiveTeamId,
+                        List.of(InboxAudience.MANAGER, InboxAudience.BOTH))
+                .stream().filter(this::isInboxMessage).toList());
     }
 
     @GetMapping("/messages/{teamId}/{season}")
@@ -143,9 +148,10 @@ public class InboxController {
                                                   HttpServletRequest request) {
         Long effectiveTeamId = resolveTeamId(teamId, request);
         if (effectiveTeamId == null || effectiveTeamId <= 0) return Collections.emptyList();
-        return managerInboxRepository.findAllByTeamIdAndSeasonNumberOrderByIdDesc(effectiveTeamId, season).stream()
+        return matchReportReferences.attachMissingReferences(managerInboxRepository
+                .findAllByTeamIdAndSeasonNumberOrderByIdDesc(effectiveTeamId, season).stream()
                 .filter(message -> message.getAudience() == InboxAudience.MANAGER || message.getAudience() == InboxAudience.BOTH)
-                .filter(this::isInboxMessage).toList();
+                .filter(this::isInboxMessage).toList());
     }
 
     @GetMapping("/unreadCount/{teamId}")
