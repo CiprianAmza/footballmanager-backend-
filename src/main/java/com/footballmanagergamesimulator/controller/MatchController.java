@@ -14,6 +14,7 @@ import com.footballmanagergamesimulator.service.LiveMatchSession;
 import com.footballmanagergamesimulator.service.LiveMatchSimulationService;
 import com.footballmanagergamesimulator.service.MatchService;
 import com.footballmanagergamesimulator.service.PressConferenceService;
+import com.footballmanagergamesimulator.service.ShotEventService;
 import com.footballmanagergamesimulator.service.SuspensionService;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
@@ -74,6 +75,8 @@ public class MatchController {
     com.footballmanagergamesimulator.service.MatchSimulationService matchSimulationService;
     @Autowired
     com.footballmanagergamesimulator.service.MatchStatsService matchStatsService;
+    @Autowired
+    ShotEventService shotEventService;
     @Autowired
     com.footballmanagergamesimulator.service.MatchSimulationOrchestrator matchSimulationOrchestrator;
     @Autowired
@@ -1013,6 +1016,94 @@ public class MatchController {
         result.put("raw", raw);
 
         return result;
+    }
+
+    /**
+     * One complete post-match workspace payload. It deliberately reuses the
+     * canonical summary, stats and lineup builders so the full-screen report,
+     * Fixtures and the compact result popup cannot disagree about a match.
+     */
+    @GetMapping("/report/{competitionId}/{season}/{round}/{teamId1}/{teamId2}")
+    public Map<String, Object> getPostMatchReport(
+            @PathVariable long competitionId,
+            @PathVariable int season,
+            @PathVariable int round,
+            @PathVariable long teamId1,
+            @PathVariable long teamId2) {
+
+        Map<String, Object> report = new LinkedHashMap<>();
+        MatchSummaryView summary = getMatchSummary(competitionId, season, round, teamId1, teamId2);
+        MatchLineupRatingView lineups = getMatchPlayerRatings(competitionId, season, round, teamId1, teamId2);
+        Map<String, Object> stats = getMatchStats(competitionId, season, round, teamId1, teamId2);
+        List<MatchEvent> matchEvents = matchEventRepository
+                .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
+                        competitionId, season, round, teamId1, teamId2);
+        matchEvents.sort(Comparator.comparingInt(MatchEvent::getMinute));
+
+        Optional<MatchStats> storedStats = matchStatsService
+                .getMatchStats(competitionId, season, round, teamId1, teamId2);
+        List<Map<String, Object>> shotTimeline = new ArrayList<>();
+        List<Map<String, Object>> momentum = new ArrayList<>();
+
+        if (storedStats.isPresent()) {
+            List<ShotEvent> shots = new ArrayList<>(shotEventService.eventsForMatch(storedStats.get()));
+            shots.sort(Comparator.comparingInt(ShotEvent::getMinute)
+                    .thenComparingLong(ShotEvent::getTeamId)
+                    .thenComparingInt(ShotEvent::getShotIndex));
+            double homeCumulative = 0;
+            double awayCumulative = 0;
+            double[] momentumBuckets = new double[10];
+            for (ShotEvent shot : shots) {
+                double xg = shot.getXg() / 10_000.0;
+                boolean home = shot.getTeamId() == teamId1;
+                if (home) homeCumulative += xg;
+                else awayCumulative += xg;
+                int bucket = Math.max(0, Math.min(9, shot.getMinute() / 10));
+                momentumBuckets[bucket] += home ? xg : -xg;
+
+                Map<String, Object> point = new LinkedHashMap<>();
+                point.put("minute", shot.getMinute());
+                point.put("teamId", shot.getTeamId());
+                point.put("xg", roundTwo(xg));
+                point.put("xgot", roundTwo(shot.getXgot() / 10_000.0));
+                point.put("homeCumulative", roundTwo(homeCumulative));
+                point.put("awayCumulative", roundTwo(awayCumulative));
+                point.put("outcome", shot.getOutcome());
+                point.put("situation", shot.getSituation());
+                point.put("bigChance", shot.isBigChance());
+                shotTimeline.add(point);
+            }
+            for (int index = 0; index < momentumBuckets.length; index++) {
+                momentum.add(Map.of(
+                        "fromMinute", index * 10,
+                        "toMinute", Math.min(90, index * 10 + 9),
+                        "value", roundTwo(momentumBuckets[index])));
+            }
+        }
+
+        CompetitionTeamInfoMatch fixture = competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(competitionId, round, String.valueOf(season))
+                .stream()
+                .filter(match -> match.getTeam1Id() == teamId1 && match.getTeam2Id() == teamId2)
+                .findFirst().orElse(null);
+
+        report.put("available", summary.getScore() != null || Boolean.TRUE.equals(stats.get("available")));
+        report.put("competitionId", competitionId);
+        report.put("competitionName", competitionRepository.findNameById(competitionId));
+        report.put("season", season);
+        report.put("round", round);
+        report.put("day", fixture == null ? 0 : fixture.getDay());
+        report.put("summary", summary);
+        report.put("stats", stats);
+        report.put("lineups", lineups);
+        report.put("events", matchEvents);
+        report.put("shotTimeline", shotTimeline);
+        report.put("momentum", momentum);
+        return report;
+    }
+
+    private double roundTwo(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     /**

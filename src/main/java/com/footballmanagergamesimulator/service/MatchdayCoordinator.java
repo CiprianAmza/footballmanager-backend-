@@ -357,6 +357,8 @@ public class MatchdayCoordinator {
             result.put("competitionName", competition.getName());
             result.put("competitionId", competitionId);
             result.put("matchday", matchday);
+            result.put("roundNumber", matchday);
+            result.put("seasonNumber", season);
             result.put("team1Id", detail.getTeam1Id());
             result.put("team2Id", detail.getTeam2Id());
             result.put("team1Name", detail.getTeamName1());

@@ -6,45 +6,46 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Redesign vizual al paginii de jucator, pastrand profilul existent pentru
-comparatie.
+Pagina completa de dupa meci, inspirata de referinta Football Manager.
 
-Varianta noua
--------------
-- Ruta noua: /player2/:playerId, inclusiv actingTeamId din query string.
-- Profilul vechi /player/:playerId nu a fost modificat si ramane disponibil.
-- Noua pagina este lazy-loaded intr-un chunk separat.
+Pagina noua
+-----------
+- Ruta: /match-report2/:competitionId/:season/:round/:teamId1/:teamId2.
+- Este lazy-loaded si pastreaza paginile vechi de Fixtures si Match Ratings.
+- Popup-ul standard afisat dupa meci are acum butonul Open full match report.
 
-UI/UX
------
-- Header compact de tip Football Manager cu identitate, club si navigatie.
-- Banda superioara afiseaza portretul, tricoul, datele biografice, Current
-  Ability, Potential Ability, raportul scoutului si statisticile sezonului.
-- Workspace-ul afiseaza simultan terenul cu pozitia, rolurile si suitability,
-  atributele Technical/Mental/Physical, statisticile per competitie, raportul
-  complet si comparatia cu lotul.
-- Layout-ul este dens si optimizat pentru desktop, cu adaptari responsive
-  pentru tableta si mobil.
+Informatii afisate
+------------------
+- Header compact cu competitie, echipe, embleme, scor, sezon, zi/matchday si
+  Man of the Match.
+- Formatiile complete ale ambelor echipe, cu fete, roluri, goluri, assisturi
+  si nota fiecarui jucator.
+- Timeline pentru goluri, cartonase, schimbari, suturi si alte evenimente.
+- Comparatie Opta pentru posesie, suturi, suturi pe poarta, xG, big chances,
+  pase, cornere, faulturi si celelalte statistici salvate.
+- Grafic xG cumulativ construit din ShotEvent, inclusiv marcarea golurilor.
+- Match Momentum pe intervale de cate 10 minute, calculat din presiunea xG.
+- Linkuri directe catre profilurile player2 si inapoi catre Fixtures.
 
-Functionalitate pastrata
-------------------------
-- Shortlist direct din profil.
-- Oferta de transfer si oferta de contract pentru free agent, cu dialoguri
-  proprii in noul UI.
-- Date reale de sezon, form, role suitability, player card si comparatie cu
-  ceilalti jucatori ai clubului.
-- Linkurile Statistics, Contract si History deschid profilul complet pe tabul
-  corect si pastreaza actingTeamId.
+Backend
+-------
+- Endpoint nou GET /match/report/{competitionId}/{season}/{round}/{teamId1}/{teamId2}.
+- Endpointul unifica summary, stats, lineups, events, shotTimeline si momentum,
+  folosind aceleasi surse canonice deja folosite de Fixtures.
+- Rezultatul imediat de dupa meci include acum seasonNumber si roundNumber,
+  astfel incat linkul catre raport sa fie stabil.
 
 Verificare
 ----------
-- Angular production build: OK, hash 6db3cd1b639044e9.
-- Chunk lazy player2 generat corect.
-- git diff --check: OK pentru fisierele taskului.
-- Verificarea browserului izolat a ajuns la login; parola precompletata nu a
-  fost trimisa automat.
-- Au ramas doar avertismentele globale existente despre bundle budget si CSS.
+- Maven compile: OK.
+- Angular production build: OK, hash 4f760f48e698d34b.
+- Chunk lazy match-report2 generat: 26.39 kB.
+- git diff --check: OK.
+- Suita Maven completa a rulat 1025 teste, dar repository-ul are deja 21
+  failures si 12 errors in zone independente (config weights, multiplayer,
+  animation/live serialization si AuthSecurityWebTest/H2). Modificarile acestui
+  task compileaza si nu apar in lista testelor esuate.
 
 Commit frontend
 ---------------
-- 7e1a6ff Add classic player profile workspace
+- e7bd017 Add full post-match report workspace
