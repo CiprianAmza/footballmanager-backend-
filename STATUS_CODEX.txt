@@ -6,44 +6,45 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Repararea controalelor SHOOTER si Team Instructions din /tactics6/86.
+Redesign vizual al paginii de jucator, pastrand profilul existent pentru
+comparatie.
 
-SHOOTER
--------
-- Modalul Role & Duty afiseaza acum permanent controlul SHOOTER.
-- Un click desemneaza jucatorul drept shooter unic al echipei.
-- Selectarea altui jucator muta automat rolul, conform regulii existente din
-  motor: poate exista un singur SHOOTER in primul XI.
-- Starea activa este vizibila in modal si este salvata in formationDataList
-  prin campul specialRole=SHOOTER.
-- Controlul SHADOW ramane separat si continua sa respecte eligibilitatea pe
-  post si trait-urile persistente ale jucatorului.
+Varianta noua
+-------------
+- Ruta noua: /player2/:playerId, inclusiv actingTeamId din query string.
+- Profilul vechi /player/:playerId nu a fost modificat si ramane disponibil.
+- Noua pagina este lazy-loaded intr-un chunk separat.
 
-Team Instructions
------------------
-- Chipurile din bara TEAM INSTRUCTIONS sunt acum butoane functionale.
-- Edit all deschide editorul complet in aceeasi pagina; nu mai redirectioneaza
-  utilizatorul spre /tactics4.
-- Editorul contine 15 setari grupate logic:
-  Core, With the ball, Transitions, Without the ball si Game management.
-- Sunt editabile mentality, possession, passing, tempo, width, dribbling,
-  wide play, transition, recovery, pressing, defensive line, foul frequency,
-  tackle hardness, time wasting si tempo fragmentation.
-- Apply actualizeaza planul din pagina, iar Apply & Save il trimite imediat
-  catre endpointul existent de salvare tactica.
-- Editorul respecta permisiunile Coach/Chairman si devine read-only atunci
-  cand utilizatorul nu are drept de editare.
+UI/UX
+-----
+- Header compact de tip Football Manager cu identitate, club si navigatie.
+- Banda superioara afiseaza portretul, tricoul, datele biografice, Current
+  Ability, Potential Ability, raportul scoutului si statisticile sezonului.
+- Workspace-ul afiseaza simultan terenul cu pozitia, rolurile si suitability,
+  atributele Technical/Mental/Physical, statisticile per competitie, raportul
+  complet si comparatia cu lotul.
+- Layout-ul este dens si optimizat pentru desktop, cu adaptari responsive
+  pentru tableta si mobil.
 
-Compatibilitate
----------------
-- Nu s-a schimbat contractul backend.
-- Formatul tacticii salvate nu s-a schimbat.
-- Quick Pick, drag-and-drop, rolurile, duty, instructiunile individuale,
-  SHADOW si restrictiile Chairman continua sa foloseasca motorul existent.
+Functionalitate pastrata
+------------------------
+- Shortlist direct din profil.
+- Oferta de transfer si oferta de contract pentru free agent, cu dialoguri
+  proprii in noul UI.
+- Date reale de sezon, form, role suitability, player card si comparatie cu
+  ceilalti jucatori ai clubului.
+- Linkurile Statistics, Contract si History deschid profilul complet pe tabul
+  corect si pastreaza actingTeamId.
 
 Verificare
 ----------
-- Angular production build: OK, hash bf3630f9fb89b0af.
-- Tactics 6 ramane intr-un chunk lazy separat.
+- Angular production build: OK, hash 6db3cd1b639044e9.
+- Chunk lazy player2 generat corect.
 - git diff --check: OK pentru fisierele taskului.
+- Verificarea browserului izolat a ajuns la login; parola precompletata nu a
+  fost trimisa automat.
 - Au ramas doar avertismentele globale existente despre bundle budget si CSS.
+
+Commit frontend
+---------------
+- 7e1a6ff Add classic player profile workspace
