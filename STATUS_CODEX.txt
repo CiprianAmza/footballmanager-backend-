@@ -6,46 +6,43 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Pagina completa de dupa meci, inspirata de referinta Football Manager.
+Pagina noua player2 este acum functionala, nu doar o varianta vizuala.
 
-Pagina noua
------------
-- Ruta: /match-report2/:competitionId/:season/:round/:teamId1/:teamId2.
-- Este lazy-loaded si pastreaza paginile vechi de Fixtures si Match Ratings.
-- Popup-ul standard afisat dupa meci are acum butonul Open full match report.
+Navigatie functionala
+---------------------
+- Overview, Statistics, Contract, History si Milestones schimba continutul in
+  aceeasi pagina player2.
+- Analysis, Recent form, Happiness, Reports si Training au continut propriu si
+  butoane functionale.
+- Tabul principal este pastrat in parametrul URL `tab`, iar subpagina din
+  Overview este pastrata in `view`; Back/Forward poate restaura exact sectiunea.
 
-Informatii afisate
-------------------
-- Header compact cu competitie, echipe, embleme, scor, sezon, zi/matchday si
-  Man of the Match.
-- Formatiile complete ale ambelor echipe, cu fete, roluri, goluri, assisturi
-  si nota fiecarui jucator.
-- Timeline pentru goluri, cartonase, schimbari, suturi si alte evenimente.
-- Comparatie Opta pentru posesie, suturi, suturi pe poarta, xG, big chances,
-  pase, cornere, faulturi si celelalte statistici salvate.
-- Grafic xG cumulativ construit din ShotEvent, inclusiv marcarea golurilor.
-- Match Momentum pe intervale de cate 10 minute, calculat din presiunea xG.
-- Linkuri directe catre profilurile player2 si inapoi catre Fixtures.
+Date conectate
+--------------
+- Statistics: statistici pe sezon si totaluri all-time pe competitie.
+- Contract: detalii, oferta de reinnoire, editarea clauzelor, oferta de transfer
+  si oferta pentru jucator liber.
+- History: cariera pe sezoane si istoricul complet al transferurilor.
+- Analysis: Player Performance Lab, valori per 90, percentile, rol/sistem,
+  impact asupra echipei, chemistry, similar players si Goalkeeper Hub.
+- Recent form: ultimele meciuri, scor, goluri, assisturi, nota si trend.
+- Happiness: moral, disponibilitate, statut, fitness, accidentari si siguranta
+  contractului.
+- Reports: puncte forte/slabe, abilitate, potential si potrivirea pe roluri.
+- Training: citirea, modificarea si stergerea planului individual, cu optiunile
+  reale permise de backend pentru pozitia jucatorului.
+- Milestones: trofee de echipa si rezumatul premiilor individuale.
 
 Backend
 -------
-- Endpoint nou GET /match/report/{competitionId}/{season}/{round}/{teamId1}/{teamId2}.
-- Endpointul unifica summary, stats, lineups, events, shotTimeline si momentum,
-  folosind aceleasi surse canonice deja folosite de Fixtures.
-- Rezultatul imediat de dupa meci include acum seasonNumber si roundNumber,
-  astfel incat linkul catre raport sa fie stabil.
+- Nu a fost necesar un endpoint nou: pagina foloseste endpointurile canonice
+  existente pentru player, stats, performance-lab, goalkeeper-hub, history,
+  contract, training, transfer si awards.
 
 Verificare
 ----------
-- Maven compile: OK.
-- Angular production build: OK, hash 4f760f48e698d34b.
-- Chunk lazy match-report2 generat: 26.39 kB.
+- Angular production build: OK, hash ee8019af367cf690.
+- Test manual in browser pe /player2/119?actingTeamId=86: OK.
+- Statistics, Contract, History, Analysis, Reports si Training au fost apasate
+  si validate prin continutul afisat si parametrii URL.
 - git diff --check: OK.
-- Suita Maven completa a rulat 1025 teste, dar repository-ul are deja 21
-  failures si 12 errors in zone independente (config weights, multiplayer,
-  animation/live serialization si AuthSecurityWebTest/H2). Modificarile acestui
-  task compileaza si nu apar in lista testelor esuate.
-
-Commit frontend
----------------
-- e7bd017 Add full post-match report workspace
