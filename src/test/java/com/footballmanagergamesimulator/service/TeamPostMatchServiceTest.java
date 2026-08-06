@@ -3,10 +3,25 @@ package com.footballmanagergamesimulator.service;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import com.footballmanagergamesimulator.model.PredeterminedScore;
+import com.footballmanagergamesimulator.model.Competition;
+import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.ManagerInbox;
+import com.footballmanagergamesimulator.model.Round;
+import com.footballmanagergamesimulator.model.Scorer;
+import com.footballmanagergamesimulator.model.Team;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.PredeterminedScoreRepository;
+import com.footballmanagergamesimulator.repository.RoundRepository;
+import com.footballmanagergamesimulator.repository.ScorerRepository;
+import com.footballmanagergamesimulator.repository.TeamRepository;
+import com.footballmanagergamesimulator.user.UserContext;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.Mockito.*;
@@ -157,6 +172,57 @@ class TeamPostMatchServiceTest {
                 TeamPostMatchService.PredeterminedScoreResolution.ALREADY_CONSUMED));
         assertFalse(MatchRoundSimulator.mayProceedWithNewAdminOverride(
                 TeamPostMatchService.PredeterminedScoreResolution.DIVERGENT));
+    }
+
+    @Test
+    void matchReportInboxCarriesCanonicalFixtureReferenceAndEditorialCopy() {
+        TeamRepository teams = mock(TeamRepository.class);
+        CompetitionRepository competitions = mock(CompetitionRepository.class);
+        RoundRepository rounds = mock(RoundRepository.class);
+        ScorerRepository scorers = mock(ScorerRepository.class);
+        HumanRepository humans = mock(HumanRepository.class);
+        ManagerInboxRepository inboxes = mock(ManagerInboxRepository.class);
+        UserContext userContext = mock(UserContext.class);
+        ReflectionTestUtils.setField(service, "teamRepository", teams);
+        ReflectionTestUtils.setField(service, "competitionRepository", competitions);
+        ReflectionTestUtils.setField(service, "roundRepository", rounds);
+        ReflectionTestUtils.setField(service, "scorerRepository", scorers);
+        ReflectionTestUtils.setField(service, "humanRepository", humans);
+        ReflectionTestUtils.setField(service, "managerInboxRepository", inboxes);
+        ReflectionTestUtils.setField(service, "userContext", userContext);
+        ReflectionTestUtils.setField(service, "mediaNarrativeService", mock(MediaNarrativeService.class));
+        ReflectionTestUtils.setField(service, "formerPlayerStatementService", mock(FormerPlayerStatementService.class));
+        ReflectionTestUtils.setField(service, "formerManagerStatementService", mock(FormerManagerStatementService.class));
+        ReflectionTestUtils.setField(service, "fanSocialFeedService", mock(FanSocialFeedService.class));
+
+        Team home = new Team(); home.setName("Sherlock FC");
+        Team away = new Team(); away.setName("Yu Gi Oh");
+        Competition competition = new Competition(); competition.setName("Premier Division");
+        Round round = new Round(); round.setSeason(4L);
+        Scorer scorer = new Scorer();
+        scorer.setPlayerId(3386L); scorer.setTeamId(86L); scorer.setOpponentTeamId(91L);
+        scorer.setCompetitionId(8L); scorer.setSeasonNumber(4); scorer.setRoundNumber(12);
+        scorer.setTeamScore(2); scorer.setOpponentScore(1); scorer.setGoals(2);
+        Human player = new Human(); player.setName("Ilerande");
+
+        when(userContext.isHumanTeam(86L)).thenReturn(true);
+        when(userContext.isHumanTeam(91L)).thenReturn(false);
+        when(teams.findById(86L)).thenReturn(Optional.of(home));
+        when(teams.findById(91L)).thenReturn(Optional.of(away));
+        when(competitions.findById(8L)).thenReturn(Optional.of(competition));
+        when(rounds.findById(1L)).thenReturn(Optional.of(round));
+        when(scorers.findAllByTeamIdAndSeasonNumber(86L, 4)).thenReturn(List.of(scorer));
+        when(humans.findById(3386L)).thenReturn(Optional.of(player));
+
+        service.generateMatchReport(8L, 12L, 86L, 91L, 2, 1);
+
+        ArgumentCaptor<ManagerInbox> saved = ArgumentCaptor.forClass(ManagerInbox.class);
+        verify(inboxes).save(saved.capture());
+        assertEquals("match_result", saved.getValue().getCategory());
+        assertEquals("MATCH_REPORT_V1|8|4|12|86|91|86", saved.getValue().getDeduplicationKey());
+        assertTrue(saved.getValue().getContent().contains("claimed a 2-1 victory"));
+        assertTrue(saved.getValue().getContent().contains("Ilerande (2)"));
+        assertTrue(saved.getValue().getContent().contains("xG"));
     }
 
     private static PredeterminedScore override(int home, int away) {

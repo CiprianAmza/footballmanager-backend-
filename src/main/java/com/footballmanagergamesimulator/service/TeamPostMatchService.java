@@ -530,17 +530,18 @@ public class TeamPostMatchService {
 
         if (team1IsHuman) {
             generateMatchReportForTeam(teamId1, teamName1, teamId2, teamName2, teamScore1, teamScore2,
-                    competitionName, seasonNumber, roundNumber);
+                    competitionId, competitionName, seasonNumber, roundNumber, teamId1, teamId2);
         }
         if (team2IsHuman) {
             generateMatchReportForTeam(teamId2, teamName2, teamId1, teamName1, teamScore2, teamScore1,
-                    competitionName, seasonNumber, roundNumber);
+                    competitionId, competitionName, seasonNumber, roundNumber, teamId1, teamId2);
         }
     }
 
     private void generateMatchReportForTeam(long teamId, String teamName, long opponentTeamId, String opponentName,
-                                            int teamScore, int opponentScore, String competitionName,
-                                            int seasonNumber, int roundNumber) {
+                                            int teamScore, int opponentScore, long competitionId,
+                                            String competitionName, int seasonNumber, int roundNumber,
+                                            long homeTeamId, long awayTeamId) {
         String resultPrefix;
         if (teamScore > opponentScore) {
             resultPrefix = "Victory! ";
@@ -552,29 +553,40 @@ public class TeamPostMatchService {
 
         String title = resultPrefix + teamName + " " + teamScore + "-" + opponentScore + " " + opponentName;
 
-        StringBuilder content = new StringBuilder();
-        content.append("Competition: ").append(competitionName).append("\n");
-        content.append("Result: ").append(teamName).append(" ").append(teamScore)
-                .append(" - ").append(opponentScore).append(" ").append(opponentName).append("\n");
-
         List<Scorer> matchScorers = scorerRepository.findAllByTeamIdAndSeasonNumber(teamId, seasonNumber).stream()
                 .filter(s -> s.getOpponentTeamId() == opponentTeamId)
+                .filter(s -> s.getCompetitionId() == competitionId)
+                .filter(s -> s.getRoundNumber() == roundNumber)
                 .filter(s -> s.getTeamScore() == teamScore)
                 .filter(s -> s.getOpponentScore() == opponentScore)
                 .filter(s -> s.getGoals() > 0)
                 .toList();
 
+        StringBuilder content = new StringBuilder();
+        if (teamScore > opponentScore) {
+            content.append(teamName).append(" claimed a ").append(teamScore).append('-').append(opponentScore)
+                    .append(" victory over ").append(opponentName).append(" in ").append(competitionName).append(".\n\n");
+        } else if (teamScore < opponentScore) {
+            content.append(teamName).append(" were beaten ").append(teamScore).append('-').append(opponentScore)
+                    .append(" by ").append(opponentName).append(" in ").append(competitionName).append(".\n\n");
+        } else {
+            content.append(teamName).append(" and ").append(opponentName).append(" shared the points after a ")
+                    .append(teamScore).append('-').append(opponentScore).append(" draw in ")
+                    .append(competitionName).append(".\n\n");
+        }
+
         if (!matchScorers.isEmpty()) {
-            content.append("Goals: ");
             String scorersList = matchScorers.stream()
                     .map(scorer -> {
                         String playerName = humanRepository.findById(scorer.getPlayerId())
                                 .map(Human::getName).orElse("Unknown");
-                        return playerName + " (" + scorer.getGoals() + ")";
+                        return scorer.getGoals() == 1 ? playerName : playerName + " (" + scorer.getGoals() + ")";
                     })
                     .collect(java.util.stream.Collectors.joining(", "));
-            content.append(scorersList).append("\n");
+            content.append(teamScore == 1 ? "The goal came through " : "The goals came through ")
+                    .append(scorersList).append(".\n\n");
         }
+        content.append("Open the match report for the complete event timeline, xG, possession, shots, player ratings and man of the match.");
 
         ManagerInbox inbox = new ManagerInbox();
         inbox.setTeamId(teamId);
@@ -583,6 +595,8 @@ public class TeamPostMatchService {
         inbox.setTitle(title);
         inbox.setContent(content.toString());
         inbox.setCategory("match_result");
+        inbox.setDeduplicationKey(matchReportReference(competitionId, seasonNumber, roundNumber,
+                homeTeamId, awayTeamId, teamId));
         inbox.setRead(false);
         inbox.setCreatedAt(System.currentTimeMillis());
 
@@ -595,5 +609,11 @@ public class TeamPostMatchService {
                 teamScore, opponentScore, competitionName, seasonNumber, roundNumber);
         fanSocialFeedService.publishPostMatchPosts(teamId, teamName, opponentName, teamScore, opponentScore,
                 competitionName, seasonNumber, roundNumber);
+    }
+
+    static String matchReportReference(long competitionId, int seasonNumber, int roundNumber,
+                                       long homeTeamId, long awayTeamId, long recipientTeamId) {
+        return "MATCH_REPORT_V1|" + competitionId + "|" + seasonNumber + "|" + roundNumber + "|"
+                + homeTeamId + "|" + awayTeamId + "|" + recipientTeamId;
     }
 }

@@ -6,43 +6,30 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Pagina noua player2 este acum functionala, nu doar o varianta vizuala.
-
-Navigatie functionala
----------------------
-- Overview, Statistics, Contract, History si Milestones schimba continutul in
-  aceeasi pagina player2.
-- Analysis, Recent form, Happiness, Reports si Training au continut propriu si
-  butoane functionale.
-- Tabul principal este pastrat in parametrul URL `tab`, iar subpagina din
-  Overview este pastrata in `view`; Back/Forward poate restaura exact sectiunea.
-
-Date conectate
---------------
-- Statistics: statistici pe sezon si totaluri all-time pe competitie.
-- Contract: detalii, oferta de reinnoire, editarea clauzelor, oferta de transfer
-  si oferta pentru jucator liber.
-- History: cariera pe sezoane si istoricul complet al transferurilor.
-- Analysis: Player Performance Lab, valori per 90, percentile, rol/sistem,
-  impact asupra echipei, chemistry, similar players si Goalkeeper Hub.
-- Recent form: ultimele meciuri, scor, goluri, assisturi, nota si trend.
-- Happiness: moral, disponibilitate, statut, fitness, accidentari si siguranta
-  contractului.
-- Reports: puncte forte/slabe, abilitate, potential si potrivirea pe roluri.
-- Training: citirea, modificarea si stergerea planului individual, cu optiunile
-  reale permise de backend pentru pozitia jucatorului.
-- Milestones: trofee de echipa si rezumatul premiilor individuale.
+Mesajul primit in Inbox dupa meci este acum un raport editorial complet, nu
+doar titlul cu scorul.
 
 Backend
 -------
-- Nu a fost necesar un endpoint nou: pagina foloseste endpointurile canonice
-  existente pentru player, stats, performance-lab, goalkeeper-hub, history,
-  contract, training, transfer si awards.
+- Mesajul post-meci salveaza o referinta canonica spre partida exacta:
+  competitie, sezon, etapa, gazde si oaspeti.
+- Textul mesajului este narativ si include rezultatul, competitia si marcatorii.
+- Marcatorii sunt filtrati acum si dupa competitie + etapa; doua partide cu
+  acelasi adversar si acelasi scor nu mai pot fi confundate.
+- Referinta foloseste campul existent `deduplicationKey`, deci nu este necesara
+  o schimbare de schema si save/load ramane compatibil.
+
+Frontend
+--------
+- Inbox incarca raportul din endpointul canonic `/match/report/...`.
+- Mesajul afiseaza articolul, scorul final, shots, xG, possession, omul
+  meciului, evenimentele importante si sursa competitiei.
+- Sunt disponibile linkuri directe catre raportul complet, ambele cluburi si
+  profilul omului meciului.
+- Mesajele vechi si toate celelalte categorii raman pe randarea text standard.
 
 Verificare
 ----------
-- Angular production build: OK, hash ee8019af367cf690.
-- Test manual in browser pe /player2/119?actingTeamId=86: OK.
-- Statistics, Contract, History, Analysis, Reports si Training au fost apasate
-  si validate prin continutul afisat si parametrii URL.
-- git diff --check: OK.
+- Backend: `mvn -q -Dtest=TeamPostMatchServiceTest test` - OK.
+- Frontend: Angular production build - OK, hash a795b873db1255b8.
+- Backend foloseste aceeasi partida canonica precum Fixtures si Match Report 2.
