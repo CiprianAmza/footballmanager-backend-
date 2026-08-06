@@ -6,52 +6,44 @@ Status: FINALIZAT
 
 Task curent
 -----------
-Redesign vizual agresiv al /match-centre2 pentru a functiona ca un match
-viewer TV full-screen, nu ca un dashboard modern cu trei carduri.
+Repararea controalelor SHOOTER si Team Instructions din /tactics6/86.
 
-Ce s-a schimbat
----------------
-- Match Centre 2 ocupa intregul viewport si elimina marginile aplicatiei pe
-  durata transmisiunii.
-- Terenul ocupa exact aproximativ 70% din latimea desktopului si toata
-  inaltimea utila dintre HUD si comentariu.
-- Headerul competitiei are 27px, scoreboardul 45px si controalele media 29px.
-- Scorul este prezentat intr-o singura banda TV compacta, cu numele echipelor
-  integrate in aceeasi grafica.
-- Statisticile din stanga sunt un panou glass ingust, semitransparent, peste
-  atmosfera stadionului; Match Facts si Squad Fitness raman interactive.
-- Zona dreapta nu mai contine text explicativ sau un card informational. Este
-  decor de stadion, cu tribuna, reflectoare si bug TV discret.
-- Controalele 2D/3D, discs/sprites, manual/auto, sunetul, viteza, Skip si
-  substitutions sunt pastrate intr-o bara media foarte compacta.
-- Comentariul este o singura banda neagra de broadcast sub teren, cu text
-  galben si actiunea Replay pastrata.
-- Terenul nu mai are margini, card, radius sau padding si foloseste implicit
-  camera clasica 2D cu discuri mici, apropiata de referinta.
-- Replay zoom, synthetic extra time, penalty shootout, substitution modal si
-  actiunile post-match continua sa foloseasca motorul existent.
+SHOOTER
+-------
+- Modalul Role & Duty afiseaza acum permanent controlul SHOOTER.
+- Un click desemneaza jucatorul drept shooter unic al echipei.
+- Selectarea altui jucator muta automat rolul, conform regulii existente din
+  motor: poate exista un singur SHOOTER in primul XI.
+- Starea activa este vizibila in modal si este salvata in formationDataList
+  prin campul specialRole=SHOOTER.
+- Controlul SHADOW ramane separat si continua sa respecte eligibilitatea pe
+  post si trait-urile persistente ale jucatorului.
 
-Raport vizual desktop
----------------------
-- Coloana statistici: 15vw.
-- Teren: 70vw.
-- Atmosfera stadion / broadcast: 15vw.
-- HUD total deasupra terenului: 101px.
-- Comentariu broadcast: 28px.
+Team Instructions
+-----------------
+- Chipurile din bara TEAM INSTRUCTIONS sunt acum butoane functionale.
+- Edit all deschide editorul complet in aceeasi pagina; nu mai redirectioneaza
+  utilizatorul spre /tactics4.
+- Editorul contine 15 setari grupate logic:
+  Core, With the ball, Transitions, Without the ball si Game management.
+- Sunt editabile mentality, possession, passing, tempo, width, dribbling,
+  wide play, transition, recovery, pressing, defensive line, foul frequency,
+  tackle hardness, time wasting si tempo fragmentation.
+- Apply actualizeaza planul din pagina, iar Apply & Save il trimite imediat
+  catre endpointul existent de salvare tactica.
+- Editorul respecta permisiunile Coach/Chairman si devine read-only atunci
+  cand utilizatorul nu are drept de editare.
 
 Compatibilitate
 ---------------
-- Modificarea este izolata in /match-centre2.
-- /live-match si celelalte prezentari ale motorului nu primesc noul skin.
-- Contractele backend si starea meciului nu au fost modificate.
-- La sub 980px, viewerul trece intr-un layout orizontal scrollabil, pastrand
-  terenul utilizabil in loc sa il comprime pana devine ilizibil.
+- Nu s-a schimbat contractul backend.
+- Formatul tacticii salvate nu s-a schimbat.
+- Quick Pick, drag-and-drop, rolurile, duty, instructiunile individuale,
+  SHADOW si restrictiile Chairman continua sa foloseasca motorul existent.
 
 Verificare
 ----------
-- Angular production build: OK, hash fbb2b079c965e895.
-- Match Centre 2 ramane intr-un chunk lazy separat.
+- Angular production build: OK, hash bf3630f9fb89b0af.
+- Tactics 6 ramane intr-un chunk lazy separat.
 - git diff --check: OK pentru fisierele taskului.
-- Serverul local localhost:4200 raspunde; verificarea cu date de meci necesita
-  o sesiune autentificata si un matchKey activ.
 - Au ramas doar avertismentele globale existente despre bundle budget si CSS.
