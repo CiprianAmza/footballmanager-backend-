@@ -45,13 +45,12 @@ public class WebSecurityConfig {
      * and on the {@code login.do} form post while {@code /h2-console/} itself
      * happens to work.
      */
-    private static final RequestMatcher H2_CONSOLE_PATHS = PathRequest.toH2Console();
-
     private final UserDetailsServiceImpl userDetailsService;
     private final boolean chairmanEnabled;
     private final boolean faceLabEnabled;
     private final boolean phaseLabEnabled;
     private final boolean h2ConsoleEnabled;
+    private final RequestMatcher h2ConsolePaths;
     private final List<String> allowedOrigins;
 
     public WebSecurityConfig(UserDetailsServiceImpl userDetailsService,
@@ -65,6 +64,7 @@ public class WebSecurityConfig {
         this.faceLabEnabled = faceLabEnabled;
         this.phaseLabEnabled = phaseLabEnabled;
         this.h2ConsoleEnabled = h2ConsoleEnabled;
+        this.h2ConsolePaths = h2ConsoleEnabled ? PathRequest.toH2Console() : null;
         this.allowedOrigins = allowedOrigins;
     }
 
@@ -122,7 +122,7 @@ public class WebSecurityConfig {
                     if (phaseLabEnabled) csrf.ignoringRequestMatchers(PHASE_LAB_PATHS);
                     // The H2 console is a plain server-rendered form app that knows
                     // nothing about our token. Only reachable while the dev flag is set.
-                    if (h2ConsoleEnabled) csrf.ignoringRequestMatchers(H2_CONSOLE_PATHS);
+                    if (h2ConsoleEnabled) csrf.ignoringRequestMatchers(h2ConsolePaths);
                 })
                 .headers(headers -> {
                     // The H2 console renders its query editor inside frames, which the
@@ -141,8 +141,7 @@ public class WebSecurityConfig {
                     // local application.properties and is absent from the packaged
                     // application.yml, so a production boot keeps the deny rule below AND
                     // Spring never registers the console servlet in the first place.
-                    if (h2ConsoleEnabled) requests.requestMatchers(H2_CONSOLE_PATHS).permitAll();
-                    else requests.requestMatchers(H2_CONSOLE_PATHS).denyAll();
+                    if (h2ConsoleEnabled) requests.requestMatchers(h2ConsolePaths).permitAll();
                     requests.requestMatchers(HttpMethod.POST, "/game/setup").denyAll();
                     requests.requestMatchers(HttpMethod.GET, "/game/isSetupComplete").denyAll();
                     // Save files contain the shared football world but deliberately
