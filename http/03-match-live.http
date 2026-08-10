@@ -1,0 +1,114 @@
+### Match engine — instant results, and the interactive live session (Faza 3).
+###
+### The live session key is: competitionId_season_round_teamId1_teamId2
+### The variables below build one; edit them, or override per request.
+
+@teamId1 = 1
+@teamId2 = 2
+@matchKey = {{competitionId}}_{{season}}_{{round}}_{{teamId1}}_{{teamId2}}
+
+### ------------------------------------------------------------------
+### Already-played match — the read-only views
+
+### Full timeline of events
+# @name matchEvents
+GET {{baseUrl}}/match/matchEvents/{{competitionId}}/{{season}}/{{round}}/{{teamId1}}/{{teamId2}}
+
+### Result + narrative summary
+# @name matchSummary
+GET {{baseUrl}}/match/summary/{{competitionId}}/{{season}}/{{round}}/{{teamId1}}/{{teamId2}}
+
+### Per-player ratings — check these when the rating formula is being tuned
+# @name playerRatings
+GET {{baseUrl}}/match/playerRatings/{{competitionId}}/{{season}}/{{round}}/{{teamId1}}/{{teamId2}}
+
+### The full stat block: possession, shots, xG, duels, passing
+# @name matchStats
+GET {{baseUrl}}/match/stats/{{competitionId}}/{{season}}/{{round}}/{{teamId1}}/{{teamId2}}
+
+### Season totals for a team
+# @name seasonStats
+GET {{baseUrl}}/match/stats/season/{{teamId}}/{{season}}
+
+### Head to head
+# @name h2h
+GET {{baseUrl}}/match/h2h/{{teamId1}}/{{teamId2}}
+
+### Fixture list for a team
+# @name calendar
+GET {{baseUrl}}/match/calendar/{{teamId}}/{{season}}
+
+### Pre-match preview
+# @name preview
+GET {{baseUrl}}/match/preview/{{teamId}}
+
+### ------------------------------------------------------------------
+### Live simulation timeline (pre-baked, non-interactive)
+
+### By key
+# @name liveByKey
+GET {{baseUrl}}/match/live/{{matchKey}}
+
+### By parameters
+# @name liveByParams
+GET {{baseUrl}}/match/live/{{competitionId}}/{{season}}/{{round}}/{{teamId1}}/{{teamId2}}
+
+### ------------------------------------------------------------------
+### Interactive live session.
+### Order: state -> advance (repeatedly) -> substitute -> advance to 90 -> commit.
+### 404 means the session was never created or the cache evicted it; open the
+### match from the frontend first, or advance a day so the matchday creates one.
+
+### Current minute, score, pitch + bench with stamina, subs remaining
+# @name liveState
+GET {{baseUrl}}/match/live/{{matchKey}}/state
+
+### Tick the simulation forward. Call repeatedly with a rising minute.
+# @name liveAdvance
+POST {{baseUrl}}/match/live/{{matchKey}}/advance?untilMinute=45
+X-XSRF-TOKEN: {{csrfToken}}
+
+### Manager substitution. Both players must belong to your team.
+### atMinute is optional — 0 means "record at the current minute".
+# @name liveSubstitute
+POST {{baseUrl}}/match/live/{{matchKey}}/substitute
+Content-Type: application/json
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "playerOutId": 1,
+  "playerInId": 12,
+  "atMinute": 0
+}
+
+### Run to full time
+# @name liveAdvanceFullTime
+POST {{baseUrl}}/match/live/{{matchKey}}/advance?untilMinute=90
+X-XSRF-TOKEN: {{csrfToken}}
+
+### Finalize: standings, scorers, injuries, suspensions, press conference.
+### Idempotent — a second call returns alreadyCommitted:true.
+# @name liveCommit
+POST {{baseUrl}}/match/live/{{matchKey}}/commit
+X-XSRF-TOKEN: {{csrfToken}}
+
+### ------------------------------------------------------------------
+### Animation engine (V3)
+
+### @name animationPreview
+GET {{baseUrl}}/match/animation/preview
+
+### @name animationLivePreview
+GET {{baseUrl}}/match/animation/livePreview
+
+### ------------------------------------------------------------------
+### Player-level checks
+
+### @name playerCard
+GET {{baseUrl}}/humans/{{playerId}}/card
+
+### @name playerForm
+GET {{baseUrl}}/stats/playerForm/{{playerId}}
+
+### @name comparePlayers
+GET {{baseUrl}}/humans/compare/1/2

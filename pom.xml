@@ -221,6 +221,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- Keep the external runtime PostgreSQL config from leaking into tests. -->
+                    <systemPropertyVariables>
+                        <spring.config.location>classpath:/application.yml</spring.config.location>
+                    </systemPropertyVariables>
                     <excludes>
                         <exclude>**/*IT.java</exclude>
                     </excludes>
@@ -246,6 +250,10 @@
                     </execution>
                 </executions>
                 <configuration>
+                    <!-- Testcontainers/DynamicPropertySource can still override datasource values. -->
+                    <systemPropertyVariables>
+                        <spring.config.location>classpath:/application.yml</spring.config.location>
+                    </systemPropertyVariables>
                     <!--
                         Fuzz tests are statistical + slow (1000s of iterations,
                         whole-season simulations). They're excluded from the

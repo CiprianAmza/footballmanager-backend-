@@ -1,0 +1,96 @@
+### Authentication — run this file first, top to bottom.
+#
+# Everything else depends on two things it sets up:
+#   * the JSESSIONID cookie (stored automatically in http-client.cookies)
+#   * the {{csrfToken}} global, sent as X-XSRF-TOKEN on every mutating request
+#
+# Select the `dev` environment before running (top-right dropdown in IntelliJ).
+
+### Fetch a CSRF token and remember it for the whole run
+# @name csrf
+GET {{baseUrl}}/api/auth/csrf
+
+> {%
+    client.global.set("csrfToken", response.body.token);
+    client.log("CSRF token: " + response.body.token);
+%}
+
+### Register the debug account (409/400 on re-run is expected — it already exists)
+# careerRole: MANAGER | CHAIRMAN. Password must be at least 10 characters.
+# @name register
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "username": "{{username}}",
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "displayName": "{{displayName}}",
+  "careerRole": "MANAGER"
+}
+
+### Log in — opens the session every later request rides on
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "username": "{{username}}",
+  "password": "{{password}}"
+}
+
+> {%
+    client.test("login succeeded", () => client.assert(response.status === 200));
+%}
+
+### Who am I / is the session still alive
+# @name me
+GET {{baseUrl}}/api/auth/me
+
+### Career onboarding state — tells you whether a team still has to be picked
+# @name careerStatus
+GET {{baseUrl}}/api/career/status
+
+### Teams that can still be taken over
+# @name availableTeams
+GET {{baseUrl}}/game/availableTeams
+
+### Claim a team, and store its id for the other files
+# @name managerSetup
+POST {{baseUrl}}/api/career/manager/setup
+Content-Type: application/json
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "managerName": "{{displayName}}",
+  "managerAge": 40,
+  "teamId": {{teamId}},
+  "freeAgent": false
+}
+
+### Log out
+# @name logout
+POST {{baseUrl}}/api/auth/logout
+X-XSRF-TOKEN: {{csrfToken}}
+
+### ------------------------------------------------------------------
+### Admin session — separate login, hardcoded admin/admin.
+### Grants ROLE_ADMIN and returns the X-Admin-Token that 04-admin.http needs.
+### Note: this invalidates the session above, so re-run ### login afterwards
+### if you want to go back to being the manager.
+# @name adminLogin
+POST {{baseUrl}}/admin/login
+Content-Type: application/json
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "username": "{{adminUser}}",
+  "password": "{{adminPass}}"
+}
+
+> {%
+    client.global.set("adminToken", response.body.token);
+    client.log("Admin token: " + response.body.token);
+%}

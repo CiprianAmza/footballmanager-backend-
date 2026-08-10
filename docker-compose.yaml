@@ -1,5 +1,6 @@
-version: '3.6'
 volumes:
+  postgres-data:
+    driver: local
   zookeeper-data:
     driver: local
   zookeeper-log:
@@ -8,6 +9,22 @@ volumes:
     driver: local
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: footballmanager
+      POSTGRES_USER: footballmanager
+      POSTGRES_PASSWORD: footballmanager
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U footballmanager -d footballmanager"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   akhq:
     image: tchiotludo/akhq
     environment:

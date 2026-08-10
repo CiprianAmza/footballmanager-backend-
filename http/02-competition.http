@@ -1,0 +1,89 @@
+### Competitions, standings and the European system.
+### Competition types: 1=League, 2=Cup, 3=SecondLeague, 4=League of Champions, 5=Stars Cup
+### LoC rounds:  0=prelim, 1=qualifying, 2-7=groups, 8=QF, 9=SF, 10=Final
+### Stars Cup:   1-6=groups, 7=playoff, 8=QF, 9=SF, 10=Final
+
+### @name currentSeason
+GET {{baseUrl}}/competition/getCurrentSeason
+
+### @name currentRound
+GET {{baseUrl}}/competition/getCurrentRound
+
+### @name allCompetitions
+GET {{baseUrl}}/competition/getAllCompetitions
+
+### Only competitions of one type — 4 for the League of Champions
+# @name competitionsByType
+GET {{baseUrl}}/competition/getAllCompetitions/4
+
+### Standings for a competition
+# @name standings
+GET {{baseUrl}}/competition/getTeams/{{competitionId}}
+
+### Standings as they were in a past season
+# @name historicalStandings
+GET {{baseUrl}}/competition/historical/getTeams/{{season}}/{{competitionId}}
+
+### @name leaguesOverview
+GET {{baseUrl}}/competition/leaguesOverview
+
+### @name cupsOverview
+GET {{baseUrl}}/competition/cupsOverview
+
+### @name cupBracket
+GET {{baseUrl}}/competition/cupBracket/{{competitionId}}/{{season}}
+
+### Results of one round
+# @name results
+GET {{baseUrl}}/competition/getResults/{{competitionId}}/{{round}}/{{season}}
+
+### Every match of a season in one payload — good for eyeballing a whole
+### competition after a fast-forward
+# @name seasonMatches
+GET {{baseUrl}}/competition/getMatchesByCompetitionAndSeason/{{competitionId}}/{{season}}
+
+### @name fixtures
+GET {{baseUrl}}/competition/getFixtures/{{competitionId}}/{{round}}
+
+### Force one round to simulate, without advancing the calendar.
+### The narrowest way to reproduce a scoring or qualification bug.
+# @name simulateRound
+GET {{baseUrl}}/competition/simulateRound/{{competitionId}}/{{round}}
+
+### ------------------------------------------------------------------
+### European competitions
+
+### Group tables — competitionId 8 is usually the LoC, 9 the Stars Cup
+# @name europeanGroups
+GET {{baseUrl}}/competition/getEuropeanGroups/8/{{season}}
+
+### @name europeanDraws
+GET {{baseUrl}}/competition/europeanDraws/8/{{season}}
+
+### @name europeanSummary
+GET {{baseUrl}}/competition/getEuropeanSummary
+
+### @name clubCoefficients
+GET {{baseUrl}}/competition/getClubCoefficients
+
+### @name countryCoefficients
+GET {{baseUrl}}/competition/getCountryCoefficients
+
+### Stage-by-stage progress of one team through one competition
+# @name teamProgress
+GET {{baseUrl}}/competition/{{competitionId}}/{{season}}/team/{{teamId}}/progress
+
+### ------------------------------------------------------------------
+### Stats
+
+### @name championshipStats
+GET {{baseUrl}}/stats/championshipStats/{{competitionId}}/{{season}}
+
+### @name leagueStrength
+GET {{baseUrl}}/stats/league-strength/{{season}}
+
+### @name scorerLeaderboard
+GET {{baseUrl}}/stats/playerStats/leaderboard
+
+### @name allTimeChampions
+GET {{baseUrl}}/stats/allTimeChampions

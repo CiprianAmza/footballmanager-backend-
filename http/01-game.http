@@ -1,0 +1,61 @@
+### Game loop — advancing the calendar.
+### Requires the session from 00-auth.http.
+
+### Where the world currently is: day, season, pending matches, inbox
+# @name state
+GET {{baseUrl}}/game/state
+
+### Advance one day. The heavy one — this is the request to profile,
+### to watch under `-Dspring-boot.run.profiles=sqldebug`, and to hang
+### a conditional breakpoint off.
+# @name advance
+POST {{baseUrl}}/game/advance
+X-XSRF-TOKEN: {{csrfToken}}
+
+### Jump straight to a calendar day
+# @name advanceToDay
+POST {{baseUrl}}/game/advanceToDay/45
+X-XSRF-TOKEN: {{csrfToken}}
+
+### ------------------------------------------------------------------
+### Fast-forward jobs — run many days in the background.
+
+### Start a fast-forward job
+# @name fastForwardStart
+POST {{baseUrl}}/game/fast-forward
+Content-Type: application/json
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "targetDay": 120
+}
+
+### Poll the running job
+# @name fastForwardStatus
+GET {{baseUrl}}/game/fast-forward
+
+### Cancel it
+# @name fastForwardCancel
+DELETE {{baseUrl}}/game/fast-forward/1
+X-XSRF-TOKEN: {{csrfToken}}
+
+### ------------------------------------------------------------------
+### Save files. Export is available to any logged-in career; import is admin-only.
+
+### Download the current world
+# @name exportSave
+GET {{baseUrl}}/game/export
+
+### Squad and finances of the team you manage
+# @name squad
+GET {{baseUrl}}/teams/allPlayers/{{teamId}}
+
+### @name finances
+GET {{baseUrl}}/teams/finances/{{teamId}}
+
+### @name availability
+GET {{baseUrl}}/teams/availability/{{teamId}}
+
+### Inbox — the quickest confirmation that a day actually produced events
+# @name inbox
+GET {{baseUrl}}/inbox/me

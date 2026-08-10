@@ -82,6 +82,7 @@ The application is split across two GitHub repositories:
 
 - Java 17
 - Maven 3.9+
+- Docker with Docker Compose
 - Node.js 20 and npm 10
 - Git LFS (required for the bundled save game)
 
@@ -112,6 +113,7 @@ Start the backend:
 
 ```bash
 cd ~/IdeaProjects/footballmanager-backend-
+docker compose up -d postgres
 mvn clean install
 mvn spring-boot:run
 ```
@@ -126,6 +128,26 @@ npm start
 
 - Frontend: `http://localhost:4200`
 - Backend: `http://localhost:8086`
+
+The backend uses PostgreSQL by default. Local Docker credentials are:
+
+```text
+Database: footballmanager
+Username: footballmanager
+Password: footballmanager
+JDBC URL: jdbc:postgresql://localhost:5432/footballmanager
+```
+
+Override `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DRIVER`, `DB_DIALECT`, and
+`DDL_AUTO` with deployment secrets outside local development. PostgreSQL data is
+retained in the Docker volume `postgres-data` when the container is stopped.
+
+The backend owns this schema and currently completes it with Hibernate
+`ddl-auto=update`; Flyway has only the PostgreSQL identity/security migration so
+far. This is suitable for the local transition and lets read-only services share
+the database. Before production, convert the remaining historical H2 migrations
+to PostgreSQL and switch `DDL_AUTO` to `validate`. A separate service should use
+its own database user with `SELECT` permission instead of the owner credentials.
 
 ## Bundled save game
 
@@ -155,9 +177,9 @@ curl -X POST \
 A successful import returns `"success": true` together with the restored season,
 date, team and manager. Refresh the frontend after the import.
 
-The development database is H2 in-memory, so stopping the backend erases the
-running database. Export a fresh snapshot before a restart when the career has
-advanced:
+The development database is persisted by PostgreSQL, so restarting the backend
+does not erase the running career. Export snapshots before destructive schema
+changes or whenever a portable save is needed:
 
 ```bash
 curl http://localhost:8086/game/export -o football-manager-save.json

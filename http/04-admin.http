@@ -1,0 +1,150 @@
+### Admin / debug levers — the fastest way to force the world into a
+### specific state instead of simulating your way there.
+###
+### Needs BOTH:
+###   * a ROLE_ADMIN session, and
+###   * the X-Admin-Token header
+### Run ### adminLogin in 00-auth.http first; it stores {{adminToken}}.
+
+### Every not-yet-played match this season, with any predetermined score on it
+# @name upcomingMatches
+GET {{baseUrl}}/admin/upcomingMatches
+X-Admin-Token: {{adminToken}}
+
+### Force an exact scoreline. The simulator picks it up on the next
+### simulateRound for that competition/round — this is how you reproduce a
+### qualification or tie-break bug without fighting the RNG.
+# @name setScore
+POST {{baseUrl}}/admin/setScore
+Content-Type: application/json
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "competitionId": 1,
+  "seasonNumber": 1,
+  "roundNumber": 1,
+  "team1Id": 1,
+  "team2Id": 2,
+  "team1Score": 3,
+  "team2Score": 0
+}
+
+### Scores queued but not yet consumed
+# @name predeterminedScores
+GET {{baseUrl}}/admin/predeterminedScores
+X-Admin-Token: {{adminToken}}
+
+### Drop a queued score
+# @name deletePredetermined
+DELETE {{baseUrl}}/admin/predeterminedScore/1
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+### ------------------------------------------------------------------
+### Money
+
+### @name fundingOptions
+GET {{baseUrl}}/admin/finances/funding-options
+X-Admin-Token: {{adminToken}}
+
+### @name injectMoney
+POST {{baseUrl}}/admin/injectMoney
+Content-Type: application/json
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "teamId": 1,
+  "amount": 50000000
+}
+
+### ------------------------------------------------------------------
+### Squad manipulation
+
+### Generate a player into a team — skips the transfer market entirely
+# @name generatePlayer
+POST {{baseUrl}}/admin/generatePlayer
+Content-Type: application/json
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "teamId": 1,
+  "position": "ST",
+  "age": 24
+}
+
+### @name extendContract
+POST {{baseUrl}}/admin/contracts/extend
+Content-Type: application/json
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "playerId": 1,
+  "years": 3
+}
+
+### Move a player directly, no negotiation
+# @name forceTransfer
+POST {{baseUrl}}/admin/transfers
+Content-Type: application/json
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+{
+  "playerId": 1,
+  "toTeamId": 2,
+  "fee": 1000000
+}
+
+### @name transferHistory
+GET {{baseUrl}}/admin/transfers
+X-Admin-Token: {{adminToken}}
+
+### ------------------------------------------------------------------
+### Competition repair and draws
+
+### Pending draws
+# @name draws
+GET {{baseUrl}}/admin/draws
+X-Admin-Token: {{adminToken}}
+
+### @name completeDraws
+POST {{baseUrl}}/admin/draws/complete
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+### Rebuild a Stars Cup field left broken by the legacy cup-points rule
+# @name repairStarsCup
+POST {{baseUrl}}/admin/competitions/repair-stars-cup/{{season}}
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+### ------------------------------------------------------------------
+### Job offers and awards
+
+### @name jobOfferState
+GET {{baseUrl}}/admin/jobOffers/state
+X-Admin-Token: {{adminToken}}
+
+### @name forceNextJobOffer
+POST {{baseUrl}}/admin/jobOffers/forceNext
+X-Admin-Token: {{adminToken}}
+X-XSRF-TOKEN: {{csrfToken}}
+
+### @name ballonDor
+GET {{baseUrl}}/admin/awards/ballon-dor
+X-Admin-Token: {{adminToken}}
+
+### Best tactic the engine can find for a team — useful as an oracle when
+### tactical scoring changes
+# @name bestTactic
+GET {{baseUrl}}/admin/bestTactic/{{teamId}}
+X-Admin-Token: {{adminToken}}
+
+### Registered users
+# @name users
+GET {{baseUrl}}/admin/users
+X-Admin-Token: {{adminToken}}

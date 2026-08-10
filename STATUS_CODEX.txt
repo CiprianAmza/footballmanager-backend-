@@ -4,6 +4,21 @@ STATUS CODEX
 Ultima actualizare: 2026-08-06
 Status: FINALIZAT
 
+Actualizare repository: 2026-08-10
+---------------------------------
+- Toate modificarile pendinte de cod, configuratie, teste, documentatie si
+  asset-uri din backend si frontend au fost incluse in commiturile de arhivare.
+- Directorul backend `/tmp/` (73 MB de randari si extrageri PDF generate) a
+  fost adaugat in `.gitignore`; este material temporar, nu sursa proiectului.
+- Cache-urile/build-urile deja ignorate (`target`, `.angular/cache`, `dist`,
+  `node_modules`) nu sunt incluse.
+- Frontend production build: OK, hash `34417a1c10a3062a` (raman avertismentele
+  existente pentru bugetul bundle si cateva selectoare CSS).
+- Backend `mvn test`: proiectul compileaza, dar suita completa NU este verde;
+  esueaza teste existente din compartment scoring, match-plan/save schema si
+  controller/service integration. Starea este arhivata ca atare, conform
+  cererii de commit integral.
+
 Task curent
 -----------
 Mesajul primit in Inbox dupa meci este acum un raport editorial complet, nu
