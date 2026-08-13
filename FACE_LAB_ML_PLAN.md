@@ -139,3 +139,5 @@ anglerLure none`), 8 familii de palete (6 + `fungal chrome`).
 **Efect vizibil în joc**: toți jucătorii FootieCup (nația 4) devin `aquanimenti` la
 următoarea generare (`assignFace`). Salvările existente păstrează `species="human"` până
 la regenerare.
+
+
