@@ -4,7 +4,6 @@ Acest document descrie tot ce s-a livrat în sesiunea curentă (Faza 1 → Faza 
 
 Backend: `mvn test` → BUILD SUCCESS, 25/25 teste verzi.
 Frontend: `tsc --noEmit` → curat.
-
 ---
 
 ## 1. Ce a fost livrat
