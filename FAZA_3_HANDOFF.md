@@ -8,7 +8,7 @@ Frontend: `tsc --noEmit` → curat.
 
 ## 1. Ce a fost livrat
 
-### 1.1. Faza 1 —
+### 1.1. Faza 1
 **Fișier:** `src/main/java/com/footballmanagergamesimulator/service/LiveMatchSimulationService.java`
 
 - Clasă internă `PlayerMatchState` cu: `playerId, position, name, startFitness, currentStamina (0-100), minutesPlayed, isOnPitch, staminaAttr (1-20), naturalFitness (1-20)`.
