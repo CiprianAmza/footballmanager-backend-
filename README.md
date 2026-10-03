@@ -70,7 +70,6 @@ SVG & Canvas: Custom-built charts and tactical visualizations without heavy exte
 This project is a personal educational initiative inspired by the Football Manager series.
 
 <img width="1512" height="857" alt="image" src="https://github.com/user-attachments/assets/5b737987-ad1c-4699-973c-d37c3b81ac5c" />
-
 ## Development setup
 
 The application is split across two GitHub repositories:
