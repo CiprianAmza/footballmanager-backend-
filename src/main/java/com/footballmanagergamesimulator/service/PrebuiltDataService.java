@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -93,18 +94,28 @@ public class PrebuiltDataService {
 
     /** Dump the entire current database to the snapshot file (schema + data + sequences). */
     public void save() {
-        String path = sqlLiteral(snapshotFile().getPath());
+        save(snapshotFile().toPath());
+    }
+
+    /** Capture a named snapshot for a durable checkpoint. */
+    public void save(Path file) {
+        String path = sqlLiteral(file.toAbsolutePath().toString());
         try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
             st.execute("SCRIPT TO " + path);
         } catch (SQLException e) {
-            throw new IllegalStateException("Failed to write pre-built data snapshot to " + snapshotPath, e);
+            throw new IllegalStateException("Failed to write H2 snapshot to " + file, e);
         }
     }
 
     /** Wipe the (empty, Hibernate-created) schema and rebuild it + its data from the snapshot file. */
     public void restore() {
+        restore(snapshotFile().toPath());
+    }
+
+    /** Restore a checkpoint captured from the same H2 schema. */
+    public void restore(Path file) {
         synchronized (restoreLock) {
-            String path = sqlLiteral(snapshotFile().getPath());
+            String path = sqlLiteral(file.toAbsolutePath().toString());
             String snapshotVersion;
             try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
                 st.execute("DROP ALL OBJECTS");
@@ -112,7 +123,7 @@ public class PrebuiltDataService {
                 migrateSnapshotSchema(st);
                 snapshotVersion = snapshotFlywayVersion(c);
             } catch (SQLException e) {
-                throw new IllegalStateException("Failed to restore pre-built data snapshot from " + snapshotPath, e);
+                throw new IllegalStateException("Failed to restore H2 snapshot from " + file, e);
             }
 
             if (flyway == null) return;

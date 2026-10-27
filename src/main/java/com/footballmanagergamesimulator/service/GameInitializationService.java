@@ -84,6 +84,7 @@ public class GameInitializationService {
     @Autowired @Lazy private StaffService staffService;
     @Autowired @Lazy private NewSeasonSetupProcessor newSeasonSetupProcessor;
     @Autowired private PrebuiltDataService prebuiltDataService;
+    @Autowired private MemoryCheckpointService memoryCheckpointService;
     @Autowired private SuperCupService superCupService;
     @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
 
@@ -93,6 +94,7 @@ public class GameInitializationService {
      * setup and returns the freshly-created Round (cold start).
      */
     public Round initializeRound() {
+        memoryCheckpointService.restoreLatest();
         Optional<Round> existing = roundRepository.findById(1L);
         if (existing.isPresent()) {
             superCupService.ensureCompetitions();

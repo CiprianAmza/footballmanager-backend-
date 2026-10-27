@@ -53,6 +53,7 @@ public class GameAdvanceService {
     @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired @Lazy private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired private GameLock gameLock;
+    @Autowired private MemoryCheckpointService memoryCheckpointService;
 
     private final Random random = new Random();
 
@@ -117,6 +118,7 @@ public class GameAdvanceService {
             }
             Map<String, Object> result = advanceLocked(expectedSeason, forceContinue,
                     new AdvanceScope(roomUserIds, roomTeamIds));
+            memoryCheckpointService.afterAdvance(result);
             GameCalendar after = gameCalendarRepository.findTopByOrderBySeasonDesc()
                     .orElseThrow(() -> new IllegalStateException("calendar missing after advance"));
             com.footballmanagergamesimulator.multiplayer.RoomDate expected =
@@ -187,7 +189,9 @@ public class GameAdvanceService {
         // re-entrant advance() calls don't self-deadlock.
         gameLock.lock();
         try {
-            return advanceLocked(season, unattendedConfirmed, scope);
+            Map<String, Object> result = advanceLocked(season, unattendedConfirmed, scope);
+            memoryCheckpointService.afterAdvance(result);
+            return result;
         } finally {
             gameLock.unlock();
         }
