@@ -10,6 +10,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Duration;
+import java.sql.DriverManager;
 import java.util.List;
 import java.util.Map;
 
@@ -59,6 +60,13 @@ class MemoryCheckpointIT {
         }
         assertThat(checkpoints.status().state()).isEqualTo("SAVED");
         assertThat(checkpoints.status().matchdaysSinceCheckpoint()).isZero();
+        try (var connection = DriverManager.getConnection(System.getenv("CHECKPOINT_TEST_DB_URL"),
+                System.getenv("CHECKPOINT_TEST_DB_USERNAME"), System.getenv("CHECKPOINT_TEST_DB_PASSWORD"));
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT count(*) FROM game_checkpoint")) {
+            rows.next();
+            assertThat(rows.getInt(1)).isBetween(1, 5);
+        }
 
         activeDatabase.update("UPDATE round SET season=99 WHERE id=1");
         assertThat(activeDatabase.queryForObject("SELECT season FROM round WHERE id=1", Integer.class))

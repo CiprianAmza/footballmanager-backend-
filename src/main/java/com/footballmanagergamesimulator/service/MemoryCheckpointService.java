@@ -51,11 +51,14 @@ public class MemoryCheckpointService {
     private final String postgresUrl;
     private final String postgresUsername;
     private final String postgresPassword;
+    private final int maxRetained;
     private final PrebuiltDataService snapshots;
     private final GameCalendarRepository calendars;
+    private final GameLock gameLock;
     private final AtomicInteger intervalMatchdays;
     private final AtomicInteger matchdaysSinceCheckpoint = new AtomicInteger();
     private final AtomicBoolean busy = new AtomicBoolean();
+    private final AtomicBoolean pendingSeasonTransition = new AtomicBoolean();
     private final AtomicReference<Status> status;
     private final ExecutorService writer = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "postgres-checkpoint-writer");
@@ -69,20 +72,27 @@ public class MemoryCheckpointService {
             @Value("${game.checkpoint.postgres-url:}") String postgresUrl,
             @Value("${game.checkpoint.postgres-username:}") String postgresUsername,
             @Value("${game.checkpoint.postgres-password:}") String postgresPassword,
+            @Value("${game.checkpoint.max-retained:5}") int maxRetained,
             PrebuiltDataService snapshots,
-            GameCalendarRepository calendars) {
+            GameCalendarRepository calendars,
+            GameLock gameLock) {
         if (interval < 1 || interval > 1000) {
             throw new IllegalArgumentException("checkpoint interval must be between 1 and 1000 matchdays");
         }
         if (enabled && postgresUrl.isBlank()) {
             throw new IllegalArgumentException("CHECKPOINT_DB_URL is required for fast-sim mode");
         }
+        if (maxRetained < 1 || maxRetained > 100) {
+            throw new IllegalArgumentException("checkpoint retention must be between 1 and 100");
+        }
         this.enabled = enabled;
         this.postgresUrl = postgresUrl;
         this.postgresUsername = postgresUsername;
         this.postgresPassword = postgresPassword;
+        this.maxRetained = maxRetained;
         this.snapshots = snapshots;
         this.calendars = calendars;
+        this.gameLock = gameLock;
         this.intervalMatchdays = new AtomicInteger(interval);
         this.status = new AtomicReference<>(new Status(enabled, interval, 0,
                 enabled ? "IDLE" : "DISABLED", "", null, null, null, null));
@@ -161,6 +171,7 @@ public class MemoryCheckpointService {
         boolean transition = list.stream().anyMatch(item -> item instanceof Map<?, ?> event
                 && "SEASON_TRANSITION".equals(event.get("type")));
         if (matchday) matchdaysSinceCheckpoint.incrementAndGet();
+        if (transition) pendingSeasonTransition.set(true);
         if ((matchday && matchdaysSinceCheckpoint.get() >= intervalMatchdays.get()) || transition) {
             try {
                 capture(false);
@@ -200,6 +211,7 @@ public class MemoryCheckpointService {
             Path capturedScript = script;
             int capturedMatchdays = matchdaysSinceCheckpoint.get();
             writer.execute(() -> upload(capturedScript, season, day, capturedAt, capturedMatchdays));
+            pendingSeasonTransition.set(false);
             return status.get();
         } catch (Exception error) {
             busy.set(false);
@@ -216,6 +228,7 @@ public class MemoryCheckpointService {
 
     private void upload(Path script, int season, int day, Instant capturedAt, int capturedMatchdays) {
         Path gzip = null;
+        boolean saved = false;
         try {
             String hash = sha256(script);
             gzip = Files.createTempFile("fm-checkpoint-upload-", ".gz");
@@ -223,23 +236,32 @@ public class MemoryCheckpointService {
                  OutputStream compressed = new GZIPOutputStream(Files.newOutputStream(gzip))) {
                 source.transferTo(compressed);
             }
-            try (Connection connection = postgresConnection();
-                 PreparedStatement statement = connection.prepareStatement(
-                         "INSERT INTO game_checkpoint (season, game_day, captured_at, sha256, payload) "
-                                 + "VALUES (?, ?, ?, ?, ?)")) {
-                statement.setInt(1, season);
-                statement.setInt(2, day);
-                statement.setTimestamp(3, Timestamp.from(capturedAt));
-                statement.setString(4, hash);
-                try (InputStream payload = Files.newInputStream(gzip)) {
-                    statement.setBinaryStream(5, payload, Files.size(gzip));
-                    statement.executeUpdate();
+            try (Connection connection = postgresConnection()) {
+                connection.setAutoCommit(false);
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "INSERT INTO game_checkpoint (season, game_day, captured_at, sha256, payload) "
+                                + "VALUES (?, ?, ?, ?, ?)");
+                     PreparedStatement prune = connection.prepareStatement(
+                             "DELETE FROM game_checkpoint WHERE id NOT IN "
+                                     + "(SELECT id FROM game_checkpoint ORDER BY id DESC LIMIT ?)")) {
+                    statement.setInt(1, season);
+                    statement.setInt(2, day);
+                    statement.setTimestamp(3, Timestamp.from(capturedAt));
+                    statement.setString(4, hash);
+                    try (InputStream payload = Files.newInputStream(gzip)) {
+                        statement.setBinaryStream(5, payload, Files.size(gzip));
+                        statement.executeUpdate();
+                    }
+                    prune.setInt(1, maxRetained);
+                    prune.executeUpdate();
+                    connection.commit();
                 }
             }
             int remaining = matchdaysSinceCheckpoint.updateAndGet(
                     current -> Math.max(0, current - capturedMatchdays));
             status.set(new Status(true, intervalMatchdays.get(), remaining, "SAVED", "",
                     season, day, capturedAt, Instant.now()));
+            saved = true;
         } catch (Exception error) {
             Status previous = status.get();
             status.set(new Status(true, intervalMatchdays.get(), matchdaysSinceCheckpoint.get(),
@@ -250,6 +272,23 @@ public class MemoryCheckpointService {
             if (gzip != null) {
                 try { Files.deleteIfExists(gzip); } catch (IOException ignored) { }
             }
+            if (saved) capturePending();
+        }
+    }
+
+    /** A completed upload can leave enough newer matchdays to require another cut. */
+    private void capturePending() {
+        gameLock.lock();
+        try {
+            if (pendingSeasonTransition.get()
+                    || matchdaysSinceCheckpoint.get() >= intervalMatchdays.get()) {
+                capture(false);
+            }
+        } catch (RuntimeException error) {
+            System.err.println("Pending checkpoint capture failed: " + error.getMessage());
+            error.printStackTrace();
+        } finally {
+            gameLock.unlock();
         }
     }
 

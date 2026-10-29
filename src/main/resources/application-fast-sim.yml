@@ -17,6 +17,7 @@ game:
   checkpoint:
     enabled: true
     interval-matchdays: ${CHECKPOINT_INTERVAL_MATCHDAYS:5}
+    max-retained: ${CHECKPOINT_KEEP_LAST:5}
     postgres-url: ${CHECKPOINT_DB_URL:}
     postgres-username: ${CHECKPOINT_DB_USERNAME:footballmanager}
     postgres-password: ${CHECKPOINT_DB_PASSWORD:footballmanager}
