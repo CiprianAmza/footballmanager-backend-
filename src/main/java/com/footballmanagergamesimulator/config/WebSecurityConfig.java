@@ -150,7 +150,7 @@ public class WebSecurityConfig {
                     // save, while restoring that global world remains admin-only.
                     requests.requestMatchers(HttpMethod.GET, "/game/export").authenticated();
                     requests.requestMatchers(HttpMethod.POST, "/game/import").hasRole("ADMIN");
-                    requests.requestMatchers(HttpMethod.POST, "/game/checkpoints").hasRole("ADMIN");
+                    requests.requestMatchers(HttpMethod.POST, "/game/checkpoints").authenticated();
                     requests.requestMatchers(HttpMethod.PUT, "/game/checkpoints/interval").hasRole("ADMIN");
                     // The legacy Boardroom accepts caller-supplied owner IDs and
                     // client prices. It is never a Phase-1 compatibility API.

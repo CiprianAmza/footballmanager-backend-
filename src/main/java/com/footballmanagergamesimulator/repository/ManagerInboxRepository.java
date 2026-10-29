@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.repository;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.InboxAudience;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 
@@ -17,6 +18,8 @@ public interface ManagerInboxRepository extends JpaRepository<ManagerInbox, Long
 
     List<ManagerInbox> findAllByTeamIdAndIsReadFalse(long teamId);
     List<ManagerInbox> findAllByTeamIdAndAudienceInAndIsReadFalse(long teamId, List<InboxAudience> audiences);
+    List<ManagerInbox> findByTeamIdAndAudienceInAndIsReadFalseOrderByIdDesc(
+            long teamId, List<InboxAudience> audiences, Pageable pageable);
 
     long countByTeamIdAndIsReadFalse(long teamId);
     long countByTeamIdAndAudienceInAndIsReadFalse(long teamId, List<InboxAudience> audiences);
