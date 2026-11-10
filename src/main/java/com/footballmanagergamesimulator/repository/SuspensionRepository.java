@@ -14,6 +14,8 @@ public interface SuspensionRepository extends JpaRepository<Suspension, Long> {
 
     List<Suspension> findAllByTeamIdAndActive(long teamId, boolean active);
 
+    List<Suspension> findAllByTeamIdInAndActive(Collection<Long> teamIds, boolean active);
+
     List<Suspension> findAllByTeamIdAndCompetitionIdAndActive(long teamId, long competitionId, boolean active);
 
     List<Suspension> findAllByCompetitionIdAndTeamIdInAndActive(

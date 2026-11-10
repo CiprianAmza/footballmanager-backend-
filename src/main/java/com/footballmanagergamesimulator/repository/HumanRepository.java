@@ -19,6 +19,24 @@ import java.util.Optional;
 
 public interface HumanRepository extends JpaRepository<Human, Long>, JpaSpecificationExecutor<Human> {
 
+    interface TeamPlayerWages {
+        Long getTeamId();
+        Long getPlayerCount();
+        Long getTotalWage();
+        Long getTopWage();
+    }
+
+    @Query("""
+            select player.teamId as teamId, count(player.id) as playerCount,
+                   sum(player.wage) as totalWage, max(player.wage) as topWage
+              from Human player
+             where player.typeId = 1 and player.retired = false and player.teamId is not null
+             group by player.teamId
+            """)
+    List<TeamPlayerWages> activePlayerWagesByTeam();
+
+    List<Human> findTop100ByTypeIdAndRetiredFalseAndTeamIdIsNotNullOrderByWageDescIdAsc(long typeId);
+
     @Query("""
             select distinct player.position from Human player
              where player.typeId = 1 and player.retired = false

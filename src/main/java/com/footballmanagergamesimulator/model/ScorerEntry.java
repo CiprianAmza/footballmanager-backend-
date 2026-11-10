@@ -19,6 +19,9 @@ public class ScorerEntry {
     private long teamId;
     private String teamName;
     private int seasonNumber;
+    /** Club competitions in this season; may be present even with zero player appearances. */
+    private String seasonLeagueName;
+    private String seasonCupName;
 
     private List<CompetitionEntry> competitionEntries;
 

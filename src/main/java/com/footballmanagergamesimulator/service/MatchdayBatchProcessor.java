@@ -78,7 +78,7 @@ public class MatchdayBatchProcessor {
     @Value("${simulation.matchday.parallel.enabled:true}")
     private boolean parallelEnabled;
 
-    @Value("${simulation.matchday.parallel.workers:4}")
+    @Value("${simulation.matchday.parallel.workers:8}")
     private int configuredWorkers;
 
     private ExecutorService simulationExecutor;
@@ -117,6 +117,7 @@ public class MatchdayBatchProcessor {
      * Simulates all competitions at once instead of one-by-one.
      */
     public Map<String, Object> processBatchMatches(List<CalendarEvent> matchEvents, GameCalendar calendar) {
+        long matchdayStarted = System.nanoTime();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("type", "MATCH_DAY");
         result.put("day", calendar.getCurrentDay());
@@ -141,6 +142,7 @@ public class MatchdayBatchProcessor {
         plans.stream().map(SimulationPlan::event).map(CalendarEvent::getTitle)
                 .forEach(matchSummaries::add);
         long batchMs = (System.nanoTime() - _tBatchStart) / 1_000_000;
+        long simulationDone = System.nanoTime();
         System.out.println(String.format(
                 "=== processBatchMatches: %d competitions in %dms (parallel=%s, workers=%d) ===",
                 plans.size(), batchMs, simulationExecutor != null, workerCount));
@@ -150,10 +152,12 @@ public class MatchdayBatchProcessor {
         // this once per actually-played fixture keeps Continue and Fast Forward
         // on the exact same discipline path.
         processDisciplineForPlayedFixtures(matchEvents, calendar);
+        long disciplineDone = System.nanoTime();
 
         // Mid-season manager reviews are meaningful only after league tables
         // changed. Running them here replaces the old every-calendar-day scan.
         evaluateManagersAfterLeagueMatchdays(plans, calendar.getSeason());
+        long managersDone = System.nanoTime();
 
         // AFTER all simulations: find match results for ALL human teams
         List<Long> htIds = userContext.getAllHumanTeamIds();
@@ -174,9 +178,11 @@ public class MatchdayBatchProcessor {
                 }
             }
         }
+        long humanResultsDone = System.nanoTime();
 
         // Generate inbox news with other match results
         generateMatchDayNews(matchEvents, calendar);
+        long newsDone = System.nanoTime();
 
         result.put("title", "Match Day - " + matchSummaries.size() + " competitions");
         result.put("details", String.join(", ", matchSummaries));
@@ -237,6 +243,16 @@ public class MatchdayBatchProcessor {
             if (result.containsKey("hasLiveMatch")) break;
         }
 
+        long matchdayDone = System.nanoTime();
+        System.out.printf("  [TIMER matchday season=%d day=%d] total=%dms plan_and_simulate=%dms discipline=%dms managers=%dms human_results=%dms news=%dms live_session=%dms%n",
+                calendar.getSeason(), calendar.getCurrentDay(),
+                (matchdayDone - matchdayStarted) / 1_000_000,
+                (simulationDone - matchdayStarted) / 1_000_000,
+                (disciplineDone - simulationDone) / 1_000_000,
+                (managersDone - disciplineDone) / 1_000_000,
+                (humanResultsDone - managersDone) / 1_000_000,
+                (newsDone - humanResultsDone) / 1_000_000,
+                (matchdayDone - newsDone) / 1_000_000);
         return result;
     }
 

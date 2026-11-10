@@ -102,6 +102,14 @@ public class ManagerCareerService {
     public void recordManagerHistory(int season, List<TeamCompetitionDetail> allDetails) {
         List<Team> allTeams = teamRepository.findAll();
         List<Human> allManagers = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE);
+        Set<Long> userManagerIds = userRepository.findAll().stream()
+                .filter(user -> user.getTeamId() != null && user.getManagerId() != null)
+                .filter(user -> allManagers.stream().anyMatch(manager ->
+                        manager.getId() == user.getManagerId()
+                                && user.getTeamId().equals(manager.getTeamId())
+                                && !manager.isRetired()))
+                .map(User::getManagerId)
+                .collect(Collectors.toSet());
         List<Competition> allCompetitions = competitionRepository.findAll();
         List<CompetitionHistory> allCompHistory = competitionHistoryRepository.findAll().stream()
                 .filter(h -> h.getSeasonNumber() == season)
@@ -113,9 +121,12 @@ public class ManagerCareerService {
                 .collect(Collectors.toSet());
 
         for (Team team : allTeams) {
-            Human manager = allManagers.stream()
+            List<Human> teamManagers = allManagers.stream()
                     .filter(m -> m.getTeamId() != null && m.getTeamId() == team.getId() && !m.isRetired())
-                    .findFirst().orElse(null);
+                    .toList();
+            Human manager = teamManagers.stream()
+                    .filter(m -> userManagerIds.contains(m.getId()))
+                    .findFirst().orElseGet(() -> teamManagers.stream().findFirst().orElse(null));
             if (manager == null) continue;
 
             TeamCompetitionDetail leagueDetail = allDetails.stream()

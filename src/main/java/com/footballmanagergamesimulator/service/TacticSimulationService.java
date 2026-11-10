@@ -362,7 +362,9 @@ public class TacticSimulationService {
         Set<Integer> savedIndexes = savedData.values().stream()
                 .map(FormationData::getPositionIndex)
                 .collect(java.util.stream.Collectors.toSet());
-        boolean completeSavedEleven = savedData.size() == 11 && savedIndexes.equals(expectedIndexes);
+        boolean completeSavedEleven = savedData.size() == 11 && savedIndexes.equals(expectedIndexes)
+                && savedData.keySet().stream().allMatch(playerId -> remaining.stream()
+                        .anyMatch(player -> player.getId() == playerId));
         if (completeSavedEleven) {
             for (FormationData row : savedData.values().stream()
                     .sorted(Comparator.comparingInt(FormationData::getPositionIndex)).toList()) {
@@ -385,14 +387,16 @@ public class TacticSimulationService {
                     .findFirst().orElse(null);
             if (savedShooter != null) {
                 Human shooter = remaining.stream().filter(player -> player.getId() == savedShooter.getPlayerId())
-                        .findFirst().orElseThrow(() -> new IllegalArgumentException(
-                                "Saved SHOOTER is not available for team " + teamId));
-                String shooterSlot = tacticService.getPositionFromIndex(savedShooter.getPositionIndex());
-                if (!requiredSlots.remove(shooterSlot)) {
-                    throw new IllegalArgumentException("Saved SHOOTER slot is not part of formation " + formation);
+                        .findFirst().orElse(null);
+                // A saved role may outlive its player after retirement or transfer.
+                // Keep the role when valid; otherwise fill the slot normally.
+                if (shooter != null) {
+                    String shooterSlot = tacticService.getPositionFromIndex(savedShooter.getPositionIndex());
+                    if (requiredSlots.remove(shooterSlot)) {
+                        remaining.remove(shooter);
+                        selected.add(new RatingSelectedSlot(shooter, shooterSlot));
+                    }
                 }
-                remaining.remove(shooter);
-                selected.add(new RatingSelectedSlot(shooter, shooterSlot));
             }
         }
         List<String> unfilled = new ArrayList<>();

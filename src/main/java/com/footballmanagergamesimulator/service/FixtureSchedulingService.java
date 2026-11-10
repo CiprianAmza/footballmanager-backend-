@@ -747,7 +747,9 @@ public class FixtureSchedulingService {
         CalendarEvent seasonEnd = new CalendarEvent();
         seasonEnd.setSeason(season);
         seasonEnd.setDay(340);
-        seasonEnd.setPhase("EVENING");
+        // July 6: prepare and settle the market at the start of the day, so
+        // advancing to July 7 does not start the expensive season-end pipeline.
+        seasonEnd.setPhase("MORNING");
         seasonEnd.setEventType("SEASON_END");
         seasonEnd.setStatus("PENDING");
         seasonEnd.setTitle("Season " + season + " Ends");

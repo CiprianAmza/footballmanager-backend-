@@ -21,9 +21,10 @@ class ScorerRepositoryLeaderboardAggregateTest {
         scorerRepository.save(appearance(10L, 1, 1, 2));
         scorerRepository.save(appearance(10L, 2, 2, 1));
         scorerRepository.save(appearance(10L, 2, 4, 3));
+        scorerRepository.save(appearance(11L, 2, 1, 9));
 
         List<ScorerRepository.LeaderboardAggregate> rows =
-                scorerRepository.aggregateAllForLeaderboard(2);
+                scorerRepository.aggregateForLeaderboardPlayers(2, List.of(10L));
 
         assertEquals(1, rows.size());
         ScorerRepository.LeaderboardAggregate row = rows.get(0);

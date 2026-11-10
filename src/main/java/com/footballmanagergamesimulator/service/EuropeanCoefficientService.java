@@ -323,59 +323,84 @@ public class EuropeanCoefficientService {
      */
     public List<Long> getLeagueIdsSortedByCoefficient() {
         int currentSeason = Integer.parseInt(currentSeason());
-        List<Competition> firstLeagues = competitionRepository.findAll().stream()
+        Map<Long, Competition> competitionsById = competitionRepository.findAll().stream()
+                .collect(Collectors.toMap(Competition::getId, competition -> competition));
+        List<Competition> firstLeagues = competitionsById.values().stream()
                 .filter(Competition::isTopFlight).toList();
+        if (firstLeagues.isEmpty()) return List.of();
+
+        List<Team> allTeams = teamRepository.findAll();
+        Map<Long, Double> coefficientByNation = countryCoefficients(currentSeason, competitionsById, allTeams);
+        Map<Long, List<Team>> teamsByLeague = new HashMap<>();
+        for (Team team : allTeams) {
+            Competition league = competitionsById.get(team.getCompetitionId());
+            if (league == null) continue;
+            teamsByLeague.computeIfAbsent(league.getId(), ignored -> new ArrayList<>()).add(team);
+        }
 
         Map<Long, Double> leagueCoefficients = new HashMap<>();
         for (Competition league : firstLeagues) {
-            long leagueId = league.getId();
-            double countryCoefficient = countryCoefficientRaw(league.getNationId(), currentSeason);
-
-            // Fallback: if no coefficient data yet, use avg reputation of all teams.
+            double countryCoefficient = coefficientByNation.getOrDefault(league.getNationId(), 0.0);
             if (countryCoefficient == 0) {
-                List<Team> teams = teamRepository.findAll().stream()
-                        .filter(t -> t.getCompetitionId() == leagueId).toList();
-                countryCoefficient = teams.stream().mapToInt(Team::getReputation).average().orElse(0) / 100.0;
+                countryCoefficient = teamsByLeague.getOrDefault(league.getId(), List.of()).stream()
+                        .mapToInt(Team::getReputation).average().orElse(0) / 100.0;
             }
-
-            leagueCoefficients.put(leagueId, countryCoefficient);
+            leagueCoefficients.put(league.getId(), countryCoefficient);
         }
 
         List<Long> sorted = new ArrayList<>(leagueCoefficients.keySet());
-        sorted.sort((a, b) -> Double.compare(leagueCoefficients.get(b), leagueCoefficients.get(a)));
+        sorted.sort((a, b) -> {
+            int byCoefficient = Double.compare(leagueCoefficients.get(b), leagueCoefficients.get(a));
+            return byCoefficient != 0 ? byCoefficient : Long.compare(a, b);
+        });
         return sorted;
     }
 
-    /** Aggregated 5-season country coefficient for a nation (no fallback). */
-    private double countryCoefficientRaw(long nationId, int currentSeason) {
-        double countryCoefficient = 0;
-        for (int s = Math.max(1, currentSeason - 4); s <= currentSeason; s++) {
-            final int sFinal = s;
-            List<CompetitionTeamInfo> europeanEntries = competitionTeamInfoRepository
-                    .findAllBySeasonNumber(sFinal).stream()
-                    .filter(cti -> {
-                        Competition comp = competitionRepository.findById(cti.getCompetitionId()).orElse(null);
-                        return comp != null && (comp.getTypeId() == 4 || comp.getTypeId() == 5);
-                    })
-                    .toList();
-
-            Set<Long> clubsFromNation = new HashSet<>();
-            double seasonPoints = 0;
-            for (CompetitionTeamInfo cti : europeanEntries) {
-                Team team = teamRepository.findById(cti.getTeamId()).orElse(null);
-                if (team == null) continue;
-                Competition teamLeague = competitionRepository.findById(team.getCompetitionId()).orElse(null);
-                if (teamLeague != null && teamLeague.getNationId() == nationId) {
-                    clubsFromNation.add(cti.getTeamId());
-                }
-            }
-            for (long clubId : clubsFromNation) {
-                Optional<ClubCoefficient> cc = clubCoefficientRepository.findByTeamIdAndSeasonNumber(clubId, sFinal);
-                if (cc.isPresent()) seasonPoints += cc.get().getPoints();
-            }
-            countryCoefficient += clubsFromNation.isEmpty() ? 0 : seasonPoints / clubsFromNation.size();
+    /** One bounded read of the rolling window, shared by display and qualification. */
+    private Map<Long, Double> countryCoefficients(int currentSeason,
+                                                   Map<Long, Competition> competitionsById,
+                                                   List<Team> allTeams) {
+        int firstSeason = Math.max(1, currentSeason - 4);
+        Map<Long, Long> nationByTeam = new HashMap<>();
+        for (Team team : allTeams) {
+            Competition league = competitionsById.get(team.getCompetitionId());
+            if (league != null) nationByTeam.put(team.getId(), league.getNationId());
         }
-        return countryCoefficient;
+
+        // A club may have several entry rows as it advances through a European
+        // competition. Count it once per season and nation, as the old calculation did.
+        Map<Integer, Map<Long, Set<Long>>> clubsBySeasonAndNation = new HashMap<>();
+        for (CompetitionTeamInfo entry : competitionTeamInfoRepository
+                .findAllBySeasonNumberBetween(firstSeason, currentSeason)) {
+            Competition competition = competitionsById.get(entry.getCompetitionId());
+            if (competition == null || (competition.getTypeId() != 4 && competition.getTypeId() != 5)) continue;
+            Long nationId = nationByTeam.get(entry.getTeamId());
+            if (nationId == null) continue;
+            clubsBySeasonAndNation.computeIfAbsent((int) entry.getSeasonNumber(), ignored -> new HashMap<>())
+                    .computeIfAbsent(nationId, ignored -> new HashSet<>()).add(entry.getTeamId());
+        }
+
+        Map<Integer, Map<Long, Double>> pointsBySeasonAndTeam = new HashMap<>();
+        for (ClubCoefficient coefficient : clubCoefficientRepository
+                .findAllBySeasonNumberBetween(firstSeason, currentSeason)) {
+            pointsBySeasonAndTeam.computeIfAbsent(coefficient.getSeasonNumber(), ignored -> new HashMap<>())
+                    .put(coefficient.getTeamId(), coefficient.getPoints());
+        }
+
+        Map<Long, Double> coefficientByNation = new HashMap<>();
+        for (long nationId : new HashSet<>(nationByTeam.values())) {
+            double countryCoefficient = 0;
+            for (int season = firstSeason; season <= currentSeason; season++) {
+                Set<Long> clubs = clubsBySeasonAndNation.getOrDefault(season, Map.of())
+                        .getOrDefault(nationId, Set.of());
+                if (clubs.isEmpty()) continue;
+                Map<Long, Double> points = pointsBySeasonAndTeam.getOrDefault(season, Map.of());
+                countryCoefficient += clubs.stream().mapToDouble(id -> points.getOrDefault(id, 0.0)).sum()
+                        / clubs.size();
+            }
+            coefficientByNation.put(nationId, countryCoefficient);
+        }
+        return coefficientByNation;
     }
 
     // ============================================================
@@ -390,14 +415,19 @@ public class EuropeanCoefficientService {
      */
     public List<Long> rankFirstLeaguesByCoefficient() {
         int currentSeason = Integer.parseInt(currentSeason());
-        List<Competition> firstLeagues = competitionRepository.findAll().stream()
+        Map<Long, Competition> competitionsById = competitionRepository.findAll().stream()
+                .collect(Collectors.toMap(Competition::getId, competition -> competition));
+        List<Competition> firstLeagues = competitionsById.values().stream()
                 .filter(Competition::isTopFlight).toList();
+        if (firstLeagues.isEmpty()) return List.of();
+        List<Team> allTeams = teamRepository.findAll();
+        Map<Long, Double> coefficientByNation = countryCoefficients(currentSeason, competitionsById, allTeams);
 
         Map<Long, Double> coef = new HashMap<>();
         for (Competition league : firstLeagues) {
             long leagueId = league.getId();
-            double c = countryCoefficientRaw(league.getNationId(), currentSeason);
-            if (c == 0) c = avgReputationOfTopFour(leagueId);
+            double c = coefficientByNation.getOrDefault(league.getNationId(), 0.0);
+            if (c == 0) c = avgReputationOfTopFour(leagueId, allTeams);
             coef.put(leagueId, c);
         }
 
@@ -408,8 +438,8 @@ public class EuropeanCoefficientService {
     }
 
     /** Average reputation of a league's top-4 teams (by reputation desc). */
-    private double avgReputationOfTopFour(long leagueId) {
-        return teamRepository.findAll().stream()
+    private double avgReputationOfTopFour(long leagueId, List<Team> allTeams) {
+        return allTeams.stream()
                 .filter(t -> t.getCompetitionId() == leagueId)
                 .sorted(Comparator.comparingInt(Team::getReputation).reversed())
                 .limit(4)

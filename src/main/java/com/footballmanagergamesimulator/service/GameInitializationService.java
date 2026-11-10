@@ -234,23 +234,29 @@ public class GameInitializationService {
             TeamFacilities teamFacilities = teamFacilitiesRepository.findByTeamId(team.getId());
             squadGenerationService.generateInitialSquad(team, teamFacilities, 1, 70, random);
 
-            Human manager = new Human();
-            manager.setAge(random.nextInt(35, 70));
-            manager.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
-            manager.setTeamId(team.getId());
-            int reputation = 100;
-            if (teamFacilities != null)
-                reputation = (int) teamFacilities.getSeniorTrainingLevel() * 10;
-            manager.setRating(random.nextInt(reputation - 20, reputation + 20));
-            manager.setPosition("Manager");
-            manager.setSeasonCreated(1L);
-            manager.setTypeId(TypeNames.MANAGER_TYPE);
-            String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), random);
-            manager.setTacticStyle(kit[0]);
-            manager.setKnownTactics(kit[1]);
-            manager.setAlwaysUseBestPossibleTactic(
-                    ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
-            humanRepository.save(manager);
+            // Bootstrap already creates a manager for seeded clubs. A second one can
+            // later receive the club's career history instead of the user's manager.
+            boolean hasManager = humanRepository.findAllByTeamIdAndTypeId(
+                    team.getId(), TypeNames.MANAGER_TYPE).stream().anyMatch(m -> !m.isRetired());
+            if (!hasManager) {
+                Human manager = new Human();
+                manager.setAge(random.nextInt(35, 70));
+                manager.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
+                manager.setTeamId(team.getId());
+                int reputation = 100;
+                if (teamFacilities != null)
+                    reputation = (int) teamFacilities.getSeniorTrainingLevel() * 10;
+                manager.setRating(random.nextInt(reputation - 20, reputation + 20));
+                manager.setPosition("Manager");
+                manager.setSeasonCreated(1L);
+                manager.setTypeId(TypeNames.MANAGER_TYPE);
+                String[] kit = tacticService.buildManagerTacticKit((int) manager.getRating(), random);
+                manager.setTacticStyle(kit[0]);
+                manager.setKnownTactics(kit[1]);
+                manager.setAlwaysUseBestPossibleTactic(
+                        ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
+                humanRepository.save(manager);
+            }
 
             staffService.generateInitialStaff(team.getId(), 1);
         }

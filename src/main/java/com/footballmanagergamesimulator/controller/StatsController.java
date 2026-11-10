@@ -22,6 +22,8 @@ import com.footballmanagergamesimulator.service.SetPiecesAnalyticsService;
 import com.footballmanagergamesimulator.service.PlayerPerformanceLabService;
 import com.footballmanagergamesimulator.service.PerfectRatingLeaderboardService;
 import com.footballmanagergamesimulator.service.LegacyRecordsService;
+import com.footballmanagergamesimulator.service.CompetitionGoalsRankingService;
+import com.footballmanagergamesimulator.service.CompetitionEconomyRankingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -62,6 +64,27 @@ public class StatsController {
     @Autowired PlayerPerformanceLabService playerPerformanceLabService;
     @Autowired PerfectRatingLeaderboardService perfectRatingLeaderboardService;
     @Autowired LegacyRecordsService legacyRecordsService;
+    @Autowired CompetitionGoalsRankingService competitionGoalsRankingService;
+    @Autowired CompetitionEconomyRankingService competitionEconomyRankingService;
+
+    /** Current-season comparisons across every competition, club and active player. */
+    @GetMapping("/competition-economy-ranking")
+    public CompetitionEconomyRankingService.Ranking competitionEconomyRanking() {
+        return competitionEconomyRankingService.ranking();
+    }
+
+    @GetMapping("/competition-economy-ranking/{competitionId}")
+    public CompetitionEconomyRankingService.CompetitionDetail competitionEconomyRankingDetail(
+            @PathVariable long competitionId) {
+        return competitionEconomyRankingService.detail(competitionId);
+    }
+
+    /** Season 0 means every completed match in the save. */
+    @GetMapping("/competition-goals-ranking")
+    public CompetitionGoalsRankingService.Ranking competitionGoalsRanking(
+            @RequestParam(required = false) Integer season) {
+        return competitionGoalsRankingService.ranking(season);
+    }
 
     // ==================== SCORER ENTRY LOOKUPS ====================
 
@@ -74,8 +97,7 @@ public class StatsController {
 
     @GetMapping(value = "/getStats/{playerId}")
     public Map<Integer, ScorerEntry> getStatsByPlayerForCompetitionId(@PathVariable long playerId) {
-        List<Scorer> scorers = scorerRepository.findAllByPlayerId(playerId);
-        return statsService.getScorerEntriesFromScorers(scorers);
+        return statsService.getPlayerCareerEntries(playerId);
     }
 
     @GetMapping(value = "/getStats/all/{competitionId}")

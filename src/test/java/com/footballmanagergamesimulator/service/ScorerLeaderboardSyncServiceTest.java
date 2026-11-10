@@ -17,6 +17,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -80,7 +81,8 @@ class ScorerLeaderboardSyncServiceTest {
         when(humanRepository.findAllByTypeId(1L)).thenReturn(List.of(retired, missing));
         when(leaderboardRepository.findAll()).thenReturn(List.of(oldKvekrpur));
         when(teamRepository.findAll()).thenReturn(List.of(team));
-        when(scorerRepository.aggregateAllForLeaderboard(17)).thenReturn(List.of(aggregate));
+        when(scorerRepository.aggregateForLeaderboardPlayers(17, List.of(4058L)))
+                .thenReturn(List.of(aggregate));
 
         Map<Long, ScorerLeaderboardEntry> result = service.synchronizeAllPlayers();
 
@@ -99,6 +101,7 @@ class ScorerLeaderboardSyncServiceTest {
         assertEquals("Tik Tok", refreshedRetired.getTeamName(),
                 "all-time rows retain the last club after retirement");
         assertFalse(refreshedRetired.isActive());
+        verify(scorerRepository).aggregateForLeaderboardPlayers(17, List.of(4058L));
         verify(leaderboardRepository).saveAll(anyList());
     }
 
@@ -125,7 +128,7 @@ class ScorerLeaderboardSyncServiceTest {
 
         service.synchronizeAllPlayers();
 
-        verify(scorerRepository, never()).aggregateAllForLeaderboard(17);
+        verify(scorerRepository, never()).aggregateForLeaderboardPlayers(anyInt(), anyList());
         verify(leaderboardRepository, never()).saveAll(anyList());
     }
 

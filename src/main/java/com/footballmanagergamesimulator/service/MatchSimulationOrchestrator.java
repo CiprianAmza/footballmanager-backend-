@@ -97,6 +97,11 @@ public class MatchSimulationOrchestrator {
         matchRoundSimulator.warmFormationSquads(teamIds);
     }
 
+    /** Use an already loaded, transaction-local squad snapshot for the AI market. */
+    public void warmFormationSquads(java.util.Collection<Long> teamIds, Map<Long, List<Human>> squadsByTeam) {
+        matchRoundSimulator.warmFormationSquads(teamIds, squadsByTeam);
+    }
+
     /** Squad membership changed, tactical preference did not — drops the squad-derived
      *  caches but keeps the (expensive) formation choice. Used by the AI transfer window. */
     public void invalidateSquadCaches(long teamId) {
@@ -112,6 +117,14 @@ public class MatchSimulationOrchestrator {
     /** Invalidate all cached AI base ratings — used at season transition. */
     public void invalidateAllRatingCaches() {
         matchRoundSimulator.invalidateAllRatingCaches();
+    }
+
+    public void beginMarketAvailabilitySnapshot(java.util.Collection<Long> teamIds) {
+        matchRoundSimulator.beginMarketAvailabilitySnapshot(teamIds);
+    }
+
+    public void endMarketAvailabilitySnapshot() {
+        matchRoundSimulator.endMarketAvailabilitySnapshot();
     }
 
     public void invalidateManagerTacticPolicy(long teamId) {

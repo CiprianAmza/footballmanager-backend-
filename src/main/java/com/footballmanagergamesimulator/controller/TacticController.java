@@ -1113,14 +1113,21 @@ public class TacticController {
                 slots.add(new StarterSlot(playersForThisPosition.get(i), position));
                 available -= 1;
             }
-            for (int i = needed; i < playersForThisPosition.size(); i++) {
-                restPlayers.add(playersForThisPosition.get(i));
-            }
             for (int i = taken; i < needed; i++) {
                 openSlots.add(position);
             }
         }
 
+        // Every unselected squad member can cover an open slot out of position.
+        // Restricting this pool to positions named in the formation discarded
+        // healthy players (e.g. wide midfielders in a narrow formation), then
+        // invented youth starters even when the club had a full squad.
+        Set<Long> selectedIds = slots.stream()
+                .map(slot -> slot.player().getId())
+                .collect(Collectors.toSet());
+        for (PlayerView player : players) {
+            if (!selectedIds.contains(player.getId())) restPlayers.add(player);
+        }
         restPlayers.sort((x, y) -> Double.compare(aptness(y), aptness(x)));
         int fill = Math.min(available, restPlayers.size());
         for (int i = 0; i < fill; i++) {
@@ -1134,6 +1141,9 @@ public class TacticController {
         while (slots.size() < 11) {
             String slot = openSlots.isEmpty() ? "MC" : openSlots.poll();
             PlayerView playerView = new PlayerView();
+            // Temporary youth must have distinct IDs across both teams: the
+            // match timeline keys participants by player ID, including guests.
+            playerView.setId(-(team.getId() * 32 + slots.size() + 1L));
             playerView.setAge(16);
             playerView.setName("Youth Player");
             playerView.setPosition(slot);

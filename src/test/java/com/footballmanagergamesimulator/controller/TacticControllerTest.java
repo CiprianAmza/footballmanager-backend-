@@ -23,6 +23,7 @@ import com.footballmanagergamesimulator.service.TacticService;
 import com.footballmanagergamesimulator.service.MatchSimulationOrchestrator;
 import com.footballmanagergamesimulator.service.NationService;
 import com.footballmanagergamesimulator.service.PlayerValueService;
+import com.footballmanagergamesimulator.service.PlayerPersonalityService;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -37,6 +38,32 @@ import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TacticControllerTest {
+    @Test
+    void automaticElevenUsesHealthyPlayersOutsideTheFormationPositions() {
+        List<Human> squad = new ArrayList<>();
+        for (long id = 1; id <= 18; id++) squad.add(player(id));
+
+        List<TacticController.StarterSlot> starters = selectionController(squad)
+                .getBestElevenWithSlots("10", "442");
+
+        assertThat(starters).hasSize(11);
+        assertThat(starters).extracting(slot -> slot.player().getId())
+                .allMatch(id -> id > 0).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void temporaryYouthHaveDistinctIdsWhenSquadReallyHasFewerThanElevenPlayers() {
+        List<Human> squad = new ArrayList<>();
+        for (long id = 1; id <= 9; id++) squad.add(player(id));
+
+        List<TacticController.StarterSlot> starters = selectionController(squad)
+                .getBestElevenWithSlots("10", "442");
+
+        assertThat(starters).hasSize(11);
+        assertThat(starters).extracting(slot -> slot.player().getId()).doesNotHaveDuplicates();
+        assertThat(starters.stream().filter(slot -> slot.player().getId() < 0)).hasSize(2);
+    }
+
     @Test
     void selectionPlayersIncludeCurrentSeasonFormAndOutput() {
         TeamRepository teams = mock(TeamRepository.class);
@@ -249,6 +276,40 @@ class TacticControllerTest {
         player.setPosition("MC");
         player.setRating(10);
         return player;
+    }
+
+    private static TacticController selectionController(List<Human> squad) {
+        Team team = new Team();
+        team.setId(10L);
+        team.setName("Test");
+        TeamRepository teams = mock(TeamRepository.class);
+        HumanRepository humans = mock(HumanRepository.class);
+        MatchSimulationOrchestrator availability = mock(MatchSimulationOrchestrator.class);
+        CoachPermissionService permissions = mock(CoachPermissionService.class);
+        ChairmanTacticalMandateEnforcementService mandates = mock(ChairmanTacticalMandateEnforcementService.class);
+        NationService nations = mock(NationService.class);
+        PlayerValueService values = mock(PlayerValueService.class);
+        when(teams.findById(10L)).thenReturn(Optional.of(team));
+        when(humans.findAllByTeamIdAndTypeId(10L, TypeNames.PLAYER_TYPE)).thenReturn(squad);
+        when(availability.roundUnavailableIds(10L)).thenReturn(Set.of());
+        when(permissions.lockedSlots(10L)).thenReturn(List.of());
+        when(mandates.effectiveFormation(10L, "442")).thenReturn("442");
+        when(mandates.mandate(10L)).thenReturn(EffectiveChairmanMandate.absent());
+        when(mandates.resolvedLockedSlots(anyLong(), anyString(), any(), any())).thenReturn(List.of());
+        when(nations.infoForTeam(10L)).thenReturn(new NationService.NationInfo(1L, "Testland", "te"));
+        when(values.fitnessFactor(anyDouble())).thenReturn(1.0);
+
+        TacticController controller = new TacticController();
+        ReflectionTestUtils.setField(controller, "teamRepository", teams);
+        ReflectionTestUtils.setField(controller, "humanRepository", humans);
+        ReflectionTestUtils.setField(controller, "matchSimulationOrchestrator", availability);
+        ReflectionTestUtils.setField(controller, "coachPermissionService", permissions);
+        ReflectionTestUtils.setField(controller, "mandateEnforcement", mandates);
+        ReflectionTestUtils.setField(controller, "nationService", nations);
+        ReflectionTestUtils.setField(controller, "playerValueService", values);
+        ReflectionTestUtils.setField(controller, "playerPersonalityService", new PlayerPersonalityService());
+        ReflectionTestUtils.setField(controller, "tacticService", new TacticService());
+        return controller;
     }
 
     private static FormationData data(int position, long playerId) {

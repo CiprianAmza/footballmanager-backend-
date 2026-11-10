@@ -120,6 +120,13 @@ public class AdminController {
         return ResponseEntity.status(401).body(Map.of("error", "Admin token missing or invalid"));
     }
 
+    /** Confirms that the browser still has both its admin session and token. */
+    @GetMapping("/session")
+    public ResponseEntity<?> session(HttpServletRequest req) {
+        if (!isAdmin(req)) return unauthorized();
+        return ResponseEntity.ok(Map.of("authenticated", true));
+    }
+
     private String matchKey(long compId, int round, long t1, long t2) {
         return compId + "-" + round + "-" + t1 + "-" + t2;
     }

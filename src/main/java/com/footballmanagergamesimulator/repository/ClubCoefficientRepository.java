@@ -11,4 +11,5 @@ public interface ClubCoefficientRepository extends JpaRepository<ClubCoefficient
     List<ClubCoefficient> findAllByTeamId(long teamId);
     Optional<ClubCoefficient> findByTeamIdAndSeasonNumber(long teamId, int seasonNumber);
     List<ClubCoefficient> findAllBySeasonNumber(int seasonNumber);
+    List<ClubCoefficient> findAllBySeasonNumberBetween(int firstSeason, int lastSeason);
 }

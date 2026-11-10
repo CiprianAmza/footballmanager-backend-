@@ -137,6 +137,8 @@ public class NewSeasonSetupProcessor {
 
     @Transactional
     public synchronized void process(int season) {
+        long setupStarted = System.nanoTime();
+        long stageStarted = setupStarted;
         Round cachedRound = gameStateService.getRound();
         Round round = roundRepository.findById(cachedRound.getId()).orElseThrow();
         // Guard: if round.season already moved past this season, skip (prevents double transition)
@@ -166,6 +168,7 @@ public class NewSeasonSetupProcessor {
                 .collect(Collectors.groupingBy(tcd -> (long) tcd.getCompetitionId()));
         snapshotHistoricalValues(competitions, oldSeason, detailsByCompetition);
         saveAllPlayerTeamHistoricalRelations(oldSeason);
+        stageStarted = logSetupStage(oldSeason, "historical_snapshots", stageStarted);
 
         // Loans already returned in processEndOfSeason, before the AI market.
         // Admin movements stay here: they are your explicit instructions and must
@@ -176,6 +179,7 @@ public class NewSeasonSetupProcessor {
         superCupService.prepareSeason(newSeason);
         removeCompetitionData((long) newSeason);
         addImprovementToOverachievers();
+        stageStarted = logSetupStage(oldSeason, "competition_reset", stageStarted);
 
         // Ageing + retirements already applied in processEndOfSeason, before the market.
         // Wipe generated AI tactics for the new season, while preserving human
@@ -201,6 +205,7 @@ public class NewSeasonSetupProcessor {
         humanRepository.saveAll(newRegens); // re-save with recomputed ratings
         playerSkillsRepository.saveAll(newRegenSkills);
         teamPlayerHistoricalRelationRepository.saveAll(newRegenRelations);
+        stageStarted = logSetupStage(oldSeason, "regens", stageStarted);
 
         List<Human> allPlayers = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE);
         Random seasonResetRandom = new Random();
@@ -221,6 +226,7 @@ public class NewSeasonSetupProcessor {
             }
         }
         humanRepository.saveAll(allPlayers);
+        stageStarted = logSetupStage(oldSeason, "player_reset", stageStarted);
 
         // Clear derby cache for new season
         teamPostMatchService.clearDerbyCache();
@@ -247,6 +253,7 @@ public class NewSeasonSetupProcessor {
                     + " sponsorship contract(s)/offer(s) before season " + newSeason + " ===");
         }
         seasonObjectiveService.generateSeasonObjectives(newSeason);
+        stageStarted = logSetupStage(oldSeason, "readiness_and_objectives", stageStarted);
 
         // Generate league fixtures for new season
         Set<Long> newLeagueCompIds = competitionRepository.findIdsByTypeId(1);
@@ -254,6 +261,7 @@ public class NewSeasonSetupProcessor {
         newLeagueCompIds.addAll(newSecondLeagueCompIds);
         for (Long competitionId : newLeagueCompIds)
             fixtureSchedulingService.getFixturesForRound(String.valueOf(competitionId), "1", newSeason);
+        stageStarted = logSetupStage(oldSeason, "league_fixtures", stageStarted);
 
         // Scorer rows are real match appearances, never season-start placeholders.
         // First create/backfill entries for regens and academy promotions, then
@@ -267,6 +275,7 @@ public class NewSeasonSetupProcessor {
                 scorerLeaderboardRepository.findAllByPlayerIdIn(playerIds);
         leaderboardUpdates.forEach(NewSeasonSetupProcessor::resetCurrentSeasonStats);
         scorerLeaderboardRepository.saveAll(leaderboardUpdates);
+        stageStarted = logSetupStage(oldSeason, "scorer_leaderboard", stageStarted);
 
         // Reset end-of-season idempotency guard so next season can process again
         endOfSeasonProcessor.reset();
@@ -275,6 +284,7 @@ public class NewSeasonSetupProcessor {
         // This wipes whatever cup CompetitionTeamInfo/Match rows the legacy per-league
         // loop wrote earlier and replaces them with a proper full bracket.
         regenerateAllCupBrackets(newSeason);
+        stageStarted = logSetupStage(oldSeason, "cup_brackets", stageStarted);
 
         // Ageing, retirements, overachiever rewards and the pre-season training
         // boost all recomputed player ratings — drop every cached AI base rating so
@@ -287,6 +297,9 @@ public class NewSeasonSetupProcessor {
         round.setRound(1);
         round.setSeason(newSeason);
         roundRepository.save(round);
+        logSetupStage(oldSeason, "publish_round", stageStarted);
+        System.out.printf("=== NEW SEASON SETUP timing season=%d total_before_commit=%dms ===%n",
+                oldSeason, (System.nanoTime() - setupStarted) / 1_000_000);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -295,6 +308,13 @@ public class NewSeasonSetupProcessor {
         });
 
         System.out.println("=== NEW SEASON " + newSeason + " STARTED ===");
+    }
+
+    private long logSetupStage(long season, String stage, long started) {
+        long now = System.nanoTime();
+        System.out.printf("  [TIMER newSeasonSetup season=%d] %s=%dms%n",
+                season, stage, (now - started) / 1_000_000);
+        return now;
     }
 
     private void snapshotHistoricalValues(

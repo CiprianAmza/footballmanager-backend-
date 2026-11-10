@@ -17,6 +17,7 @@ public class ChairmanTacticalMandateEnforcementService {
     private final ChairmanTacticalMandateRepository mandateRepository;
     private final HumanRepository humanRepository;
     private final TacticService tacticService;
+    private final ThreadLocal<Map<Long, EffectiveChairmanMandate>> marketMandates = new ThreadLocal<>();
 
     public ChairmanTacticalMandateEnforcementService(ChairmanTacticalMandateRepository mandateRepository,
                                                      HumanRepository humanRepository,
@@ -27,10 +28,27 @@ public class ChairmanTacticalMandateEnforcementService {
     }
 
     public EffectiveChairmanMandate mandate(long teamId) {
+        Map<Long, EffectiveChairmanMandate> snapshot = marketMandates.get();
+        if (snapshot != null && snapshot.containsKey(teamId)) return snapshot.get(teamId);
         return mandateRepository.findByTeamId(teamId).map(value -> new EffectiveChairmanMandate(
                 value.getRequiredFormation(), value.sortedSlots().stream()
                         .map(slot -> new EffectiveChairmanMandate.Slot(slot.getPositionIndex(), slot.getRequiredPlayerId()))
                         .toList())).orElseGet(EffectiveChairmanMandate::absent);
+    }
+
+    public void beginMarketSnapshot(Collection<Long> teamIds) {
+        if (marketMandates.get() != null) throw new IllegalStateException("Market mandate snapshot already active");
+        Map<Long, EffectiveChairmanMandate> snapshot = new HashMap<>();
+        for (Long teamId : teamIds) snapshot.put(teamId, EffectiveChairmanMandate.absent());
+        mandateRepository.findAllByTeamIdIn(teamIds).forEach(value -> snapshot.put(value.getTeamId(),
+                new EffectiveChairmanMandate(value.getRequiredFormation(), value.sortedSlots().stream()
+                        .map(slot -> new EffectiveChairmanMandate.Slot(
+                                slot.getPositionIndex(), slot.getRequiredPlayerId())).toList())));
+        marketMandates.set(snapshot);
+    }
+
+    public void endMarketSnapshot() {
+        marketMandates.remove();
     }
 
     public String effectiveFormation(long teamId, String proposedFormation) {

@@ -5,7 +5,9 @@ import lombok.Data;
 
 @Entity
 @Data
-@Table(name = "financial_record")
+@Table(name = "financial_record", indexes = {
+        @Index(name = "idx_financial_record_season_category", columnList = "seasonNumber,category")
+})
 public class FinancialRecord {
 
     @Id

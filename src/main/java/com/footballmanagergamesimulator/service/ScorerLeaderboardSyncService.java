@@ -65,12 +65,14 @@ public class ScorerLeaderboardSyncService {
             existingByPlayer.putIfAbsent(entry.getPlayerId(), entry);
         }
 
-        boolean hasMissingRows = players.stream()
-                .anyMatch(player -> !existingByPlayer.containsKey(player.getId()));
+        List<Long> missingPlayerIds = players.stream()
+                .map(Human::getId)
+                .filter(id -> !existingByPlayer.containsKey(id))
+                .toList();
         Map<Long, ScorerRepository.LeaderboardAggregate> aggregatesByPlayer = new HashMap<>();
-        if (hasMissingRows) {
+        if (!missingPlayerIds.isEmpty()) {
             for (ScorerRepository.LeaderboardAggregate aggregate
-                    : scorerRepository.aggregateAllForLeaderboard(currentSeason)) {
+                    : scorerRepository.aggregateForLeaderboardPlayers(currentSeason, missingPlayerIds)) {
                 aggregatesByPlayer.put(aggregate.getPlayerId(), aggregate);
             }
         }

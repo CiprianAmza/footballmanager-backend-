@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.ManagerHistory;
 import com.footballmanagergamesimulator.model.SeasonObjective;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 class ManagerCareerServiceTest {
 
@@ -160,6 +162,50 @@ class ManagerCareerServiceTest {
         verify(managerInboxRepository, never()).save(any());
         assertEquals(teamId, user.getTeamId());
         assertEquals(teamId, manager.getTeamId());
+    }
+
+    @Test
+    void historyBelongsToUsersManagerWhenClubHasTwoActiveManagers() {
+        Team team = team(86L, 1000);
+        Human generatedManager = new Human();
+        generatedManager.setId(2679L);
+        generatedManager.setTeamId(team.getId());
+        generatedManager.setName("Generated manager");
+        Human userManager = new Human();
+        userManager.setId(86L);
+        userManager.setTeamId(team.getId());
+        userManager.setName("User manager");
+
+        User user = new User();
+        user.setTeamId(team.getId());
+        user.setManagerId(userManager.getId());
+
+        Competition league = new Competition();
+        league.setId(1L);
+        league.setTypeId(Competition.LEAGUE);
+        league.setName("Test league");
+        TeamCompetitionDetail standings = new TeamCompetitionDetail();
+        standings.setTeamId(team.getId());
+        standings.setCompetitionId(league.getId());
+        standings.setGames(34);
+
+        when(teamRepository.findAll()).thenReturn(List.of(team));
+        when(humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE))
+                .thenReturn(List.of(generatedManager, userManager));
+        when(userRepository.findAll()).thenReturn(List.of(user));
+        when(competitionRepository.findAll()).thenReturn(List.of(league));
+        when(competitionHistoryRepository.findAll()).thenReturn(List.of());
+        when(seasonObjectiveRepository.findAllByTeamIdAndSeasonNumber(team.getId(), 2))
+                .thenReturn(List.of());
+
+        service.recordManagerHistory(2, List.of(standings));
+
+        ArgumentCaptor<ManagerHistory> history = ArgumentCaptor.forClass(ManagerHistory.class);
+        verify(managerHistoryRepository).save(history.capture());
+        assertEquals(userManager.getId(), history.getValue().getManagerId());
+        assertEquals("User manager", history.getValue().getManagerName());
+        verify(humanRepository).save(userManager);
+        verify(humanRepository, never()).save(generatedManager);
     }
 
     private Team team(long id, int reputation) {

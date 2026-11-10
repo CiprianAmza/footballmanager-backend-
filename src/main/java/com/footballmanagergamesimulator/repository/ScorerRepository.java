@@ -182,9 +182,12 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
                    coalesce(sum(case when s.seasonNumber = :season and s.competitionTypeId = 3 then 1 else 0 end), 0) as currentSeasonSecondLeagueGames,
                    coalesce(sum(case when s.seasonNumber = :season and s.competitionTypeId = 3 then s.goals else 0 end), 0) as currentSeasonSecondLeagueGoals
               from Scorer s
+             where s.playerId in :playerIds
              group by s.playerId
             """)
-    List<LeaderboardAggregate> aggregateAllForLeaderboard(@Param("season") int season);
+    List<LeaderboardAggregate> aggregateForLeaderboardPlayers(
+            @Param("season") int season,
+            @Param("playerIds") java.util.Collection<Long> playerIds);
 
     @Query("""
             select s.competitionId as competitionId,

@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
+import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
@@ -20,6 +22,8 @@ import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 class GameInitializationServiceTest {
@@ -85,6 +89,22 @@ class GameInitializationServiceTest {
         verify(fixtureSchedulingService).getFixturesForRound("12", "1");
         verify(fixtureSchedulingService).generateSeasonCalendar(1);
         verify(newSeasonSetupProcessor).regenerateAllCupBrackets(1);
+    }
+
+    @Test
+    void coldStartKeepsManagerAlreadyCreatedByBootstrap() {
+        Team team = new Team();
+        team.setId(86L);
+        Human existingManager = new Human();
+        existingManager.setTeamId(team.getId());
+        when(teamRepository.findAll()).thenReturn(List.of(team));
+        when(humanRepository.findAllByTeamIdAndTypeId(team.getId(), 4L))
+                .thenReturn(List.of(existingManager));
+
+        ReflectionTestUtils.invokeMethod(service, "generateInitialSquadsAndStaff", new Object[]{null});
+
+        verify(humanRepository, never()).save(any(Human.class));
+        verify(staffService).generateInitialStaff(team.getId(), 1);
     }
 
     private void inject(String field, Object value) {

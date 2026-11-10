@@ -5,6 +5,7 @@ import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionHistory;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
+import com.footballmanagergamesimulator.model.FinancialRecord;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Loan;
 import com.footballmanagergamesimulator.model.ManagerInbox;
@@ -12,6 +13,7 @@ import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.model.Transfer;
+import com.footballmanagergamesimulator.model.TransferOffer;
 import com.footballmanagergamesimulator.repository.ClubCoefficientRepository;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
@@ -35,8 +37,13 @@ import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import jakarta.persistence.EntityManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -122,6 +129,10 @@ public class EndOfSeasonProcessor {
      *  (loan returns + training) lives there but must run before the AI market. */
     @Autowired @Lazy private NewSeasonSetupProcessor newSeasonSetupProcessor;
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig matchEngineConfig;
+    @Autowired private EntityManager entityManager;
+    @Autowired private JdbcTemplate jdbcTemplate;
+    @Value("${transfer.market.persistence-mode:MEMORY}")
+    private String marketPersistenceMode;
 
     /**
      * The squads the last transfer window actually planned against — after training,
@@ -224,6 +235,20 @@ public class EndOfSeasonProcessor {
             return;
         }
         inProgress = true;
+        long processStarted = System.nanoTime();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != STATUS_COMMITTED && endOfSeasonProcessedForSeason == season) {
+                        endOfSeasonProcessed = false;
+                    }
+                    System.out.printf("=== SEASON_END timing season=%d transaction=%s total_with_commit=%dms ===%n",
+                            season, status == STATUS_COMMITTED ? "COMMITTED" : "ROLLED_BACK",
+                            (System.nanoTime() - processStarted) / 1_000_000);
+                }
+            });
+        }
         try {
             System.out.println("=== processEndOfSeason: season " + season + " ===");
             superCupService.ensureCompetitions();
@@ -378,10 +403,12 @@ public class EndOfSeasonProcessor {
             for (Long teamId : teamIds) {
                 matchSimulationOrchestrator.invalidateSquadCaches(teamId);
             }
+            long preparationFinished = System.nanoTime();
 
             // ---- AI transfer market -----------------------------------------
             List<Transfer> transfers = runAiTransferMarket(
                     teamIds, humanTeamIds, teamsById, currentSeasonInt, currentSeason);
+            long marketFinished = System.nanoTime();
 
             // The window has just redistributed the squads the strength table is
             // built from, so the ladder is redrawn here and printed. It is not
@@ -485,6 +512,11 @@ public class EndOfSeasonProcessor {
 
             endOfSeasonProcessed = true;
             endOfSeasonProcessedForSeason = season;
+            System.out.printf("=== SEASON_END timing season=%d preparation=%dms market=%dms after_market=%dms before_commit=%dms ===%n",
+                    season, (preparationFinished - processStarted) / 1_000_000,
+                    (marketFinished - preparationFinished) / 1_000_000,
+                    (System.nanoTime() - marketFinished) / 1_000_000,
+                    (System.nanoTime() - processStarted) / 1_000_000);
             System.out.println("=== END OF SEASON " + season + " PROCESSED. " + transfers.size() + " AI transfers. Transfer window open. ===");
         } finally {
             inProgress = false;
@@ -625,11 +657,33 @@ public class EndOfSeasonProcessor {
     /** How many times the window re-reads the squads and lets clubs trade again. */
     private static final int MARKET_ROUNDS = 3;
 
-    private List<Transfer> runAiTransferMarket(List<Long> teamIds,
+    /** Mutable, detached market snapshot. A round only changes these Java objects. */
+    private static final class MarketState {
+        final Map<Long, Human> playersById;
+        final Map<Long, Team> teamsById;
+        final Set<Long> activeLoanPlayerIds;
+        final Set<Long> humanTeamIds;
+        final Map<Long, Human> changedPlayers = new LinkedHashMap<>();
+        final Map<Long, Team> changedTeams = new LinkedHashMap<>();
+        final List<Transfer> transfers = new ArrayList<>();
+        final List<FinancialRecord> financialRecords = new ArrayList<>();
+        final List<TransferOffer> humanOffers = new ArrayList<>();
+
+        MarketState(List<Human> players, Map<Long, Team> teamsById,
+                    Set<Long> activeLoanPlayerIds, Set<Long> humanTeamIds) {
+            this.playersById = players.stream().collect(Collectors.toMap(Human::getId, p -> p));
+            this.teamsById = teamsById;
+            this.activeLoanPlayerIds = activeLoanPlayerIds;
+            this.humanTeamIds = humanTeamIds;
+        }
+    }
+
+    List<Transfer> runAiTransferMarket(List<Long> teamIds,
                                                Set<Long> humanTeamIds,
                                                Map<Long, Team> teamsById,
                                                int seasonInt,
                                                long season) {
+        long marketStarted = System.nanoTime();
         Map<String, Integer> minimumPositions = tacticService.getMinimumPositionNeeded();
         Map<String, Integer> maximumPositions = tacticService.getMaximumPositionAllowed();
         Map<String, Integer> funnel = new LinkedHashMap<>();
@@ -638,6 +692,29 @@ public class EndOfSeasonProcessor {
                 .filter(id -> !humanTeamIds.contains(id))
                 .sorted()
                 .toList();
+
+        // All later transfers mutate these managed Human entities in this same
+        // transaction. Re-grouping them in memory each round sees the new owners
+        // without re-reading every changed club's squad from PostgreSQL.
+        List<Human> marketPlayers = new ArrayList<>(humanRepository
+                .findAllByTeamIdInAndTypeIdAndRetiredFalse(aiTeamIds, TypeNames.PLAYER_TYPE));
+        List<Human> freeAgents = humanRepository
+                .findAllByTypeIdAndRetiredFalseAndTeamIdIsNull(TypeNames.PLAYER_TYPE);
+        marketPlayers.addAll(freeAgents);
+        boolean memoryMode = !"LEGACY".equalsIgnoreCase(marketPersistenceMode);
+        MarketState state = null;
+        if (memoryMode) {
+            // Preparation may have changed thousands of managed entities. Flush it
+            // once, then detach the market snapshot so unrelated repository reads
+            // cannot auto-flush a partially settled window.
+            entityManager.flush();
+            teamsById.values().forEach(entityManager::detach);
+            marketPlayers.forEach(entityManager::detach);
+            Set<Long> activeLoans = loanRepository.findAllByStatus("active").stream()
+                    .map(Loan::getPlayerId).collect(Collectors.toSet());
+            state = new MarketState(marketPlayers, teamsById, activeLoans, humanTeamIds);
+        }
+        long snapshotMs = (System.nanoTime() - marketStarted) / 1_000_000;
 
         Map<Long, SquadDepthChart> depthCharts = new LinkedHashMap<>();
         List<PlayerTransferView> unsoldFreeAgents = List.of();
@@ -652,12 +729,17 @@ public class EndOfSeasonProcessor {
         Map<Long, Integer> sellAllowance = new HashMap<>();
         long chartMs = 0;
         long matchMs = 0;
+        long supplyMs = 0;
+        long planningMs = 0;
+        long[] settlementNanos = {0};
 
         // Clubs whose squad has changed since their chart was built. Round one is
         // everybody; after that only whoever actually traded, because rebuilding a
         // chart costs a squad load plus a formation pass and most clubs stand still.
         Set<Long> stale = new LinkedHashSet<>(aiTeamIds);
 
+        if (memoryMode) matchSimulationOrchestrator.beginMarketAvailabilitySnapshot(aiTeamIds);
+        try {
         for (int round = 0; round < MARKET_ROUNDS; round++) {
             boolean lastRound = round == MARKET_ROUNDS - 1;
             // The final round is the clearance sale: softer bars, discounted fees, so
@@ -671,12 +753,10 @@ public class EndOfSeasonProcessor {
             if (!stale.isEmpty()) {
                 List<Long> toRefresh = List.copyOf(stale);
                 toRefresh.forEach(matchSimulationOrchestrator::invalidateSquadCaches);
-                matchSimulationOrchestrator.warmFormationSquads(toRefresh);
-                Map<Long, List<Human>> squadsByTeam = humanRepository
-                        .findAllByTeamIdInAndTypeIdAndRetiredFalse(toRefresh, TypeNames.PLAYER_TYPE)
-                        .stream()
+                Map<Long, List<Human>> squadsByTeam = marketPlayers.stream()
                         .filter(player -> player.getTeamId() != null)
                         .collect(Collectors.groupingBy(Human::getTeamId));
+                matchSimulationOrchestrator.warmFormationSquads(toRefresh, squadsByTeam);
                 for (Long teamId : toRefresh) {
                     Team team = teamsById.get(teamId);
                     if (team == null) continue;
@@ -690,6 +770,7 @@ public class EndOfSeasonProcessor {
             // 2. Supply. Anyone who has already moved is off the market for the rest of
             //    the window: without this, the club that just signed him is free to list
             //    him again next round and he becomes a two-hop transit passenger.
+            long tSupply = System.nanoTime();
             List<PlayerTransferView> market = new ArrayList<>();
             Map<Long, Set<Long>> listedByTeam = new HashMap<>();
             for (Long teamId : aiTeamIds) {
@@ -710,17 +791,19 @@ public class EndOfSeasonProcessor {
             }
             if (round == 0) {
                 funnel.put("listed_by_clubs", market.size());
-                unsoldFreeAgents = freeAgentListings();
+                unsoldFreeAgents = freeAgentListings(freeAgents);
                 funnel.put("free_agents_available", unsoldFreeAgents.size());
             }
             unsoldFreeAgents = unsoldFreeAgents.stream()
                     .filter(view -> !movedThisWindow.contains(view.getPlayerId()))
                     .collect(Collectors.toList());
             market.addAll(unsoldFreeAgents);
+            supplyMs += (System.nanoTime() - tSupply) / 1_000_000;
 
             // 3. Demand. Slots reset each round — a club that filled its striker slot
             //    has a rebuilt chart and will simply not ask for one again — but the
             //    money does not: budgetLeft carries what earlier rounds already spent.
+            long tPlanning = System.nanoTime();
             Map<Long, BuyPlanTransferView> plans = new LinkedHashMap<>();
             Map<Long, SquadDepthChart> planningCharts = new LinkedHashMap<>();
             Map<Long, Set<String>> openSlots = new HashMap<>();
@@ -752,12 +835,16 @@ public class EndOfSeasonProcessor {
                         .map(TransferPlayer::getPosition)
                         .collect(Collectors.toCollection(LinkedHashSet::new)));
                 criticalSlotsWanted += (int) plan.getPositions().stream().filter(TransferPlayer::isCritical).count();
-                budgetLeft.computeIfAbsent(teamId, id -> {
-                    Team fresh = teamRepository.findById(id).orElse(team);
-                    return Math.min(fresh.getTransferBudget(), plan.getSpendingCap());
-                });
+                budgetLeft.computeIfAbsent(teamId, id -> memoryMode
+                        ? Math.min(team.getTransferBudget(), plan.getSpendingCap())
+                        : Math.min(teamRepository.findById(id).orElse(team).getTransferBudget(), plan.getSpendingCap()));
                 // Human clubs are offered for once, not once per round.
-                if (round == 0) transferMarketService.generateAiOffersForHumanPlayers(team, plan);
+                if (round == 0 && !memoryMode)
+                    transferMarketService.generateAiOffersForHumanPlayers(team, plan);
+            }
+            if (round == 0 && state != null) {
+                state.humanOffers.addAll(transferMarketService.prepareAiOffersForHumanPlayers(
+                        plans, teamsById, humanTeamIds, state.activeLoanPlayerIds, seasonInt));
             }
             if (round == 0) {
                 funnel.put("clubs_shopping", plans.size());
@@ -765,11 +852,12 @@ public class EndOfSeasonProcessor {
                 lastPlanningDepthCharts = Map.copyOf(planningCharts);
             }
             funnel.merge("critical_slots_wanted", criticalSlotsWanted, Integer::sum);
+            planningMs += (System.nanoTime() - tPlanning) / 1_000_000;
 
             // 4. Match and settle.
             long tMatch = System.currentTimeMillis();
             List<Transfer> settled = matchAndSettle(market, plans, openSlots, budgetLeft,
-                    clubsThatBought, pass, seasonInt, season, funnel);
+                    clubsThatBought, pass, seasonInt, season, funnel, settlementNanos, state);
             matchMs += System.currentTimeMillis() - tMatch;
             transfers.addAll(settled);
 
@@ -785,9 +873,21 @@ public class EndOfSeasonProcessor {
                 }
             }
         }
+        } finally {
+            if (memoryMode) matchSimulationOrchestrator.endMarketAvailabilitySnapshot();
+        }
+
+        long persistStarted = System.nanoTime();
+        if (state != null) persistMarket(state);
+        funnel.put("ms_market_persist", (int) ((System.nanoTime() - persistStarted) / 1_000_000));
 
         funnel.put("ms_depth_charts", (int) chartMs);
         funnel.put("ms_matching", (int) matchMs);
+        funnel.put("ms_market_snapshot", (int) snapshotMs);
+        funnel.put("ms_supply", (int) supplyMs);
+        funnel.put("ms_planning", (int) planningMs);
+        funnel.put("ms_settlement", (int) (settlementNanos[0] / 1_000_000));
+        funnel.put("ms_market_total", (int) ((System.nanoTime() - marketStarted) / 1_000_000));
         funnel.put("transfers_completed", transfers.size());
         funnel.put("clubs_that_bought", clubsThatBought.size());
         System.out.println("=== AI transfer market funnel (season " + seasonInt + "): " + funnel + " ===");
@@ -808,8 +908,8 @@ public class EndOfSeasonProcessor {
      * earlier seasons and never picked up. Offered at zero fee — the only supply a
      * club with an empty budget can act on.
      */
-    private List<PlayerTransferView> freeAgentListings() {
-        return humanRepository.findAllByTypeIdAndRetiredFalseAndTeamIdIsNull(TypeNames.PLAYER_TYPE).stream()
+    private List<PlayerTransferView> freeAgentListings(List<Human> freeAgents) {
+        return freeAgents.stream()
                 .filter(player -> player.getPosition() != null)
                 .filter(player -> !player.isWillNeverLeave())
                 .map(player -> new PlayerTransferView(
@@ -848,7 +948,9 @@ public class EndOfSeasonProcessor {
                                           MatchingPass pass,
                                           int seasonInt,
                                           long season,
-                                          Map<String, Integer> funnel) {
+                                          Map<String, Integer> funnel,
+                                          long[] settlementNanos,
+                                          MarketState state) {
         List<PlayerTransferView> ordered = market.stream()
                 .sorted(Comparator.comparingDouble(PlayerTransferView::getRating).reversed()
                         .thenComparingLong(PlayerTransferView::getPlayerId))
@@ -914,7 +1016,11 @@ public class EndOfSeasonProcessor {
                 continue;
             }
 
-            Transfer transfer = settleTransfer(candidate, bestBuyerId, fee, seasonInt, season);
+            long settlementStarted = System.nanoTime();
+            Transfer transfer = state == null
+                    ? settleTransfer(candidate, bestBuyerId, fee, seasonInt, season)
+                    : settleTransferInMemory(state, candidate, bestBuyerId, fee, seasonInt, season);
+            settlementNanos[0] += System.nanoTime() - settlementStarted;
             if (transfer == null) continue;
 
             settled.add(transfer);
@@ -939,7 +1045,143 @@ public class EndOfSeasonProcessor {
         return settled;
     }
 
-    /** Moves the player, settles the money and records the transfer row. */
+    /** Settle entirely inside the detached snapshot; no repository call per transfer. */
+    private Transfer settleTransferInMemory(MarketState state, PlayerTransferView candidate,
+                                            long buyTeamId, long fee, int seasonInt, long season) {
+        Human human = state.playersById.get(candidate.getPlayerId());
+        if (human == null || human.isWillNeverLeave() || human.isRetired()
+                || state.activeLoanPlayerIds.contains(human.getId())) return null;
+        Long currentOwner = human.getTeamId();
+        if (candidate.isFreeAgent()) {
+            if (currentOwner != null) return null;
+        } else if (currentOwner == null || currentOwner != candidate.getTeamId()) {
+            return null;
+        }
+        if (currentOwner != null && state.humanTeamIds.contains(currentOwner)) return null;
+
+        Team buyTeam = state.teamsById.get(buyTeamId);
+        Team sellTeam = candidate.isFreeAgent() ? null : state.teamsById.get(candidate.getTeamId());
+        if (buyTeam == null || (currentOwner != null && currentOwner == buyTeam.getId())
+                || (!candidate.isFreeAgent() && sellTeam == null)) return null;
+
+        human.setTeamId(buyTeam.getId());
+        human.setSeasonMatchesPlayed(0);
+        human.setConsecutiveBenched(0);
+        human.setContractEndSeason(seasonInt + 1 + (int) Math.floorMod(human.getId(), 3L) + 1);
+        human.setWage(WageService.baseWage(human.getRating()));
+        state.changedPlayers.put(human.getId(), human);
+        matchSimulationOrchestrator.invalidateSquadCaches(buyTeam.getId());
+        if (sellTeam != null) matchSimulationOrchestrator.invalidateSquadCaches(sellTeam.getId());
+
+        if (fee > 0) {
+            marketFinancialRecord(state, buyTeam, seasonInt, "TRANSFER_BUY",
+                    "Bought " + human.getName(), -fee);
+            buyTeam.setTransferBudget(Math.max(0, buyTeam.getTransferBudget() - fee));
+            state.changedTeams.put(buyTeam.getId(), buyTeam);
+            if (sellTeam != null) {
+                marketFinancialRecord(state, sellTeam, seasonInt, "TRANSFER_SALE",
+                        "Sold " + human.getName(), fee);
+                // Preserve the existing finance rule: the ledger credits the
+                // board-confidence share, then the fee is added to sale proceeds.
+                sellTeam.setTransferBudget(sellTeam.getTransferBudget() + fee);
+                state.changedTeams.put(sellTeam.getId(), sellTeam);
+            }
+        }
+
+        Transfer transfer = new Transfer();
+        transfer.setPlayerId(human.getId());
+        transfer.setPlayerName(human.getName());
+        transfer.setPlayerTransferValue(fee);
+        transfer.setSellTeamId(sellTeam == null ? 0L : sellTeam.getId());
+        transfer.setSellTeamName(sellTeam == null ? "Free agent" : sellTeam.getName());
+        transfer.setBuyTeamId(buyTeam.getId());
+        transfer.setBuyTeamName(buyTeam.getName());
+        transfer.setRating(human.getRating());
+        transfer.setSeasonNumber(season);
+        transfer.setPlayerAge(human.getAge());
+        state.transfers.add(transfer);
+        return transfer;
+    }
+
+    private void marketFinancialRecord(MarketState state, Team team, int season,
+                                       String category, String description, long amount) {
+        FinancialRecord record = new FinancialRecord();
+        record.setTeamId(team.getId());
+        record.setSeasonNumber(season);
+        record.setDay(0);
+        record.setCategory(category);
+        record.setDescription(description);
+        record.setAmount(amount);
+        state.financialRecords.add(record);
+        team.setTotalFinances(team.getTotalFinances() + amount);
+        if (amount > 0) {
+            int confidencePct = financeService.getTransferBudgetPercentage(team.getBoardConfidence());
+            team.setTransferBudget(team.getTransferBudget() + (long) (amount * confidencePct / 100.0));
+        }
+    }
+
+    /** One final database write phase, including the transfer and finance ledgers. */
+    private void persistMarket(MarketState state) {
+        if (!state.changedPlayers.isEmpty()) {
+            jdbcTemplate.batchUpdate("UPDATE human SET team_id=?, season_matches_played=?, "
+                            + "consecutive_benched=?, contract_end_season=?, wage=? WHERE id=?",
+                    state.changedPlayers.values(), 100, (ps, human) -> {
+                        ps.setLong(1, human.getTeamId());
+                        ps.setInt(2, human.getSeasonMatchesPlayed());
+                        ps.setInt(3, human.getConsecutiveBenched());
+                        ps.setInt(4, human.getContractEndSeason());
+                        ps.setLong(5, human.getWage());
+                        ps.setLong(6, human.getId());
+                    });
+        }
+        if (!state.changedTeams.isEmpty()) {
+            jdbcTemplate.batchUpdate("UPDATE team SET total_finances=?, transfer_budget=? WHERE id=?",
+                    state.changedTeams.values(), 100, (ps, team) -> {
+                        ps.setLong(1, team.getTotalFinances());
+                        ps.setLong(2, team.getTransferBudget());
+                        ps.setLong(3, team.getId());
+                    });
+        }
+        if (!state.financialRecords.isEmpty()) {
+            jdbcTemplate.batchUpdate("INSERT INTO financial_record "
+                            + "(team_id, season_number, record_day, category, description, amount) "
+                            + "VALUES (?, ?, ?, ?, ?, ?)",
+                    state.financialRecords, 100, (ps, record) -> {
+                        ps.setLong(1, record.getTeamId());
+                        ps.setInt(2, record.getSeasonNumber());
+                        ps.setInt(3, record.getDay());
+                        ps.setString(4, record.getCategory());
+                        ps.setString(5, record.getDescription());
+                        ps.setLong(6, record.getAmount());
+                    });
+        }
+        if (!state.transfers.isEmpty()) {
+            jdbcTemplate.batchUpdate("INSERT INTO transfer "
+                            + "(sell_team_id, buy_team_id, player_id, player_age, player_transfer_value, "
+                            + "rating, season_number, sell_team_name, buy_team_name, player_name, "
+                            + "sell_on_fee_paid, sell_on_recipient_team_id) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)",
+                    state.transfers, 100, (ps, transfer) -> {
+                        ps.setLong(1, transfer.getSellTeamId());
+                        ps.setLong(2, transfer.getBuyTeamId());
+                        ps.setLong(3, transfer.getPlayerId());
+                        ps.setLong(4, transfer.getPlayerAge());
+                        ps.setLong(5, transfer.getPlayerTransferValue());
+                        ps.setDouble(6, transfer.getRating());
+                        ps.setLong(7, transfer.getSeasonNumber());
+                        ps.setString(8, transfer.getSellTeamName());
+                        ps.setString(9, transfer.getBuyTeamName());
+                        ps.setString(10, transfer.getPlayerName());
+                    });
+        }
+        transferMarketService.persistPreparedAiOffers(state.humanOffers);
+        // The following loan pass and season-objective reads must see the final
+        // squads, not stale managed entities from the pre-market transaction.
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    /** Legacy per-transfer persistence, retained as an A/B integration benchmark baseline. */
     private Transfer settleTransfer(PlayerTransferView candidate,
                                     long buyTeamId,
                                     long fee,

@@ -9,6 +9,30 @@ import java.util.Collection;
 
 public interface MatchStatsRepository extends JpaRepository<MatchStats, Long> {
 
+    interface CompetitionGoalTotals {
+        Long getCompetitionId();
+        Long getMatches();
+        Long getGoals();
+    }
+
+    @org.springframework.data.jpa.repository.Query("""
+        select m.competitionId as competitionId, count(m) as matches,
+               sum(m.homeGoals + m.awayGoals) as goals
+          from MatchStats m
+         where m.seasonNumber = :season
+         group by m.competitionId
+        """)
+    List<CompetitionGoalTotals> goalTotalsByCompetitionForSeason(
+            @org.springframework.data.repository.query.Param("season") int season);
+
+    @org.springframework.data.jpa.repository.Query("""
+        select m.competitionId as competitionId, count(m) as matches,
+               sum(m.homeGoals + m.awayGoals) as goals
+          from MatchStats m
+         group by m.competitionId
+        """)
+    List<CompetitionGoalTotals> goalTotalsByCompetitionAllTime();
+
     Optional<MatchStats> findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
             long competitionId, int seasonNumber, int roundNumber, long team1Id, long team2Id);
 

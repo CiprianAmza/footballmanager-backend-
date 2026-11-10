@@ -13,6 +13,8 @@ public interface FinancialRecordRepository extends JpaRepository<FinancialRecord
 
     List<FinancialRecord> findAllBySeasonNumber(int seasonNumber);
 
+    List<FinancialRecord> findAllBySeasonNumberAndCategory(int seasonNumber, String category);
+
     Optional<FinancialRecord> findFirstByTeamIdAndSeasonNumberAndDayAndCategoryOrderByIdAsc(
             long teamId, int seasonNumber, int day, String category);
 

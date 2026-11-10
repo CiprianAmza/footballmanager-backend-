@@ -2,6 +2,7 @@ package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.CoachPermissionsRepository;
 import com.footballmanagergamesimulator.repository.LoanRepository;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
@@ -18,6 +19,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -43,6 +48,7 @@ public class TransferMarketService {
     @Autowired private RoundRepository roundRepository;
     @Autowired private UserContext userContext;
     @Autowired private CoachPermissionService coachPermissionService;
+    @Autowired private CoachPermissionsRepository coachPermissionsRepository;
     @Autowired private MediaNarrativeService mediaNarrativeService;
 
     /** Diagnostic only: which path the most recent successful match used. Single
@@ -57,6 +63,101 @@ public class TransferMarketService {
      *  (open at end-of-season) and {@link com.footballmanagergamesimulator.service.GameAdvanceService}
      *  (open/close on calendar transitions). */
     private boolean transferWindowOpen = false;
+
+    /** Build the AI offers from one read snapshot. No query or write per club. */
+    public List<TransferOffer> prepareAiOffersForHumanPlayers(
+            Map<Long, BuyPlanTransferView> plans, Map<Long, Team> teamsById,
+            Set<Long> humanTeamIds, Set<Long> activeLoanPlayerIds, int season) {
+        if (humanTeamIds.isEmpty() || plans.isEmpty()) return List.of();
+        Map<Long, Boolean> buyingAllowed = new HashMap<>();
+        coachPermissionsRepository.findAll().forEach(permission ->
+                buyingAllowed.put(permission.getTeamId(), permission.isCanBuyPlayers()));
+        Map<Long, List<Human>> humanSquads = humanRepository
+                .findAllByTeamIdInAndTypeIdAndRetiredFalse(humanTeamIds, TypeNames.PLAYER_TYPE)
+                .stream().collect(Collectors.groupingBy(Human::getTeamId));
+        List<Long> humanPlayerIds = humanSquads.values().stream().flatMap(List::stream)
+                .map(Human::getId).toList();
+        Set<String> offered = new HashSet<>();
+        if (!humanPlayerIds.isEmpty()) {
+            transferOfferRepository.findAllByPlayerIdInAndStatusIn(humanPlayerIds,
+                            List.of("pending", "negotiating", "counter", "accepted"))
+                    .stream().filter(offer -> offer.getSeasonNumber() == season)
+                    .forEach(offer -> offered.add(offer.getPlayerId() + ":" + offer.getFromTeamId()));
+        }
+
+        List<TransferOffer> prepared = new ArrayList<>();
+        for (Map.Entry<Long, BuyPlanTransferView> entry : plans.entrySet()) {
+            Team aiTeam = teamsById.get(entry.getKey());
+            if (aiTeam == null || !buyingAllowed.getOrDefault(aiTeam.getId(), true)) continue;
+            for (Long humanTeamId : humanTeamIds) {
+                Team humanTeam = teamsById.get(humanTeamId);
+                if (humanTeam == null) continue;
+                List<Human> players = humanSquads.getOrDefault(humanTeamId, List.of());
+                for (TransferPlayer slot : entry.getValue().getPositions()) {
+                    for (Human player : players) {
+                        if (activeLoanPlayerIds.contains(player.getId()) || player.getPosition() == null) continue;
+                        PlayerTransferView candidate = new PlayerTransferView(
+                                player.getId(), humanTeamId, player.getRating(),
+                                TacticService.getBasePosition(player.getPosition()),
+                                player.getPosition(), player.getAge(),
+                                player.isWillNeverLeave(), false);
+                        if (!canBeTransfered(candidate, entry.getValue(), slot)) continue;
+                        String key = player.getId() + ":" + aiTeam.getId();
+                        if (offered.contains(key)) continue;
+                        long value = TransferValueCalculator.calculate(
+                                player.getAge(), player.getPosition(), player.getRating());
+                        if (value > aiTeam.getTransferBudget()) continue;
+                        TransferOffer offer = new TransferOffer();
+                        offer.setPlayerId(player.getId());
+                        offer.setPlayerName(player.getName());
+                        offer.setFromTeamId(aiTeam.getId());
+                        offer.setFromTeamName(aiTeam.getName());
+                        offer.setToTeamId(humanTeamId);
+                        offer.setToTeamName(humanTeam.getName());
+                        offer.setOfferAmount(value);
+                        offer.setAskingPrice(value);
+                        offer.setStatus("pending");
+                        offer.setSeasonNumber(season);
+                        offer.setDirection("incoming");
+                        offer.setCreatedAt(System.currentTimeMillis());
+                        prepared.add(offer);
+                        offered.add(key);
+                        break;
+                    }
+                }
+            }
+        }
+        return prepared;
+    }
+
+    /** Persist the prepared offers and their user-facing notifications at the end. */
+    public void persistPreparedAiOffers(List<TransferOffer> offers) {
+        if (offers.isEmpty()) return;
+        int roundNumber = (int) roundRepository.findById(1L).orElseThrow().getRound();
+        Map<Long, Human> playersById = new HashMap<>();
+        humanRepository.findAllById(offers.stream().map(TransferOffer::getPlayerId).distinct().toList())
+                .forEach(player -> playersById.put(player.getId(), player));
+        List<TransferOffer> saved = transferOfferRepository.saveAll(offers);
+        List<ManagerInbox> inboxes = new ArrayList<>();
+        for (TransferOffer offer : saved) {
+            mediaNarrativeService.publishTransferRumour(offer, roundNumber);
+            ManagerInbox inbox = new ManagerInbox();
+            inbox.setTeamId(offer.getToTeamId());
+            inbox.setSeasonNumber(offer.getSeasonNumber());
+            inbox.setRoundNumber(roundNumber);
+            inbox.setTitle("Transfer Offer Received");
+            Human player = playersById.get(offer.getPlayerId());
+            inbox.setContent(offer.getFromTeamName() + " have made an offer of "
+                    + offer.getOfferAmount() + " for your player " + offer.getPlayerName()
+                    + (player == null ? "" : " (" + player.getPosition() + ", Rating: "
+                    + player.getRating() + ")") + ". Review the offer in the transfer section.");
+            inbox.setCategory("transfer");
+            inbox.setRead(false);
+            inbox.setCreatedAt(System.currentTimeMillis());
+            inboxes.add(inbox);
+        }
+        managerInboxRepository.saveAll(inboxes);
+    }
 
     public boolean isOpen() {
         return transferWindowOpen;

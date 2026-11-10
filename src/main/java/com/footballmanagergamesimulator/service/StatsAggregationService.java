@@ -698,7 +698,7 @@ public class StatsAggregationService {
             earnedByTeam.merge(t.getSellTeamId(), t.getPlayerTransferValue(), Long::sum);
         }
         // Pre-load all human/staff wages grouped by teamId in one query
-        Map<Long, Long> monthlyWagesByTeam = humanRepository.findAll().stream()
+        Map<Long, Long> monthlyWagesByTeam = humanRepository.findAllByTeamIdIn(agg.keySet()).stream()
                 .filter(h -> !h.isRetired() && h.getTeamId() != null && h.getTeamId() > 0)
                 .collect(Collectors.groupingBy(Human::getTeamId, Collectors.summingLong(Human::getWage)));
 
@@ -1000,15 +1000,19 @@ public class StatsAggregationService {
             playerTeamName.putIfAbsent(pid, s.getTeamName());
         }
 
+        Map<Long, Human> playerNames = humanRepository.findAllById(playerAgg.keySet()).stream()
+                .collect(Collectors.toMap(Human::getId, player -> player));
+
         // Build player entries
         List<Map<String, Object>> playerEntries = new ArrayList<>();
         for (Map.Entry<Long, int[]> e : playerAgg.entrySet()) {
             long pid = e.getKey();
             int[] agg = e.getValue();
+            Human player = playerNames.get(pid);
             Map<String, Object> pe = new LinkedHashMap<>();
             pe.put("playerId", pid);
-            pe.put("playerName", humanRepository.findById(pid).map(Human::getName).orElse("Unknown"));
-            pe.put("position", humanRepository.findById(pid).map(Human::getPosition).orElse(""));
+            pe.put("playerName", player != null ? player.getName() : "Unknown");
+            pe.put("position", player != null ? player.getPosition() : "");
             pe.put("teamId", playerTeamId.getOrDefault(pid, 0L));
             pe.put("teamName", playerTeamName.getOrDefault(pid, "Unknown"));
             pe.put("goals", agg[0]);
@@ -1095,13 +1099,15 @@ public class StatsAggregationService {
             }
         }
 
+        Map<Long, String> cardTeamNames = teamRepository.findAllById(cardPlayerTeamIds.values()).stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
         List<Map<String, Object>> disciplinary = new ArrayList<>();
         for (Map.Entry<Long, int[]> e : playerCards.entrySet()) {
             Map<String, Object> d = new LinkedHashMap<>();
             d.put("playerId", e.getKey());
             d.put("playerName", cardPlayerNames.getOrDefault(e.getKey(), "Unknown"));
             d.put("teamId", cardPlayerTeamIds.getOrDefault(e.getKey(), 0L));
-            d.put("teamName", teamRepository.findNameById(cardPlayerTeamIds.getOrDefault(e.getKey(), 0L)));
+            d.put("teamName", cardTeamNames.get(cardPlayerTeamIds.getOrDefault(e.getKey(), 0L)));
             d.put("yellowCards", e.getValue()[0]);
             d.put("redCards", e.getValue()[1]);
             d.put("totalCards", e.getValue()[0] + e.getValue()[1]);
@@ -1949,7 +1955,7 @@ public class StatsAggregationService {
         result.put("byCompetition", byCompetition);
 
         // Per (competitionTypeId, season) — keeps LoC/Stars Cup separated across seasons
-        String[] typeNames = {"", "League", "Cup", "Second League", "League of Champions", "Stars Cup"};
+        String[] typeNames = {"", "League", "Cup", "Second League", "League of Champions", "Stars Cup", "Super Cup"};
         Map<String, List<Scorer>> byTypeSeason = allScorers.stream()
                 .collect(Collectors.groupingBy(s -> s.getCompetitionTypeId() + "|" + s.getSeasonNumber(),
                         LinkedHashMap::new, Collectors.toList()));

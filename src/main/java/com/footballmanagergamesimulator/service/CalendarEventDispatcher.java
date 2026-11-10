@@ -582,6 +582,7 @@ public class CalendarEventDispatcher {
      * so this is public.
      */
     public void processSeasonTransition(int season) {
+        long transitionStarted = System.nanoTime();
         System.out.println("=== SEASON_TRANSITION: Creating new season from " + season + " ===");
 
         int newSeason = season + 1;
@@ -597,6 +598,7 @@ public class CalendarEventDispatcher {
         // fails, propagate the error and keep the event retryable; never publish
         // an empty/partial new-season calendar.
         seasonTransitionService.processNewSeasonSetup(season);
+        long setupCommitted = System.nanoTime();
 
         // Create a new GameCalendar for the new season
         GameCalendar newCalendar = new GameCalendar();
@@ -611,6 +613,7 @@ public class CalendarEventDispatcher {
 
         // Generate the calendar events for the new season
         fixtureSchedulingService.generateSeasonCalendar(newSeason);
+        long calendarGenerated = System.nanoTime();
 
         // Invalidate cached competition IDs since season changed
         invalidateHumanCompetitionsCache();
@@ -620,6 +623,13 @@ public class CalendarEventDispatcher {
         // rows can never be reached after the client switches to newSeason, so
         // archive them explicitly instead of leaving retryable PENDING debris.
         int skippedEvents = calendarEventRepository.skipPendingEventsAfter(season, 360);
+        long transitionDone = System.nanoTime();
+        System.out.printf("=== SEASON_TRANSITION timing season=%d total=%dms setup_with_commit=%dms calendar_and_publish=%dms cleanup=%dms ===%n",
+                season,
+                (transitionDone - transitionStarted) / 1_000_000,
+                (setupCommitted - transitionStarted) / 1_000_000,
+                (calendarGenerated - setupCommitted) / 1_000_000,
+                (transitionDone - calendarGenerated) / 1_000_000);
 
         System.out.println("=== Season transition complete. New season " + newSeason + " started. ===");
         if (skippedEvents > 0) {

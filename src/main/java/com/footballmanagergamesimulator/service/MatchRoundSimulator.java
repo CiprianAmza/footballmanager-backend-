@@ -220,6 +220,9 @@ public class MatchRoundSimulator {
             long competitionTypeId) {}
 
     private final ThreadLocal<RoundContext> roundContext = new ThreadLocal<>();
+    /** Stable injury/ban snapshot while the July market repeatedly evaluates XIs. */
+    private final ThreadLocal<Map<Long, Set<Long>>> marketUnavailableIds = new ThreadLocal<>();
+    private final ThreadLocal<Map<Long, Map<Long, FormationData>>> marketSavedRoles = new ThreadLocal<>();
 
     // ============================================================
     //  Public entry point
@@ -375,9 +378,10 @@ public class MatchRoundSimulator {
         long _tPreloadDone = System.nanoTime();
 
         // ===== Per-operation aggregate timers (ms) =====
-        long tGetRating = 0, tScorers = 0, tInjuries = 0, tMorale = 0,
+        long tGetRating = 0, tScoreDecision = 0, tScorers = 0, tInjuries = 0, tMorale = 0,
              tCoeff = 0, tMgrRep = 0, tMatchStats = 0, tDetail = 0, tFinance = 0,
              tHumanFull = 0;
+        long tFlush = 0, tMarkCommitted = 0;
         int humanMatches = 0, aiMatches = 0;
 
         // A round deliberately batches match effects in one atomic transaction. With AUTO
@@ -704,6 +708,7 @@ public class MatchRoundSimulator {
                 teamPower2 = getSimpleTeamRating(teamId2);
                 tGetRating += System.nanoTime() - _ts;
 
+                long _tsDecision = System.nanoTime();
                 final String aiFixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                         .competitionFixtureKey(match.getId());
                 // Persistence is an immutable compatibility boundary: once an AI decision exists,
@@ -884,6 +889,7 @@ public class MatchRoundSimulator {
                     }
                 }
 
+                tScoreDecision += System.nanoTime() - _tsDecision;
                 String aiTactic1 = getManagerTacticCached(teamId1);
                 String aiTactic2 = getManagerTacticCached(teamId2);
 
@@ -1102,14 +1108,18 @@ public class MatchRoundSimulator {
         // MatchPlanService.markCommitted performs a query by fixture key. Make all newly
         // persisted plans and their effects visible exactly once, instead of auto-flushing
         // the ever-growing round state before every query in the fixture loop.
+        long _tsFlush = System.nanoTime();
         entityManager.flush();
+        tFlush += System.nanoTime() - _tsFlush;
 
         // Every canonical AI plan resolved this round is now COMMITTED — immutable, and only
         // after its Scorer/rating/stats effects are durably persisted above (all in this one
         // transaction, so a rollback un-commits the plan too and a retry re-runs cleanly).
+        long _tsMarkCommitted = System.nanoTime();
         for (String fixtureKey : canonicalAiFixtureKeys) {
             matchPlanService.markCommitted(fixtureKey);
         }
+        tMarkCommitted += System.nanoTime() - _tsMarkCommitted;
 
         long _tBatchDone = System.nanoTime();
 
@@ -1124,11 +1134,13 @@ public class MatchRoundSimulator {
                 matches.size(), aiMatches, humanMatches));
         if (aiMatches > 0) {
             System.out.println(String.format(
-                    "    AI breakdown (total ms across %d matches): rating=%d  scorers=%d  injuries=%d  morale=%d  coeff=%d  mgrRep=%d  stats=%d  detail=%d  finance=%d",
+                    "    AI breakdown (total ms across %d matches): rating=%d  scoreDecision=%d  scorers=%d  injuries=%d  morale=%d  coeff=%d  mgrRep=%d  stats=%d  detail=%d  finance=%d  flush=%d  markCommitted=%d",
                     aiMatches,
-                    tGetRating / 1_000_000, tScorers / 1_000_000, tInjuries / 1_000_000,
+                    tGetRating / 1_000_000, tScoreDecision / 1_000_000,
+                    tScorers / 1_000_000, tInjuries / 1_000_000,
                     tMorale / 1_000_000, tCoeff / 1_000_000, tMgrRep / 1_000_000,
-                    tMatchStats / 1_000_000, tDetail / 1_000_000, tFinance / 1_000_000));
+                    tMatchStats / 1_000_000, tDetail / 1_000_000, tFinance / 1_000_000,
+                    tFlush / 1_000_000, tMarkCommitted / 1_000_000));
         }
         if (humanMatches > 0) {
             System.out.println(String.format(
@@ -1472,17 +1484,21 @@ public class MatchRoundSimulator {
     /** playerId → saved FormationData (role/duty/instructions) parsed from the team's PersonalizedTactic
      *  {@code first11} JSON. Empty when no saved tactic (AI teams). */
     private Map<Long, FormationData> savedRoleData(long teamId) {
+        Map<Long, Map<Long, FormationData>> snapshot = marketSavedRoles.get();
+        if (snapshot != null && snapshot.containsKey(teamId)) return snapshot.get(teamId);
+        return personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
+                .map(pt -> parseSavedRoles(pt.getFirst11())).orElseGet(Map::of);
+    }
+
+    private Map<Long, FormationData> parseSavedRoles(String json) {
+        if (json == null || json.isBlank()) return Map.of();
         Map<Long, FormationData> map = new HashMap<>();
-        personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId).ifPresent(pt -> {
-            String json = pt.getFirst11();
-            if (json == null || json.isBlank()) return;
-            try {
-                for (FormationData fd : roleObjectMapper.readValue(json, new TypeReference<List<FormationData>>() {})) {
-                    if (fd.getPlayerId() > 0) map.put(fd.getPlayerId(), fd);
-                }
-            } catch (Exception ignored) { /* malformed JSON → no role data, value unchanged */ }
-        });
-        return map;
+        try {
+            for (FormationData fd : roleObjectMapper.readValue(json, new TypeReference<List<FormationData>>() {})) {
+                if (fd.getPlayerId() > 0) map.put(fd.getPlayerId(), fd);
+            }
+        } catch (Exception ignored) { /* malformed JSON → no role data, value unchanged */ }
+        return Map.copyOf(map);
     }
 
     private final ObjectMapper roleObjectMapper = new ObjectMapper();
@@ -1752,6 +1768,17 @@ public class MatchRoundSimulator {
                 .stream()
                 .filter(player -> player.getTeamId() != null)
                 .collect(Collectors.groupingBy(Human::getTeamId));
+
+        warmFormationSquads(missing, squadsByTeam);
+    }
+
+    /** Reuse the market's managed-player snapshot instead of reading each changed squad again. */
+    public void warmFormationSquads(Collection<Long> teamIds, Map<Long, List<Human>> squadsByTeam) {
+        List<Long> missing = teamIds.stream()
+                .filter(id -> !formationSquadCache.containsKey(id))
+                .distinct()
+                .toList();
+        if (missing.isEmpty()) return;
 
         List<Long> allPlayerIds = squadsByTeam.values().stream()
                 .flatMap(List::stream)
@@ -2023,16 +2050,18 @@ public class MatchRoundSimulator {
             if (!alreadySelected) {
                 Human shooter = remaining.stream()
                         .filter(player -> player.getId() == savedShooter.getPlayerId())
-                        .findFirst().orElseThrow(() -> new IllegalStateException(
-                                "Saved SHOOTER is not available for team " + squad.teamId()));
-                String shooterSlot = TacticService.getBasePosition(
-                        tacticService.getPositionFromIndex(savedShooter.getPositionIndex()));
-                if (!requiredSlots.remove(shooterSlot)) {
-                    throw new IllegalStateException("Saved SHOOTER slot " + shooterSlot
-                            + " is not available in formation " + effectiveFormation);
+                        .findFirst().orElse(null);
+                // A season-end retirement, expiry or transfer can leave a saved
+                // role pointing outside the current squad. Let the normal XI
+                // selector fill the slot until the tactic is updated.
+                if (shooter != null) {
+                    String shooterSlot = TacticService.getBasePosition(
+                            tacticService.getPositionFromIndex(savedShooter.getPositionIndex()));
+                    if (requiredSlots.remove(shooterSlot)) {
+                        remaining.remove(shooter);
+                        selected.add(new FormationEvaluationStarter(shooter, shooterSlot));
+                    }
                 }
-                remaining.remove(shooter);
-                selected.add(new FormationEvaluationStarter(shooter, shooterSlot));
             }
         }
 
@@ -2714,6 +2743,10 @@ public class MatchRoundSimulator {
     /** Players unavailable for the current competition: injuries plus active bans. */
     public Set<Long> roundUnavailableIds(long teamId) {
         if (availabilityDisabled()) return Set.of();
+        Map<Long, Set<Long>> marketSnapshot = marketUnavailableIds.get();
+        if (marketSnapshot != null && marketSnapshot.containsKey(teamId)) {
+            return marketSnapshot.get(teamId);
+        }
         Set<Long> unavailable = new HashSet<>(roundInjuredIds(teamId));
         RoundContext context = roundContext.get();
         if (context != null) {
@@ -2723,6 +2756,35 @@ public class MatchRoundSimulator {
                     .stream().map(com.footballmanagergamesimulator.model.Suspension::getPlayerId).toList());
         }
         return Set.copyOf(unavailable);
+    }
+
+    /** Two batch reads replace one injury and one ban query per formation attempt. */
+    public void beginMarketAvailabilitySnapshot(Collection<Long> teamIds) {
+        if (marketUnavailableIds.get() != null) {
+            throw new IllegalStateException("Market availability snapshot already active");
+        }
+        Map<Long, Set<Long>> unavailable = new HashMap<>();
+        for (Long teamId : teamIds) unavailable.put(teamId, new HashSet<>());
+        if (!availabilityDisabled() && !teamIds.isEmpty()) {
+            injuryRepository.findAllByTeamIdInAndDaysRemainingGreaterThan(teamIds, 0)
+                    .forEach(injury -> unavailable.get(injury.getTeamId()).add(injury.getPlayerId()));
+            suspensionRepository.findAllByTeamIdInAndActive(teamIds, true)
+                    .forEach(ban -> unavailable.get(ban.getTeamId()).add(ban.getPlayerId()));
+        }
+        unavailable.replaceAll((id, players) -> Set.copyOf(players));
+        Map<Long, Map<Long, FormationData>> roles = new HashMap<>();
+        for (Long teamId : teamIds) roles.put(teamId, Map.of());
+        personalizedTacticRepository.findAllByTeamIdIn(teamIds).forEach(tactic ->
+                roles.put(tactic.getTeamId(), parseSavedRoles(tactic.getFirst11())));
+        mandateEnforcement.beginMarketSnapshot(teamIds);
+        marketUnavailableIds.set(unavailable);
+        marketSavedRoles.set(roles);
+    }
+
+    public void endMarketAvailabilitySnapshot() {
+        marketUnavailableIds.remove();
+        marketSavedRoles.remove();
+        mandateEnforcement.endMarketSnapshot();
     }
 
     private boolean availabilityDisabled() {

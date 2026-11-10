@@ -72,6 +72,13 @@ public class CompetitionDisplayService {
     public Map<String, Object> getLeaguesOverview(int topN) {
         int curSeason = Integer.parseInt(currentSeason());
         List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
+        Map<Long, List<TeamCompetitionDetail>> standingsByLeague = teamCompetitionDetailRepository
+                .findAllByCompetitionIdIn(sortedLeagueIds).stream()
+                .collect(Collectors.groupingBy(TeamCompetitionDetail::getCompetitionId));
+        Set<Long> teamIds = standingsByLeague.values().stream().flatMap(List::stream)
+                .map(TeamCompetitionDetail::getTeamId).collect(Collectors.toSet());
+        Map<Long, Team> teamsById = new HashMap<>();
+        teamRepository.findAllById(teamIds).forEach(team -> teamsById.put(team.getId(), team));
 
         List<Map<String, Object>> leagues = new ArrayList<>();
         for (int i = 0; i < sortedLeagueIds.size(); i++) {
@@ -87,8 +94,7 @@ public class CompetitionDisplayService {
             league.put("rank", rank);
             league.put("qualificationZones", computeLeagueQualificationZones(rank));
 
-            List<TeamCompetitionDetail> standings = teamCompetitionDetailRepository.findAll().stream()
-                    .filter(d -> d.getCompetitionId() == leagueId)
+            List<TeamCompetitionDetail> standings = standingsByLeague.getOrDefault(leagueId, List.of()).stream()
                     .sorted((a, b) -> {
                         if (a.getPoints() != b.getPoints()) return Integer.compare(b.getPoints(), a.getPoints());
                         if (a.getGoalDifference() != b.getGoalDifference())
@@ -101,7 +107,7 @@ public class CompetitionDisplayService {
             int limit = Math.min(topN, standings.size());
             for (int p = 0; p < limit; p++) {
                 TeamCompetitionDetail s = standings.get(p);
-                Team t = teamRepository.findById(s.getTeamId()).orElse(null);
+                Team t = teamsById.get(s.getTeamId());
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("position", p + 1);
                 row.put("teamId", s.getTeamId());
@@ -163,16 +169,17 @@ public class CompetitionDisplayService {
 
     public List<TeamCompetitionView> getHistoricalTeamDetails(long competitionId, long seasonNumber) {
         List<CompetitionHistory> teamParticipants = competitionHistoryRepository
-                .findAll()
-                .stream()
-                .filter(competitionHistory -> competitionHistory.getCompetitionId() == competitionId
-                        && competitionHistory.getSeasonNumber() == seasonNumber)
-                .collect(Collectors.toList());
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, seasonNumber);
+
+        Set<Long> teamIds = teamParticipants.stream().map(CompetitionHistory::getTeamId)
+                .collect(Collectors.toSet());
+        Map<Long, Team> teamsById = new HashMap<>();
+        teamRepository.findAllById(teamIds).forEach(team -> teamsById.put(team.getId(), team));
 
         List<TeamCompetitionView> teamCompetitionViews = new ArrayList<>();
         for (CompetitionHistory competitionHistory : teamParticipants) {
             teamCompetitionViews.add(adaptTeam(
-                    teamRepository.findById(competitionHistory.getTeamId()).orElse(new Team()),
+                    teamsById.getOrDefault(competitionHistory.getTeamId(), new Team()),
                     competitionHistory));
         }
         return teamCompetitionViews;
@@ -185,19 +192,24 @@ public class CompetitionDisplayService {
      */
     public List<TeamCompetitionView> getTeamDetails(long competitionId, Long humanTeamId) {
         List<Long> teamParticipantIds = competitionTeamInfoRepository
-                .findAll()
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, Long.parseLong(currentSeason()))
                 .stream()
-                .filter(competitionTeamInfo -> competitionTeamInfo.getCompetitionId() == competitionId
-                        && competitionTeamInfo.getSeasonNumber() == Long.valueOf(currentSeason()))
                 .mapToLong(CompetitionTeamInfo::getTeamId)
                 .boxed()
                 .toList();
 
+        Map<Long, Team> teamsById = new HashMap<>();
+        teamRepository.findAllById(teamParticipantIds).forEach(team -> teamsById.put(team.getId(), team));
+        Map<Long, TeamCompetitionDetail> detailsByTeamId = new HashMap<>();
+        if (!teamParticipantIds.isEmpty()) {
+            teamCompetitionDetailRepository.findAllByCompetitionIdAndTeamIdIn(competitionId, teamParticipantIds)
+                    .forEach(detail -> detailsByTeamId.putIfAbsent(detail.getTeamId(), detail));
+        }
+
         List<TeamCompetitionView> teamCompetitionViews = new ArrayList<>();
         for (Long teamId : teamParticipantIds) {
-            TeamCompetitionDetail teamCompetitionDetail = teamCompetitionDetailRepository
-                    .findFirstByTeamIdAndCompetitionId(teamId, competitionId);
-            Team team = teamRepository.findById(teamId).orElseGet(null);
+            TeamCompetitionDetail teamCompetitionDetail = detailsByTeamId.get(teamId);
+            Team team = teamsById.get(teamId);
 
             if (team == null || teamCompetitionDetail == null) {
                 teamCompetitionDetail = new TeamCompetitionDetail();
