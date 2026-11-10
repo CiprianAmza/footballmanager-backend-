@@ -53,6 +53,9 @@ public class GameAdvanceService {
     @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired @Lazy private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired private GameLock gameLock;
+    @Autowired private MemoryCheckpointService memoryCheckpointService;
+    @Autowired private FriendlyMatchService friendlyMatchService;
+    @Autowired private CompetitionExpectationService competitionExpectationService;
 
     private final Random random = new Random();
 
@@ -117,6 +120,7 @@ public class GameAdvanceService {
             }
             Map<String, Object> result = advanceLocked(expectedSeason, forceContinue,
                     new AdvanceScope(roomUserIds, roomTeamIds));
+            memoryCheckpointService.afterAdvance(result);
             GameCalendar after = gameCalendarRepository.findTopByOrderBySeasonDesc()
                     .orElseThrow(() -> new IllegalStateException("calendar missing after advance"));
             com.footballmanagergamesimulator.multiplayer.RoomDate expected =
@@ -187,7 +191,9 @@ public class GameAdvanceService {
         // re-entrant advance() calls don't self-deadlock.
         gameLock.lock();
         try {
-            return advanceLocked(season, unattendedConfirmed, scope);
+            Map<String, Object> result = advanceLocked(season, unattendedConfirmed, scope);
+            memoryCheckpointService.afterAdvance(result);
+            return result;
         } finally {
             gameLock.unlock();
         }
@@ -204,6 +210,10 @@ public class GameAdvanceService {
         // queries below must use the season that was actually read, never the
         // caller's stale cycle parameter.
         season = calendar.getSeason();
+        // New saves start in season one without passing through NewSeasonSetupProcessor.
+        if (season == 1 && calendar.getCurrentDay() == 1) {
+            competitionExpectationService.captureMissingBeforeMatches(season);
+        }
         boolean alwaysContinue = scope != null ? unattendedConfirmed
                 : unattendedConfirmed || isAlwaysContinueActive();
 
@@ -221,6 +231,10 @@ public class GameAdvanceService {
         if (released > 0) {
             System.out.println(">>> advance: released " + released + " stuck PROCESSING events back to PENDING");
         }
+
+        // Older season generators could place a friendly on a day without a
+        // MATCH_FRIENDLY event. Restore the trigger before this day's phases run.
+        friendlyMatchService.ensureCalendarEventForDay(calendar.getSeason(), calendar.getCurrentDay());
 
         injuryTimelineService.processRecoveries(calendar.getSeason(), calendar.getCurrentDay());
         if ("MORNING".equals(calendar.getCurrentPhase())) {

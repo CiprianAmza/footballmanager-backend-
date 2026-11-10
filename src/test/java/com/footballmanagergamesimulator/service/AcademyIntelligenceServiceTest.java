@@ -1,11 +1,15 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.CalendarEvent;
+import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamFacilities;
 import com.footballmanagergamesimulator.model.YouthPlayer;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.CalendarEventRepository;
+import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -31,6 +35,8 @@ class AcademyIntelligenceServiceTest {
     private HumanRepository humans;
     private RoundRepository rounds;
     private FacilityUpgradeService upgrades;
+    private CalendarEventRepository calendarEvents;
+    private GameCalendarRepository calendars;
     private AcademyIntelligenceService service;
 
     @BeforeEach
@@ -41,10 +47,20 @@ class AcademyIntelligenceServiceTest {
         humans = mock(HumanRepository.class);
         rounds = mock(RoundRepository.class);
         upgrades = mock(FacilityUpgradeService.class);
-        service = new AcademyIntelligenceService(youthPlayers, teams, facilities, humans, rounds, upgrades);
+        calendarEvents = mock(CalendarEventRepository.class);
+        calendars = mock(GameCalendarRepository.class);
+        service = new AcademyIntelligenceService(youthPlayers, teams, facilities, humans, rounds,
+                upgrades, calendarEvents, calendars);
         Round round = new Round();
         round.setSeason(4);
         when(rounds.findById(1L)).thenReturn(Optional.of(round));
+        GameCalendar calendar = new GameCalendar();
+        calendar.setCurrentDay(21);
+        when(calendars.findBySeason(4)).thenReturn(List.of(calendar));
+        CalendarEvent report = new CalendarEvent();
+        report.setDay(30);
+        when(calendarEvents.findFirstBySeasonAndEventTypeAndStatusAndDayGreaterThanEqualOrderByDayAsc(
+                4, "YOUTH_ACADEMY_REPORT", "PENDING", 21)).thenReturn(report);
     }
 
     @Test
@@ -79,6 +95,8 @@ class AcademyIntelligenceServiceTest {
         AcademyIntelligenceService.AcademyOverview result = service.overview(1);
 
         assertEquals(2, result.pipeline().active());
+        assertEquals(21, result.currentDay());
+        assertEquals(30, result.nextReportDay());
         assertEquals(1, result.pipeline().ready());
         assertEquals(2, result.pipeline().elitePotential());
         assertEquals(1, result.pipeline().graduates());
@@ -87,6 +105,23 @@ class AcademyIntelligenceServiceTest {
         assertTrue(result.prospects().stream().allMatch(player -> player.projectedWage() >= 500));
         assertEquals(1, result.leagueRank());
         assertTrue(result.ranking().get(0).score() > result.ranking().get(1).score());
+    }
+
+    @Test
+    void compactOverviewDoesNotLoadAllClubsAndYouthPlayers() {
+        Team club = team(1, "Academy FC", 8, 3_000_000);
+        when(teams.findById(1L)).thenReturn(Optional.of(club));
+        when(youthPlayers.findAllByTeamId(1L)).thenReturn(List.of());
+        when(upgrades.getFullFacilityOverview(1L)).thenReturn(Map.of(
+                "upgradesInProgress", List.of(), "availableUpgrades", List.of()));
+
+        AcademyIntelligenceService.AcademyOverview result = service.overview(1, false);
+
+        assertTrue(result.ranking().isEmpty());
+        assertEquals(30, result.nextReportDay());
+        // The expensive global scans belong to the ranking tab only.
+        org.mockito.Mockito.verify(teams, org.mockito.Mockito.never()).findAll();
+        org.mockito.Mockito.verify(youthPlayers, org.mockito.Mockito.never()).findAll();
     }
 
     private Map<String, Object> option(String type, int current, int target, long cost, int duration) {

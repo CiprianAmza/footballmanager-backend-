@@ -21,6 +21,9 @@ public interface CalendarEventRepository extends JpaRepository<CalendarEvent, Lo
 
     List<CalendarEvent> findAllBySeasonAndStatus(int season, String status);
 
+    CalendarEvent findFirstBySeasonAndEventTypeAndStatusAndDayGreaterThanEqualOrderByDayAsc(
+            int season, String eventType, String status, int day);
+
     CalendarEvent findFirstBySeasonAndStatusOrderByDayAscPriorityAsc(int season, String status);
 
     List<CalendarEvent> findBySeasonAndCompetitionIdAndMatchday(int season, long competitionId, int matchday);

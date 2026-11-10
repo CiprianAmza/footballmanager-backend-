@@ -1,0 +1,23 @@
+# Opt-in simulation profile. All gameplay repositories use the same in-memory
+# relational database, so reads see every simulated stage immediately.
+spring:
+  datasource:
+    url: jdbc:h2:mem:footballmanager-fast;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    locations: classpath:db/migration/h2
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+
+game:
+  checkpoint:
+    enabled: true
+    interval-matchdays: ${CHECKPOINT_INTERVAL_MATCHDAYS:5}
+    max-retained: ${CHECKPOINT_KEEP_LAST:5}
+    postgres-url: ${CHECKPOINT_DB_URL:}
+    postgres-username: ${CHECKPOINT_DB_USERNAME:footballmanager}
+    postgres-password: ${CHECKPOINT_DB_PASSWORD:footballmanager}

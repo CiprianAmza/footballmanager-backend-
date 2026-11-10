@@ -545,9 +545,10 @@ public class EndOfSeasonProcessor {
             Competition competition = competitionsById.get(entry.getKey());
             if (competition == null) continue;
             List<TeamCompetitionDetail> standings = new ArrayList<>(entry.getValue());
+            Map<Long, Integer> cupPlaces = Map.of();
             if (competition.getTypeId() == 2 || competition.getTypeId() == 4
                     || competition.getTypeId() == 5 || competition.getTypeId() == 6) {
-                sortCupFinish(standings, competition.getId(), season);
+                cupPlaces = sortCupFinish(standings, competition.getId(), season);
             } else {
                 standings.sort((left, right) -> {
                     if (left.getPoints() != right.getPoints())
@@ -575,7 +576,7 @@ public class EndOfSeasonProcessor {
                 snapshot.setGoalDifference(detail.getGoalDifference());
                 snapshot.setPoints(detail.getPoints());
                 snapshot.setForm(detail.getForm());
-                snapshot.setLastPosition(index + 1L);
+                snapshot.setLastPosition(cupPlaces.getOrDefault(detail.getTeamId(), index + 1));
                 history.add(snapshot);
             }
         }
@@ -583,7 +584,7 @@ public class EndOfSeasonProcessor {
         competitionHistoryRepository.saveAll(history);
     }
 
-    private void sortCupFinish(
+    private Map<Long, Integer> sortCupFinish(
             List<TeamCompetitionDetail> standings,
             long competitionId,
             long season) {
@@ -592,7 +593,7 @@ public class EndOfSeasonProcessor {
                         competitionId, season);
         if (matches.isEmpty()) {
             standings.sort((left, right) -> Integer.compare(right.getPoints(), left.getPoints()));
-            return;
+            return Map.of();
         }
 
         long finalRound = matches.stream()
@@ -607,24 +608,16 @@ public class EndOfSeasonProcessor {
             runnerUpId = finalDecision.getTeam1Id() == winnerId
                     ? finalDecision.getTeam2Id() : finalDecision.getTeam1Id();
         }
-        final Long finalWinnerId = winnerId;
-        final Long finalRunnerUpId = runnerUpId;
-
         Map<Long, Long> roundReached = new HashMap<>();
         for (CompetitionTeamInfoDetail match : matches) {
             roundReached.merge(match.getTeam1Id(), match.getRoundId(), Math::max);
             roundReached.merge(match.getTeam2Id(), match.getRoundId(), Math::max);
         }
-        standings.sort((left, right) -> {
-            int leftRank = Objects.equals(left.getTeamId(), finalWinnerId) ? 0
-                    : Objects.equals(left.getTeamId(), finalRunnerUpId) ? 1 : 2;
-            int rightRank = Objects.equals(right.getTeamId(), finalWinnerId) ? 0
-                    : Objects.equals(right.getTeamId(), finalRunnerUpId) ? 1 : 2;
-            if (leftRank != rightRank) return Integer.compare(leftRank, rightRank);
-            return Long.compare(
-                    roundReached.getOrDefault(right.getTeamId(), 0L),
-                    roundReached.getOrDefault(left.getTeamId(), 0L));
-        });
+        Map<Long, Integer> places = CupFinishingPositions.calculate(
+                standings.stream().map(TeamCompetitionDetail::getTeamId).collect(Collectors.toSet()),
+                roundReached, winnerId, runnerUpId);
+        standings.sort(Comparator.comparingInt(row -> places.getOrDefault(row.getTeamId(), Integer.MAX_VALUE)));
+        return places;
     }
 
     // ============================================================

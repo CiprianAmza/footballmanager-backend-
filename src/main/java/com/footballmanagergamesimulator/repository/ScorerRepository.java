@@ -11,6 +11,27 @@ import java.util.List;
 
 public interface ScorerRepository extends JpaRepository<Scorer, Long> {
 
+    interface ValueAggregate {
+        Integer getSeasonNumber();
+        Long getCompetitionId();
+        Long getTeamId();
+        Long getPlayerId();
+        Long getAppearances();
+        Long getGoals();
+        Long getAssists();
+    }
+
+    @Query("""
+            select s.seasonNumber as seasonNumber, s.competitionId as competitionId,
+                   s.teamId as teamId, s.playerId as playerId,
+                   count(s.id) as appearances, coalesce(sum(s.goals), 0) as goals,
+                   coalesce(sum(s.assists), 0) as assists
+              from Scorer s
+             where s.competitionId > 0 and (:season is null or s.seasonNumber = :season)
+             group by s.seasonNumber, s.competitionId, s.teamId, s.playerId
+            """)
+    List<ValueAggregate> aggregateForValueRankings(@Param("season") Integer season);
+
     interface SeasonPreviewAggregate {
         Long getPlayerId();
         Long getAppearances();

@@ -55,6 +55,9 @@ public class SuperCupService {
             superCup.setTypeId(6);
             superCup.setTier(1); // one Super Cup per nation, so there is no level below it
             superCup.setName(countryName(league.getName()) + " Super Cup");
+            if (league.getReputation() != null && league.getReputation() > 0) {
+                superCup.setReputation(Math.round(league.getReputation() * 0.25f));
+            }
             additions.add(superCup);
         }
         if (!additions.isEmpty()) competitionRepository.saveAll(additions);

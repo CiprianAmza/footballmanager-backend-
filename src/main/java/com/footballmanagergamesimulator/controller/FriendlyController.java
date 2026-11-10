@@ -66,6 +66,12 @@ public class FriendlyController {
         return friendlyMatchService.getFriendlyMatches(teamId, season);
     }
 
+    /** One-time repair for standalone friendlies skipped by older calendars. */
+    @PostMapping("/matches/recover-missed")
+    public Map<String, Object> recoverMissedMatches() {
+        return friendlyMatchService.recoverMissedStandaloneFriendlies();
+    }
+
     @GetMapping("/events/{teamId}/{season}")
     public List<Map<String, Object>> getEvents(@PathVariable long teamId, @PathVariable int season) {
         return friendlyEventService.getEvents(teamId, season);

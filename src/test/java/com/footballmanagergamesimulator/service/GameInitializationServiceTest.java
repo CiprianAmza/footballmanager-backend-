@@ -47,6 +47,8 @@ class GameInitializationServiceTest {
     @Mock private NewSeasonSetupProcessor newSeasonSetupProcessor;
     @Mock private PrebuiltDataService prebuiltDataService;
     @Mock private SuperCupService superCupService;
+    @Mock private CompetitionReputationService competitionReputationService;
+    @Mock private MemoryCheckpointService memoryCheckpointService;
     @Mock private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
 
     @BeforeEach
@@ -70,6 +72,8 @@ class GameInitializationServiceTest {
         inject("newSeasonSetupProcessor", newSeasonSetupProcessor);
         inject("prebuiltDataService", prebuiltDataService);
         inject("superCupService", superCupService);
+        inject("competitionReputationService", competitionReputationService);
+        inject("memoryCheckpointService", memoryCheckpointService);
         inject("newSeasonPlayerReadinessService", newSeasonPlayerReadinessService);
     }
 

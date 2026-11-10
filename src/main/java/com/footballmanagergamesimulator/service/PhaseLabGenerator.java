@@ -30,6 +30,8 @@ public class PhaseLabGenerator {
 
     @Autowired
     MatchPhaseEngine phaseEngine;
+    @Autowired
+    PhaseTemplateService templates;
 
     public MatchPhaseData buildPhase(String strategy, String scenario, String outcome, long seed) {
         Random rosterRng = new Random(seed ^ 0x5DEECE66DL);
@@ -47,6 +49,13 @@ public class PhaseLabGenerator {
                 30, true, true, 1, 2, team1, team2, events, false,
                 null, null, null, seed);
         return phaseEngine.buildScenarioPhase(ctx, strategy, scenario);
+    }
+
+    public MatchPhaseData buildTemplatePhase(PhaseTemplateService.Template template,
+            String outcome, long seed) {
+        Random rosterRng = new Random(seed ^ 0x5DEECE66DL);
+        return templates.preview(template, syntheticTeam(100, rosterRng),
+                syntheticTeam(200, rosterRng), outcome, seed);
     }
 
     /** Two believable elevens: every attribute rolls 8-17, with the roles the

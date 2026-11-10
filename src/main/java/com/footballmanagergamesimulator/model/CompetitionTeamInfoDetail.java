@@ -21,6 +21,11 @@ public class CompetitionTeamInfoDetail {
    */
   private long team1Id;
   private long team2Id;
+    /** Manager in charge when this result was recorded; null in older saves. */
+    @Column(name = "manager1_id")
+    private Long manager1Id;
+    @Column(name = "manager2_id")
+    private Long manager2Id;
   private long competitionId;
 
   /**

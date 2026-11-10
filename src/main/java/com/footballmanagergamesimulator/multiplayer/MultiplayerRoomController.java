@@ -145,7 +145,7 @@ public class MultiplayerRoomController {
                 dayTimeoutSeconds == null ? 300 : dayTimeoutSeconds,
                 majorityTimeoutSeconds == null ? 60 : majorityTimeoutSeconds,
                 maxPlayers == null ? 2 : maxPlayers, Boolean.TRUE.equals(forceContinue),
-                name == null || name.isBlank() ? "Football Manager Room" : name); }
+                name == null || name.isBlank() ? "Argus Football World Room" : name); }
     }
     public record SettingsRequest(String name, Integer continueThresholdPercent, Integer dayTimeoutSeconds,
                                   Integer majorityTimeoutSeconds, Integer maxPlayers, Boolean forceContinue) {

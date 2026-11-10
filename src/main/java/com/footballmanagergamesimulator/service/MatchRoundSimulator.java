@@ -191,6 +191,17 @@ public class MatchRoundSimulator {
                 .orElse(managers.get(0));
     }
 
+    /** Uses the round's batch-loaded managers; interactive matches fall back to one lookup. */
+    public Long currentManagerIdForTeam(long teamId) {
+        RoundContext context = roundContext.get();
+        List<Human> managers = context == null
+                ? humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE)
+                : context.managersByTeam().getOrDefault(teamId, List.of());
+        if (managers.isEmpty()) return null;
+        Human manager = userContext.isHumanTeam(teamId) ? resolveCurrentManager(teamId, managers) : managers.get(0);
+        return manager == null ? null : manager.getId();
+    }
+
     // ===== AI rating caches (lifetime: app, mirrors original controller behavior). =====
     private final Map<Long, Double> simpleRatingCache = new ConcurrentHashMap<>();
     private final Map<Long, String> managerTacticCache = new ConcurrentHashMap<>();
@@ -1054,6 +1065,8 @@ public class MatchRoundSimulator {
                 competitionTeamInfoDetail.setRoundId(_roundId);
                 competitionTeamInfoDetail.setTeam1Id(teamId1);
                 competitionTeamInfoDetail.setTeam2Id(teamId2);
+                competitionTeamInfoDetail.setManager1Id(currentManagerIdForTeam(teamId1));
+                competitionTeamInfoDetail.setManager2Id(currentManagerIdForTeam(teamId2));
                 competitionTeamInfoDetail.setTeamName1(roundTeamName(teamId1));
                 competitionTeamInfoDetail.setTeamName2(roundTeamName(teamId2));
                 competitionTeamInfoDetail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);

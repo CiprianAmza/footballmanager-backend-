@@ -3,12 +3,14 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
 import com.footballmanagergamesimulator.service.FanSocialFeedService;
+import com.footballmanagergamesimulator.service.GameLock;
 import com.footballmanagergamesimulator.user.CurrentUserService;
 import com.footballmanagergamesimulator.user.TeamAccessGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,12 +24,17 @@ public class SocialFeedController {
     private final ManagerInboxRepository inbox;
     private final TeamAccessGuard teamAccessGuard;
     private final CurrentUserService currentUserService;
+    private final FanSocialFeedService fanSocialFeedService;
+    private final GameLock gameLock;
 
     public SocialFeedController(ManagerInboxRepository inbox, TeamAccessGuard teamAccessGuard,
-                                CurrentUserService currentUserService) {
+                                CurrentUserService currentUserService,
+                                FanSocialFeedService fanSocialFeedService, GameLock gameLock) {
         this.inbox = inbox;
         this.teamAccessGuard = teamAccessGuard;
         this.currentUserService = currentUserService;
+        this.fanSocialFeedService = fanSocialFeedService;
+        this.gameLock = gameLock;
     }
 
     @GetMapping("/me")
@@ -37,6 +44,19 @@ public class SocialFeedController {
         if (teamId == null || teamId <= 0) return ResponseEntity.ok(List.of());
         return ResponseEntity.ok(inbox.findAllByTeamIdAndCategoryOrderByIdDesc(teamId, FanSocialFeedService.CATEGORY)
                 .stream().map(this::toView).toList());
+    }
+
+    @PostMapping("/me/refresh")
+    public ResponseEntity<?> refreshMyFeed(HttpServletRequest request) {
+        if (currentUserService.getUserOrNull(request) == null) return ResponseEntity.status(401).build();
+        Long teamId = teamAccessGuard.resolveInboxTeamId(request, 0L);
+        if (teamId == null || teamId <= 0) return ResponseEntity.badRequest().build();
+        gameLock.lock();
+        try {
+            return ResponseEntity.ok(java.util.Map.of("updated", fanSocialFeedService.refreshExistingPosts(teamId)));
+        } finally {
+            gameLock.unlock();
+        }
     }
 
     private SocialFeedPostView toView(ManagerInbox message) {

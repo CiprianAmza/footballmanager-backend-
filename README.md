@@ -1,13 +1,13 @@
-Football Manager Game Simulator
+Argus Football World
 
 <img width="1512" height="904" alt="image" src="https://github.com/user-attachments/assets/a7a620fe-d326-44d9-a4bc-e4374df964db" />
 
 
-Project Overview 
+Project Overview
 
-A comprehensive, web-based football management simulation game designed to replicate the depth and tactical complexity of modern football management. Built with a robust Java Spring Boot backend and a dynamic Angular frontend, this application allows users to take full control of a football club, managing everything from tactical setups and squad planning to finances and scouting.
+A web-based football management game set in its own fictional world. Built with a Java Spring Boot backend and an Angular frontend, it lets players shape a club through tactics, squad planning, finances, scouting, and matchdays. Its aim is to make choices and their consequences feel connected across seasons, rather than reproduce another game's interface or feature list.
 
-The interface features a modern "Dark Theme" inspired by industry-standard management simulations, ensuring an immersive user experience with interactive data visualizations, drag-and-drop tactical boards, and detailed analytical dashboards.
+The interface offers multiple themes, interactive data visualizations, tactical boards, and analytical dashboards.
 
 Key Features
 
@@ -63,13 +63,14 @@ Angular: Component-based SPA architecture.
 
 TypeScript: Strongly typed logic for complex game mechanics.
 
-CSS Grid & Flexbox: Responsive, complex layouts mimicking desktop software interfaces.
+CSS Grid & Flexbox: Responsive layouts for the game's management screens.
 
 SVG & Canvas: Custom-built charts and tactical visualizations without heavy external libraries.
 
-This project is a personal educational initiative inspired by the Football Manager series.
+This is an original, fictional football management world. Football Manager is one reference point for studying the genre, not a design specification for this game.
 
 <img width="1512" height="857" alt="image" src="https://github.com/user-attachments/assets/5b737987-ad1c-4699-973c-d37c3b81ac5c" />
+
 ## Development setup
 
 The application is split across two GitHub repositories:

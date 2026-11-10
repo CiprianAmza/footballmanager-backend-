@@ -214,8 +214,8 @@ public class MultiplayerRoomService {
     private void conflict(String s) { throw new ResponseStatusException(HttpStatus.CONFLICT, s); }
     private void forbidden(String s) { throw new ResponseStatusException(HttpStatus.FORBIDDEN, s); }
     public record CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue, String name) {
-        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false, "Football Manager Room"); }
-        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, forceContinue, "Football Manager Room"); }
+        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false, "Argus Football World Room"); }
+        public CreateRoom(String password, int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue) { this(password, threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, forceContinue, "Argus Football World Room"); }
     }
     public record Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers, boolean forceContinue, String name) {
         public Settings(int threshold, int dayTimeoutSeconds, int majorityTimeoutSeconds, int maxPlayers) { this(threshold, dayTimeoutSeconds, majorityTimeoutSeconds, maxPlayers, false, null); }
