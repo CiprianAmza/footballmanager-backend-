@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.model.PhaseRating;
 import com.footballmanagergamesimulator.service.MatchPhaseEngine;
 import com.footballmanagergamesimulator.service.PhaseLabGenerator;
 import com.footballmanagergamesimulator.service.PhaseTasteService;
+import com.footballmanagergamesimulator.service.PhaseTemplateService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +15,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.io.IOException;
+import org.springframework.http.HttpStatus;
 
 /**
  * Phase Lab (dev tool): generate presentation phases from the scenario
@@ -38,6 +41,8 @@ public class PhaseLabController {
     PhaseLabGenerator generator;
     @Autowired
     PhaseTasteService taste;
+    @Autowired
+    PhaseTemplateService templates;
 
     // ------------------------------------------------------------ DTOs
 
@@ -76,6 +81,49 @@ public class PhaseLabController {
         int combos = MatchPhaseEngine.SCENARIOS.values().stream().mapToInt(List::size).sum()
                 * OUTCOMES.size();
         return new CatalogDto(strategies, OUTCOMES, combos, totalRatings);
+    }
+
+    @GetMapping("/templates")
+    public List<PhaseTemplateService.Template> templates() {
+        return templates.all();
+    }
+
+    @PostMapping("/templates")
+    public PhaseTemplateService.Template saveTemplate(@RequestBody PhaseTemplateService.Draft draft)
+            throws IOException {
+        return templates.save(draft);
+    }
+
+    @DeleteMapping("/templates/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteTemplate(@PathVariable String id) throws IOException {
+        templates.delete(id);
+    }
+
+    @GetMapping("/templates/{id}/preview")
+    public PreviewDto previewTemplate(@PathVariable String id, @RequestParam String outcome,
+            @RequestParam long seed) {
+        PhaseTemplateService.Template template = templates.find(id);
+        MatchPhaseData phase = generator.buildTemplatePhase(template, outcome, seed);
+        if (phase == null) throw new IllegalArgumentException("Invalid shot outcome");
+        return new PreviewDto("AUTHORED", template.name(), outcome, seed,
+                0, phase, roster(), 1, 2);
+    }
+
+    @PostMapping("/templates/preview")
+    public PreviewDto previewDraft(@RequestBody PhaseTemplateService.Draft draft,
+            @RequestParam String outcome, @RequestParam long seed) {
+        PhaseTemplateService.Template template = templates.draft(draft);
+        MatchPhaseData phase = generator.buildTemplatePhase(template, outcome, seed);
+        if (phase == null) throw new IllegalArgumentException("Invalid shot outcome");
+        return new PreviewDto("AUTHORED", template.name(), outcome, seed,
+                0, phase, roster(), 1, 2);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public String invalidTemplate(IllegalArgumentException error) {
+        return error.getMessage();
     }
 
     /** Deterministic generation: same tuple → the exact same phase. */

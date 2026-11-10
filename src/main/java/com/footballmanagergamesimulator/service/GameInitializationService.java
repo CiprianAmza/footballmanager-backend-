@@ -86,6 +86,7 @@ public class GameInitializationService {
     @Autowired private PrebuiltDataService prebuiltDataService;
     @Autowired private MemoryCheckpointService memoryCheckpointService;
     @Autowired private SuperCupService superCupService;
+    @Autowired private CompetitionReputationService competitionReputationService;
     @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
 
     /**
@@ -98,6 +99,7 @@ public class GameInitializationService {
         Optional<Round> existing = roundRepository.findById(1L);
         if (existing.isPresent()) {
             superCupService.ensureCompetitions();
+            competitionReputationService.ensureReputations();
             int protectedPlayers = bootstrapService.ensureSpecialPlayersNeverLeave();
             if (protectedPlayers > 0) {
                 System.out.println("=== Protected " + protectedPlayers
@@ -124,6 +126,7 @@ public class GameInitializationService {
             System.out.println("=== Loading pre-built data from " + prebuiltDataService.snapshotFile() + " ===");
             prebuiltDataService.restore();
             superCupService.ensureCompetitions();
+            competitionReputationService.ensureReputations();
             bootstrapService.ensureSpecialPlayersNeverLeave();
             newSeasonPlayerReadinessService.resetActiveTeamPlayers();
             Round restored = roundRepository.findById(1L).orElseThrow(() ->
@@ -142,6 +145,7 @@ public class GameInitializationService {
         competitionTeamInfoRepository.deleteAll();
         bootstrapService.initialization();
         superCupService.ensureCompetitions();
+        competitionReputationService.ensureReputations();
 
         Set<Long> leagueCompetitionIds = new HashSet<>(competitionRepository.findIdsByTypeId(1));
         Set<Long> secondLeagueCompetitionIds = competitionRepository.findIdsByTypeId(3);

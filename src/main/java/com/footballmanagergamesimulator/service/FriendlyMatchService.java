@@ -24,6 +24,8 @@ public class FriendlyMatchService {
     @Autowired
     private CalendarService calendarService;
     @Autowired
+    private GameCalendarRepository gameCalendarRepository;
+    @Autowired
     private MatchSimulationService matchSimulationService;
     @Autowired
     private MatchStatsService matchStatsService;
@@ -41,6 +43,8 @@ public class FriendlyMatchService {
     private TacticSimulationService tacticSimulationService;
     @Autowired
     private FriendlyEventService friendlyEventService;
+    @Autowired
+    private GameLock gameLock;
 
     private static final int PRE_SEASON_START = 1;
     private static final int PRE_SEASON_END = 30;
@@ -76,6 +80,9 @@ public class FriendlyMatchService {
      * Only during PRE_SEASON (days 1-30) and WINTER_BREAK (days 201-210).
      */
     public List<Map<String, Object>> getAvailableDays(long teamId, int season) {
+        GameCalendar current = currentCalendar();
+        if (current != null && season < current.getSeason()) return List.of();
+        int firstFutureDay = current != null && season == current.getSeason() ? current.getCurrentDay() + 1 : 1;
         // Get all pending events for this season to find busy days
         Set<Integer> busyDays = new HashSet<>();
         List<CalendarEvent> allPending = calendarEventRepository.findAllBySeasonAndStatus(season, "PENDING");
@@ -98,7 +105,7 @@ public class FriendlyMatchService {
 
         // Pre-season days
         for (int day = PRE_SEASON_START + 3; day <= PRE_SEASON_END; day++) {
-            if (!busyDays.contains(day)) {
+            if (day >= firstFutureDay && !busyDays.contains(day)) {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("day", day);
                 m.put("dateDisplay", calendarService.getDateDisplay(day));
@@ -109,7 +116,7 @@ public class FriendlyMatchService {
 
         // Winter break days
         for (int day = WINTER_BREAK_START; day <= WINTER_BREAK_END; day++) {
-            if (!busyDays.contains(day)) {
+            if (day >= firstFutureDay && !busyDays.contains(day)) {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("day", day);
                 m.put("dateDisplay", calendarService.getDateDisplay(day));
@@ -145,6 +152,14 @@ public class FriendlyMatchService {
         if (!isPreSeason && !isWinterBreak) {
             result.put("success", false);
             result.put("error", "Friendlies can only be scheduled during pre-season (days 1-30) or winter break (days 201-210)");
+            return result;
+        }
+
+        GameCalendar current = currentCalendar();
+        if (current != null && (season < current.getSeason()
+                || (season == current.getSeason() && day <= current.getCurrentDay()))) {
+            result.put("success", false);
+            result.put("error", "Friendlies must be scheduled for a future day");
             return result;
         }
 
@@ -315,6 +330,53 @@ public class FriendlyMatchService {
         return results;
     }
 
+    /**
+     * Repair ordinary friendlies that an older calendar generator left behind.
+     * A historical replay must not apply today's fitness or morale changes.
+     * Tournament fixtures are excluded because their brackets need day-by-day progression.
+     */
+    public Map<String, Object> recoverMissedStandaloneFriendlies() {
+        gameLock.lock();
+        try {
+            GameCalendar calendar = currentCalendar();
+            if (calendar == null) return Map.of("recovered", 0, "matches", List.of());
+            List<Map<String, Object>> recovered = new ArrayList<>();
+            for (FriendlyMatch match : friendlyMatchRepository.findAllBySeasonAndStatus(calendar.getSeason(), "SCHEDULED")) {
+                if (match.getDay() < calendar.getCurrentDay() && match.getFriendlyEventId() == null) {
+                    Map<String, Object> result = simulateFriendly(match, false);
+                    result.put("season", match.getSeason());
+                    result.put("day", match.getDay());
+                    recovered.add(result);
+                }
+            }
+            return Map.of("recovered", recovered.size(), "matches", recovered);
+        } finally {
+            gameLock.unlock();
+        }
+    }
+
+    /** Repair calendar links missing from friendlies created by older season generators. */
+    public void ensureCalendarEventForDay(int season, int day) {
+        List<FriendlyMatch> matches = friendlyMatchRepository.findAllBySeasonAndDayAndStatus(season, day, "SCHEDULED");
+        if (matches.isEmpty()) return;
+        boolean hasTrigger = calendarEventRepository.findAllBySeasonAndDayAndStatus(season, day, "PENDING")
+                .stream().anyMatch(event -> "MATCH_FRIENDLY".equals(event.getEventType()));
+        if (hasTrigger) return;
+        CalendarEvent event = new CalendarEvent();
+        event.setSeason(season);
+        event.setDay(day);
+        event.setPhase("EVENING");
+        event.setEventType("MATCH_FRIENDLY");
+        event.setStatus("PENDING");
+        event.setTitle("Friendly matches");
+        event.setPriority(1);
+        calendarEventRepository.save(event);
+    }
+
+    private GameCalendar currentCalendar() {
+        return gameCalendarRepository.findTopByOrderBySeasonDesc().orElse(null);
+    }
+
     private String normalizeOption(String value, Set<String> allowed, String fallback) {
         if (value == null) return fallback;
         String normalized = value.trim().toUpperCase(Locale.ROOT);
@@ -325,6 +387,10 @@ public class FriendlyMatchService {
      * Simulate a single friendly match.
      */
     private Map<String, Object> simulateFriendly(FriendlyMatch match) {
+        return simulateFriendly(match, true);
+    }
+
+    private Map<String, Object> simulateFriendly(FriendlyMatch match, boolean applyMatchdayEffects) {
         long homeId = match.getHomeTeamId();
         long awayId = match.getAwayTeamId();
 
@@ -354,21 +420,21 @@ public class FriendlyMatchService {
         match.setAwayShotsOnTarget(generatedStats.getAwayShotsOnTarget());
         friendlyMatchRepository.save(match);
 
-        // Apply match day fitness loss to both teams' players
-        applyFriendlyFitnessEffects(homeId);
-        applyFriendlyFitnessEffects(awayId);
+        if (applyMatchdayEffects) {
+            applyFriendlyFitnessEffects(homeId);
+            applyFriendlyFitnessEffects(awayId);
 
-        // Small morale boost for winning team's players
-        if (homeGoals > awayGoals) {
-            applyMoraleEffect(homeId, 2.0);
-            applyMoraleEffect(awayId, -1.0);
-        } else if (awayGoals > homeGoals) {
-            applyMoraleEffect(awayId, 2.0);
-            applyMoraleEffect(homeId, -1.0);
+            // Small morale boost for winning team's players
+            if (homeGoals > awayGoals) {
+                applyMoraleEffect(homeId, 2.0);
+                applyMoraleEffect(awayId, -1.0);
+            } else if (awayGoals > homeGoals) {
+                applyMoraleEffect(awayId, 2.0);
+                applyMoraleEffect(homeId, -1.0);
+            }
+
+            sendFriendlyResultInbox(match, homeGoals, awayGoals);
         }
-
-        // Send inbox notification to human teams
-        sendFriendlyResultInbox(match, homeGoals, awayGoals);
 
         // Build result
         Map<String, Object> result = new LinkedHashMap<>();
@@ -452,7 +518,7 @@ public class FriendlyMatchService {
      * Called during season calendar generation.
      * Pairs human teams with random opponents from different leagues.
      */
-    public void autoSchedulePreSeasonFriendlies(int season, Set<Integer> existingMatchDays) {
+    public void autoSchedulePreSeasonFriendlies(int season, Set<Integer> scheduledFriendlyDays) {
         List<Long> humanTeamIds = userContext.getAllHumanTeamIds();
         if (humanTeamIds.isEmpty()) return;
 
@@ -483,15 +549,12 @@ public class FriendlyMatchService {
                 return Integer.compare(repDiffA, repDiffB);
             });
 
-            // Schedule 4 friendlies on pre-season days
-            int[] friendlyDays = {7, 14, 21, 28};
+            // Use the exact days with MATCH_FRIENDLY calendar events.
+            List<Integer> friendlyDays = scheduledFriendlyDays.stream().sorted().toList();
             Set<Long> usedOpponents = new HashSet<>();
 
-            for (int i = 0; i < friendlyDays.length && i < candidates.size(); i++) {
-                int day = friendlyDays[i];
-                // Avoid collision with existing match days
-                while (existingMatchDays.contains(day) && day <= PRE_SEASON_END) day++;
-                if (day > PRE_SEASON_END) continue;
+            for (int i = 0; i < friendlyDays.size() && i < candidates.size(); i++) {
+                int day = friendlyDays.get(i);
 
                 // Pick an opponent we haven't used yet
                 Team opponent = null;
@@ -522,7 +585,6 @@ public class FriendlyMatchService {
                 friendly.setScheduledByTeamId(humanTeamId);
                 friendlyMatchRepository.save(friendly);
 
-                existingMatchDays.add(day);
             }
         }
     }

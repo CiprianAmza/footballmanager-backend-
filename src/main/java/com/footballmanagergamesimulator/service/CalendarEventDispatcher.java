@@ -76,6 +76,7 @@ public class CalendarEventDispatcher {
     @Autowired private FixtureSchedulingService fixtureSchedulingService;
     @Autowired private EuropeanFixturePreparationService europeanFixturePreparationService;
     @Autowired private EuropeanDrawService europeanDrawService;
+    @Autowired private CompetitionExpectationService competitionExpectationService;
     @Autowired @Lazy private TrainingService trainingService;
     @Autowired @Lazy private YouthAcademyService youthAcademyService;
     @Autowired @Lazy private PressConferenceService pressConferenceService;
@@ -243,6 +244,7 @@ public class CalendarEventDispatcher {
                     break;
                 }
                 result.putAll(europeanDrawService.executeDraw(event, calendar));
+                competitionExpectationService.captureMissingBeforeMatches(calendar.getSeason());
                 break;
             case "MATCH_LEAGUE":
             case "MATCH_CUP":

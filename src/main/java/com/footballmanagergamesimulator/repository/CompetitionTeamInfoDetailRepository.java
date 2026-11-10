@@ -9,6 +9,57 @@ import java.util.List;
 
 public interface CompetitionTeamInfoDetailRepository extends JpaRepository<CompetitionTeamInfoDetail, Long> {
 
+  interface TeamRoundAggregate {
+    Long getSeasonNumber();
+    Long getCompetitionId();
+    Long getTeamId();
+    Long getLatestRound();
+  }
+
+  interface ManagerMatchAggregate {
+    Long getSeasonNumber();
+    Long getCompetitionId();
+    Long getTeamId();
+    Long getManagerId();
+    Long getMatches();
+  }
+
+  @Query("""
+      select d.seasonNumber as seasonNumber, d.competitionId as competitionId,
+             d.team1Id as teamId, d.manager1Id as managerId, count(d.id) as matches
+        from CompetitionTeamInfoDetail d
+       where d.manager1Id is not null and (:season is null or d.seasonNumber = :season)
+       group by d.seasonNumber, d.competitionId, d.team1Id, d.manager1Id
+      """)
+  List<ManagerMatchAggregate> aggregateHomeManagers(@Param("season") Long season);
+
+  @Query("""
+      select d.seasonNumber as seasonNumber, d.competitionId as competitionId,
+             d.team2Id as teamId, d.manager2Id as managerId, count(d.id) as matches
+        from CompetitionTeamInfoDetail d
+       where d.manager2Id is not null and (:season is null or d.seasonNumber = :season)
+       group by d.seasonNumber, d.competitionId, d.team2Id, d.manager2Id
+      """)
+  List<ManagerMatchAggregate> aggregateAwayManagers(@Param("season") Long season);
+
+  @Query("""
+      select d.seasonNumber as seasonNumber, d.competitionId as competitionId,
+             d.team1Id as teamId, max(d.roundId) as latestRound
+        from CompetitionTeamInfoDetail d
+       where :season is null or d.seasonNumber = :season
+       group by d.seasonNumber, d.competitionId, d.team1Id
+      """)
+  List<TeamRoundAggregate> aggregateHomeRounds(@Param("season") Long season);
+
+  @Query("""
+      select d.seasonNumber as seasonNumber, d.competitionId as competitionId,
+             d.team2Id as teamId, max(d.roundId) as latestRound
+        from CompetitionTeamInfoDetail d
+       where :season is null or d.seasonNumber = :season
+       group by d.seasonNumber, d.competitionId, d.team2Id
+      """)
+  List<TeamRoundAggregate> aggregateAwayRounds(@Param("season") Long season);
+
   List<CompetitionTeamInfoDetail> findAllBySeasonNumber(long seasonNumber);
 
   List<CompetitionTeamInfoDetail> findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(long competitionId, long roundId, long team1Id, long team2Id, long seasonNumber);

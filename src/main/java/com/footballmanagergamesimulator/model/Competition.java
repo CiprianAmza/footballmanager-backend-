@@ -42,6 +42,9 @@ public class Competition {
    */
   private String name;
 
+  /** Stable competition reputation used as the base for performance rankings. */
+  private Integer reputation;
+
   /** A domestic league of any level. Second divisions are {@code LEAGUE} on tier 2. */
   public static final long LEAGUE = 1;
   public static final long CUP = 2;

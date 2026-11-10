@@ -54,6 +54,8 @@ public class GameAdvanceService {
     @Autowired @Lazy private LiveMatchSimulationService liveMatchSimulationService;
     @Autowired private GameLock gameLock;
     @Autowired private MemoryCheckpointService memoryCheckpointService;
+    @Autowired private FriendlyMatchService friendlyMatchService;
+    @Autowired private CompetitionExpectationService competitionExpectationService;
 
     private final Random random = new Random();
 
@@ -208,6 +210,10 @@ public class GameAdvanceService {
         // queries below must use the season that was actually read, never the
         // caller's stale cycle parameter.
         season = calendar.getSeason();
+        // New saves start in season one without passing through NewSeasonSetupProcessor.
+        if (season == 1 && calendar.getCurrentDay() == 1) {
+            competitionExpectationService.captureMissingBeforeMatches(season);
+        }
         boolean alwaysContinue = scope != null ? unattendedConfirmed
                 : unattendedConfirmed || isAlwaysContinueActive();
 
@@ -225,6 +231,10 @@ public class GameAdvanceService {
         if (released > 0) {
             System.out.println(">>> advance: released " + released + " stuck PROCESSING events back to PENDING");
         }
+
+        // Older season generators could place a friendly on a day without a
+        // MATCH_FRIENDLY event. Restore the trigger before this day's phases run.
+        friendlyMatchService.ensureCalendarEventForDay(calendar.getSeason(), calendar.getCurrentDay());
 
         injuryTimelineService.processRecoveries(calendar.getSeason(), calendar.getCurrentDay());
         if ("MORNING".equals(calendar.getCurrentPhase())) {

@@ -1,12 +1,16 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.FacilityUpgrade;
+import com.footballmanagergamesimulator.model.CalendarEvent;
+import com.footballmanagergamesimulator.model.GameCalendar;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamFacilities;
 import com.footballmanagergamesimulator.model.YouthPlayer;
 import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.CalendarEventRepository;
+import com.footballmanagergamesimulator.repository.GameCalendarRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
@@ -36,20 +40,35 @@ public class AcademyIntelligenceService {
     private final HumanRepository humans;
     private final RoundRepository rounds;
     private final FacilityUpgradeService upgrades;
+    private final CalendarEventRepository calendarEvents;
+    private final GameCalendarRepository calendars;
 
     public AcademyIntelligenceService(YouthPlayerRepository youthPlayers, TeamRepository teams,
                                       TeamFacilitiesRepository facilities, HumanRepository humans,
-                                      RoundRepository rounds, FacilityUpgradeService upgrades) {
+                                      RoundRepository rounds, FacilityUpgradeService upgrades,
+                                      CalendarEventRepository calendarEvents, GameCalendarRepository calendars) {
         this.youthPlayers = youthPlayers;
         this.teams = teams;
         this.facilities = facilities;
         this.humans = humans;
         this.rounds = rounds;
         this.upgrades = upgrades;
+        this.calendarEvents = calendarEvents;
+        this.calendars = calendars;
     }
 
     public AcademyOverview overview(long teamId) {
+        return overview(teamId, true);
+    }
+
+    public AcademyOverview overview(long teamId, boolean includeRanking) {
         int season = (int) rounds.findById(1L).orElse(new Round()).getSeason();
+        int currentDay = calendars.findBySeason(season).stream().mapToInt(GameCalendar::getCurrentDay)
+                .max().orElse(1);
+        CalendarEvent nextReport = calendarEvents
+                .findFirstBySeasonAndEventTypeAndStatusAndDayGreaterThanEqualOrderByDayAsc(
+                        season, "YOUTH_ACADEMY_REPORT", "PENDING", currentDay);
+        Integer nextReportDay = nextReport == null ? null : nextReport.getDay();
         Team ownTeam = teams.findById(teamId).orElseGet(() -> blankTeam(teamId));
         List<YouthPlayer> history = youthPlayers.findAllByTeamId(teamId);
         List<YouthPlayer> active = history.stream().filter(this::active).toList();
@@ -63,14 +82,15 @@ public class AcademyIntelligenceService {
                         .thenComparing(Comparator.comparingDouble(ProspectView::readinessPercent).reversed()))
                 .toList();
         Pipeline pipeline = pipeline(history, active, season);
-        List<AcademyRank> ranking = ranking(teamId);
+        List<AcademyRank> ranking = includeRanking ? ranking(teamId) : List.of();
         AcademyRank ownRank = ranking.stream().filter(row -> row.teamId() == teamId).findFirst()
                 .orElse(new AcademyRank(teamId, ownTeam.getName(), 0, 0, 0, academyLevel,
                         trainingLevel, hoydQuality, active.size(), 0, 0));
 
         Map<String, Long> positions = active.stream().collect(Collectors.groupingBy(
                 player -> positionGroup(player.getPosition()), LinkedHashMap::new, Collectors.counting()));
-        return new AcademyOverview(teamId, ownTeam.getName(), season, ownTeam.getTotalFinances(),
+        return new AcademyOverview(teamId, ownTeam.getName(), season, currentDay, nextReportDay,
+                ownTeam.getTotalFinances(),
                 academyLevel, trainingLevel, hoydQuality, ownRank.leagueRank(), ownRank.worldRank(),
                 pipeline, prospects, positions, youthFacilityOptions(teamId), ranking);
     }
@@ -183,7 +203,8 @@ public class AcademyIntelligenceService {
     }
     private Team blankTeam(long teamId) { Team team = new Team(); team.setId(teamId); team.setName("Club"); return team; }
 
-    public record AcademyOverview(long teamId, String teamName, int season, long clubFinances,
+    public record AcademyOverview(long teamId, String teamName, int season, int currentDay,
+                                  Integer nextReportDay, long clubFinances,
                                   int academyLevel, int trainingLevel, int hoydQuality,
                                   int leagueRank, int worldRank, Pipeline pipeline,
                                   List<ProspectView> prospects, Map<String, Long> positionCoverage,

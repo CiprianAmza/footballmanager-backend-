@@ -126,6 +126,7 @@ public class NewSeasonSetupProcessor {
     @Autowired private ScorerLeaderboardSyncService scorerLeaderboardSyncService;
     @Lazy @Autowired private AdminTransferService adminTransferService;
     @Autowired private CompetitionHistorySnapshotService competitionHistorySnapshotService;
+    @Autowired private CompetitionExpectationService competitionExpectationService;
 
     private long currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).orElse(1L);
@@ -275,6 +276,10 @@ public class NewSeasonSetupProcessor {
         // This wipes whatever cup CompetitionTeamInfo/Match rows the legacy per-league
         // loop wrote earlier and replaces them with a proper full bracket.
         regenerateAllCupBrackets(newSeason);
+
+        // Freeze the opening predictions after transfers, squad readiness and the
+        // competition draws, but before any result can change the landscape.
+        competitionExpectationService.captureMissingBeforeMatches(newSeason);
 
         // Ageing, retirements, overachiever rewards and the pre-season training
         // boost all recomputed player ratings — drop every cached AI base rating so

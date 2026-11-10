@@ -45,7 +45,8 @@ class GameSaveGeneratorAlignmentTest {
             "CHAIRMAN_TACTICAL_MANDATE_SLOT", "PLAYER_POSITION_FAMILIARITY",
             "PLAYER_ROLE_FAMILIARITY", "PLAYER_FOOT_PROFILE", "FRIENDLY_EVENT",
             "SHOT_EVENT", "POSSESSION_PROGRESSION", "DEFENSIVE_PRESSURE", "SET_PIECE_EVENT",
-            "SCOUTING_FOCUS", "SCOUTING_FOCUS_RESULT", "CLUB_LEGEND");
+            "SCOUTING_FOCUS", "SCOUTING_FOCUS_RESULT", "CLUB_LEGEND",
+            "COMPETITION_SEASON_EXPECTATION");
 
     @jakarta.annotation.Resource private GameSaveImportService service;
     @jakarta.annotation.Resource private JdbcTemplate jdbc;

@@ -341,9 +341,11 @@ public class FixtureSchedulingService {
         // 2. Auto-schedule pre-season friendlies with real opponents for human teams
         // Create MATCH_FRIENDLY calendar events on the standard pre-season days
         int[] friendlyDays = {7, 14, 21, 28};
+        Set<Integer> scheduledFriendlyDays = new LinkedHashSet<>();
         for (int i = 0; i < friendlyDays.length; i++) {
             int day = friendlyDays[i];
             while (allMatchDays.contains(day) && day <= 30) day++;
+            if (day > 30) continue;
             CalendarEvent event = new CalendarEvent();
             event.setSeason(season);
             event.setDay(day);
@@ -355,6 +357,7 @@ public class FixtureSchedulingService {
             allEvents.add(event);
 
             allMatchDays.add(day);
+            scheduledFriendlyDays.add(day);
         }
 
         // After saving all events, auto-schedule friendly matches with opponents
@@ -395,7 +398,7 @@ public class FixtureSchedulingService {
         calendarEventRepository.saveAll(allEvents);
 
         // Auto-schedule pre-season friendlies with real opponents for human teams
-        friendlyMatchService.autoSchedulePreSeasonFriendlies(season, allMatchDays);
+        friendlyMatchService.autoSchedulePreSeasonFriendlies(season, scheduledFriendlyDays);
     }
 
     /**

@@ -26,6 +26,7 @@ public class GameStateService {
     private final GameInitializationService gameInitializationService;
     private final CompetitionRepository competitionRepository;
     private final RoundRepository roundRepository;
+    private final CompetitionReputationService competitionReputationService;
 
     private Round round;
 
@@ -35,10 +36,12 @@ public class GameStateService {
 
     public GameStateService(GameInitializationService gameInitializationService,
                             CompetitionRepository competitionRepository,
-                            RoundRepository roundRepository) {
+                            RoundRepository roundRepository,
+                            CompetitionReputationService competitionReputationService) {
         this.gameInitializationService = gameInitializationService;
         this.competitionRepository = competitionRepository;
         this.roundRepository = roundRepository;
+        this.competitionReputationService = competitionReputationService;
     }
 
     @PostConstruct
@@ -91,6 +94,7 @@ public class GameStateService {
 
     /** Refresh all process-local state after the native save-game importer runs. */
     public synchronized void reloadAfterImport() {
+        competitionReputationService.ensureReputations();
         this.round = roundRepository.findById(1L)
                 .orElseThrow(() -> new IllegalStateException("Imported save contains no Round row"));
         gameInitializationService.applyManagerTacticPolicyDefaultsIfNeeded(this.round);

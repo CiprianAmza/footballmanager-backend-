@@ -41,6 +41,9 @@ public class MatchPhaseEngine {
     @Autowired(required = false)
     PhaseTasteService taste;
 
+    @Autowired(required = false)
+    PhaseTemplateService authoredTemplates;
+
     /** The scenario library: strategy family → its concrete scenarios. The
      *  engine DECLARES which pair produced each chain (sent to the frontend),
      *  and the Phase Lab can force any pair for preview/rating. */
@@ -80,6 +83,10 @@ public class MatchPhaseEngine {
             "corner", "foul", "yellow_card", "red_card", "offside");
 
     public MatchPhaseData buildMinutePhase(MinuteContext ctx) {
+        if (authoredTemplates != null) {
+            MatchPhaseData authored = authoredTemplates.live(ctx);
+            if (authored != null) return authored;
+        }
         return buildPhase(ctx, null, null);
     }
 

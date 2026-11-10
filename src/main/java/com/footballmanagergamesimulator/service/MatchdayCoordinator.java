@@ -697,6 +697,8 @@ public class MatchdayCoordinator {
         detail.setRoundId(_roundId);
         detail.setTeam1Id(teamId1);
         detail.setTeam2Id(teamId2);
+        detail.setManager1Id(matchRoundSimulator.currentManagerIdForTeam(teamId1));
+        detail.setManager2Id(matchRoundSimulator.currentManagerIdForTeam(teamId2));
         detail.setTeamName1(matchRoundSimulator.roundTeamName(teamId1));
         detail.setTeamName2(matchRoundSimulator.roundTeamName(teamId2));
         detail.setScore(teamScore1 + " - " + teamScore2 + koScoreSuffix);

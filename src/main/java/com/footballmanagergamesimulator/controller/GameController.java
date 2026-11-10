@@ -424,8 +424,9 @@ public class GameController {
     }
 
     @GetMapping("/youthAcademy/intelligence/{teamId}")
-    public AcademyIntelligenceService.AcademyOverview getYouthAcademyIntelligence(@PathVariable long teamId) {
-        return academyIntelligenceService.overview(teamId);
+    public AcademyIntelligenceService.AcademyOverview getYouthAcademyIntelligence(
+            @PathVariable long teamId, @RequestParam(defaultValue = "true") boolean includeRanking) {
+        return academyIntelligenceService.overview(teamId, includeRanking);
     }
 
     @PostMapping("/youthAcademy/promote/{youthPlayerId}")
