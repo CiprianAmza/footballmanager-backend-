@@ -4,12 +4,11 @@ Acest document descrie tot ce s-a livrat în sesiunea curentă (Faza 1 → Faza 
 
 Backend: `mvn test` → BUILD SUCCESS, 25/25 teste verzi.
 Frontend: `tsc --noEmit` → curat.
-
 ---
 
 ## 1. Ce a fost livrat
 
-### 1.1. Faza 1 — Stamina / fatigue model
+### 1.1. Faza 1
 **Fișier:** `src/main/java/com/footballmanagergamesimulator/service/LiveMatchSimulationService.java`
 
 - Clasă internă `PlayerMatchState` cu: `playerId, position, name, startFitness, currentStamina (0-100), minutesPlayed, isOnPitch, staminaAttr (1-20), naturalFitness (1-20)`.

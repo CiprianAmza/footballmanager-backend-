@@ -6,11 +6,6 @@ that branch is copied or cherry-picked.
 
 ## Boundary
 
-```text
-MatchPlan -> resolved canonical event -> MatchMomentSpec
-          -> AnimationDirector -> PlayPattern -> PlayScript
-          -> FrameCompiler -> AnimationReplay -> ordered frontend queue
-```
 
 `MatchMomentSpec` is immutable truth. It owns the fixture/slot identity, plan
 seed and generator version, exact minute, teams, phase, mandatory outcome,
