@@ -2,7 +2,7 @@ Argus Football World
 
 <img width="1512" height="904" alt="image" src="https://github.com/user-attachments/assets/a7a620fe-d326-44d9-a4bc-e4374df964db" />
 
-
+ 
 Project Overview
 
 A web-based football management game set in its own fictional world. Built with a Java Spring Boot backend and an Angular frontend, it lets players shape a club through tactics, squad planning, finances, scouting, and matchdays. Its aim is to make choices and their consequences feel connected across seasons, rather than reproduce another game's interface or feature list.
