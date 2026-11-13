@@ -205,7 +205,11 @@ P(câștig) se obține simulând tabloul rămas: perechile deja trase rămân, i
 - **Istoricul:** tabela `title_odds_snapshot`, câte un rând pe echipă și pe numărul de meciuri jucate, recalculat la aceeași etapă. E în salvarea v18, iar manifestul are acum 121 de tabele.
 - **Când se calculează:** după fiecare etapă, pentru ligile cu manager uman (`GameAdvanceService`, după meciurile zilei).
 - **Endpoint-uri:** `GET /odds/league/{id}`, `GET /odds/league/{id}/history`, `GET /odds/cup/{id}`.
-- **Frontend:** secțiunea „Chances” în Competition hub (`/competition-view/:id/chances`) are tabelul de șanse cu procent și cotă, plus graficul „Title race” (primele 5 echipe, culori validate pe fundalul întunecat, tooltip pe etapă, tabel).
+- **Frontend (în noile pagini de competiție):**
+  - pagina de ligă (`/competition/:id/chances`, meniul Overview → „Title chances”) are graficul „Title race” (primele 5 echipe, culorile temei, setul deschis în tema Light, tooltip pe etapă, tabel) și tabelul de șanse cu procent și cotă;
+  - în Media Prediction, coloana „Title odds” vine din aceeași simulare (1 ÷ șansa) în locul estimării din forța primilor 11; sezoanele trecute nu au cote;
+  - pagina de cupă (`/competition/:id?view=chances`, doar cupele naționale) arată șansele de câștig și de finală;
+  - link-urile vechi `/competition-view/:id/chances` duc la noile pagini.
 - **Limite:**
   - cupele europene (grupe + tragere la sorți) și Supercupa nu au încă șanse;
   - echipa folosită e cea din motor (formația salvată sau cea mai bună, primii 11 după rating), fără să scoată accidentații;
