@@ -39,6 +39,39 @@ import static org.mockito.ArgumentMatchers.anyLong;
 class StatsAggregationServiceTest {
 
     @Test
+    void clubLeadersRankEachCompetitionIndependentlyAndIgnoreUnplayedRows() {
+        StatsAggregationService service = new StatsAggregationService();
+        ScorerRepository scorers = mock(ScorerRepository.class);
+        HumanRepository players = mock(HumanRepository.class);
+        ReflectionTestUtils.setField(service, "scorerRepository", scorers);
+        ReflectionTestUtils.setField(service, "humanRepository", players);
+
+        List<Scorer> rows = new java.util.ArrayList<>();
+        addRatedAppearances(rows, 1L, 8L, 3L, 1, 2, 7.0);
+        addRatedAppearances(rows, 2L, 8L, 3L, 1, 1, 8.1);
+        addRatedAppearances(rows, 2L, 8L, 4L, 1, 1, 6.2);
+        addRatedAppearances(rows, 3L, 8L, 4L, 1, 1, 10.0);
+        rows.get(0).setGoals(1);
+        rows.get(1).setGoals(1);
+        rows.get(2).setAssists(1);
+        rows.get(3).setGoals(3);
+        rows.get(4).setTeamScore(-1);
+        rows.get(4).setGoals(99);
+
+        when(scorers.findAllByTeamIdAndSeasonNumber(8L, 1)).thenReturn(rows);
+        when(players.findAllById(any())).thenReturn(List.of(human(1L, 8L, "One"), human(2L, 8L, "Two")));
+
+        var leaders = service.getClubCompetitionLeaders(8L, 1);
+        assertEquals(List.of(3L, 4L), leaders.stream().map(StatsAggregationService.ClubCompetitionLeaders::competitionId).toList());
+        assertEquals(1L, leaders.get(0).goals().get(0).playerId());
+        assertEquals(2.0, leaders.get(0).goals().get(0).value());
+        assertEquals(2L, leaders.get(0).assists().get(0).playerId());
+        assertEquals(8.1, leaders.get(0).rating().get(0).value());
+        assertEquals(2L, leaders.get(1).goals().get(0).playerId());
+        assertEquals(3.0, leaders.get(1).goals().get(0).value());
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void competitionRatingImpactUsesTeamMatchThresholdAndExcludesFiveOfTenAppearances() {
         StatsAggregationService service = new StatsAggregationService();

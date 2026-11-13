@@ -101,6 +101,28 @@ public class HumanController {
         view.setLoanTeamName(state.loanTeamName());
     }
 
+    @GetMapping("/transfer-rumours/{competitionId}")
+    public List<TransferRumour> getTransferRumours(@PathVariable long competitionId) {
+        Map<Long, List<Long>> wanted = plannedTransferService.wantedBy();
+        Map<Long, Team> teams = new HashMap<>();
+        teamRepository.findAll().forEach(team -> teams.put(team.getId(), team));
+        List<TransferRumour> rumours = new ArrayList<>();
+        for (Human player : humanRepository.findAllById(wanted.keySet())) {
+            if (player.isRetired()) continue;
+            Team club = teams.get(player.getTeamId());
+            List<RumourClub> contenders = wanted.get(player.getId()).stream().map(teams::get)
+                    .filter(Objects::nonNull).filter(team -> team.getCompetitionId() == competitionId)
+                    .map(team -> new RumourClub(team.getId(), team.getName())).toList();
+            if ((club == null || club.getCompetitionId() != competitionId) && contenders.isEmpty()) continue;
+            rumours.add(new TransferRumour(player.getId(), player.getName(),
+                    club == null ? null : new RumourClub(club.getId(), club.getName()), contenders));
+        }
+        return rumours.stream().sorted(Comparator.comparing(TransferRumour::playerName)).toList();
+    }
+
+    public record RumourClub(long teamId, String teamName) {}
+    public record TransferRumour(long playerId, String playerName, RumourClub club, List<RumourClub> contenders) {}
+
     @GetMapping("/playerPositions")
     public List<String> getPlayerPositions() {
         return marketAvailabilityService.activePlayerPositions();
