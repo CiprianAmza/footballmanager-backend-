@@ -413,7 +413,8 @@ public class MatchController {
                         competitionId, round, teamId1, teamId2, season)
                 .stream().findFirst().orElse(null);
         if (detail != null) {
-            summary.setScore(detail.getScore());
+            // Older saves wrote the aggregate note leg-1-home first; rebuild it home side first.
+            summary.setScore(matchService.homeScoreText(detail));
         }
 
         // Goal scorers from MatchEvent

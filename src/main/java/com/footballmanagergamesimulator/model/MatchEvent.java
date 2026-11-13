@@ -24,12 +24,14 @@ public class MatchEvent {
     @Column(name = "fixture_key")
     private String fixtureKey;
 
+    // Boxed so rows imported from saves that predate match plans (NULL here) still
+    // load; the int accessors below expose them as the legacy -1.
     @Column(name = "slot_index")
-    private int slotIndex = -1;
+    private Integer slotIndex = -1;
 
     /** Stable ordering inside one goal slot (goal before its optional assist). */
     @Column(name = "event_order")
-    private int eventOrder = -1;
+    private Integer eventOrder = -1;
 
     private long competitionId;
     private int seasonNumber;
@@ -44,4 +46,20 @@ public class MatchEvent {
     private String playerName;
     private long teamId; // which team the event belongs to
     private String details; // extra info like "Header from corner", "Long range shot"
+
+    public int getSlotIndex() {
+        return slotIndex == null ? -1 : slotIndex;
+    }
+
+    public void setSlotIndex(int slotIndex) {
+        this.slotIndex = slotIndex;
+    }
+
+    public int getEventOrder() {
+        return eventOrder == null ? -1 : eventOrder;
+    }
+
+    public void setEventOrder(int eventOrder) {
+        this.eventOrder = eventOrder;
+    }
 }

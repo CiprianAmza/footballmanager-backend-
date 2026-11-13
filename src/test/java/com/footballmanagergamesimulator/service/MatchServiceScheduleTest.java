@@ -260,6 +260,29 @@ class MatchServiceScheduleTest {
     }
 
     @Test
+    void summaryScoreIsHomeSideFirstWithTheAggregateSummedFromBothLegs() {
+        // Season-2 era return leg: the stored note is leg-1-home first ("2-8"), the home side won 8-2.
+        CompetitionTeamInfoDetail firstLeg = result(LOC, 8, RIVAL, CLUB, "1 - 4 (1st leg)", 2);
+        firstLeg.setLegNumber(1);
+        firstLeg.setDecidedBy("FIRST_LEG");
+        CompetitionTeamInfoDetail returnLeg = result(LOC, 8, CLUB, RIVAL, "4 - 1 (agg 2-8)", 2);
+        returnLeg.setLegNumber(2);
+        returnLeg.setDecidedBy("AGGREGATE");
+        returnLeg.setWinnerTeamId(CLUB);
+        when(service.competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(2, CLUB))
+                .thenReturn(List.of(firstLeg, returnLeg));
+        CompetitionTeamInfoDetail shootout = result(CUP, 2, CLUB, RIVAL, "1 - 1 (pens 4-3)", 2);
+        shootout.setDecidedBy("PENALTIES");
+        CompetitionTeamInfoDetail unreadable = result(CUP, 3, CLUB, RIVAL, "walkover", 2);
+
+        assertThat(service.homeScoreText(returnLeg)).isEqualTo("4 - 1 (agg 8-2)");
+        assertThat(service.homeScoreText(firstLeg)).isEqualTo("1 - 4 (1st leg)");
+        assertThat(service.homeScoreText(shootout)).isEqualTo("1 - 1 (pens 4-3)");
+        assertThat(service.homeScoreText(unreadable)).isEqualTo("walkover");
+        assertThat(service.homeScoreText(null)).isNull();
+    }
+
+    @Test
     void competitionTypesFollowTheCompetitionKind() {
         assertThat(MatchService.scheduleCompetitionType(1L)).isEqualTo("League");
         assertThat(MatchService.scheduleCompetitionType(3L)).isEqualTo("League");

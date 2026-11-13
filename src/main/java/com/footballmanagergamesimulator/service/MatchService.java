@@ -141,6 +141,89 @@ public class MatchService {
         view.setDecidedBy(result.getDecidedBy());
         view.setReportAvailable(result.getScore() != null);
 
+        ResultReading reading = readResult(result, legNumber, tieId, lookups);
+        view.setLegNumber(reading.legNumber());
+        view.setTieId(tieId);
+        if (reading.legNumber() > 0 && tieId == 0) view.getUnknownFields().add("tieId");
+
+        if (reading.scoreReadable()) {
+            view.setTeamGoals(isHome ? reading.team1Goals() : reading.team2Goals());
+            view.setOpponentGoals(isHome ? reading.team2Goals() : reading.team1Goals());
+        } else {
+            view.getUnknownFields().add("teamGoals");
+            view.getUnknownFields().add("opponentGoals");
+        }
+
+        if (reading.aggregateKnown()) {
+            view.setAggregateTeam1Score(reading.aggregate1());
+            view.setAggregateTeam2Score(reading.aggregate2());
+        } else if (reading.legNumber() == 2) {
+            view.getUnknownFields().add("aggregateTeam1Score");
+            view.getUnknownFields().add("aggregateTeam2Score");
+        }
+
+        if (reading.penaltiesKnown()) {
+            view.setPenaltyTeam1Score(reading.penalties1());
+            view.setPenaltyTeam2Score(reading.penalties2());
+        } else if (reading.shootout()) {
+            // Older saves stored only " (pens)" with no shootout score.
+            view.getUnknownFields().add("penaltyTeam1Score");
+            view.getUnknownFields().add("penaltyTeam2Score");
+        }
+
+        if (!reading.scoreReadable()) {
+            view.setScore(result.getScore() == null ? "-" : result.getScore());
+            if (result.getScore() == null) view.getUnknownFields().add("score");
+            view.getUnknownFields().add("resultOutcome");
+            return view;
+        }
+        view.setScore(scoreText(reading, isHome));
+
+        int own = view.getTeamGoals();
+        int opponent = view.getOpponentGoals();
+        if (own != opponent) view.setResultOutcome(own > opponent ? "W" : "L");
+        else if ((reading.shootout() || reading.extraTime()) && result.getWinnerTeamId() != null)
+            // Settled in this match after a level score (old saves also keep extra-time goals out of the score).
+            view.setResultOutcome(result.getWinnerTeamId() == teamId ? "W" : "L");
+        else view.setResultOutcome("D");
+        return view;
+    }
+
+    /**
+     * Result score from the home side (team1 - team2) for the match summary and report,
+     * with the leg/aggregate/shootout note rebuilt the same way as Schedule rows. Falls
+     * back to the stored text when it cannot be read.
+     */
+    public String homeScoreText(CompetitionTeamInfoDetail result) {
+        if (result == null || result.getScore() == null) return null;
+        String score = result.getScore();
+        // The first leg is only needed to sum an aggregate the row does not store.
+        boolean mayNeedFirstLeg = result.getLegNumber() == 2 || "AGGREGATE".equals(result.getDecidedBy())
+                || AGGREGATE_SUFFIX.matcher(score).find();
+        List<CompetitionTeamInfoDetail> seasonResults = mayNeedFirstLeg
+                ? competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(
+                        result.getSeasonNumber(), result.getTeam1Id())
+                : List.of();
+        ScheduleLookups lookups = new ScheduleLookups(result.getSeasonNumber(), seasonResults);
+        String text = scoreText(readResult(result, result.getLegNumber(), result.getTieId(), lookups), true);
+        return text != null ? text : score;
+    }
+
+    /** One stored result, read the same way for Schedule rows and the match summary. */
+    private record ResultReading(boolean scoreReadable, Integer team1Goals, Integer team2Goals, int legNumber,
+                                 Integer aggregate1, Integer aggregate2, Integer penalties1, Integer penalties2,
+                                 boolean shootout, boolean extraTime, String storedSuffix) {
+        boolean aggregateKnown() {
+            return aggregate1 != null && aggregate2 != null;
+        }
+
+        boolean penaltiesKnown() {
+            return penalties1 != null && penalties2 != null;
+        }
+    }
+
+    private ResultReading readResult(CompetitionTeamInfoDetail result, int legNumber, long tieId,
+                                     ScheduleLookups lookups) {
         Matcher score = result.getScore() == null ? null : SCORE_PATTERN.matcher(result.getScore());
         boolean scoreReadable = score != null && score.matches();
         String storedSuffix = scoreReadable ? score.group(3) : "";
@@ -153,26 +236,19 @@ public class MatchService {
             if ("FIRST_LEG".equals(decidedBy) || FIRST_LEG_SUFFIX.matcher(storedSuffix).find()) legNumber = 1;
             else if ("AGGREGATE".equals(decidedBy) || AGGREGATE_SUFFIX.matcher(storedSuffix).find()) legNumber = 2;
         }
-        view.setLegNumber(legNumber);
-        view.setTieId(tieId);
-        if (legNumber > 0 && tieId == 0) view.getUnknownFields().add("tieId");
 
         Integer team1Goals = scoreReadable ? Integer.valueOf(score.group(1)) : null;
         Integer team2Goals = scoreReadable ? Integer.valueOf(score.group(2)) : null;
-        if (scoreReadable) {
-            view.setTeamGoals(isHome ? team1Goals : team2Goals);
-            view.setOpponentGoals(isHome ? team2Goals : team1Goals);
-        } else {
-            view.getUnknownFields().add("teamGoals");
-            view.getUnknownFields().add("opponentGoals");
-        }
 
         // Aggregate: structured columns, else the sum of both legs. The "(agg N-N)" text is not
         // used: older saves wrote it leg-1-home first on AGGREGATE rows, newer ones team1 first.
         Integer aggregate1 = result.getAggregateTeam1Score();
         Integer aggregate2 = result.getAggregateTeam2Score();
         if ((aggregate1 == null || aggregate2 == null) && legNumber == 2 && scoreReadable) {
-            int[] firstLeg = lookups.firstLegGoals(competitionId, team1Id, team2Id, tieId);
+            aggregate1 = null;
+            aggregate2 = null;
+            int[] firstLeg = lookups.firstLegGoals(result.getCompetitionId(), result.getTeam1Id(),
+                    result.getTeam2Id(), tieId);
             if (firstLeg != null) {
                 // Leg 1 was hosted by this row's team2.
                 aggregate1 = team1Goals + firstLeg[1];
@@ -180,14 +256,6 @@ public class MatchService {
                 // Old saves kept extra-time goals out of the stored score; a level sum would contradict the decision.
                 if (extraTime && aggregate1.equals(aggregate2)) aggregate1 = aggregate2 = null;
             }
-        }
-        boolean aggregateKnown = aggregate1 != null && aggregate2 != null;
-        if (aggregateKnown) {
-            view.setAggregateTeam1Score(aggregate1);
-            view.setAggregateTeam2Score(aggregate2);
-        } else if (legNumber == 2) {
-            view.getUnknownFields().add("aggregateTeam1Score");
-            view.getUnknownFields().add("aggregateTeam2Score");
         }
 
         // Shootout: structured columns, else "(pens N-N)" text, which is team1 first on single matches.
@@ -198,51 +266,35 @@ public class MatchService {
             penalties1 = Integer.valueOf(penaltyText.group(1));
             penalties2 = Integer.valueOf(penaltyText.group(2));
         }
-        boolean penaltiesKnown = penalties1 != null && penalties2 != null;
-        if (penaltiesKnown) {
-            view.setPenaltyTeam1Score(penalties1);
-            view.setPenaltyTeam2Score(penalties2);
-        } else if (shootout) {
-            // Older saves stored only " (pens)" with no shootout score.
-            view.getUnknownFields().add("penaltyTeam1Score");
-            view.getUnknownFields().add("penaltyTeam2Score");
-        }
+        return new ResultReading(scoreReadable, team1Goals, team2Goals, legNumber, aggregate1, aggregate2,
+                penalties1, penalties2, shootout, extraTime, storedSuffix);
+    }
 
-        if (!scoreReadable) {
-            view.setScore(result.getScore() == null ? "-" : result.getScore());
-            if (result.getScore() == null) view.getUnknownFields().add("score");
-            view.getUnknownFields().add("resultOutcome");
-            return view;
-        }
-
-        // Same text shapes the simulator writes, rebuilt from the club's side so the notes match the score.
-        String suffix = storedSuffix;
-        if (legNumber == 1) {
+    /** Score in the simulator's own text shapes, from team1's side or team2's; null when unreadable. */
+    private static String scoreText(ResultReading reading, boolean team1Side) {
+        if (!reading.scoreReadable()) return null;
+        String suffix = reading.storedSuffix();
+        if (reading.legNumber() == 1) {
             suffix = " (1st leg)";
-        } else if (shootout || extraTime || aggregateKnown) {
-            String decision = shootout
-                    ? (penaltiesKnown ? "pens " + pair(isHome, penalties1, penalties2) : "pens")
-                    : extraTime ? "a.e.t." : null;
-            if (aggregateKnown) {
-                suffix = " (agg " + pair(isHome, aggregate1, aggregate2) + (decision == null ? "" : ", " + decision) + ")";
+        } else if (reading.shootout() || reading.extraTime() || reading.aggregateKnown()) {
+            String decision = reading.shootout()
+                    ? (reading.penaltiesKnown()
+                        ? "pens " + pair(team1Side, reading.penalties1(), reading.penalties2()) : "pens")
+                    : reading.extraTime() ? "a.e.t." : null;
+            if (reading.aggregateKnown()) {
+                suffix = " (agg " + pair(team1Side, reading.aggregate1(), reading.aggregate2())
+                        + (decision == null ? "" : ", " + decision) + ")";
             } else {
                 suffix = decision == null ? "" : " (" + decision + ")";
             }
         }
-        view.setScore(view.getTeamGoals() + " - " + view.getOpponentGoals() + suffix);
-
-        int own = view.getTeamGoals();
-        int opponent = view.getOpponentGoals();
-        if (own != opponent) view.setResultOutcome(own > opponent ? "W" : "L");
-        else if ((shootout || extraTime) && result.getWinnerTeamId() != null)
-            // Settled in this match after a level score (old saves also keep extra-time goals out of the score).
-            view.setResultOutcome(result.getWinnerTeamId() == teamId ? "W" : "L");
-        else view.setResultOutcome("D");
-        return view;
+        int first = team1Side ? reading.team1Goals() : reading.team2Goals();
+        int second = team1Side ? reading.team2Goals() : reading.team1Goals();
+        return first + " - " + second + suffix;
     }
 
-    private static String pair(boolean isHome, int team1Value, int team2Value) {
-        return isHome ? team1Value + "-" + team2Value : team2Value + "-" + team1Value;
+    private static String pair(boolean team1Side, int team1Value, int team2Value) {
+        return team1Side ? team1Value + "-" + team2Value : team2Value + "-" + team1Value;
     }
 
     private void applyDay(ScheduleView view, int day, String fallbackDate) {
