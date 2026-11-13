@@ -1,16 +1,23 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.frontend.CalendarEntryView;
+import com.footballmanagergamesimulator.frontend.MatchGoalscorersView;
 import com.footballmanagergamesimulator.frontend.ScheduleView;
+import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
 import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.FriendlyEvent;
 import com.footballmanagergamesimulator.model.FriendlyMatch;
+import com.footballmanagergamesimulator.model.MatchEvent;
+import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.FriendlyEventRepository;
 import com.footballmanagergamesimulator.repository.FriendlyMatchRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.MatchEventRepository;
+import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -44,6 +51,14 @@ public class MatchService {
     FriendlyEventRepository friendlyEventRepository;
     @Autowired
     CompetitionProgressService competitionProgressService;
+    @Autowired
+    CompetitionDisplayService competitionDisplayService;
+    @Autowired
+    MatchEventRepository matchEventRepository;
+    @Autowired
+    ScorerRepository scorerRepository;
+    @Autowired
+    HumanRepository humanRepository;
 
     /**
      * Club schedule for one season: scheduled fixtures, played results and friendlies.
@@ -133,6 +148,7 @@ public class MatchService {
             view.setLegNumber(legNumber);
             view.setTieId(tieId);
             if (legNumber > 0 && tieId == 0) view.getUnknownFields().add("tieId");
+            applyOpponentLeaguePosition(view, lookups);
             return view;
         }
 
@@ -297,15 +313,133 @@ public class MatchService {
         return team1Side ? team1Value + "-" + team2Value : team2Value + "-" + team1Value;
     }
 
+    /** Upcoming rows only: the live table says where the opponent stands now, not when a past match was played. */
+    private void applyOpponentLeaguePosition(ScheduleView view, ScheduleLookups lookups) {
+        view.setOpponentLeaguePosition(lookups.leaguePosition(view.getOpponentTeamId()));
+        if (view.getOpponentLeaguePosition() == null) view.getUnknownFields().add("opponentLeaguePosition");
+    }
+
+    /**
+     * Goalscorers of every official match a club played in a season, in Schedule order.
+     * Goal events carry minute and penalty; matches without events fall back to the
+     * per-player goal counts in Scorer, which have neither.
+     */
+    public List<MatchGoalscorersView> getSeasonGoalscorers(int seasonNumber, long teamId) {
+        List<CompetitionTeamInfoDetail> results =
+                competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(seasonNumber, teamId);
+
+        Map<String, List<MatchEvent>> eventsByMatch = new HashMap<>();
+        for (MatchEvent goal : matchEventRepository.findGoalsBySeasonNumberAndTeamId(seasonNumber, teamId)) {
+            eventsByMatch.computeIfAbsent(fixtureKey(goal.getCompetitionId(), goal.getRoundNumber(),
+                    goal.getTeamId1(), goal.getTeamId2()), key -> new ArrayList<>()).add(goal);
+        }
+        Map<String, List<Scorer>> scorersByMatch = new HashMap<>();
+        for (Scorer row : scorerRepository.findGoalRowsBySeasonNumberAndTeamId(seasonNumber, teamId)) {
+            scorersByMatch.computeIfAbsent(scorerKey(row.getCompetitionId(), row.getRoundNumber(),
+                    row.getTeamId(), row.getOpponentTeamId(), row.getTeamScore(), row.getOpponentScore()),
+                    key -> new ArrayList<>()).add(row);
+        }
+        Map<Long, String> playerNames = new HashMap<>();
+        humanRepository.findAllById(scorersByMatch.values().stream().flatMap(List::stream)
+                        .map(Scorer::getPlayerId).collect(java.util.stream.Collectors.toSet()))
+                .forEach(player -> playerNames.put(player.getId(), player.getName()));
+
+        // A Scorer row only knows comp/round/pair/score: two legs of one round with the same
+        // score seen from one side cannot be told apart, so neither leg may use those rows.
+        Map<String, Integer> scorerKeyUse = new HashMap<>();
+        for (CompetitionTeamInfoDetail result : results) {
+            int[] goals = scoreGoals(result);
+            if (goals == null) continue;
+            scorerKeyUse.merge(scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam1Id(),
+                    result.getTeam2Id(), goals[0], goals[1]), 1, Integer::sum);
+            scorerKeyUse.merge(scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam2Id(),
+                    result.getTeam1Id(), goals[1], goals[0]), 1, Integer::sum);
+        }
+
+        List<MatchGoalscorersView> views = new ArrayList<>();
+        for (CompetitionTeamInfoDetail result : results) {
+            MatchGoalscorersView view = new MatchGoalscorersView();
+            view.setCompetitionId(result.getCompetitionId());
+            view.setSeasonNumber(seasonNumber);
+            view.setRoundNumber((int) result.getRoundId());
+            view.setTeamId1(result.getTeam1Id());
+            view.setTeamId2(result.getTeam2Id());
+            int[] score = scoreGoals(result);
+
+            List<MatchEvent> events = eventsByMatch.getOrDefault(fixtureKey(result.getCompetitionId(),
+                    result.getRoundId(), result.getTeam1Id(), result.getTeam2Id()), List.of());
+            if (!events.isEmpty()) {
+                events.stream().sorted(Comparator.comparingInt(MatchEvent::getMinute)).forEach(event -> {
+                    MatchGoalscorersView.Goal goal = new MatchGoalscorersView.Goal();
+                    goal.setPlayerId(event.getPlayerId());
+                    goal.setPlayerName(event.getPlayerName());
+                    goal.setTeamId(event.getTeamId());
+                    goal.setMinute(event.getMinute());
+                    // Legacy events write "Penalty", canonical ones the goal type "PENALTY".
+                    goal.setPenalty("penalty".equalsIgnoreCase(event.getDetails()));
+                    view.getGoals().add(goal);
+                });
+            } else if (score != null) {
+                String homeKey = scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam1Id(),
+                        result.getTeam2Id(), score[0], score[1]);
+                String awayKey = scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam2Id(),
+                        result.getTeam1Id(), score[1], score[0]);
+                if (scorerKeyUse.getOrDefault(homeKey, 0) == 1 && scorerKeyUse.getOrDefault(awayKey, 0) == 1) {
+                    List<Scorer> rows = new ArrayList<>(scorersByMatch.getOrDefault(homeKey, List.of()));
+                    rows.addAll(scorersByMatch.getOrDefault(awayKey, List.of()));
+                    for (Scorer row : rows) {
+                        for (int i = 0; i < row.getGoals(); i++) {
+                            MatchGoalscorersView.Goal goal = new MatchGoalscorersView.Goal();
+                            goal.setPlayerId(row.getPlayerId());
+                            goal.setPlayerName(playerNames.get(row.getPlayerId()));
+                            goal.setTeamId(row.getTeamId());
+                            view.getGoals().add(goal);
+                        }
+                    }
+                }
+                if (!view.getGoals().isEmpty()) {
+                    view.getUnknownFields().add("minute");
+                    view.getUnknownFields().add("penalty");
+                }
+            }
+            if (score == null || view.getGoals().size() < score[0] + score[1]) view.getUnknownFields().add("goals");
+            views.add(view);
+        }
+
+        Map<String, Integer> dayByMatch = new HashMap<>();
+        results.forEach(result -> dayByMatch.put(fixtureKey(result.getCompetitionId(), result.getRoundId(),
+                result.getTeam1Id(), result.getTeam2Id()), result.getDay()));
+        views.sort(Comparator.<MatchGoalscorersView>comparingInt(view -> dayByMatch.getOrDefault(fixtureKey(
+                        view.getCompetitionId(), view.getRoundNumber(), view.getTeamId1(), view.getTeamId2()), 0))
+                .thenComparingInt(MatchGoalscorersView::getRoundNumber)
+                .thenComparingLong(MatchGoalscorersView::getCompetitionId));
+        return views;
+    }
+
+    /** Stored final goals (team1, team2), or null when the score text is unreadable. */
+    private static int[] scoreGoals(CompetitionTeamInfoDetail result) {
+        Matcher score = result.getScore() == null ? null : SCORE_PATTERN.matcher(result.getScore());
+        if (score == null || !score.matches()) return null;
+        return new int[]{Integer.parseInt(score.group(1)), Integer.parseInt(score.group(2))};
+    }
+
+    /** Scorer-row key from one side: comp, round, side, opponent and that side's score. */
+    private static String scorerKey(long competitionId, long round, long teamId, long opponentTeamId,
+                                    int teamScore, int opponentScore) {
+        return competitionId + ":" + round + ":" + teamId + ":" + opponentTeamId + ":" + teamScore + ":" + opponentScore;
+    }
+
     private void applyDay(ScheduleView view, int day, String fallbackDate) {
         view.setDay(day);
         if (day > 0) {
             view.setDate(calendarService.getDateDisplay(day));
+            view.setDayOfWeek(calendarService.getDayOfWeek(day));
         } else {
             // Saves from before calendar days were stored: no real date exists.
             view.setDate(fallbackDate);
             view.getUnknownFields().add("day");
             view.getUnknownFields().add("date");
+            view.getUnknownFields().add("dayOfWeek");
         }
     }
 
@@ -321,6 +455,8 @@ public class MatchService {
         private final Map<Long, String> competitionNames = new HashMap<>();
         private final Map<Long, Optional<String>> competitionTypes = new HashMap<>();
         private final Map<String, String> roundLabels = new HashMap<>();
+        private final Map<Long, Optional<Integer>> leaguePositions = new HashMap<>();
+        private final Map<Long, List<TeamCompetitionView>> leagueTables = new HashMap<>();
         private final List<CompetitionTeamInfoDetail> seasonResults;
 
         private ScheduleLookups(long seasonNumber, List<CompetitionTeamInfoDetail> seasonResults) {
@@ -357,6 +493,21 @@ public class MatchService {
 
         String competitionName(long competitionId) {
             return competitionNames.computeIfAbsent(competitionId, competitionRepository::findNameById);
+        }
+
+        Integer leaguePosition(long teamId) {
+            return leaguePositions.computeIfAbsent(teamId, id -> {
+                Long leagueId = teamRepository.findCompetitionIdById(id);
+                if (leagueId == null || leagueId <= 0 || !"League".equals(competitionType(leagueId))) {
+                    return Optional.empty();
+                }
+                // Same live table as /competition/getTeams/{leagueId}.
+                return leagueTables.computeIfAbsent(leagueId,
+                                league -> competitionDisplayService.getTeamDetails(league, null)).stream()
+                        .filter(row -> row.getTeamId() == id)
+                        .map(TeamCompetitionView::getPosition)
+                        .findFirst();
+            }).orElse(null);
         }
 
         String competitionType(long competitionId) {
@@ -504,6 +655,7 @@ public class MatchService {
             }
             view.setDecidedBy(completed ? "FRIENDLY" : null);
             view.setStatus(completed ? "played" : "upcoming");
+            if (!completed) applyOpponentLeaguePosition(view, lookups);
             if (completed) {
                 int own = home ? match.getHomeGoals() : match.getAwayGoals();
                 int opponent = home ? match.getAwayGoals() : match.getHomeGoals();

@@ -470,4 +470,10 @@ public interface ScorerRepository extends JpaRepository<Scorer, Long> {
     @Query("select distinct s.seasonNumber from Scorer s where s.teamScore >= 0 order by s.seasonNumber")
     List<Integer> findDistinctSeasonNumbersWithMatches();
 
+    /** Per-match scorer rows with goals, for both sides of every match one club played in a season. */
+    @Query("select s from Scorer s where s.seasonNumber = :seasonNumber and s.goals > 0 "
+            + "and (s.teamId = :teamId or s.opponentTeamId = :teamId)")
+    List<Scorer> findGoalRowsBySeasonNumberAndTeamId(@Param("seasonNumber") int seasonNumber,
+                                                     @Param("teamId") long teamId);
+
 }

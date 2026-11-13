@@ -60,6 +60,10 @@ public class ScheduleView {
     private boolean reportAvailable;
     /** Home side's stadium (current name), or the friendly's own venue. */
     private String venueName;
+    /** "Monday".."Sunday" for {@link #day}, same source as the game state's dayOfWeek. */
+    private String dayOfWeek;
+    /** Opponent's current position in its own league; set on upcoming rows only. */
+    private Integer opponentLeaguePosition;
     /** Names of fields above whose value the save does not hold; render them as unknown. */
     private List<String> unknownFields = new ArrayList<>();
 }

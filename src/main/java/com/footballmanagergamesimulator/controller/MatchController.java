@@ -99,6 +99,12 @@ public class MatchController {
         return matchService.getScheduleViewsFromCompetitionTeamInfoMatchesAndTeamId(competitionTeamInfoMatches, teamId, currentSeason);
     }
 
+    /** Goalscorers of every official match a club played in a season (Schedule "Goalscorers" view). */
+    @GetMapping("/goalscorers/{season}/{teamId}")
+    public List<MatchGoalscorersView> getSeasonGoalscorers(@PathVariable int season, @PathVariable long teamId) {
+        return matchService.getSeasonGoalscorers(season, teamId);
+    }
+
     @GetMapping("/calendar/{teamId}/{season}")
     public List<CalendarEntryView> getCalendar(
             @PathVariable(name = "teamId") long teamId,

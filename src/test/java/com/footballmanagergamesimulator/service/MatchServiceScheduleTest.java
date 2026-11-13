@@ -1,14 +1,22 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.frontend.MatchGoalscorersView;
 import com.footballmanagergamesimulator.frontend.ScheduleView;
+import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.FriendlyEvent;
 import com.footballmanagergamesimulator.model.FriendlyMatch;
+import com.footballmanagergamesimulator.model.Human;
+import com.footballmanagergamesimulator.model.MatchEvent;
+import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.FriendlyEventRepository;
 import com.footballmanagergamesimulator.repository.FriendlyMatchRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.MatchEventRepository;
+import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -41,6 +50,11 @@ class MatchServiceScheduleTest {
         service.friendlyMatchRepository = mock(FriendlyMatchRepository.class);
         service.friendlyEventRepository = mock(FriendlyEventRepository.class);
         service.competitionProgressService = mock(CompetitionProgressService.class);
+        service.competitionDisplayService = mock(CompetitionDisplayService.class);
+        service.matchEventRepository = mock(MatchEventRepository.class);
+        service.scorerRepository = mock(ScorerRepository.class);
+        service.humanRepository = mock(HumanRepository.class);
+        when(service.calendarService.getDayOfWeek(anyInt())).thenReturn("Saturday");
 
         when(service.teamRepository.findNameById(CLUB)).thenReturn("Sherlock FC");
         when(service.teamRepository.findNameById(RIVAL)).thenReturn("Rival United");
@@ -94,8 +108,9 @@ class MatchServiceScheduleTest {
         assertThat(cup.getResultOutcome()).isEqualTo("W");
         assertThat(cup.getCompetitionType()).isEqualTo("Cup");
         assertThat(cup.getRoundLabel()).isEqualTo("label 2/3");
+        assertThat(cup.getDayOfWeek()).isNull();
         assertThat(cup.getUnknownFields()).containsExactlyInAnyOrder(
-                "day", "date", "tieId", "penaltyTeam1Score", "penaltyTeam2Score");
+                "day", "date", "dayOfWeek", "tieId", "penaltyTeam1Score", "penaltyTeam2Score");
 
         ScheduleView league = schedule.get(2);
         assertThat(league.getHomeOrAway()).isEqualTo("A");
@@ -105,6 +120,8 @@ class MatchServiceScheduleTest {
         assertThat(league.getOpponentGoals()).isEqualTo(1);
         assertThat(league.getResultOutcome()).isEqualTo("W");
         assertThat(league.getDate()).isEqualTo("day 120");
+        assertThat(league.getDayOfWeek()).isEqualTo("Saturday");
+        assertThat(league.getOpponentLeaguePosition()).isNull();
         assertThat(league.getVenueName()).isEqualTo("Rival Ground");
         assertThat(league.getCompetitionType()).isEqualTo("League");
         assertThat(league.getUnknownFields()).isEmpty();
@@ -122,6 +139,11 @@ class MatchServiceScheduleTest {
         firstLeg.setDecidedBy("FIRST_LEG");
         when(service.competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(15, CLUB))
                 .thenReturn(List.of(firstLeg));
+        when(service.teamRepository.findCompetitionIdById(RIVAL)).thenReturn(LEAGUE);
+        TeamCompetitionView rivalRow = new TeamCompetitionView();
+        rivalRow.setTeamId(RIVAL);
+        rivalRow.setPosition(3);
+        when(service.competitionDisplayService.getTeamDetails(LEAGUE, null)).thenReturn(List.of(rivalRow));
 
         List<ScheduleView> schedule = service.getScheduleViewsFromCompetitionTeamInfoMatchesAndTeamId(
                 List.of(upcoming, played), CLUB, 15);
@@ -145,6 +167,8 @@ class MatchServiceScheduleTest {
         assertThat(leg2.isReportAvailable()).isFalse();
         assertThat(leg2.getLegNumber()).isEqualTo(2);
         assertThat(leg2.getDate()).isEqualTo("day 207");
+        assertThat(leg2.getOpponentLeaguePosition()).isEqualTo(3);
+        assertThat(leg1.getOpponentLeaguePosition()).isNull();
         assertThat(leg2.getUnknownFields()).isEmpty();
     }
 
@@ -283,6 +307,55 @@ class MatchServiceScheduleTest {
     }
 
     @Test
+    void seasonGoalscorersUseEventsThenScorerCountsAndSkipLegsTheyCannotTellApart() {
+        CompetitionTeamInfoDetail leagueWin = result(LEAGUE, 4, CLUB, RIVAL, "2 - 1", 15);
+        leagueWin.setDay(50);
+        CompetitionTeamInfoDetail cupWin = result(CUP, 2, RIVAL, CLUB, "0 - 2", 15);
+        cupWin.setDay(60);
+        CompetitionTeamInfoDetail firstLeg = result(LOC, 8, CLUB, RIVAL, "1 - 1 (1st leg)", 15);
+        firstLeg.setDay(70);
+        firstLeg.setLegNumber(1);
+        CompetitionTeamInfoDetail returnLeg = result(LOC, 8, RIVAL, CLUB, "1 - 1 (agg 2-2, pens 4-2)", 15);
+        returnLeg.setDay(77);
+        returnLeg.setLegNumber(2);
+        when(service.competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(15, CLUB))
+                .thenReturn(List.of(returnLeg, cupWin, leagueWin, firstLeg));
+        when(service.matchEventRepository.findGoalsBySeasonNumberAndTeamId(15, CLUB)).thenReturn(List.of(
+                goalEvent(LEAGUE, 4, RIVAL, 20, "Visitor", 80, "PENALTY"),
+                goalEvent(LEAGUE, 4, CLUB, 10, "Captain", 12, "Penalty"),
+                goalEvent(LEAGUE, 4, CLUB, 11, "Striker", 70, "Volley")));
+        // Both legs ended 1-1 in the same round: their Scorer rows share one key.
+        when(service.scorerRepository.findGoalRowsBySeasonNumberAndTeamId(15, CLUB)).thenReturn(List.of(
+                scorerRow(CUP, 2, CLUB, RIVAL, 2, 0, 11, 2),
+                scorerRow(LOC, 8, CLUB, RIVAL, 1, 1, 11, 1),
+                scorerRow(LOC, 8, RIVAL, CLUB, 1, 1, 20, 1)));
+        Human striker = new Human();
+        striker.setId(11);
+        striker.setName("Striker");
+        when(service.humanRepository.findAllById(any())).thenReturn(List.of(striker));
+
+        List<MatchGoalscorersView> views = service.getSeasonGoalscorers(15, CLUB);
+
+        assertThat(views).extracting(MatchGoalscorersView::getCompetitionId).containsExactly(LEAGUE, CUP, LOC, LOC);
+        MatchGoalscorersView league = views.get(0);
+        assertThat(league.getGoals()).extracting(MatchGoalscorersView.Goal::getMinute).containsExactly(12, 70, 80);
+        assertThat(league.getGoals()).extracting(MatchGoalscorersView.Goal::getPenalty).containsExactly(true, false, true);
+        assertThat(league.getUnknownFields()).isEmpty();
+        MatchGoalscorersView cup = views.get(1);
+        assertThat(cup.getGoals()).hasSize(2).allSatisfy(goal -> {
+            assertThat(goal.getPlayerName()).isEqualTo("Striker");
+            assertThat(goal.getTeamId()).isEqualTo(CLUB);
+            assertThat(goal.getMinute()).isNull();
+            assertThat(goal.getPenalty()).isNull();
+        });
+        assertThat(cup.getUnknownFields()).containsExactly("minute", "penalty");
+        assertThat(views.subList(2, 4)).allSatisfy(leg -> {
+            assertThat(leg.getGoals()).isEmpty();
+            assertThat(leg.getUnknownFields()).containsExactly("goals");
+        });
+    }
+
+    @Test
     void competitionTypesFollowTheCompetitionKind() {
         assertThat(MatchService.scheduleCompetitionType(1L)).isEqualTo("League");
         assertThat(MatchService.scheduleCompetitionType(3L)).isEqualTo("League");
@@ -304,6 +377,38 @@ class MatchServiceScheduleTest {
         detail.setScore(score);
         detail.setSeasonNumber(season);
         return detail;
+    }
+
+    private static MatchEvent goalEvent(long competitionId, int round, long scoringTeam, long playerId,
+                                        String playerName, int minute, String details) {
+        MatchEvent event = new MatchEvent();
+        event.setCompetitionId(competitionId);
+        event.setSeasonNumber(15);
+        event.setRoundNumber(round);
+        event.setTeamId1(CLUB);
+        event.setTeamId2(RIVAL);
+        event.setEventType("goal");
+        event.setTeamId(scoringTeam);
+        event.setPlayerId(playerId);
+        event.setPlayerName(playerName);
+        event.setMinute(minute);
+        event.setDetails(details);
+        return event;
+    }
+
+    private static Scorer scorerRow(long competitionId, int round, long teamId, long opponentTeamId,
+                                    int teamScore, int opponentScore, long playerId, int goals) {
+        Scorer row = new Scorer();
+        row.setCompetitionId(competitionId);
+        row.setSeasonNumber(15);
+        row.setRoundNumber(round);
+        row.setTeamId(teamId);
+        row.setOpponentTeamId(opponentTeamId);
+        row.setTeamScore(teamScore);
+        row.setOpponentScore(opponentScore);
+        row.setPlayerId(playerId);
+        row.setGoals(goals);
+        return row;
     }
 
     private static CompetitionTeamInfoMatch fixture(long competitionId, long round, long team1, long team2, int day) {
