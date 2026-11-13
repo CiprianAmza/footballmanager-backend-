@@ -262,9 +262,33 @@ public class MatchController {
             }
         }
 
-        if (nextMatch == null) {
-            return null;
-        }
+        return nextMatch == null ? null : buildMatchPreview(nextMatch);
+    }
+
+    /**
+     * Pre-match preview for any scheduled fixture (Schedule page), keyed like
+     * /match/report. Fixture rows only exist for the current season, so a past
+     * season's match returns null.
+     */
+    @GetMapping("/preview/{competitionId}/{season}/{round}/{teamId1}/{teamId2}")
+    public MatchPreviewView getMatchPreviewForFixture(
+            @PathVariable long competitionId,
+            @PathVariable int season,
+            @PathVariable int round,
+            @PathVariable long teamId1,
+            @PathVariable long teamId2) {
+
+        return competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(competitionId, round, String.valueOf(season))
+                .stream()
+                .filter(match -> match.getTeam1Id() == teamId1 && match.getTeam2Id() == teamId2)
+                .findFirst()
+                .map(this::buildMatchPreview)
+                .orElse(null);
+    }
+
+    /** Builds the preview for one fixture; {@code nextMatch} is the match being previewed. */
+    private MatchPreviewView buildMatchPreview(CompetitionTeamInfoMatch nextMatch) {
 
         MatchPreviewView preview = new MatchPreviewView();
         preview.setHomeTeamId(nextMatch.getTeam1Id());
