@@ -125,8 +125,13 @@ public class MediaNarrativeService {
         inboxRepository.save(message);
     }
 
-    private int rumourCredibility(TransferOffer offer) {
-        int base = "counter".equalsIgnoreCase(offer.getStatus()) || "negotiating".equalsIgnoreCase(offer.getStatus()) ? 80 : 55;
+    /** Talks between the clubs (or a fee already agreed) make a stronger story than a first bid. */
+    static int rumourCredibility(TransferOffer offer) {
+        String status = offer.getStatus();
+        boolean advanced = TransferOffer.STATUS_TALKS.equalsIgnoreCase(status)
+                || TransferOffer.STATUS_FINAL_OFFER.equalsIgnoreCase(status)
+                || TransferOffer.STATUS_FEE_AGREED.equalsIgnoreCase(status);
+        int base = advanced ? 80 : 55;
         return Math.min(92, base + (int) Math.floorMod(offer.getPlayerId() * 13L + offer.getId() * 7L, 13L));
     }
 

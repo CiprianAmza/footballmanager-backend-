@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.service.WorldOverviewService;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,6 +23,11 @@ public class WorldOverviewController {
     @GetMapping("/team-values")
     public Map<String, Object> teamValues() {
         return worldOverviewService.teamValues();
+    }
+
+    @GetMapping("/league-best-xi/{competitionId}")
+    public Map<String, Object> leagueBestEleven(@PathVariable long competitionId) {
+        return worldOverviewService.leagueBestEleven(competitionId);
     }
 
     @GetMapping("/world-best-xi")

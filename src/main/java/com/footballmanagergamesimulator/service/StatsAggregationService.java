@@ -38,6 +38,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -227,6 +228,41 @@ public class StatsAggregationService {
                 .collect(Collectors.toCollection(ArrayList::new));
         addRanks(rows);
         return rows;
+    }
+
+    public record ClubPlayerLeader(long playerId, String playerName, double value) {}
+
+    public record ClubCompetitionLeaders(long competitionId, List<ClubPlayerLeader> goals,
+                                        List<ClubPlayerLeader> assists, List<ClubPlayerLeader> rating) {}
+
+    public List<ClubCompetitionLeaders> getClubCompetitionLeaders(long teamId, int seasonNumber) {
+        Map<Long, Map<Long, ScorerAccumulator>> competitions = new TreeMap<>();
+        for (Scorer scorer : scorerRepository.findAllByTeamIdAndSeasonNumber(teamId, seasonNumber)) {
+            if (scorer.getTeamScore() < 0 || scorer.getOpponentTeamId() < 0) continue;
+            competitions.computeIfAbsent(scorer.getCompetitionId(), ignored -> new HashMap<>())
+                    .computeIfAbsent(scorer.getPlayerId(), ignored -> new ScorerAccumulator()).add(scorer);
+        }
+        Set<Long> ids = competitions.values().stream().flatMap(players -> players.keySet().stream())
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) return List.of();
+        Map<Long, String> names = humanRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Human::getId, Human::getName));
+        return competitions.entrySet().stream().map(entry -> new ClubCompetitionLeaders(entry.getKey(),
+                clubLeaders(entry.getValue(), names, stats -> stats.goals),
+                clubLeaders(entry.getValue(), names, stats -> stats.assists),
+                clubLeaders(entry.getValue(), names, stats -> round(stats.ratingTotal / stats.appearances, 2))))
+                .toList();
+    }
+
+    private List<ClubPlayerLeader> clubLeaders(Map<Long, ScorerAccumulator> players, Map<Long, String> names,
+                                              java.util.function.ToDoubleFunction<ScorerAccumulator> metric) {
+        double best = players.values().stream().mapToDouble(metric).max().orElse(0);
+        if (best <= 0) return List.of();
+        return players.entrySet().stream()
+                .filter(entry -> Double.compare(metric.applyAsDouble(entry.getValue()), best) == 0)
+                .map(entry -> new ClubPlayerLeader(entry.getKey(), names.getOrDefault(entry.getKey(), "Unknown"), best))
+                .sorted(Comparator.comparing(ClubPlayerLeader::playerName).thenComparingLong(ClubPlayerLeader::playerId))
+                .toList();
     }
 
     private Map<String, Object> scoringRow(long playerId, GoldenBootAccumulator value,

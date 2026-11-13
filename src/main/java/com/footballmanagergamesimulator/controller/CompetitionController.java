@@ -246,6 +246,12 @@ public class CompetitionController {
         return competitionQueryService.getResultsBySeason(Long.parseLong(competitionId), Long.parseLong(roundId), season);
     }
 
+    @GetMapping("/{competitionId}/{season}/schedule")
+    public List<CompetitionDisplayService.ScheduledMatch> getSchedule(@PathVariable long competitionId,
+                                                                      @PathVariable int season) {
+        return competitionDisplayService.schedule(competitionId, season);
+    }
+
     @GetMapping("/getMatchesByCompetitionAndSeason/{competitionId}/{season}")
     public List<CompetitionTeamInfoDetail> getMatchesByCompetitionAndSeason(@PathVariable long competitionId,
                                                                              @PathVariable long season) {

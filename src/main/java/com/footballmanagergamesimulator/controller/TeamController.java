@@ -69,6 +69,7 @@ public class TeamController {
             result.put("color2", t.getColor2());
             result.put("reputation", t.getReputation());
             result.put("stadiumName", t.getStadiumName());
+            result.put("stadiumCapacity", t.getStadiumCapacity());
         });
         return result;
     }

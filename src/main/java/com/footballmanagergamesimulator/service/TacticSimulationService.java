@@ -111,6 +111,17 @@ public class TacticSimulationService {
                 evaluation);
     }
 
+    /** The team as it lines up now (its saved formation and tactic, else the best formation), evaluated once. */
+    public CanonicalTeamEvaluation currentTeamEvaluation(long teamId) {
+        return currentCanonicalFormation(teamId).evaluation();
+    }
+
+    /** Win / draw / defeat probabilities of a fixture between two already-evaluated teams, the first at home. */
+    public com.footballmanagergamesimulator.compartment.match.OutcomeProbability outcome(
+            CanonicalTeamEvaluation home, CanonicalTeamEvaluation away) {
+        return canonicalAdapter().evaluate(home, away, MatchVenue.HOME).outcome();
+    }
+
     private CanonicalFormationEvaluation currentCanonicalFormation(long teamId) {
         PersonalizedTactic tactic = personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
                 .map(TacticSimulationService::copyTacticAxes)

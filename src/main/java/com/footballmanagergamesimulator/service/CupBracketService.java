@@ -206,9 +206,33 @@ public class CupBracketService {
         int nextRoundSize = countMatchesInRound(cupId, seasonStr, nextRound);
         if (nextRoundSize == 0) return; // final was just played, nothing to propagate
 
-        int nextMatchIndex;
-        boolean isTeam1Slot;
+        int[] slot = nextSlot(currentRoundSize, nextRoundSize, currentMatchIndex);
+        if (slot == null) return; // safety: nothing to fill
+        int nextMatchIndex = slot[0];
+        boolean isTeam1Slot = slot[1] == 1;
 
+        Optional<CompetitionTeamInfoMatch> nextOpt = competitionTeamInfoMatchRepository
+                .findOneByCompetitionRoundIndex(cupId, nextRound, nextMatchIndex, seasonStr);
+        if (nextOpt.isEmpty()) return;
+
+        CompetitionTeamInfoMatch next = nextOpt.get();
+        if (isTeam1Slot) {
+            next.setTeam1Id(winnerTeamId);
+        } else {
+            next.setTeam2Id(winnerTeamId);
+        }
+        competitionTeamInfoMatchRepository.save(next);
+
+        registerTeamInRound(cupId, seasonStr, nextRound, winnerTeamId);
+    }
+
+    /**
+     * Where the winner of match {@code currentMatchIndex} (1-based) goes in the next round: {nextMatchIndex, 1} for
+     * the team1 slot, {nextMatchIndex, 2} for team2, or null when there is no slot. Shared by the real bracket and
+     * the cup odds simulation (DESIGN_MEDIA_SI_COMPETITII §4.2), so both follow the same path.
+     */
+    public static int[] nextSlot(int currentRoundSize, int nextRoundSize, int currentMatchIndex) {
+        if (nextRoundSize <= 0 || currentMatchIndex <= 0) return null;
         // Regular knockout transition halves the match count (8 → 4 → 2 → 1).
         // ANYTHING ELSE — prelim_count == mainRoundCount (N=12, N=24) or
         // prelim_count < mainRoundCount (N=20) — means this is prelim → main round
@@ -228,29 +252,12 @@ public class CupBracketService {
             for (int i = 0; i < balanced.length; i++) {
                 if (balanced[i] == bestSeed) { targetPos = i + 1; break; }
             }
-            if (targetPos < 0) return; // safety: nothing to fill
+            if (targetPos < 0) return null;
 
-            nextMatchIndex = (targetPos + 1) / 2;        // == ceil(targetPos/2)
-            isTeam1Slot = (targetPos % 2 == 1);
-        } else {
-            // ===== Regular knockout (R16 → QF → SF → F) =====
-            nextMatchIndex = (currentMatchIndex + 1) / 2;
-            isTeam1Slot = (currentMatchIndex % 2 == 1);
+            return new int[]{(targetPos + 1) / 2, targetPos % 2 == 1 ? 1 : 2}; // index == ceil(targetPos/2)
         }
-
-        Optional<CompetitionTeamInfoMatch> nextOpt = competitionTeamInfoMatchRepository
-                .findOneByCompetitionRoundIndex(cupId, nextRound, nextMatchIndex, seasonStr);
-        if (nextOpt.isEmpty()) return;
-
-        CompetitionTeamInfoMatch next = nextOpt.get();
-        if (isTeam1Slot) {
-            next.setTeam1Id(winnerTeamId);
-        } else {
-            next.setTeam2Id(winnerTeamId);
-        }
-        competitionTeamInfoMatchRepository.save(next);
-
-        registerTeamInRound(cupId, seasonStr, nextRound, winnerTeamId);
+        // ===== Regular knockout (R16 → QF → SF → F) =====
+        return new int[]{(currentMatchIndex + 1) / 2, currentMatchIndex % 2 == 1 ? 1 : 2};
     }
 
     private int countMatchesInRound(long cupId, String seasonStr, long round) {

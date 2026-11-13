@@ -165,6 +165,12 @@ public class StatsController {
         return statsAggregationService.getTeamSeasonPlayerStats(teamId, seasonNumber, limit);
     }
 
+    @GetMapping("/team/{teamId}/season/{seasonNumber}/competition-leaders")
+    public List<StatsAggregationService.ClubCompetitionLeaders> getClubCompetitionLeaders(
+            @PathVariable long teamId, @PathVariable int seasonNumber) {
+        return statsAggregationService.getClubCompetitionLeaders(teamId, seasonNumber);
+    }
+
     /** Domestic championship quality ranking used by the global award weights. */
     @GetMapping("/league-strength/{seasonNumber}")
     public LeagueStrengthService.LeagueStrengthTable getLeagueStrength(@PathVariable int seasonNumber) {

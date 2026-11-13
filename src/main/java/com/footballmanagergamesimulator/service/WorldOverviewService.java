@@ -106,7 +106,18 @@ public class WorldOverviewService {
     }
 
     public Map<String, Object> worldBestEleven() {
-        WorldData data = loadWorldData();
+        return bestEleven(loadWorldData());
+    }
+
+    public Map<String, Object> leagueBestEleven(long competitionId) {
+        List<Team> teams = teamRepository.findAllByCompetitionId(competitionId);
+        Set<Long> ids = teams.stream().map(Team::getId).collect(Collectors.toSet());
+        List<Human> players = humanRepository.findAllByTeamIdInAndTypeId(ids, TypeNames.PLAYER_TYPE).stream()
+                .filter(player -> !player.isRetired()).toList();
+        return bestEleven(worldData(teams, players));
+    }
+
+    private Map<String, Object> bestEleven(WorldData data) {
         Map<Long, Team> teamsById = data.teams().stream()
                 .collect(Collectors.toMap(Team::getId, Function.identity()));
         Map<Long, Competition> competitionsById = competitionRepository.findAll().stream()
@@ -214,6 +225,10 @@ public class WorldOverviewService {
         List<Human> players = humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE).stream()
                 .filter(player -> !player.isRetired() && player.getTeamId() != null && player.getTeamId() > 0)
                 .toList();
+        return worldData(teams, players);
+    }
+
+    private WorldData worldData(List<Team> teams, List<Human> players) {
         Map<Long, List<Human>> playersByTeam = players.stream()
                 .collect(Collectors.groupingBy(Human::getTeamId));
         List<Long> playerIds = players.stream().map(Human::getId).toList();

@@ -56,6 +56,7 @@ public class CompetitionDisplayService {
     @Autowired private com.footballmanagergamesimulator.config.EuropeanQualificationPolicy qualificationPolicy;
     @Autowired private CompetitionProgressService competitionProgressService;
     @Autowired private CompetitionMetadataService competitionMetadataService;
+    @Autowired private CalendarService calendarService;
 
     private String currentSeason() {
         return roundRepository.findById(1L).map(Round::getSeason).map(String::valueOf).orElse("1");
@@ -385,6 +386,46 @@ public class CompetitionDisplayService {
     }
 
     // ==================== Match lookup ====================
+
+    public record ScheduledMatch(long round, int leg, int day, String date, long team1Id,
+                                 String team1Name, long team2Id, String team2Name, String score) {}
+
+    private record MatchKey(long round, int leg, long home, long away) {}
+
+    public List<ScheduledMatch> schedule(long competitionId, int season) {
+        List<CompetitionTeamInfoDetail> results = competitionTeamInfoDetailRepository
+                .findAllByCompetitionIdAndSeasonNumber(competitionId, season);
+        List<CompetitionTeamInfoMatch> fixtures = competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndSeasonNumberOrderByRoundAscMatchIndexAsc(competitionId, String.valueOf(season));
+        Set<Long> teamIds = fixtures.stream()
+                .flatMap(match -> java.util.stream.Stream.of(match.getTeam1Id(), match.getTeam2Id()))
+                .filter(id -> id > 0).collect(Collectors.toSet());
+        Map<Long, String> names = new HashMap<>();
+        teamRepository.findAllById(teamIds).forEach(team -> names.put(team.getId(), team.getName()));
+
+        Map<MatchKey, ScheduledMatch> matches = new LinkedHashMap<>();
+        for (CompetitionTeamInfoMatch fixture : fixtures) {
+            if (fixture.getTeam1Id() <= 0 || fixture.getTeam2Id() <= 0) continue;
+            MatchKey key = new MatchKey(fixture.getRound(), fixture.getLegNumber(), fixture.getTeam1Id(), fixture.getTeam2Id());
+            String score = fixture.getTeam1Score() >= 0 && fixture.getTeam2Score() >= 0
+                    ? fixture.getTeam1Score() + " - " + fixture.getTeam2Score() : null;
+            matches.put(key, new ScheduledMatch(key.round(), key.leg(), fixture.getDay(), matchDate(fixture.getDay()),
+                    key.home(), names.get(key.home()), key.away(), names.get(key.away()), score));
+        }
+        for (CompetitionTeamInfoDetail result : results) {
+            MatchKey key = new MatchKey(result.getRoundId(), result.getLegNumber(), result.getTeam1Id(), result.getTeam2Id());
+            ScheduledMatch fixture = matches.get(key);
+            int day = result.getDay() > 0 ? result.getDay() : fixture == null ? 0 : fixture.day();
+            matches.put(key, new ScheduledMatch(key.round(), key.leg(), day, matchDate(day), key.home(),
+                    result.getTeamName1(), key.away(), result.getTeamName2(), result.getScore()));
+        }
+        return matches.values().stream().sorted(Comparator.comparingLong(ScheduledMatch::round)
+                .thenComparingInt(ScheduledMatch::day).thenComparingLong(ScheduledMatch::team1Id)).toList();
+    }
+
+    private String matchDate(int day) {
+        return day > 0 ? calendarService.getDateDisplay(day) : null;
+    }
 
     /** Future-round fixtures for a competition + round, scoped to current season. */
     public List<TeamMatchView> getNotPlayedMatches(long competitionId, long roundId) {

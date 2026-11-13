@@ -58,6 +58,8 @@ public class GameAdvanceService {
     @Autowired private MemoryCheckpointService memoryCheckpointService;
     @Autowired private FriendlyMatchService friendlyMatchService;
     @Autowired private CompetitionExpectationService competitionExpectationService;
+    @Autowired(required = false) @org.springframework.context.annotation.Lazy
+    private com.footballmanagergamesimulator.service.odds.TitleOddsService titleOdds;
 
     private final Random random = new Random();
 
@@ -398,6 +400,11 @@ public class GameAdvanceService {
 
                 for (CalendarEvent me : matchEvents) {
                     calendarService.markEventCompleted(me.getId());
+                }
+
+                // The title race gets its point for this matchday (DESIGN_MEDIA_SI_COMPETITII §4.3).
+                if (titleOdds != null) {
+                    titleOdds.recordAfterMatchday(matchEvents.stream().map(CalendarEvent::getCompetitionId).toList());
                 }
 
                 // Reset team talk so it can be used again before next match

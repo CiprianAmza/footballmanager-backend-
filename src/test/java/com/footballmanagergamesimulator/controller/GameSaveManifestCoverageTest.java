@@ -39,8 +39,8 @@ class GameSaveManifestCoverageTest {
         Set<String> disposed = new HashSet<>(GameSaveImportService.manifestTableNames());
         disposed.addAll(GameSaveImportService.preservedTableNames());
 
-        assertThat(GameSaveImportService.manifestTableNames()).hasSize(120);
-        assertThat(GameSaveImportService.manifestKeys()).hasSize(120).doesNotHaveDuplicates();
+        assertThat(GameSaveImportService.manifestTableNames()).hasSize(121);
+        assertThat(GameSaveImportService.manifestKeys()).hasSize(121).doesNotHaveDuplicates();
         // The export-time invariant: no live table may lack a disposition.
         assertThat(actual).isSubsetOf(disposed);
         // Flyway is disabled here, so FLYWAY_SCHEMA_HISTORY is legitimately absent; every
