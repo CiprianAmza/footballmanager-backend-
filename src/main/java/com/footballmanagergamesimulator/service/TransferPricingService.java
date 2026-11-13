@@ -1,9 +1,12 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.CompetitionHistory;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
+import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import com.footballmanagergamesimulator.repository.TransferOfferRepository;
@@ -20,12 +23,15 @@ public class TransferPricingService {
 
     /** Offers still in play: they make the player more wanted. */
     static final List<String> ACTIVE = List.of("pending", "negotiating", "counter", "talks", "final_offer", "fee_agreed");
-    private static final long TOP_LEAGUE_TYPE = 1;
+    /** Second leagues of older worlds, before they became tier-2 leagues. */
+    private static final long OLD_SECOND_LEAGUE_TYPE = 3;
 
     @Autowired HumanRepository humanRepository;
     @Autowired TeamRepository teamRepository;
     @Autowired TransferOfferRepository transferOfferRepository;
     @Autowired CompetitionHistoryRepository competitionHistoryRepository;
+    @Autowired CompetitionTeamInfoRepository competitionTeamInfoRepository;
+    @Autowired CompetitionRepository competitionRepository;
 
     /** The real price of {@code player} for a buyer {@code buyerTeamId} in {@code season}. */
     public long realPrice(Human player, long buyerTeamId, int season) {
@@ -62,11 +68,26 @@ public class TransferPricingService {
         return squad.size() + 1;
     }
 
-    /** Played in a top league last season and in another league now. */
+    /**
+     * Plays in a lower league this season than last season. The leagues come from the season's own records
+     * ({@code CompetitionHistory} last season, {@code CompetitionTeamInfo} now): {@code Team.competitionId} is only
+     * set when the world is created and never follows promotion or relegation. A promotion is not a relegation.
+     */
     boolean relegated(Team club, int season) {
-        return competitionHistoryRepository.findByTeamIdAndSeasonNumber(club.getId(), season - 1).stream()
-                .filter(h -> h.getCompetitionTypeId() == TOP_LEAGUE_TYPE)
-                .map(CompetitionHistory::getCompetitionId)
-                .anyMatch(lastLeague -> lastLeague != club.getCompetitionId());
+        Integer before = leagueTier(competitionHistoryRepository.findByTeamIdAndSeasonNumber(club.getId(), season - 1)
+                .stream().map(CompetitionHistory::getCompetitionId).toList());
+        Integer now = leagueTier(competitionTeamInfoRepository.findAllByTeamIdAndSeasonNumber(club.getId(), season)
+                .stream().map(CompetitionTeamInfo::getCompetitionId).toList());
+        return before != null && now != null && now > before;
+    }
+
+    /** The tier (1 = top flight) of the league among these competitions; null when none is a league. */
+    private Integer leagueTier(List<Long> competitionIds) {
+        return competitionIds.stream().distinct()
+                .map(competitionRepository::findById).flatMap(java.util.Optional::stream)
+                .filter(c -> c.isLeague() || c.getTypeId() == OLD_SECOND_LEAGUE_TYPE)
+                .map(c -> c.isLeague() ? Math.max(1, c.getTier()) : Math.max(2, c.getTier()))
+                .min(Integer::compare)
+                .orElse(null);
     }
 }

@@ -40,6 +40,9 @@ public class ContractNegotiationService {
     @Autowired RelationService relationService;
     @Autowired AgentService agentService;
     @Autowired PlannedTransferService plannedTransferService;
+    @Autowired FinanceService financeService;
+    // A provider: the market depends (through the transfer controller) on this service.
+    @Autowired org.springframework.beans.factory.ObjectProvider<TransferMarketService> transferMarket;
     java.util.Random rng = new java.util.Random();
     // Lazy: the transfer market (TransferOfferController) depends on ContractController, which depends on this service.
     @Autowired @org.springframework.context.annotation.Lazy AgreedTransferHandler transferHandler;
@@ -90,10 +93,7 @@ public class ContractNegotiationService {
                 .orElse(false)) {
             return false;
         }
-        if (ContractNegotiation.KIND_TRANSFER.equals(n.getKind())) return transferStillPossible(n);
-        return humanRepository.findById(n.getPlayerId())
-                .map(h -> !h.isRetired() && h.getTeamId() != null && h.getTeamId() == n.getTeamId())
-                .orElse(false);
+        return transferStillPossible(n);
     }
 
     /** Transfer personal terms are a transfer action (the chairman's transfer permission), renewals a contract one. */
@@ -151,8 +151,9 @@ public class ContractNegotiationService {
     /**
      * Opens personal terms for a transfer whose fee the selling club accepted (the inbox button).
      * Opening it again returns the same negotiation, finished or not, so the button always leads back to it.
+     * When the deal can no longer happen the fee agreement collapses (kept, despite the exception).
      */
-    @Transactional
+    @Transactional(noRollbackFor = NegotiationException.class)
     public ContractNegotiation startTransfer(long transferOfferId, long teamId) {
         Optional<ContractNegotiation> existing = negotiationRepository
                 .findFirstByTransferOfferIdOrderByIdDesc(transferOfferId)
@@ -167,7 +168,16 @@ public class ContractNegotiationService {
         }
         Human player = humanRepository.findById(offer.getPlayerId())
                 .filter(h -> !h.isRetired() && h.getTeamId() != null && h.getTeamId() == offer.getToTeamId())
-                .orElseThrow(() -> new NegotiationException("PLAYER_GONE"));
+                .orElse(null);
+        // The deal cannot happen any more: the agreement lapses now (not on every later click) and the bid is free.
+        String impossible = player == null ? "the player is no longer at " + offer.getToTeamName()
+                : !windowOpen() ? "the transfer window has closed"
+                : !canPayFee(teamId, offer.getOfferAmount()) ? "your club can no longer afford the fee"
+                : null;
+        if (impossible != null) {
+            transferHandler.collapse(transferOfferId, impossible);
+            throw new NegotiationException(player == null ? "PLAYER_GONE" : !windowOpen() ? "WINDOW_CLOSED" : "INSUFFICIENT_BUDGET");
+        }
 
         // The player may not want to come at all: the agent says so and the talks end before they start.
         PlayerInterest.Reason interest = playerInterestService.interest(player, teamId, managerOf(teamId));
@@ -246,6 +256,7 @@ public class ContractNegotiationService {
             throw new NegotiationException("INVALID_OFFER");
         }
         if (!transferStillPossible(n)) return cancel(n);
+        if (!canPayBonus(n, mine.signingBonus())) throw new NegotiationException("BONUS_OVER_BUDGET");
         n.setLastWage(mine.wage());
         n.setLastYears(mine.years());
         n.setLastSigningBonus(mine.signingBonus());
@@ -297,6 +308,7 @@ public class ContractNegotiationService {
         ContractNegotiation n = get(negotiationId, teamId);
         if (n.getStatus() != Status.FINAL_OFFER) throw new NegotiationException("NO_FINAL_OFFER");
         if (accept && !transferStillPossible(n)) return cancel(n);
+        if (accept && !canPayBonus(n, n.getAgentSigningBonus())) throw new NegotiationException("BONUS_OVER_BUDGET");
         postponeAiMove(n);
         return finish(n, AgentNegotiation.answerFinalOffer(step(n), accept));
     }
@@ -323,14 +335,38 @@ public class ContractNegotiationService {
         if (ContractNegotiation.KIND_TRANSFER.equals(n.getKind())) plannedTransferService.postpone(n.getPlayerId());
     }
 
-    /** A transfer can only be signed while the fee agreement holds and the player is still at the selling club. */
+    /**
+     * A renewal can only be signed while the player is still mine. A transfer only while the fee agreement holds,
+     * the player is still at the selling club, the window is open and my club can still pay the fee.
+     */
     private boolean transferStillPossible(ContractNegotiation n) {
-        if (!ContractNegotiation.KIND_TRANSFER.equals(n.getKind())) return true;
+        if (!ContractNegotiation.KIND_TRANSFER.equals(n.getKind())) {
+            return humanRepository.findById(n.getPlayerId())
+                    .map(h -> !h.isRetired() && h.getTeamId() != null && h.getTeamId() == n.getTeamId())
+                    .orElse(false);
+        }
         Optional<TransferOffer> offer = transferOfferRepository.findById(n.getTransferOfferId())
                 .filter(o -> TransferOffer.STATUS_FEE_AGREED.equals(o.getStatus()));
         return offer.isPresent() && humanRepository.findById(n.getPlayerId())
                 .map(h -> !h.isRetired() && h.getTeamId() != null && h.getTeamId() == offer.get().getToTeamId())
-                .orElse(false);
+                .orElse(false)
+                && windowOpen() && canPayFee(n.getTeamId(), offer.get().getOfferAmount());
+    }
+
+    private boolean windowOpen() {
+        TransferMarketService market = transferMarket == null ? null : transferMarket.getIfAvailable();
+        return market == null || market.isOpen();
+    }
+
+    private boolean canPayFee(long teamId, long fee) {
+        return teamRepository.findById(teamId).map(t -> t.getTransferBudget() >= fee).orElse(false);
+    }
+
+    /** The signing bonus comes out of the transfer budget, after the fee when it is a transfer. */
+    private boolean canPayBonus(ContractNegotiation n, long bonus) {
+        if (bonus <= 0) return true;
+        long fee = ContractNegotiation.KIND_TRANSFER.equals(n.getKind()) ? n.getTransferFee() : 0;
+        return teamRepository.findById(n.getTeamId()).map(t -> t.getTransferBudget() - fee >= bonus).orElse(false);
     }
 
     /** Ends talks that can no longer lead to a deal, without touching the relation. */
@@ -352,6 +388,11 @@ public class ContractNegotiationService {
             player.setMorale(Math.min(100, player.getMorale() + 10));
         }
         humanRepository.save(player);
+        if (deal.signingBonus() > 0) {
+            // In the ledger too, like every other payment (it only lowered the budget before).
+            financeService.recordExpense(n.getTeamId(), currentSeason(), 0, "SIGNING_BONUS",
+                    "Signing bonus for " + player.getName(), deal.signingBonus());
+        }
         teamRepository.findById(n.getTeamId()).ifPresent(team -> {
             team.setSalaryBudget(team.getSalaryBudget() + (deal.wage() - oldWage));
             team.setTransferBudget(team.getTransferBudget() - deal.signingBonus());

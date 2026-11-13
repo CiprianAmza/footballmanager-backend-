@@ -23,6 +23,7 @@ public final class LoanTerms {
     /** Null when the club accepts; otherwise its reason. */
     public static String refusal(long loanFee, long transferValue, boolean inTop15, long buyPrice, boolean obligatory,
                                  long realPrice, TransferPoints.Situation situation) {
+        if (loanFee < 0) return "The loan fee cannot be negative.";
         if (obligatory) {
             if (buyPrice <= 0) return "An obligation to buy needs a purchase price.";
             long points = loanFee + Math.round(situation.instalmentWeight * buyPrice);

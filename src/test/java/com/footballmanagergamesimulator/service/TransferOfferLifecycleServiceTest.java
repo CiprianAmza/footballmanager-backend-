@@ -28,8 +28,13 @@ class TransferOfferLifecycleServiceTest {
         first.setId(1);
         TransferOffer second = new TransferOffer();
         second.setId(2);
-        when(transferOfferRepository.findAllByPlayerIdInAndStatusIn(any(), any()))
+        when(transferOfferRepository.findAllByPlayerIdInAndStatusIn(any(),
+                org.mockito.ArgumentMatchers.argThat(statuses -> statuses != null && statuses.contains("pending"))))
                 .thenReturn(List.of(first, second));
+        // No manager bids for them (those are closed, not deleted: TransferOfferLifecycleServiceBidsTest).
+        when(transferOfferRepository.findAllByPlayerIdInAndStatusIn(any(),
+                org.mockito.ArgumentMatchers.argThat(statuses -> statuses != null && statuses.contains(TransferOffer.STATUS_FEE_AGREED))))
+                .thenReturn(List.of());
 
         int removed = service.removeActiveOffersForPlayers(Set.of(44L, 45L));
 

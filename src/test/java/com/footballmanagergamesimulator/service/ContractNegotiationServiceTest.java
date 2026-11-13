@@ -37,6 +37,7 @@ class ContractNegotiationServiceTest {
     @MockBean private AgreedTransferHandler transferHandler;
     @MockBean private NationService nationService;
     @MockBean private PlannedTransferService plannedTransferService;
+    @MockBean private FinanceService financeService;
     @MockBean private com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator nameGenerator;
 
     private long teamId;
@@ -49,7 +50,7 @@ class ContractNegotiationServiceTest {
         Team team = new Team();
         team.setName("Tik Tok");
         team.setSalaryBudget(100_000);
-        team.setTransferBudget(500_000);
+        team.setTransferBudget(5_000_000);
         teamId = teams.save(team).getId();
 
         Agent agent = new Agent();

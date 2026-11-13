@@ -262,8 +262,11 @@ public class PlannedTransferService {
     }
 
     private List<TransferOffer> liveBids(long playerId, Set<Long> humanTeamIds) {
+        // A bid made to a club the player has since left is dead: it must not hold up (or cancel) the AI move.
+        Long playerClubId = humanRepository.findById(playerId).map(Human::getTeamId).orElse(null);
         return transferOfferRepository.findAllByPlayerIdAndStatusIn(playerId, LIVE_BIDS).stream()
                 .filter(o -> "outgoing".equalsIgnoreCase(o.getDirection()) && humanTeamIds.contains(o.getFromTeamId()))
+                .filter(o -> java.util.Objects.equals(playerClubId, o.getToTeamId()))
                 .toList();
     }
 

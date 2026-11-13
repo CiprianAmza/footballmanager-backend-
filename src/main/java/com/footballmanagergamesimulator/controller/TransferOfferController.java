@@ -170,11 +170,21 @@ public class TransferOfferController implements com.footballmanagergamesimulator
         long humanTeamId = clubActionAuthorizationService.authorize(request, body,
                 com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER).teamId();
 
-        Optional<TransferOffer> existing = transferOfferRepository.findAllByPlayerIdAndStatusIn(playerId,
+        List<TransferOffer> mine = transferOfferRepository.findAllByPlayerIdAndStatusIn(playerId,
                         List.of(TransferOffer.STATUS_TALKS, TransferOffer.STATUS_FINAL_OFFER, TransferOffer.STATUS_FEE_AGREED))
                 .stream().filter(o -> o.getFromTeamId() == humanTeamId && "outgoing".equalsIgnoreCase(o.getDirection()))
-                .findFirst();
-        if (existing.isPresent()) return ResponseEntity.ok(talksView(existing.get()));
+                .toList();
+        Long playerClubId = humanRepository.findById(playerId).map(Human::getTeamId).orElse(null);
+        for (TransferOffer old : mine) {
+            if (Objects.equals(playerClubId, old.getToTeamId())) return ResponseEntity.ok(talksView(old));
+            // He has left the club these talks were with: they are over, and new talks can start.
+            if (TransferOffer.STATUS_FEE_AGREED.equals(old.getStatus())) {
+                collapse(old.getId(), "the player is no longer at " + old.getToTeamName());
+            } else {
+                old.setStatus(TransferOffer.STATUS_REJECTED);
+                transferOfferRepository.save(old);
+            }
+        }
 
         int today = gameDay();
         int blockedUntil = transferOfferRepository.findAllByPlayerIdAndStatusIn(playerId, List.of(TransferOffer.STATUS_REJECTED))
@@ -258,10 +268,9 @@ public class TransferOfferController implements com.footballmanagergamesimulator
             return talksError(400, "INVALID_OFFER",
                     "Check the offer: up to 3 instalments, a sell-on of 0–50%, a goals bonus needs a target of 1–60 goals.");
         }
-        if (amount > 0) {
-            ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, amount);
-            if (unaffordable != null) return unaffordable;
-        }
+        ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, amount,
+                com.footballmanagergamesimulator.service.TransferAffordability.wholeFee(extras), offer.getId());
+        if (unaffordable != null) return unaffordable;
 
         offer.setOfferAmount(amount);
         offer.setInstallmentCount(extras.instalments());
@@ -328,7 +337,8 @@ public class TransferOfferController implements com.footballmanagergamesimulator
         if (player == null || !Objects.equals(player.getTeamId(), offer.getToTeamId())) {
             return endTalks(offer, "The player is no longer at " + offer.getToTeamName() + ".");
         }
-        ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, offer.getAskingPrice());
+        ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, offer.getAskingPrice(),
+                offer.getAskingPrice(), offer.getId());
         if (unaffordable != null) return unaffordable;
         offer.setOfferAmount(offer.getAskingPrice());
         offer.setInstallmentCount(0);
@@ -432,19 +442,31 @@ public class TransferOfferController implements com.footballmanagergamesimulator
         return talksError(409, "PLAYER_GONE", reason);
     }
 
-    /** Null when the offer fits the budget and the owner's cap; otherwise the rejection. */
+    /**
+     * Null when the offer fits the budget and the owner's cap; otherwise the rejection. The cap limits the whole
+     * fee ({@code wholeFee}: instalments and bonuses included); the budget, minus the fees already agreed by the
+     * club (other than {@code offerId}), pays the cash now.
+     */
     private ResponseEntity<Map<String, Object>> unaffordable(
-            com.footballmanagergamesimulator.service.ClubActionAuthorizationService.ClubActor actor, long amount) {
-        if (amount <= 0) return talksError(400, "INVALID_AMOUNT", "The offer must be positive.");
-        long buyCap = coachPermissionService.transferBudgetCap(actor.teamId());
-        if (!actor.chairman() && buyCap >= 0 && amount > buyCap) {
-            return talksError(403, "OVER_CAP", "Restricționat de patron: oferta depășește plafonul de transfer (" + buyCap + ").");
-        }
+            com.footballmanagergamesimulator.service.ClubActionAuthorizationService.ClubActor actor,
+            long cashNow, long wholeFee, long offerId) {
+        long buyCap = actor.chairman() ? -1 : coachPermissionService.transferBudgetCap(actor.teamId());
         Team team = teamRepository.findById(actor.teamId()).orElse(null);
-        if (team == null || amount > team.getTransferBudget()) {
-            return talksError(400, "INSUFFICIENT_BUDGET", "Insufficient transfer budget");
-        }
-        return null;
+        if (team == null) return talksError(400, "INSUFFICIENT_BUDGET", "Insufficient transfer budget");
+        long reserved = com.footballmanagergamesimulator.service.TransferAffordability.reserved(
+                transferOfferRepository.findAllByFromTeamIdAndStatus(actor.teamId(), TransferOffer.STATUS_FEE_AGREED), offerId);
+        String refusal = com.footballmanagergamesimulator.service.TransferAffordability.refusal(
+                cashNow, wholeFee, buyCap, team.getTransferBudget(), reserved);
+        if (refusal == null) return null;
+        return switch (refusal) {
+            case com.footballmanagergamesimulator.service.TransferAffordability.OVER_CAP -> talksError(403, "OVER_CAP",
+                    "Restricționat de patron: oferta (cu rate și bonusuri) depășește plafonul de transfer (" + buyCap + ").");
+            case com.footballmanagergamesimulator.service.TransferAffordability.INSUFFICIENT_BUDGET -> talksError(400,
+                    "INSUFFICIENT_BUDGET", reserved > 0
+                            ? "Insufficient transfer budget (" + String.format("%,d", reserved) + " is held for fees already agreed)"
+                            : "Insufficient transfer budget");
+            default -> talksError(400, "INVALID_AMOUNT", "The offer must be positive.");
+        };
     }
 
     /** Null when the player can be bought by this club; otherwise the rejection. */
@@ -961,7 +983,12 @@ public class TransferOfferController implements com.footballmanagergamesimulator
         if (!competitionController.isTransferWindowOpen()) {
             return talksError(400, "WINDOW_CLOSED", "Transfer window is not open.");
         }
-        ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, player.getBuyBackPrice());
+        // On loan, the club he plays for is not the one that owns him: the fee would go to the wrong club.
+        if (!loanRepository.findAllByPlayerIdAndStatus(player.getId(), "active").isEmpty()) {
+            return talksError(409, "ON_LOAN", "He is out on loan: the buy-back can be used once the loan ends.");
+        }
+        ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, player.getBuyBackPrice(),
+                player.getBuyBackPrice(), 0);
         if (unaffordable != null) return unaffordable;
         Team seller = teamRepository.findById(player.getTeamId()).orElse(null);
         Team me = teamRepository.findById(actor.teamId()).orElse(null);
@@ -1004,7 +1031,10 @@ public class TransferOfferController implements com.footballmanagergamesimulator
     @Override
     @Transactional
     public void collapse(long transferOfferId, String reason) {
-        transferOfferRepository.findById(transferOfferId).ifPresent(offer -> {
+        // Only a fee agreement still standing collapses (once: no second "Transfer Collapsed" message).
+        transferOfferRepository.findById(transferOfferId)
+                .filter(offer -> TransferOffer.STATUS_FEE_AGREED.equals(offer.getStatus()))
+                .ifPresent(offer -> {
             offer.setStatus(TransferOffer.STATUS_TERMS_FAILED);
             transferOfferRepository.save(offer);
             Round round = roundRepository.findById(1L).orElse(new Round());

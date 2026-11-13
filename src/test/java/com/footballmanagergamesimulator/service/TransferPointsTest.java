@@ -40,15 +40,28 @@ class TransferPointsTest {
 
     @Test
     @DisplayName("""
-            GIVEN 800,000 now with a buy-back clause
+            GIVEN 800,000 now with a buy-back clause at his real price
             WHEN each kind of club values it
             THEN it adds nothing in trouble, 5% of the real price when stable, 15% when losing a starter
             """)
     void buyBackIsWorthMostToAClubLosingAStarter() {
-        Offer offer = new Offer(800_000, 0, 0, 0, 1_500_000);
+        Offer offer = new Offer(800_000, 0, 0, 0, REAL_PRICE);
         assertEquals(800_000, TransferPoints.points(offer, REAL_PRICE, Situation.TROUBLED));
         assertEquals(850_000, TransferPoints.points(offer, REAL_PRICE, Situation.STABLE));
         assertEquals(950_000, TransferPoints.points(offer, REAL_PRICE, Situation.LOSING_STARTER));
+    }
+
+    @Test
+    @DisplayName("""
+            GIVEN 800,000 now with a buy-back clause, for a club losing a starter (15%)
+            WHEN the price to take him back is below his real price, twice it, or absurd (a trillion)
+            THEN it is worth the full 150,000, then half (75,000), then nothing: a clause the club will never
+             use is no discount
+            """)
+    void buyBackAtAPriceTheClubWillNotPayIsWorthLess() {
+        assertEquals(950_000, TransferPoints.points(new Offer(800_000, 0, 0, 0, 600_000), REAL_PRICE, Situation.LOSING_STARTER));
+        assertEquals(875_000, TransferPoints.points(new Offer(800_000, 0, 0, 0, 2 * REAL_PRICE), REAL_PRICE, Situation.LOSING_STARTER));
+        assertEquals(800_000, TransferPoints.points(new Offer(800_000, 0, 0, 0, 1_000_000_000_000L), REAL_PRICE, Situation.LOSING_STARTER));
     }
 
     @Test

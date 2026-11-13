@@ -83,7 +83,17 @@ public final class TransferPoints {
                 + situation.instalmentWeight * offer.instalments() * offer.instalmentAmount()
                 + situation.instalmentWeight * (offer.goalsBonusAmount() * goalsChance + offer.titleBonusAmount() * titleChance)
                 + situation.sellOnWeight * offer.sellOnPercent() / 100.0 * realPrice
-                + (offer.buyBackPrice() > 0 ? situation.buyBackWeight * realPrice : 0);
+                + buyBackValue(offer.buyBackPrice(), realPrice, situation);
         return Math.round(points);
+    }
+
+    /**
+     * The buy-back clause is worth its weight × the real price when the price to take him back is at most his real
+     * price; above it, less and less (in proportion), since the club will hardly pay it. A clause at an absurd price
+     * is worth nothing, instead of a free 5–15% of the price.
+     */
+    static double buyBackValue(long buyBackPrice, long realPrice, Situation situation) {
+        if (buyBackPrice <= 0 || realPrice <= 0) return 0;
+        return situation.buyBackWeight * realPrice * Math.min(1.0, (double) realPrice / buyBackPrice);
     }
 }
