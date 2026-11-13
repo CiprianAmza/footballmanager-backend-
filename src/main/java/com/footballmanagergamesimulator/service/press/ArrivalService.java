@@ -21,6 +21,10 @@ public class ArrivalService {
     private com.footballmanagergamesimulator.service.board.FrontCoachService frontCoach;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.footballmanagergamesimulator.service.board.BoardMeetingService boardMeeting;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private FirstDayService firstDay;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.footballmanagergamesimulator.repository.GameCalendarRepository calendars;
 
     public ArrivalService(AppointmentArticleService article, ArrivalBriefingService briefing) {
         this.article = article;
@@ -35,5 +39,10 @@ public class ArrivalService {
         if (boardMeeting != null) boardMeeting.managerAppointed(manager.getId(), clubId);
         article.publish(manager, clubId);
         briefing.publish(manager, clubId);
+        if (firstDay != null) {
+            int season = calendars == null ? 1 : calendars.findTopByOrderBySeasonDesc()
+                    .map(com.footballmanagergamesimulator.model.GameCalendar::getSeason).orElse(1);
+            firstDay.start(manager, clubId, season);
+        }
     }
 }

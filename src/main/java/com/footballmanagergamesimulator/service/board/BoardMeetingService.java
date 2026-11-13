@@ -110,6 +110,21 @@ public class BoardMeetingService {
         return meeting(teamId);
     }
 
+    /** A meeting without a question: the manager thanks them and leaves. */
+    @Transactional
+    public Meeting close(long teamId) {
+        MeetingRecord record = meetingRepository.findByTeamIdAndSeasonAndType(teamId, season(), MeetingRecord.BOARD)
+                .orElseThrow(() -> new IllegalStateException("There is no meeting with the board."));
+        boolean asks = boardRepository.findByTeamId(teamId).map(ClubBoard::isConflict).orElse(false);
+        if (asks && PENDING.equals(record.getOutcome()))
+            throw new IllegalStateException("The director is waiting for your answer.");
+        if (PENDING.equals(record.getOutcome())) {
+            record.setOutcome(MeetingRecord.HELD);
+            meetingRepository.save(record);
+        }
+        return meeting(teamId);
+    }
+
     /** Monthly: a question left unanswered counts as "we'll see"; a meeting without a question is simply held. */
     @Transactional
     public void monthPassed() {

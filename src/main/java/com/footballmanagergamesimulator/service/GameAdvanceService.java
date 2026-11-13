@@ -47,6 +47,7 @@ public class GameAdvanceService {
     @Autowired private UserRepository userRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired @Lazy private JobOfferService jobOfferService;
+    @Autowired(required = false) private com.footballmanagergamesimulator.service.press.FirstDayService firstDayService;
     @Autowired @Lazy private AdminController adminController;
 
     @Autowired private CalendarEventDispatcher calendarEventDispatcher;
@@ -262,6 +263,25 @@ public class GameAdvanceService {
         if (scope == null && !alwaysContinue) {
             Map<String, Object> jobOfferBlock = checkJobOfferPause(season, calendar, scope);
             if (jobOfferBlock != null) return jobOfferBlock;
+        }
+
+        // Hard pause: a manager's first day at a new club is not over (design DESIGN_START_CARIERA §6).
+        if (scope == null && !alwaysContinue && firstDayService != null) {
+            for (var u : userRepository.findAll()) {
+                if (u.getTeamId() == null || u.getTeamId() <= 0) continue;
+                var firstDay = firstDayService.status(u.getTeamId());
+                if (!firstDay.pending()) continue;
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("paused", true);
+                result.put("reason", "FIRST_DAY_PENDING");
+                result.put("awaitingInput", true);
+                result.put("firstDayNext", firstDay.nextLabel());
+                result.put("season", season);
+                result.put("day", calendar.getCurrentDay());
+                result.put("phase", calendar.getCurrentPhase());
+                result.put("dateDisplay", calendarService.getDateDisplay(calendar.getCurrentDay()));
+                return result;
+            }
         }
 
         // Hard pause: an uncommitted live-match session exists for a human user

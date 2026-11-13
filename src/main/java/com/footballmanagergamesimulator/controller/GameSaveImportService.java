@@ -99,6 +99,7 @@ public class GameSaveImportService {
             new TableSpec("directorWishes", "DIRECTOR_WISH", SAVE_VERSION_18),
             new TableSpec("frontCoaches", "FRONT_COACH", SAVE_VERSION_18),
             new TableSpec("matchBonuses", "MATCH_BONUS", SAVE_VERSION_18),
+            new TableSpec("firstDays", "FIRST_DAY", SAVE_VERSION_18),
             new TableSpec("humans", "HUMAN"),
             new TableSpec("playerPositionFamiliarities", "PLAYER_POSITION_FAMILIARITY", SAVE_VERSION_12),
             new TableSpec("playerRoleFamiliarities", "PLAYER_ROLE_FAMILIARITY", SAVE_VERSION_12),
