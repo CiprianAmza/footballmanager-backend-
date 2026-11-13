@@ -1,15 +1,23 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.frontend.CalendarEntryView;
+import com.footballmanagergamesimulator.frontend.MatchGoalscorersView;
 import com.footballmanagergamesimulator.frontend.ScheduleView;
+import com.footballmanagergamesimulator.frontend.TeamCompetitionView;
+import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoDetail;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.FriendlyEvent;
 import com.footballmanagergamesimulator.model.FriendlyMatch;
+import com.footballmanagergamesimulator.model.MatchEvent;
+import com.footballmanagergamesimulator.model.Scorer;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoDetailRepository;
 import com.footballmanagergamesimulator.repository.FriendlyEventRepository;
 import com.footballmanagergamesimulator.repository.FriendlyMatchRepository;
+import com.footballmanagergamesimulator.repository.HumanRepository;
+import com.footballmanagergamesimulator.repository.MatchEventRepository;
+import com.footballmanagergamesimulator.repository.ScorerRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -17,8 +25,12 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,72 +49,486 @@ public class MatchService {
     FriendlyMatchRepository friendlyMatchRepository;
     @Autowired
     FriendlyEventRepository friendlyEventRepository;
+    @Autowired
+    CompetitionProgressService competitionProgressService;
+    @Autowired
+    CompetitionDisplayService competitionDisplayService;
+    @Autowired
+    MatchEventRepository matchEventRepository;
+    @Autowired
+    ScorerRepository scorerRepository;
+    @Autowired
+    HumanRepository humanRepository;
 
+    /**
+     * Club schedule for one season: scheduled fixtures, played results and friendlies.
+     *
+     * <p>Results ({@link CompetitionTeamInfoDetail}) are the durable source. Fixture rows
+     * are wiped at every new season, so a past season is rebuilt from its results alone;
+     * the current season merges both so upcoming matches still appear.
+     */
     public List<ScheduleView> getScheduleViewsFromCompetitionTeamInfoMatchesAndTeamId(List<CompetitionTeamInfoMatch> competitionTeamInfoMatches, long teamId, long seasonNumber) {
 
         List<ScheduleView> scheduleViews = new ArrayList<>();
+        List<CompetitionTeamInfoDetail> seasonResults =
+                competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(seasonNumber, teamId);
+        ScheduleLookups lookups = new ScheduleLookups(seasonNumber, seasonResults);
 
-        for (CompetitionTeamInfoMatch competitionTeamInfoMatch: competitionTeamInfoMatches) {
-
-            ScheduleView scheduleView = new ScheduleView();
-            long opponentTeamId = competitionTeamInfoMatch.getTeam1Id() == teamId ? competitionTeamInfoMatch.getTeam2Id() : competitionTeamInfoMatch.getTeam1Id();
-            String opponentTeamName = teamRepository.findNameById(opponentTeamId);
-            scheduleView.setOpponentTeam(opponentTeamName);
-
-            String competitionName = competitionRepository.findNameById(competitionTeamInfoMatch.getCompetitionId());
-            scheduleView.setCompetitionName(competitionName);
-
-            String ownTeamName = teamRepository.findNameById(teamId);
-            boolean isHome = competitionTeamInfoMatch.getTeam1Id() == teamId;
-            scheduleView.setHomeOrAway(isHome ? "H" : "A");
-
-            // Set team abbreviations (first 3 letters) for display
-            if (isHome) {
-                scheduleView.setHomeTeamAbbr(abbreviateTeamName(ownTeamName));
-                scheduleView.setAwayTeamAbbr(abbreviateTeamName(opponentTeamName));
-            } else {
-                scheduleView.setHomeTeamAbbr(abbreviateTeamName(opponentTeamName));
-                scheduleView.setAwayTeamAbbr(abbreviateTeamName(ownTeamName));
-            }
-
-            CompetitionTeamInfoDetail competitionTeamInfoDetail = competitionTeamInfoDetailRepository.findAllByCompetitionIdAndRoundIdAndTeam1IdAndTeam2IdAndSeasonNumber(competitionTeamInfoMatch.getCompetitionId(), competitionTeamInfoMatch.getRound(), competitionTeamInfoMatch.getTeam1Id(), competitionTeamInfoMatch.getTeam2Id(), seasonNumber).stream().findFirst().orElse(null);
-            String score = "-";
-            if (competitionTeamInfoDetail != null) {
-                score = competitionTeamInfoDetail.getScore();
-                scheduleView.setWinnerTeamId(competitionTeamInfoDetail.getWinnerTeamId());
-                scheduleView.setDecidedBy(competitionTeamInfoDetail.getDecidedBy());
-
-                if (scheduleView.getHomeOrAway().equals("A")) {
-                    score = reverseScore(score);
-                }
-            }
-            scheduleView.setScore(score);
-
-            // Use calendar day for proper date display instead of round number
-            int matchDay = competitionTeamInfoMatch.getDay();
-            scheduleView.setDay(matchDay);
-            if (matchDay > 0) {
-                scheduleView.setDate(calendarService.getDateDisplay(matchDay));
-            } else {
-                scheduleView.setDate("Matchday " + competitionTeamInfoMatch.getRound());
-            }
-
-            // Populate fields for match event lookup
-            scheduleView.setCompetitionId(competitionTeamInfoMatch.getCompetitionId());
-            scheduleView.setSeasonNumber((int) seasonNumber);
-            scheduleView.setRoundNumber((int) competitionTeamInfoMatch.getRound());
-            scheduleView.setTeamId1(competitionTeamInfoMatch.getTeam1Id());
-            scheduleView.setTeamId2(competitionTeamInfoMatch.getTeam2Id());
-
-            scheduleViews.add(scheduleView);
+        Map<String, CompetitionTeamInfoDetail> resultsByFixture = new LinkedHashMap<>();
+        for (CompetitionTeamInfoDetail result : seasonResults) {
+            resultsByFixture.putIfAbsent(fixtureKey(result.getCompetitionId(), result.getRoundId(),
+                    result.getTeam1Id(), result.getTeam2Id()), result);
         }
 
-        appendFriendlySchedule(scheduleViews, teamId, (int) seasonNumber);
+        Set<String> matchedResults = new HashSet<>();
+        for (CompetitionTeamInfoMatch fixture : competitionTeamInfoMatches) {
+            String key = fixtureKey(fixture.getCompetitionId(), fixture.getRound(),
+                    fixture.getTeam1Id(), fixture.getTeam2Id());
+            CompetitionTeamInfoDetail result = resultsByFixture.get(key);
+            if (result != null) matchedResults.add(key);
+            int day = fixture.getDay() > 0 || result == null ? fixture.getDay() : result.getDay();
+            int legNumber = fixture.getLegNumber() > 0 || result == null ? fixture.getLegNumber() : result.getLegNumber();
+            long tieId = fixture.getTieId() != 0 || result == null ? fixture.getTieId() : result.getTieId();
+            scheduleViews.add(competitiveScheduleView(teamId, seasonNumber, fixture.getCompetitionId(),
+                    fixture.getRound(), fixture.getTeam1Id(), fixture.getTeam2Id(), day, legNumber, tieId,
+                    result, lookups));
+        }
 
-        // Sort by calendar day (chronological order across all competitions)
-        scheduleViews.sort(Comparator.comparingInt(ScheduleView::getDay));
+        // Results whose fixture row is gone: every past season, and re-drawn cup slots.
+        resultsByFixture.forEach((key, result) -> {
+            if (matchedResults.contains(key)) return;
+            scheduleViews.add(competitiveScheduleView(teamId, seasonNumber, result.getCompetitionId(),
+                    result.getRoundId(), result.getTeam1Id(), result.getTeam2Id(), result.getDay(),
+                    result.getLegNumber(), result.getTieId(), result, lookups));
+        });
+
+        appendFriendlySchedule(scheduleViews, teamId, (int) seasonNumber, lookups);
+
+        // Chronological across competitions; old saves without calendar days fall back to round order.
+        scheduleViews.sort(Comparator.comparingInt(ScheduleView::getDay)
+                .thenComparingInt(ScheduleView::getRoundNumber)
+                .thenComparingLong(ScheduleView::getCompetitionId)
+                .thenComparingInt(ScheduleView::getLegNumber));
 
         return scheduleViews;
+    }
+
+    private ScheduleView competitiveScheduleView(long teamId, long seasonNumber, long competitionId, long round,
+                                                 long team1Id, long team2Id, int day, int legNumber, long tieId,
+                                                 CompetitionTeamInfoDetail result, ScheduleLookups lookups) {
+        ScheduleView view = new ScheduleView();
+        boolean isHome = team1Id == teamId;
+        long opponentTeamId = isHome ? team2Id : team1Id;
+        String opponentTeamName = lookups.teamName(opponentTeamId,
+                result == null ? null : isHome ? result.getTeamName2() : result.getTeamName1());
+        String ownTeamName = lookups.teamName(teamId,
+                result == null ? null : isHome ? result.getTeamName1() : result.getTeamName2());
+
+        view.setOpponentTeam(opponentTeamName);
+        view.setOpponentTeamId(opponentTeamId);
+        view.setHomeOrAway(isHome ? "H" : "A");
+        view.setHomeTeamAbbr(abbreviateTeamName(isHome ? ownTeamName : opponentTeamName));
+        view.setAwayTeamAbbr(abbreviateTeamName(isHome ? opponentTeamName : ownTeamName));
+        view.setCompetitionId(competitionId);
+        view.setCompetitionName(lookups.competitionName(competitionId));
+        view.setCompetitionType(lookups.competitionType(competitionId));
+        if (view.getCompetitionType() == null) view.getUnknownFields().add("competitionType");
+        view.setRoundLabel(lookups.roundLabel(competitionId, round));
+        view.setSeasonNumber((int) seasonNumber);
+        view.setRoundNumber((int) round);
+        view.setTeamId1(team1Id);
+        view.setTeamId2(team2Id);
+        view.setVenueName(lookups.stadiumName(team1Id));
+        if (view.getVenueName() == null) view.getUnknownFields().add("venueName");
+        applyDay(view, day, "Matchday " + round);
+
+        if (result == null) {
+            view.setScore("-");
+            view.setStatus("upcoming");
+            view.setLegNumber(legNumber);
+            view.setTieId(tieId);
+            if (legNumber > 0 && tieId == 0) view.getUnknownFields().add("tieId");
+            applyOpponentLeaguePosition(view, lookups);
+            return view;
+        }
+
+        view.setStatus("played");
+        view.setWinnerTeamId(result.getWinnerTeamId());
+        view.setDecidedBy(result.getDecidedBy());
+        view.setReportAvailable(result.getScore() != null);
+
+        ResultReading reading = readResult(result, legNumber, tieId, lookups);
+        view.setLegNumber(reading.legNumber());
+        view.setTieId(tieId);
+        if (reading.legNumber() > 0 && tieId == 0) view.getUnknownFields().add("tieId");
+
+        if (reading.scoreReadable()) {
+            view.setTeamGoals(isHome ? reading.team1Goals() : reading.team2Goals());
+            view.setOpponentGoals(isHome ? reading.team2Goals() : reading.team1Goals());
+        } else {
+            view.getUnknownFields().add("teamGoals");
+            view.getUnknownFields().add("opponentGoals");
+        }
+
+        if (reading.aggregateKnown()) {
+            view.setAggregateTeam1Score(reading.aggregate1());
+            view.setAggregateTeam2Score(reading.aggregate2());
+        } else if (reading.legNumber() == 2) {
+            view.getUnknownFields().add("aggregateTeam1Score");
+            view.getUnknownFields().add("aggregateTeam2Score");
+        }
+
+        if (reading.penaltiesKnown()) {
+            view.setPenaltyTeam1Score(reading.penalties1());
+            view.setPenaltyTeam2Score(reading.penalties2());
+        } else if (reading.shootout()) {
+            // Older saves stored only " (pens)" with no shootout score.
+            view.getUnknownFields().add("penaltyTeam1Score");
+            view.getUnknownFields().add("penaltyTeam2Score");
+        }
+
+        if (!reading.scoreReadable()) {
+            view.setScore(result.getScore() == null ? "-" : result.getScore());
+            if (result.getScore() == null) view.getUnknownFields().add("score");
+            view.getUnknownFields().add("resultOutcome");
+            return view;
+        }
+        view.setScore(scoreText(reading, isHome));
+
+        int own = view.getTeamGoals();
+        int opponent = view.getOpponentGoals();
+        if (own != opponent) view.setResultOutcome(own > opponent ? "W" : "L");
+        else if ((reading.shootout() || reading.extraTime()) && result.getWinnerTeamId() != null)
+            // Settled in this match after a level score (old saves also keep extra-time goals out of the score).
+            view.setResultOutcome(result.getWinnerTeamId() == teamId ? "W" : "L");
+        else view.setResultOutcome("D");
+        return view;
+    }
+
+    /**
+     * Result score from the home side (team1 - team2) for the match summary and report,
+     * with the leg/aggregate/shootout note rebuilt the same way as Schedule rows. Falls
+     * back to the stored text when it cannot be read.
+     */
+    public String homeScoreText(CompetitionTeamInfoDetail result) {
+        if (result == null || result.getScore() == null) return null;
+        String score = result.getScore();
+        // The first leg is only needed to sum an aggregate the row does not store.
+        boolean mayNeedFirstLeg = result.getLegNumber() == 2 || "AGGREGATE".equals(result.getDecidedBy())
+                || AGGREGATE_SUFFIX.matcher(score).find();
+        List<CompetitionTeamInfoDetail> seasonResults = mayNeedFirstLeg
+                ? competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(
+                        result.getSeasonNumber(), result.getTeam1Id())
+                : List.of();
+        ScheduleLookups lookups = new ScheduleLookups(result.getSeasonNumber(), seasonResults);
+        String text = scoreText(readResult(result, result.getLegNumber(), result.getTieId(), lookups), true);
+        return text != null ? text : score;
+    }
+
+    /** One stored result, read the same way for Schedule rows and the match summary. */
+    private record ResultReading(boolean scoreReadable, Integer team1Goals, Integer team2Goals, int legNumber,
+                                 Integer aggregate1, Integer aggregate2, Integer penalties1, Integer penalties2,
+                                 boolean shootout, boolean extraTime, String storedSuffix) {
+        boolean aggregateKnown() {
+            return aggregate1 != null && aggregate2 != null;
+        }
+
+        boolean penaltiesKnown() {
+            return penalties1 != null && penalties2 != null;
+        }
+    }
+
+    private ResultReading readResult(CompetitionTeamInfoDetail result, int legNumber, long tieId,
+                                     ScheduleLookups lookups) {
+        Matcher score = result.getScore() == null ? null : SCORE_PATTERN.matcher(result.getScore());
+        boolean scoreReadable = score != null && score.matches();
+        String storedSuffix = scoreReadable ? score.group(3) : "";
+        String decidedBy = result.getDecidedBy();
+        boolean shootout = "PENALTIES".equals(decidedBy);
+        boolean extraTime = "EXTRA_TIME".equals(decidedBy);
+
+        // Saves written before leg numbers existed still carry the leg in decidedBy/score text.
+        if (legNumber == 0) {
+            if ("FIRST_LEG".equals(decidedBy) || FIRST_LEG_SUFFIX.matcher(storedSuffix).find()) legNumber = 1;
+            else if ("AGGREGATE".equals(decidedBy) || AGGREGATE_SUFFIX.matcher(storedSuffix).find()) legNumber = 2;
+        }
+
+        Integer team1Goals = scoreReadable ? Integer.valueOf(score.group(1)) : null;
+        Integer team2Goals = scoreReadable ? Integer.valueOf(score.group(2)) : null;
+
+        // Aggregate: structured columns, else the sum of both legs. The "(agg N-N)" text is not
+        // used: older saves wrote it leg-1-home first on AGGREGATE rows, newer ones team1 first.
+        Integer aggregate1 = result.getAggregateTeam1Score();
+        Integer aggregate2 = result.getAggregateTeam2Score();
+        if ((aggregate1 == null || aggregate2 == null) && legNumber == 2 && scoreReadable) {
+            aggregate1 = null;
+            aggregate2 = null;
+            int[] firstLeg = lookups.firstLegGoals(result.getCompetitionId(), result.getTeam1Id(),
+                    result.getTeam2Id(), tieId);
+            if (firstLeg != null) {
+                // Leg 1 was hosted by this row's team2.
+                aggregate1 = team1Goals + firstLeg[1];
+                aggregate2 = team2Goals + firstLeg[0];
+                // Old saves kept extra-time goals out of the stored score; a level sum would contradict the decision.
+                if (extraTime && aggregate1.equals(aggregate2)) aggregate1 = aggregate2 = null;
+            }
+        }
+
+        // Shootout: structured columns, else "(pens N-N)" text, which is team1 first on single matches.
+        Integer penalties1 = result.getPenaltyTeam1Score();
+        Integer penalties2 = result.getPenaltyTeam2Score();
+        Matcher penaltyText = PENALTY_SUFFIX.matcher(storedSuffix);
+        if (shootout && (penalties1 == null || penalties2 == null) && legNumber != 2 && penaltyText.find()) {
+            penalties1 = Integer.valueOf(penaltyText.group(1));
+            penalties2 = Integer.valueOf(penaltyText.group(2));
+        }
+        return new ResultReading(scoreReadable, team1Goals, team2Goals, legNumber, aggregate1, aggregate2,
+                penalties1, penalties2, shootout, extraTime, storedSuffix);
+    }
+
+    /** Score in the simulator's own text shapes, from team1's side or team2's; null when unreadable. */
+    private static String scoreText(ResultReading reading, boolean team1Side) {
+        if (!reading.scoreReadable()) return null;
+        String suffix = reading.storedSuffix();
+        if (reading.legNumber() == 1) {
+            suffix = " (1st leg)";
+        } else if (reading.shootout() || reading.extraTime() || reading.aggregateKnown()) {
+            String decision = reading.shootout()
+                    ? (reading.penaltiesKnown()
+                        ? "pens " + pair(team1Side, reading.penalties1(), reading.penalties2()) : "pens")
+                    : reading.extraTime() ? "a.e.t." : null;
+            if (reading.aggregateKnown()) {
+                suffix = " (agg " + pair(team1Side, reading.aggregate1(), reading.aggregate2())
+                        + (decision == null ? "" : ", " + decision) + ")";
+            } else {
+                suffix = decision == null ? "" : " (" + decision + ")";
+            }
+        }
+        int first = team1Side ? reading.team1Goals() : reading.team2Goals();
+        int second = team1Side ? reading.team2Goals() : reading.team1Goals();
+        return first + " - " + second + suffix;
+    }
+
+    private static String pair(boolean team1Side, int team1Value, int team2Value) {
+        return team1Side ? team1Value + "-" + team2Value : team2Value + "-" + team1Value;
+    }
+
+    /** Upcoming rows only: the live table says where the opponent stands now, not when a past match was played. */
+    private void applyOpponentLeaguePosition(ScheduleView view, ScheduleLookups lookups) {
+        view.setOpponentLeaguePosition(lookups.leaguePosition(view.getOpponentTeamId()));
+        if (view.getOpponentLeaguePosition() == null) view.getUnknownFields().add("opponentLeaguePosition");
+    }
+
+    /**
+     * Goalscorers of every official match a club played in a season, in Schedule order.
+     * Goal events carry minute and penalty; matches without events fall back to the
+     * per-player goal counts in Scorer, which have neither.
+     */
+    public List<MatchGoalscorersView> getSeasonGoalscorers(int seasonNumber, long teamId) {
+        List<CompetitionTeamInfoDetail> results =
+                competitionTeamInfoDetailRepository.findAllBySeasonNumberAndTeamId(seasonNumber, teamId);
+
+        Map<String, List<MatchEvent>> eventsByMatch = new HashMap<>();
+        for (MatchEvent goal : matchEventRepository.findGoalsBySeasonNumberAndTeamId(seasonNumber, teamId)) {
+            eventsByMatch.computeIfAbsent(fixtureKey(goal.getCompetitionId(), goal.getRoundNumber(),
+                    goal.getTeamId1(), goal.getTeamId2()), key -> new ArrayList<>()).add(goal);
+        }
+        Map<String, List<Scorer>> scorersByMatch = new HashMap<>();
+        for (Scorer row : scorerRepository.findGoalRowsBySeasonNumberAndTeamId(seasonNumber, teamId)) {
+            scorersByMatch.computeIfAbsent(scorerKey(row.getCompetitionId(), row.getRoundNumber(),
+                    row.getTeamId(), row.getOpponentTeamId(), row.getTeamScore(), row.getOpponentScore()),
+                    key -> new ArrayList<>()).add(row);
+        }
+        Map<Long, String> playerNames = new HashMap<>();
+        humanRepository.findAllById(scorersByMatch.values().stream().flatMap(List::stream)
+                        .map(Scorer::getPlayerId).collect(java.util.stream.Collectors.toSet()))
+                .forEach(player -> playerNames.put(player.getId(), player.getName()));
+
+        // A Scorer row only knows comp/round/pair/score: two legs of one round with the same
+        // score seen from one side cannot be told apart, so neither leg may use those rows.
+        Map<String, Integer> scorerKeyUse = new HashMap<>();
+        for (CompetitionTeamInfoDetail result : results) {
+            int[] goals = scoreGoals(result);
+            if (goals == null) continue;
+            scorerKeyUse.merge(scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam1Id(),
+                    result.getTeam2Id(), goals[0], goals[1]), 1, Integer::sum);
+            scorerKeyUse.merge(scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam2Id(),
+                    result.getTeam1Id(), goals[1], goals[0]), 1, Integer::sum);
+        }
+
+        List<MatchGoalscorersView> views = new ArrayList<>();
+        for (CompetitionTeamInfoDetail result : results) {
+            MatchGoalscorersView view = new MatchGoalscorersView();
+            view.setCompetitionId(result.getCompetitionId());
+            view.setSeasonNumber(seasonNumber);
+            view.setRoundNumber((int) result.getRoundId());
+            view.setTeamId1(result.getTeam1Id());
+            view.setTeamId2(result.getTeam2Id());
+            int[] score = scoreGoals(result);
+
+            List<MatchEvent> events = eventsByMatch.getOrDefault(fixtureKey(result.getCompetitionId(),
+                    result.getRoundId(), result.getTeam1Id(), result.getTeam2Id()), List.of());
+            if (!events.isEmpty()) {
+                events.stream().sorted(Comparator.comparingInt(MatchEvent::getMinute)).forEach(event -> {
+                    MatchGoalscorersView.Goal goal = new MatchGoalscorersView.Goal();
+                    goal.setPlayerId(event.getPlayerId());
+                    goal.setPlayerName(event.getPlayerName());
+                    goal.setTeamId(event.getTeamId());
+                    goal.setMinute(event.getMinute());
+                    // Legacy events write "Penalty", canonical ones the goal type "PENALTY".
+                    goal.setPenalty("penalty".equalsIgnoreCase(event.getDetails()));
+                    view.getGoals().add(goal);
+                });
+            } else if (score != null) {
+                String homeKey = scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam1Id(),
+                        result.getTeam2Id(), score[0], score[1]);
+                String awayKey = scorerKey(result.getCompetitionId(), result.getRoundId(), result.getTeam2Id(),
+                        result.getTeam1Id(), score[1], score[0]);
+                if (scorerKeyUse.getOrDefault(homeKey, 0) == 1 && scorerKeyUse.getOrDefault(awayKey, 0) == 1) {
+                    List<Scorer> rows = new ArrayList<>(scorersByMatch.getOrDefault(homeKey, List.of()));
+                    rows.addAll(scorersByMatch.getOrDefault(awayKey, List.of()));
+                    for (Scorer row : rows) {
+                        for (int i = 0; i < row.getGoals(); i++) {
+                            MatchGoalscorersView.Goal goal = new MatchGoalscorersView.Goal();
+                            goal.setPlayerId(row.getPlayerId());
+                            goal.setPlayerName(playerNames.get(row.getPlayerId()));
+                            goal.setTeamId(row.getTeamId());
+                            view.getGoals().add(goal);
+                        }
+                    }
+                }
+                if (!view.getGoals().isEmpty()) {
+                    view.getUnknownFields().add("minute");
+                    view.getUnknownFields().add("penalty");
+                }
+            }
+            if (score == null || view.getGoals().size() < score[0] + score[1]) view.getUnknownFields().add("goals");
+            views.add(view);
+        }
+
+        Map<String, Integer> dayByMatch = new HashMap<>();
+        results.forEach(result -> dayByMatch.put(fixtureKey(result.getCompetitionId(), result.getRoundId(),
+                result.getTeam1Id(), result.getTeam2Id()), result.getDay()));
+        views.sort(Comparator.<MatchGoalscorersView>comparingInt(view -> dayByMatch.getOrDefault(fixtureKey(
+                        view.getCompetitionId(), view.getRoundNumber(), view.getTeamId1(), view.getTeamId2()), 0))
+                .thenComparingInt(MatchGoalscorersView::getRoundNumber)
+                .thenComparingLong(MatchGoalscorersView::getCompetitionId));
+        return views;
+    }
+
+    /** Stored final goals (team1, team2), or null when the score text is unreadable. */
+    private static int[] scoreGoals(CompetitionTeamInfoDetail result) {
+        Matcher score = result.getScore() == null ? null : SCORE_PATTERN.matcher(result.getScore());
+        if (score == null || !score.matches()) return null;
+        return new int[]{Integer.parseInt(score.group(1)), Integer.parseInt(score.group(2))};
+    }
+
+    /** Scorer-row key from one side: comp, round, side, opponent and that side's score. */
+    private static String scorerKey(long competitionId, long round, long teamId, long opponentTeamId,
+                                    int teamScore, int opponentScore) {
+        return competitionId + ":" + round + ":" + teamId + ":" + opponentTeamId + ":" + teamScore + ":" + opponentScore;
+    }
+
+    private void applyDay(ScheduleView view, int day, String fallbackDate) {
+        view.setDay(day);
+        if (day > 0) {
+            view.setDate(calendarService.getDateDisplay(day));
+            view.setDayOfWeek(calendarService.getDayOfWeek(day));
+        } else {
+            // Saves from before calendar days were stored: no real date exists.
+            view.setDate(fallbackDate);
+            view.getUnknownFields().add("day");
+            view.getUnknownFields().add("date");
+            view.getUnknownFields().add("dayOfWeek");
+        }
+    }
+
+    private static String fixtureKey(long competitionId, long round, long team1Id, long team2Id) {
+        return competitionId + ":" + round + ":" + team1Id + ":" + team2Id;
+    }
+
+    /** Competition and team lookups shared by every row of one schedule request. */
+    private final class ScheduleLookups {
+        private final long seasonNumber;
+        private final Map<Long, String> teamNames = new HashMap<>();
+        private final Map<Long, Optional<String>> stadiumNames = new HashMap<>();
+        private final Map<Long, String> competitionNames = new HashMap<>();
+        private final Map<Long, Optional<String>> competitionTypes = new HashMap<>();
+        private final Map<String, String> roundLabels = new HashMap<>();
+        private final Map<Long, Optional<Integer>> leaguePositions = new HashMap<>();
+        private final Map<Long, List<TeamCompetitionView>> leagueTables = new HashMap<>();
+        private final List<CompetitionTeamInfoDetail> seasonResults;
+
+        private ScheduleLookups(long seasonNumber, List<CompetitionTeamInfoDetail> seasonResults) {
+            this.seasonNumber = seasonNumber;
+            this.seasonResults = seasonResults;
+        }
+
+        /**
+         * Home/away goals of the first leg paired with a second leg (team1 vs team2): the
+         * same tie with the venues swapped. Null when the first leg is not on record.
+         */
+        int[] firstLegGoals(long competitionId, long leg2Team1Id, long leg2Team2Id, long tieId) {
+            for (CompetitionTeamInfoDetail candidate : seasonResults) {
+                if (candidate.getCompetitionId() != competitionId
+                        || candidate.getTeam1Id() != leg2Team2Id || candidate.getTeam2Id() != leg2Team1Id) continue;
+                boolean firstLeg = candidate.getLegNumber() == 1 || "FIRST_LEG".equals(candidate.getDecidedBy());
+                if (!firstLeg || (tieId != 0 && candidate.getTieId() != 0 && candidate.getTieId() != tieId)) continue;
+                Matcher goals = candidate.getScore() == null ? null : SCORE_PATTERN.matcher(candidate.getScore());
+                if (goals == null || !goals.matches()) return null;
+                return new int[]{Integer.parseInt(goals.group(1)), Integer.parseInt(goals.group(2))};
+            }
+            return null;
+        }
+
+        String teamName(long teamId, String storedName) {
+            String name = teamNames.computeIfAbsent(teamId, teamRepository::findNameById);
+            return name != null ? name : storedName;
+        }
+
+        String stadiumName(long teamId) {
+            return stadiumNames.computeIfAbsent(teamId,
+                    id -> Optional.ofNullable(teamRepository.findStadiumNameById(id))).orElse(null);
+        }
+
+        String competitionName(long competitionId) {
+            return competitionNames.computeIfAbsent(competitionId, competitionRepository::findNameById);
+        }
+
+        Integer leaguePosition(long teamId) {
+            return leaguePositions.computeIfAbsent(teamId, id -> {
+                Long leagueId = teamRepository.findCompetitionIdById(id);
+                if (leagueId == null || leagueId <= 0 || !"League".equals(competitionType(leagueId))) {
+                    return Optional.empty();
+                }
+                // Same live table as /competition/getTeams/{leagueId}.
+                return leagueTables.computeIfAbsent(leagueId,
+                                league -> competitionDisplayService.getTeamDetails(league, null)).stream()
+                        .filter(row -> row.getTeamId() == id)
+                        .map(TeamCompetitionView::getPosition)
+                        .findFirst();
+            }).orElse(null);
+        }
+
+        String competitionType(long competitionId) {
+            return competitionTypes.computeIfAbsent(competitionId,
+                    id -> Optional.ofNullable(scheduleCompetitionType(competitionRepository.findTypeIdById(id))))
+                    .orElse(null);
+        }
+
+        String roundLabel(long competitionId, long round) {
+            return roundLabels.computeIfAbsent(competitionId + ":" + round,
+                    key -> competitionProgressService.roundLabel(competitionId, round, seasonNumber));
+        }
+    }
+
+    static String scheduleCompetitionType(Long typeId) {
+        if (typeId == null) return null;
+        int type = typeId.intValue();
+        if (type == Competition.LEAGUE || type == LEGACY_SECOND_LEAGUE_TYPE) return "League";
+        if (type == Competition.CUP || type == Competition.SUPER_CUP) return "Cup";
+        if (type == Competition.LEAGUE_OF_CHAMPIONS || type == Competition.STARS_CUP) return "Continental";
+        return null;
     }
 
     public List<CalendarEntryView> getCalendarEntries(List<CompetitionTeamInfoMatch> matches, long teamId, long seasonNumber) {
@@ -197,33 +623,63 @@ public class MatchService {
         return entries;
     }
 
-    private void appendFriendlySchedule(List<ScheduleView> schedule, long teamId, int season) {
+    private void appendFriendlySchedule(List<ScheduleView> schedule, long teamId, int season, ScheduleLookups lookups) {
         List<FriendlyMatch> friendlies = teamFriendlies(teamId, season);
         Map<Long, FriendlyEvent> events = friendlyEvents(friendlies);
         for (FriendlyMatch match : friendlies) {
             boolean home = match.getHomeTeamId() == teamId;
+            boolean completed = "COMPLETED".equals(match.getStatus());
             String opponentName = home ? match.getAwayTeamName() : match.getHomeTeamName();
             ScheduleView view = new ScheduleView();
             view.setOpponentTeam(opponentName);
+            view.setOpponentTeamId(home ? match.getAwayTeamId() : match.getHomeTeamId());
             view.setHomeOrAway(home ? "H" : "A");
             view.setHomeTeamAbbr(abbreviateTeamName(match.getHomeTeamName()));
             view.setAwayTeamAbbr(abbreviateTeamName(match.getAwayTeamName()));
             view.setCompetitionName(friendlyCompetitionName(match, events));
+            view.setCompetitionType("Friendly");
+            view.setRoundLabel(friendlyRoundLabel(match, events));
             view.setScore(friendlyScore(match, home));
-            view.setDate(calendarService.getDateDisplay(match.getDay()));
             view.setCompetitionId(friendlyCompetitionId(match));
             view.setSeasonNumber(season);
             view.setRoundNumber(safeMatchId(match.getId()));
             view.setTeamId1(match.getHomeTeamId());
             view.setTeamId2(match.getAwayTeamId());
-            view.setDay(match.getDay());
-            if ("COMPLETED".equals(match.getStatus()) && match.getHomeGoals() != match.getAwayGoals()) {
+            applyDay(view, match.getDay(), calendarService.getDateDisplay(match.getDay()));
+            view.setVenueName(match.getVenueName() != null ? match.getVenueName()
+                    : lookups.stadiumName(match.getHomeTeamId()));
+            if (view.getVenueName() == null) view.getUnknownFields().add("venueName");
+            if (completed && match.getHomeGoals() != match.getAwayGoals()) {
                 view.setWinnerTeamId(match.getHomeGoals() > match.getAwayGoals()
                         ? match.getHomeTeamId() : match.getAwayTeamId());
             }
-            view.setDecidedBy("COMPLETED".equals(match.getStatus()) ? "FRIENDLY" : null);
+            view.setDecidedBy(completed ? "FRIENDLY" : null);
+            view.setStatus(completed ? "played" : "upcoming");
+            if (!completed) applyOpponentLeaguePosition(view, lookups);
+            if (completed) {
+                int own = home ? match.getHomeGoals() : match.getAwayGoals();
+                int opponent = home ? match.getAwayGoals() : match.getHomeGoals();
+                view.setTeamGoals(own);
+                view.setOpponentGoals(opponent);
+                view.setResultOutcome(own > opponent ? "W" : own < opponent ? "L" : "D");
+            }
+            // Friendly stats are keyed (0, season, day, home, away) and have no result row,
+            // so /match/report cannot be built from this row's identifiers.
+            view.setReportAvailable(false);
             schedule.add(view);
         }
+    }
+
+    private String friendlyRoundLabel(FriendlyMatch match, Map<Long, FriendlyEvent> events) {
+        boolean eventMatch = match.getFriendlyEventId() != null && events.containsKey(match.getFriendlyEventId());
+        if (!eventMatch || match.getEventStage() == null || "FRIENDLY".equals(match.getEventStage())) return "Friendly";
+        StringBuilder label = new StringBuilder();
+        for (String word : match.getEventStage().toLowerCase(java.util.Locale.ROOT).split("_")) {
+            if (word.isEmpty()) continue;
+            if (!label.isEmpty()) label.append(' ');
+            label.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+        }
+        return label.toString();
     }
 
     private void appendFriendlyCalendar(List<CalendarEntryView> entries, long teamId, int season) {
@@ -304,6 +760,12 @@ public class MatchService {
 
     private static final Pattern SCORE_PATTERN =
             Pattern.compile("^\\s*(\\d+)\\s*-\\s*(\\d+)(.*)$");
+
+    private static final Pattern AGGREGATE_SUFFIX = Pattern.compile("agg\\s*\\d+\\s*-\\s*\\d+");
+    private static final Pattern PENALTY_SUFFIX = Pattern.compile("pens\\s*(\\d+)\\s*-\\s*(\\d+)");
+    private static final Pattern FIRST_LEG_SUFFIX = Pattern.compile("1st leg");
+    /** Second divisions were their own type before Competition.tier existed. */
+    private static final int LEGACY_SECOND_LEAGUE_TYPE = 3;
 
     private String reverseScore(String score) {
         Matcher matcher = SCORE_PATTERN.matcher(score);

@@ -81,6 +81,16 @@ public interface CompetitionTeamInfoDetailRepository extends JpaRepository<Compe
       """)
   List<CompetitionTeamInfoDetail> findAllByTeamId(@Param("teamId") long teamId);
 
+  /** One club's results in one season; survives the per-season fixture wipe. */
+  @Query("""
+      SELECT d FROM CompetitionTeamInfoDetail d
+      WHERE d.seasonNumber = :seasonNumber AND (d.team1Id = :teamId OR d.team2Id = :teamId)
+      ORDER BY d.id ASC
+      """)
+  List<CompetitionTeamInfoDetail> findAllBySeasonNumberAndTeamId(
+          @Param("seasonNumber") long seasonNumber,
+          @Param("teamId") long teamId);
+
   @Query("""
       SELECT d FROM CompetitionTeamInfoDetail d
       WHERE (d.team1Id = :teamA AND d.team2Id = :teamB)
