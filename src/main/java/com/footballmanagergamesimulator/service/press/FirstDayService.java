@@ -16,7 +16,12 @@ import java.util.Optional;
 @Service
 public class FirstDayService {
 
-    public record Step(String key, String label, boolean done, String route) {}
+    /** {@code messageId}: the inbox message the step is about (0 for none), so the page can open it directly. */
+    public record Step(String key, String label, boolean done, String route, long messageId) {
+        Step(String key, String label, boolean done, String route) {
+            this(key, label, done, route, 0);
+        }
+    }
 
     public record Status(boolean pending, List<Step> steps) {
         public String nextLabel() {
@@ -75,9 +80,11 @@ public class FirstDayService {
         if (open.isEmpty()) return new Status(false, List.of());
         FirstDay day = open.get();
         List<Step> steps = new ArrayList<>();
-        steps.add(new Step("ARTICLE", "Read the press article on your appointment", read(day.getArticleMessageId()), "/inbox"));
+        steps.add(new Step("ARTICLE", "Read the press article on your appointment", read(day.getArticleMessageId()), "/inbox",
+                day.getArticleMessageId()));
         steps.add(new Step("BOARD", "Meet the board", meeting(day, MeetingRecord.BOARD, true), "/board-meeting"));
-        steps.add(new Step("BRIEFING", "Read your assistant's briefing", read(day.getBriefingMessageId()), "/inbox"));
+        steps.add(new Step("BRIEFING", "Read your assistant's briefing", read(day.getBriefingMessageId()), "/inbox",
+                day.getBriefingMessageId()));
         steps.add(new Step("SQUAD", "Meet the squad (or refuse)", meeting(day, MeetingRecord.SQUAD, false), "/squad-meeting"));
         steps.add(new Step("STAFF", "Meet the staff (or refuse)", meeting(day, MeetingRecord.STAFF, false), "/staff-meeting"));
         steps.add(new Step("PRESS", "Face the press (or refuse)", meeting(day, MeetingRecord.PRESS, false), "/press-conference"));
@@ -93,11 +100,17 @@ public class FirstDayService {
         return messageId == 0 || inboxRepository.findById(messageId).map(ManagerInbox::isRead).orElse(true);
     }
 
-    /** The board meeting counts once it is no longer pending; the others once held or refused. */
+    /**
+     * The board meeting counts once it is no longer pending; the others once held or refused. Meetings are
+     * recorded for the season they happen in, which is later than the first day's own season when the game went
+     * on unattended (Always Continue, fast-forward) across a season change: those count too, or the first day
+     * could never end.
+     */
     private boolean meeting(FirstDay day, String type, boolean mustBeSettled) {
-        return meetingRepository.findByTeamIdAndSeasonAndType(day.getTeamId(), day.getSeason(), type)
-                .map(r -> !mustBeSettled || !"PENDING".equals(r.getOutcome()))
-                .orElse(!mustBeSettled ? false : true);
+        List<MeetingRecord> records = meetingRepository
+                .findAllByTeamIdAndTypeAndSeasonGreaterThanEqual(day.getTeamId(), type, day.getSeason());
+        if (!mustBeSettled) return !records.isEmpty();
+        return records.isEmpty() || records.stream().anyMatch(r -> !"PENDING".equals(r.getOutcome()));
     }
 
     private long latest(long teamId, String category) {

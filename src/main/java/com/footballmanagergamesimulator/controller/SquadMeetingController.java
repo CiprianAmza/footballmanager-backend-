@@ -31,7 +31,7 @@ public class SquadMeetingController {
     /** Refuse the meeting this season: the players' trust and morale drop. */
     @PostMapping("/refuse")
     public ResponseEntity<?> refuse(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         try {
             return ResponseEntity.ok(meetings.refuse(teamId));
         } catch (IllegalStateException refused) {
@@ -42,7 +42,7 @@ public class SquadMeetingController {
     /** Body: {"teamId": 1, "targets": {"5": "TOP_3", "9": "SEMI_FINAL"}}. Once per season. */
     @PostMapping
     public ResponseEntity<?> hold(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         Map<Long, String> targets = new HashMap<>();
         if (body.get("targets") instanceof Map<?, ?> map) {
             map.forEach((k, v) -> targets.put(Long.parseLong(String.valueOf(k)), String.valueOf(v)));

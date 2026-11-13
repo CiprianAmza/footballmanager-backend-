@@ -60,6 +60,55 @@ class FirstDayServiceTest {
         assertFalse(firstDays.status(club).pending(), "stays over");
     }
 
+    @Test
+    @DisplayName("""
+            GIVEN a first day started in season 1 that the game skipped past (Always Continue) into season 2,
+             with the article and briefing read and the board meeting settled in season 1
+            WHEN the manager now holds the squad, staff and press meetings, which are recorded for season 2
+            THEN they count: the first day is over instead of blocking the game for ever
+            """)
+    void meetingsHeldAfterASeasonChangeStillEndTheFirstDay() {
+        long club = 94;
+        ManagerInbox article = message(club, AppointmentArticleService.CATEGORY);
+        ManagerInbox briefing = message(club, ArrivalBriefingService.CATEGORY);
+        meeting(club, MeetingRecord.BOARD, MeetingRecord.HELD);
+        Human manager = new Human();
+        manager.setName("Vorlam");
+        manager.setTypeId(TypeNames.MANAGER_TYPE);
+        manager = humans.save(manager);
+        firstDays.start(manager, club, 1);
+        article.setRead(true);
+        briefing.setRead(true);
+        inbox.save(article);
+        inbox.save(briefing);
+        assertEquals("Meet the squad (or refuse)", firstDays.status(club).nextLabel());
+
+        meeting(club, MeetingRecord.SQUAD, MeetingRecord.HELD, 2);
+        meeting(club, MeetingRecord.STAFF, MeetingRecord.REFUSED, 2);
+        meeting(club, MeetingRecord.PRESS, MeetingRecord.HELD, 2);
+
+        assertFalse(firstDays.status(club).pending());
+    }
+
+    @Test
+    @DisplayName("""
+            GIVEN a first day started in season 2 at a club whose previous season had a squad meeting
+            WHEN its status is read
+            THEN the old season's meeting does not count for this first day
+            """)
+    void meetingsFromBeforeTheFirstDayDoNotCount() {
+        long club = 95;
+        meeting(club, MeetingRecord.SQUAD, MeetingRecord.HELD, 1);
+        Human manager = new Human();
+        manager.setName("Ulmet");
+        manager.setTypeId(TypeNames.MANAGER_TYPE);
+        manager = humans.save(manager);
+        firstDays.start(manager, club, 2);
+
+        assertFalse(firstDays.status(club).steps().stream()
+                .filter(s -> "SQUAD".equals(s.key())).findFirst().orElseThrow().done());
+    }
+
     private ManagerInbox message(long club, String category) {
         ManagerInbox m = new ManagerInbox();
         m.setTeamId(club);
@@ -71,9 +120,13 @@ class FirstDayServiceTest {
     }
 
     private void meeting(long club, String type, String outcome) {
+        meeting(club, type, outcome, 1);
+    }
+
+    private void meeting(long club, String type, String outcome, int season) {
         MeetingRecord r = new MeetingRecord();
         r.setTeamId(club);
-        r.setSeason(1);
+        r.setSeason(season);
         r.setType(type);
         r.setOutcome(outcome);
         meetings.save(r);

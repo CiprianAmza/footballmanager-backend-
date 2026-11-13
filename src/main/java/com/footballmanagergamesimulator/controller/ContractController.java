@@ -436,8 +436,7 @@ public class ContractController {
     @PostMapping("/negotiation/{id}/offer")
     public ResponseEntity<?> offerInNegotiation(HttpServletRequest request, @PathVariable long id,
                                                 @RequestBody Map<String, Object> body) {
-        long teamId = clubActionAuthorizationService.authorize(request, body,
-                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = clubActionAuthorizationService.authorize(request, body, negotiationAction(id)).teamId();
         var offer = new com.footballmanagergamesimulator.service.ContractPoints.Offer(
                 longOf(body, "wage"), (int) longOf(body, "years"),
                 longOf(body, "signingBonus"), longOf(body, "releaseClause"));
@@ -447,10 +446,19 @@ public class ContractController {
     @PostMapping("/negotiation/{id}/final")
     public ResponseEntity<?> answerFinalOffer(HttpServletRequest request, @PathVariable long id,
                                               @RequestBody Map<String, Object> body) {
-        long teamId = clubActionAuthorizationService.authorize(request, body,
-                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = clubActionAuthorizationService.authorize(request, body, negotiationAction(id)).teamId();
         boolean accept = Boolean.parseBoolean(String.valueOf(body.get("accept")));
         return negotiationResponse(() -> negotiationService.answerFinalOffer(id, teamId, accept));
+    }
+
+    /**
+     * Personal terms of a transfer are opened under the transfer permission, so they are finished under it too:
+     * a coach the chairman lets buy but not negotiate contracts could otherwise never end them (and the day stays blocked).
+     */
+    private com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action negotiationAction(long negotiationId) {
+        return negotiationService.isTransfer(negotiationId)
+                ? com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER
+                : com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT;
     }
 
     @Autowired

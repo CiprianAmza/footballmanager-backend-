@@ -30,7 +30,7 @@ public class BoardMeetingController {
     /** Body: {"teamId": 1}. Ends a meeting in which nobody asked anything. */
     @PostMapping("/close")
     public ResponseEntity<?> close(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         try {
             return ResponseEntity.ok(meetings.close(teamId));
         } catch (IllegalStateException refused) {
@@ -41,7 +41,7 @@ public class BoardMeetingController {
     /** Body: {"teamId": 1, "answer": "WITH_YOU"}. A private answer to the ambitious director. */
     @PostMapping("/answer")
     public ResponseEntity<?> answer(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         try {
             return ResponseEntity.ok(meetings.answer(teamId,
                     BoardMeetingService.Answer.valueOf(String.valueOf(body.get("answer")))));

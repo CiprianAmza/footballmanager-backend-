@@ -184,6 +184,83 @@ class ContractNegotiationServiceTest {
         verify(transferHandler, never()).complete(anyLong());
     }
 
+    @Autowired private ContractNegotiationRepository negotiations;
+
+    @Test
+    @DisplayName("""
+            GIVEN renewal talks in progress
+            WHEN the manager who opened them leaves the club (resigns or takes another job)
+            THEN nobody can finish them any more: they are cancelled and the day is free again
+            """)
+    void talksOfAManagerWhoLeftDoNotBlockTheDay() {
+        ContractNegotiation n = service.startRenewal(playerId, teamId);
+        Human manager = humans.findById(managerId).orElseThrow();
+        manager.setTeamId(0L);
+        humans.save(manager);
+
+        assertFalse(service.hasOpenNegotiation());
+        assertEquals(Status.CANCELLED, negotiations.findById(n.getId()).orElseThrow().getStatus());
+        assertEquals(3_000, humans.findById(playerId).orElseThrow().getWage(), "contract unchanged");
+    }
+
+    @Test
+    @DisplayName("""
+            GIVEN renewal talks in progress
+            WHEN the player is sold to another club before they end
+            THEN the talks are cancelled and the day is free again
+            """)
+    void renewalOfAPlayerWhoWasSoldDoesNotBlockTheDay() {
+        ContractNegotiation n = service.startRenewal(playerId, teamId);
+        Human player = humans.findById(playerId).orElseThrow();
+        player.setTeamId(teamId + 100);
+        humans.save(player);
+
+        assertFalse(service.hasOpenNegotiation());
+        assertEquals(Status.CANCELLED, negotiations.findById(n.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    @DisplayName("""
+            GIVEN personal terms in progress for a fee-agreed transfer
+            WHEN the fee agreement lapses before I make an offer
+            THEN the talks are cancelled, the fee agreement collapses and the day is free again
+            """)
+    void personalTermsWithoutAFeeAgreementDoNotBlockTheDay() {
+        long sellerId = otherClubWithPlayer();
+        long offerId = feeAgreedOffer(sellerId);
+        ContractNegotiation n = service.startTransfer(offerId, teamId);
+        TransferOffer offer = offers.findById(offerId).orElseThrow();
+        offer.setStatus(TransferOffer.STATUS_TERMS_FAILED);
+        offers.save(offer);
+
+        assertFalse(service.hasOpenNegotiation());
+        assertEquals(Status.CANCELLED, negotiations.findById(n.getId()).orElseThrow().getStatus());
+        verify(transferHandler).collapse(org.mockito.ArgumentMatchers.eq(offerId), anyString());
+    }
+
+    @Test
+    @DisplayName("""
+            GIVEN the same renewal talks opened twice (a double click raced past the "already open" check)
+            WHEN the game asks whether a negotiation blocks the day
+            THEN the older copy is cancelled and only the newest one, which the page shows, still blocks the day
+            """)
+    void aDuplicateOfTheSameTalksIsClosed() {
+        ContractNegotiation first = service.startRenewal(playerId, teamId);
+        ContractNegotiation copy = new ContractNegotiation();
+        copy.setKind(first.getKind());
+        copy.setPlayerId(first.getPlayerId());
+        copy.setTeamId(first.getTeamId());
+        copy.setManagerId(first.getManagerId());
+        copy.setAgentId(first.getAgentId());
+        copy.setSeason(first.getSeason());
+        copy.setStatus(Status.OPEN);
+        copy = negotiations.save(copy);
+
+        assertTrue(service.hasOpenNegotiation());
+        assertEquals(Status.CANCELLED, negotiations.findById(first.getId()).orElseThrow().getStatus());
+        assertEquals(Status.OPEN, negotiations.findById(copy.getId()).orElseThrow().getStatus());
+    }
+
     @Test
     @DisplayName("""
             GIVEN fee talks with a selling club, open and then at its final offer

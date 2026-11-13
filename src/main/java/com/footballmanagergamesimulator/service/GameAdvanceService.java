@@ -276,6 +276,8 @@ public class GameAdvanceService {
                 result.put("reason", "FIRST_DAY_PENDING");
                 result.put("awaitingInput", true);
                 result.put("firstDayNext", firstDay.nextLabel());
+                // Whose first day it is: another manager's first day pauses the game too, but is not mine to finish.
+                result.put("firstDayTeamId", u.getTeamId());
                 result.put("season", season);
                 result.put("day", calendar.getCurrentDay());
                 result.put("phase", calendar.getCurrentPhase());

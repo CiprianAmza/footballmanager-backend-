@@ -51,9 +51,56 @@ public class ContractNegotiationService {
         }
     }
 
+    /**
+     * Whether talks with an agent block the day (fee talks with a selling club do not). Talks nobody can finish
+     * any more are closed first, so they cannot block the day for ever: the manager who opened them has left the
+     * club, the player has left it (renewal) or the fee agreement no longer holds (transfer), or a second copy of
+     * the same talks was opened (a double click) — the newest copy is the one kept.
+     */
+    @Transactional
     public boolean hasOpenNegotiation() {
-        // Only talks with an agent block the day; fee talks with a selling club do not.
-        return negotiationRepository.existsByStatusIn(OPEN_STATUSES);
+        List<ContractNegotiation> open = negotiationRepository.findAllByStatusIn(OPEN_STATUSES).stream()
+                .sorted(java.util.Comparator.comparingLong(ContractNegotiation::getId).reversed())
+                .toList();
+        Set<String> kept = new java.util.HashSet<>();
+        boolean blocking = false;
+        for (ContractNegotiation n : open) {
+            if (!kept.add(n.getTeamId() + ":" + n.getPlayerId())) {
+                // An older copy: the newest one carries on (and owns the transfer offer, so it is not collapsed).
+                n.setStatus(Status.CANCELLED);
+                negotiationRepository.save(n);
+            } else if (!canStillBeFinished(n)) {
+                if (ContractNegotiation.KIND_TRANSFER.equals(n.getKind())) {
+                    cancel(n);
+                } else {
+                    n.setStatus(Status.CANCELLED);
+                    negotiationRepository.save(n);
+                }
+            } else {
+                blocking = true;
+            }
+        }
+        return blocking;
+    }
+
+    /** The manager who opened the talks is still at the club, and the deal they are about is still possible. */
+    private boolean canStillBeFinished(ContractNegotiation n) {
+        if (n.getManagerId() > 0 && !humanRepository.findById(n.getManagerId())
+                .map(m -> m.getTeamId() != null && m.getTeamId() == n.getTeamId())
+                .orElse(false)) {
+            return false;
+        }
+        if (ContractNegotiation.KIND_TRANSFER.equals(n.getKind())) return transferStillPossible(n);
+        return humanRepository.findById(n.getPlayerId())
+                .map(h -> !h.isRetired() && h.getTeamId() != null && h.getTeamId() == n.getTeamId())
+                .orElse(false);
+    }
+
+    /** Transfer personal terms are a transfer action (the chairman's transfer permission), renewals a contract one. */
+    public boolean isTransfer(long negotiationId) {
+        return negotiationRepository.findById(negotiationId)
+                .map(n -> ContractNegotiation.KIND_TRANSFER.equals(n.getKind()))
+                .orElse(false);
     }
 
     public List<ContractNegotiation> openNegotiations(long teamId) {

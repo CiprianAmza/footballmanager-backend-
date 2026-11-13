@@ -10,6 +10,8 @@ public interface MeetingRecordRepository extends JpaRepository<MeetingRecord, Lo
 
     Optional<MeetingRecord> findByTeamIdAndSeasonAndType(long teamId, int season, String type);
 
+    List<MeetingRecord> findAllByTeamIdAndTypeAndSeasonGreaterThanEqual(long teamId, String type, int season);
+
     List<MeetingRecord> findAllByManagerIdAndTypeAndOutcome(long managerId, String type, String outcome);
 
     List<MeetingRecord> findAllByTypeAndOutcome(String type, String outcome);

@@ -30,7 +30,7 @@ public class StaffMeetingController {
     /** Body: {"teamId": 1, "emphasis": "TACTICAL", "philosophy": "YOUTH"}. */
     @PostMapping
     public ResponseEntity<?> hold(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         try {
             return ResponseEntity.ok(meetings.hold(teamId,
                     StaffMeetingService.Emphasis.valueOf(String.valueOf(body.get("emphasis"))),
@@ -42,7 +42,7 @@ public class StaffMeetingController {
 
     @PostMapping("/refuse")
     public ResponseEntity<?> refuse(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         try {
             return ResponseEntity.ok(meetings.refuse(teamId));
         } catch (IllegalStateException refused) {

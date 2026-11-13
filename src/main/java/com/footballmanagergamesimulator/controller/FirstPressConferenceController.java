@@ -32,7 +32,7 @@ public class FirstPressConferenceController {
     /** Body: {"teamId": 1, "articleAnswer": "PROVE_WRONG", "targets": {"5": "TOP_3"}}. */
     @PostMapping
     public ResponseEntity<?> hold(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         Map<Long, String> targets = new HashMap<>();
         if (body.get("targets") instanceof Map<?, ?> map) {
             map.forEach((k, v) -> targets.put(Long.parseLong(String.valueOf(k)), String.valueOf(v)));
@@ -50,7 +50,7 @@ public class FirstPressConferenceController {
 
     @PostMapping("/refuse")
     public ResponseEntity<?> refuse(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long teamId = authorization.authorize(request, body, ClubActionAuthorizationService.Action.MANAGER_DUTY).teamId();
         try {
             return ResponseEntity.ok(conferences.refuse(teamId));
         } catch (IllegalStateException refused) {

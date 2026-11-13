@@ -19,10 +19,12 @@ public final class SnapshotSchemaCatchUp {
             Pattern.compile("^CREATE (?:CACHED |MEMORY )?TABLE \"PUBLIC\"\\.\"([A-Z0-9_]+)\"\\(", Pattern.CASE_INSENSITIVE);
     private static final Pattern ALTER_TABLE =
             Pattern.compile("^ALTER TABLE \"PUBLIC\"\\.\"([A-Z0-9_]+)\"", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CREATE_INDEX =
+            Pattern.compile("^CREATE (?:UNIQUE )?INDEX \"PUBLIC\"\\.\"[^\"]+\" ON \"PUBLIC\"\\.\"([A-Z0-9_]+)\"", Pattern.CASE_INSENSITIVE);
     private static final Pattern COLUMN = Pattern.compile("^\\s*\"([A-Z0-9_]+)\"\\s+(.+?),?\\s*$");
 
-    /** A table as Hibernate built it: its CREATE statement, its constraints, and each column's definition. */
-    public record Table(String create, List<String> constraints, LinkedHashMap<String, String> columns) {}
+    /** A table as Hibernate built it: its CREATE statement, its constraints and indexes, and each column's definition. */
+    public record Table(String create, List<String> constraints, List<String> indexes, LinkedHashMap<String, String> columns) {}
 
     private SnapshotSchemaCatchUp() {}
 
@@ -44,15 +46,36 @@ public final class SnapshotSchemaCatchUp {
                 LinkedHashMap<String, String> columns = new LinkedHashMap<>();
                 for (String line : trimmed.split("\\R")) {
                     Matcher column = COLUMN.matcher(line);
-                    if (column.matches()) columns.put(column.group(1), column.group(2).replaceAll("\\)\\s*;?$", "").trim());
+                    if (column.matches()) columns.put(column.group(1), columnType(column.group(2)));
                 }
-                tables.put(create.group(1), new Table(trimmed, new ArrayList<>(), columns));
+                tables.put(create.group(1), new Table(trimmed, new ArrayList<>(), new ArrayList<>(), columns));
                 continue;
             }
             Matcher alter = ALTER_TABLE.matcher(trimmed);
-            if (alter.find() && tables.containsKey(alter.group(1))) tables.get(alter.group(1)).constraints().add(trimmed);
+            if (alter.find() && tables.containsKey(alter.group(1))) {
+                tables.get(alter.group(1)).constraints().add(trimmed);
+                continue;
+            }
+            Matcher index = CREATE_INDEX.matcher(trimmed);
+            if (index.find() && tables.containsKey(index.group(1))) tables.get(index.group(1)).indexes().add(trimmed);
         }
         return tables;
+    }
+
+    /**
+     * A column line's definition without the table's closing parenthesis, if the line carries it. Only a
+     * parenthesis that closes nothing in the definition is dropped: "CHARACTER VARYING(255)" stays whole.
+     */
+    static String columnType(String definition) {
+        String type = definition.trim().replaceAll(";$", "").trim();
+        while (type.endsWith(")") && count(type, ')') > count(type, '(')) {
+            type = type.substring(0, type.length() - 1).trim();
+        }
+        return type;
+    }
+
+    private static long count(String text, char c) {
+        return text.chars().filter(ch -> ch == c).count();
     }
 
     /** After the restore: create what the snapshot lacks. Returns what was added, for the log. */
@@ -70,6 +93,7 @@ public final class SnapshotSchemaCatchUp {
                 st.execute(entry.getValue().create());
                 // Constraint names (CONSTRAINT_xx) may already be taken in the restored schema: let H2 name them again.
                 for (String constraint : entry.getValue().constraints()) st.execute(unnamed(constraint));
+                for (String index : entry.getValue().indexes()) st.execute(unnamedIndex(index));
                 added.add(table);
                 continue;
             }
@@ -85,6 +109,11 @@ public final class SnapshotSchemaCatchUp {
 
     static String unnamed(String constraint) {
         return constraint.replaceFirst("(?i)ADD CONSTRAINT (?:\"[^\"]+\"\\.)?\"[^\"]+\"\\s+", "ADD ");
+    }
+
+    /** Index names live in the schema too, so a restored snapshot may already use one: let H2 name it. */
+    static String unnamedIndex(String index) {
+        return index.replaceFirst("(?i)INDEX (?:\"[^\"]+\"\\.)?\"[^\"]+\"\\s+ON ", "INDEX ON ");
     }
 
     /** A NOT NULL column without a default gets a neutral one, so rows already in the table stay valid. */
