@@ -118,9 +118,13 @@ public class PrebuiltDataService {
             String path = sqlLiteral(file.toAbsolutePath().toString());
             String snapshotVersion;
             try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
+                // The schema Hibernate built for the current code: tables added since the snapshot are re-created.
+                var current = SnapshotSchemaCatchUp.capture(st);
                 st.execute("DROP ALL OBJECTS");
                 st.execute("RUNSCRIPT FROM " + path);
                 migrateSnapshotSchema(st);
+                var added = SnapshotSchemaCatchUp.apply(st, current);
+                if (!added.isEmpty()) System.out.println("Snapshot schema caught up: " + added);
                 snapshotVersion = snapshotFlywayVersion(c);
             } catch (SQLException e) {
                 throw new IllegalStateException("Failed to restore H2 snapshot from " + file, e);
