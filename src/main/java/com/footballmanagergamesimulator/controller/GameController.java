@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.*;
+import com.footballmanagergamesimulator.user.CareerRole;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.user.UserRepository;
@@ -10,6 +11,7 @@ import com.footballmanagergamesimulator.util.TypeNames;
 import com.footballmanagergamesimulator.multiplayer.MultiplayerRoomService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -34,6 +36,9 @@ public class GameController {
 
     @Autowired
     PressConferenceService pressConferenceService;
+
+    @Autowired
+    ClubActionAuthorizationService clubActionAuthorization;
 
     @Autowired
     YouthAcademyService youthAcademyService;
@@ -402,23 +407,62 @@ public class GameController {
 
     // ==================== PRESS CONFERENCE ====================
 
+    /**
+     * Answers a press conference, once (409 ALREADY_ANSWERED / EXPIRED after that). Only the club's own manager
+     * answers it; a boardroom conference may also be answered by the chairman who controls the club.
+     */
     @PostMapping("/pressConference/{id}/respond")
-    public Map<String, Object> respondToPressConference(
+    public ResponseEntity<Map<String, Object>> respondToPressConference(
             @PathVariable long id,
-            @RequestBody Map<String, String> body) {
-        String responseType = body.get("responseType");
-        Map<String, Object> pressResult = pressConferenceService.respondToPressConference(id, responseType);
+            @RequestBody Map<String, String> body,
+            HttpServletRequest request) {
+        PressConference conference = pressConferenceRepository.findById(id).orElse(null);
+        if (conference == null) return ResponseEntity.status(404).body(Map.of("error", "NOT_FOUND"));
+        boolean boardroom = conference.getTopic() != null && conference.getTopic().startsWith("BOARDROOM");
+        clubActionAuthorization.authorize(request, Map.of("teamId", conference.getTeamId()), boardroom
+                ? ClubActionAuthorizationService.Action.CLUB_LEGACY
+                : ClubActionAuthorizationService.Action.MANAGER_DUTY);
 
-        // Auto-unpause and continue advancing after press conference response
+        Map<String, Object> pressResult;
+        try {
+            pressResult = new HashMap<>(pressConferenceService.respondToPressConference(id, body.get("responseType")));
+        } catch (IllegalStateException refused) {
+            return ResponseEntity.status(409).body(Map.of("error", refused.getMessage()));
+        } catch (IllegalArgumentException invalid) {
+            return ResponseEntity.badRequest().body(Map.of("error", invalid.getMessage()));
+        }
+
+        // Resume only when no other manager still has a conference to answer before the match.
         int season = getCurrentSeason();
-        GameCalendar cal = calendarService.getOrCreateCalendar(season);
-        cal.setPaused(false);
-        gameCalendarRepository.save(cal);
+        if (!pressConferenceService.anyPendingPreMatch(userContext.getAllHumanTeamIds(), season)) {
+            GameCalendar cal = calendarService.getOrCreateCalendar(season);
+            cal.setPaused(false);
+            gameCalendarRepository.save(cal);
+        }
 
         // Include updated game state so frontend can refresh
-        Map<String, Object> gameState = gameAdvanceService.getGameState(season);
-        pressResult.put("gameState", gameState);
-        return pressResult;
+        pressResult.put("gameState", gameAdvanceService.getGameState(season));
+        return ResponseEntity.ok(pressResult);
+    }
+
+    /**
+     * The caller's own pre-match conference still to answer before the match (204 when there is none), so each
+     * manager gets his own conference whoever pressed Continue, and in multiplayer rooms too.
+     */
+    @GetMapping("/pressConference/pending")
+    public ResponseEntity<Map<String, Object>> pendingPressConference(HttpServletRequest request) {
+        User user = userContext.getUserOrNull(request);
+        if (user == null || user.getCareerRole() == CareerRole.CHAIRMAN) return ResponseEntity.noContent().build();
+        Long teamId = userContext.getTeamIdOrNull(request);
+        if (teamId == null || teamId <= 0) return ResponseEntity.noContent().build();
+        PressConference pending = pressConferenceService.pendingPreMatch(teamId, getCurrentSeason());
+        if (pending == null) return ResponseEntity.noContent().build();
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("pressConferenceId", pending.getId());
+        view.put("teamId", teamId);
+        view.put("title", "Pre-match Press Conference");
+        view.put("question", pressConferenceService.questionFor(pending));
+        return ResponseEntity.ok(view);
     }
 
     // ==================== YOUTH ACADEMY ====================
