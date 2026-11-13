@@ -196,7 +196,7 @@ class LiveMatchSessionSubTest {
 
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 100.0, COMP, 1, 1, false,
-                null, -1, -1, 99L, "4231", "4411", -1, -1, -1, -1);
+                -1, -1, 99L, "4231", "4411", -1, -1, -1, -1);
 
         var state = session.snapshot();
         assertEquals("4231", state.getHomeFormation());

@@ -33,6 +33,9 @@ public class ManagerController {
     private ManagerHistoryRepository managerHistoryRepository;
 
     @Autowired
+    private com.footballmanagergamesimulator.user.ManagerBackgroundService managerBackgroundService;
+
+    @Autowired
     private HumanRepository humanRepository;
 
     @Autowired
@@ -84,6 +87,7 @@ public class ManagerController {
         profile.put("retired", manager.isRetired());
         profile.put("monthlySalary", manager.getSalary());
         profile.put("careerEarnings", manager.getCareerEarnings());
+        profile.put("background", managerBackgroundService.view(manager.getId()));
         profile.put("tacticStyle", manager.getTacticStyle());
         profile.put("knownTactics", manager.getKnownTactics());
         profile.put("alwaysUseBestPossibleTactic", manager.isAlwaysUseBestPossibleTactic());

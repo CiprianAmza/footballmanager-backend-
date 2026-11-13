@@ -314,6 +314,9 @@ public class TacticController {
     /**
      * Endpoint ACTUALIZAT pentru a salva pozițiile exacte (JSON)
      */
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.FrontCoachService> frontCoachService;
+
     @PostMapping("/saveFormation")
     public ResponseEntity<?> saveFormation(@RequestBody PersonalizedTacticView personalizedTacticView,
                                            HttpServletRequest request) {
@@ -326,6 +329,11 @@ public class TacticController {
             return ResponseEntity.status(403).body(Map.of(
                     "error", "You can only edit the tactic of your own team"
             ));
+        }
+        // A revolting front coach picks the team himself (design DESIGN_START_CARIERA §4).
+        com.footballmanagergamesimulator.service.board.FrontCoachService front = frontCoachService == null ? null : frontCoachService.getIfAvailable();
+        if (!adminOverride && front != null && front.isRevolting(teamId)) {
+            return ResponseEntity.status(409).body(Map.of("error", front.refusal(teamId)));
         }
 
         CoachPermissions perms = coachPermissionService.getOrDefault(teamId);
@@ -538,6 +546,15 @@ public class TacticController {
             player.setSeasonAverageRating(rated.stream().mapToDouble(Scorer::getRating).average().orElse(0));
             player.setLastFiveAverageRating(rated.stream().sorted(Comparator.comparingLong(Scorer::getId).reversed())
                     .limit(5).mapToDouble(Scorer::getRating).average().orElse(0));
+        }
+
+        // The special rating (engine weights, natural position), shown next to the rating.
+        Map<Long, PlayerSkills> skillsByPlayer = playerSkillsRepository
+                .findAllByPlayerIdIn(allPlayers.stream().map(PlayerView::getId).toList())
+                .stream().collect(Collectors.toMap(PlayerSkills::getPlayerId, s -> s, (a, b) -> a));
+        for (PlayerView player : allPlayers) {
+            PlayerSkills skills = skillsByPlayer.get(player.getId());
+            if (skills != null) player.setSpecialRating(PlayerSkillsService.computeSpecialRating(skills));
         }
 
         return allPlayers;
@@ -942,6 +959,7 @@ public class TacticController {
         result.put("suitability", Math.round(suitability * 10.0) / 10.0);
         result.put("effectiveRating", Math.round(effectiveRating * 10.0) / 10.0);
         result.put("overallRating", Math.round(PlayerSkillsService.computeOverallRating(skills) * 10.0) / 10.0);
+        result.put("specialRating", Math.round(PlayerSkillsService.computeSpecialRating(skills) * 10.0) / 10.0);
         return result;
     }
 

@@ -2,7 +2,6 @@ package com.footballmanagergamesimulator.compartment;
 
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig.CompartmentMultipliers;
-import com.footballmanagergamesimulator.config.CompartmentEngineConfig.CompartmentWeights;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig.Rating;
 
 import java.util.ArrayList;
@@ -15,7 +14,14 @@ import static com.footballmanagergamesimulator.compartment.ContextualPlayerRatin
 import static com.footballmanagergamesimulator.compartment.ContextualPlayerRating.CompartmentBreakdown;
 
 /**
- * Pure, side-effect-free Phase 0/1 implementation of contextual player ratings.
+ * Pure, side-effect-free contextual player ratings, in two levels:
+ * <ol>
+ *   <li>{@link PlayerSpecialProfile}: attack / midfield / defense from the attributes at the
+ *       natural position, independent of tactic;</li>
+ *   <li>this calculator: the tactic applied to that profile &mdash; the attributes the tactic
+ *       favours (context coefficients), the position played, role, duty, familiarity (the loss
+ *       off-position), fitness, morale, role fit.</li>
+ * </ol>
  *
  * <p>There is no Spring annotation, repository access, random source, match score or runtime
  * integration here. Callers must supply the typed configuration and the complete player snapshot.
@@ -30,44 +36,46 @@ public final class ContextualPlayerRatingCalculator {
 
     public ContextualPlayerRating rate(PlayerRatingInput input) {
         Objects.requireNonNull(input, "input");
+        return rate(profile(input), input);
+    }
+
+    /** Level 1 for this input: the special profile at the player's natural position. */
+    public PlayerSpecialProfile profile(PlayerRatingInput input) {
+        return PlayerSpecialProfile.of(input.attributes(), input.naturalPosition(), config);
+    }
+
+    /** Level 2: the tactic in {@code input} applied to the player's special profile. */
+    public ContextualPlayerRating rate(PlayerSpecialProfile profile, PlayerRatingInput input) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(input, "input");
         Map<Compartment, CompartmentBreakdown> results = new EnumMap<>(Compartment.class);
         for (Compartment compartment : Compartment.values()) {
-            results.put(compartment, rateCompartment(input, compartment));
+            results.put(compartment, rateCompartment(profile.compartments().get(compartment), input));
         }
         return new ContextualPlayerRating(input.position(), input.role(), input.duty(), results);
     }
 
-    private CompartmentBreakdown rateCompartment(PlayerRatingInput input, Compartment compartment) {
+    private CompartmentBreakdown rateCompartment(PlayerSpecialProfile.CompartmentBase level1,
+                                                 PlayerRatingInput input) {
         Rating rating = config.getRating();
-        CompartmentWeights weights = weightsFor(input.position(), compartment);
-        if (weights == null || weights.getAttributes().isEmpty()) {
-            throw new IllegalStateException("No attribute weights configured for " + compartment);
-        }
-
-        double base = 0;
+        Compartment compartment = level1.compartment();
+        double base = level1.baseScore();
         double rawContextual = 0;
         List<AttributeContribution> contributions = new ArrayList<>();
-        for (Map.Entry<PlayerAttribute, Double> rule : weights.getAttributes().entrySet()) {
-            PlayerAttribute attribute = rule.getKey();
-            Integer raw = input.attributes().get(attribute);
-            if (raw == null) {
-                throw new IllegalArgumentException("Missing configured attribute: " + attribute);
-            }
-            double normalized = normalizeEngineAttribute(raw, rating);
+        for (PlayerSpecialProfile.AttributeBase part : level1.attributes()) {
+            PlayerAttribute attribute = part.attribute();
             double requestedK = input.contextCoefficients().getOrDefault(attribute, 0.0);
             if (!Double.isFinite(requestedK)) {
                 throw new IllegalArgumentException("Context coefficient must be finite: " + attribute);
             }
             double appliedK = clamp(requestedK,
                     rating.getContextCoefficientMin(), rating.getContextCoefficientMax());
-            double factor = contextFactor(normalized, appliedK,
+            double factor = contextFactor(part.normalizedValue(), appliedK,
                     rating.getContextFactorMin(), rating.getContextFactorMax());
-            double baseContribution = rating.getScoreScale() * rule.getValue() * normalized;
-            double contextualContribution = baseContribution * factor;
-            base += baseContribution;
+            double contextualContribution = part.baseContribution() * factor;
             rawContextual += contextualContribution;
-            contributions.add(new AttributeContribution(attribute, raw, normalized, rule.getValue(),
-                    requestedK, appliedK, factor, baseContribution, contextualContribution));
+            contributions.add(new AttributeContribution(attribute, part.rawValue(), part.normalizedValue(),
+                    part.weight(), requestedK, appliedK, factor, part.baseContribution(), contextualContribution));
         }
 
         double rawRatio = base == 0 ? 1.0 : rawContextual / base;
@@ -87,13 +95,6 @@ public final class ContextualPlayerRatingCalculator {
         return new CompartmentBreakdown(compartment, base, rawContextual, contextRatio, contextualScore,
                 positionMultiplier, roleMultiplier, dutyMultiplier, familiarity, fitness, morale,
                 roleFit, finalScore, contributions);
-    }
-
-    private CompartmentWeights weightsFor(String position, Compartment compartment) {
-        Map<Compartment, CompartmentWeights> override =
-                config.getPositionCompartmentOverrides().get(position);
-        if (override != null && override.containsKey(compartment)) return override.get(compartment);
-        return config.getCompartments().get(compartment);
     }
 
     private double positionMultiplier(String position, Compartment compartment) {
@@ -124,23 +125,10 @@ public final class ContextualPlayerRatingCalculator {
         return (attribute - min) / (double) (max - min);
     }
 
-    /**
-     * Attribute 20 is a marker for explicit exceptional mechanics, not another linear
-     * step in the ordinary rating curve. Generic compartments therefore value it like
-     * 19; the SHOOTER mechanic supplies the discontinuity separately.
-     */
-    private static double normalizeEngineAttribute(int attribute, Rating rating) {
-        int exceptional = rating.getExceptionalAttributeValue();
-        if (attribute == exceptional) {
-            return normalizeAttribute(rating.getAttributeMax(), rating.getAttributeMin(), rating.getAttributeMax());
-        }
-        return normalizeAttribute(attribute, rating.getAttributeMin(), rating.getAttributeMax());
-    }
-
     public static double contextFactor(double normalizedAttribute, double contextCoefficient,
                                        double minFactor, double maxFactor) {
-        if (!Double.isFinite(normalizedAttribute) || normalizedAttribute < 0 || normalizedAttribute > 1) {
-            throw new IllegalArgumentException("normalized attribute must be in [0,1]");
+        if (!Double.isFinite(normalizedAttribute) || normalizedAttribute < 0) {
+            throw new IllegalArgumentException("normalized attribute must be non-negative");
         }
         if (!Double.isFinite(contextCoefficient)) {
             throw new IllegalArgumentException("context coefficient must be finite");

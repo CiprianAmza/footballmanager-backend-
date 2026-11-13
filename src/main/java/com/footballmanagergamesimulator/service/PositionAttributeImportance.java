@@ -35,9 +35,9 @@ import java.util.Map;
  * valuable attribute is 1.0, which keeps the familiar "core = 1.0, minor = 0.3" shape
  * while making it a consequence of the engine rather than an opinion about it.
  *
- * <p>Generation multiplies these by the player's level; {@code computeOverallRating}
- * reads them back. The two are exact inverses, so a player asked for 300 is worth 300
- * both on his profile and to the engine that decides matches.
+ * <p>Generation multiplies these by the player's level; {@code computeSpecialRating}
+ * reads them back (the special rating). The player's visible rating
+ * ({@code computeOverallRating}) uses its own, separate weights ({@code RatingWeightsConfig}).
  */
 @Component
 public class PositionAttributeImportance {
@@ -82,6 +82,11 @@ public class PositionAttributeImportance {
         table.build();
         instance = table;
         return table;
+    }
+
+    /** Test seam: put back the table that was live before a test installed its own. */
+    public static void restore(PositionAttributeImportance previous) {
+        instance = previous;
     }
 
     private void build() {

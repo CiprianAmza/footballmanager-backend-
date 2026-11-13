@@ -159,7 +159,7 @@ public final class CanonicalScoringWeightCatalog {
                 .map(CanonicalScoringWeightKey::path).toList();
     }
     public List<String> diagnosticOnlyParameters() { return List.of("compartment.probability.extra-time-scale", "compartment.probability.interval-lower-quantile", "compartment.probability.interval-upper-quantile"); }
-    public List<String> inactiveOrFutureParameters() { return List.of("compartment.work-rate.*.forced-defensive-morale-delta", "match.instruction-weights", "match.player-value.weights"); }
+    public List<String> inactiveOrFutureParameters() { return List.of("compartment.work-rate.*.forced-defensive-morale-delta", "match.instruction-weights"); }
     public CanonicalScoringWeightKey get(String path) { return byPath.get(path); }
     public CanonicalScoringWeightKey require(String path) { if (!byPath.containsKey(path)) throw new IllegalArgumentException("unknown weight: " + path); return byPath.get(path); }
     public int size() { return leafWeights().size(); }

@@ -18,7 +18,6 @@ import java.util.Map;
  *
  * <p>Sections map to the audit groupings:
  * <ul>
- *   <li>{@link Power} — ratio amplification, expected goals, max cap</li>
  *   <li>{@link Morale} — win/draw/loss swing ranges, bench penalties</li>
  *   <li>{@link Tactic} — tempo, man-advantage attack multipliers</li>
  *   <li>{@link Stamina} — drain, recovery, position multipliers</li>
@@ -36,7 +35,6 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "match.engine")
 public class MatchEngineConfig {
 
-    private Power power = new Power();
     private Morale morale = new Morale();
     private Tactic tactic = new Tactic();
     private Stamina stamina = new Stamina();
@@ -52,8 +50,6 @@ public class MatchEngineConfig {
     private PlayerValue playerValue = new PlayerValue();
     private RoleWeights roleWeights = new RoleWeights();
     private InstructionWeights instructionWeights = new InstructionWeights();
-    private TeamTalk teamTalk = new TeamTalk();
-    private TacticalModel tacticalModel = new TacticalModel();
     private Boardroom boardroom = new Boardroom();
     private Analytics analytics = new Analytics();
     private MatchPlan matchPlan = new MatchPlan();
@@ -68,8 +64,6 @@ public class MatchEngineConfig {
     public Analytics getAnalytics() { return analytics; }
     public void setAnalytics(Analytics analytics) { this.analytics = analytics; }
 
-    public Power getPower() { return power; }
-    public void setPower(Power power) { this.power = power; }
     public Morale getMorale() { return morale; }
     public void setMorale(Morale morale) { this.morale = morale; }
     public Tactic getTactic() { return tactic; }
@@ -100,10 +94,6 @@ public class MatchEngineConfig {
     public void setRoleWeights(RoleWeights roleWeights) { this.roleWeights = roleWeights; }
     public InstructionWeights getInstructionWeights() { return instructionWeights; }
     public void setInstructionWeights(InstructionWeights instructionWeights) { this.instructionWeights = instructionWeights; }
-    public TeamTalk getTeamTalk() { return teamTalk; }
-    public void setTeamTalk(TeamTalk teamTalk) { this.teamTalk = teamTalk; }
-    public TacticalModel getTacticalModel() { return tacticalModel; }
-    public void setTacticalModel(TacticalModel tacticalModel) { this.tacticalModel = tacticalModel; }
 
     // ==================== BOARDROOM / OWNER LIFE ====================
     /**
@@ -174,41 +164,6 @@ public class MatchEngineConfig {
         public void setCoachLeaveHumiliationThreshold(double v) { this.coachLeaveHumiliationThreshold = v; }
         public int getSquadMoraleHitAtHighHumiliation() { return squadMoraleHitAtHighHumiliation; }
         public void setSquadMoraleHitAtHighHumiliation(int v) { this.squadMoraleHitAtHighHumiliation = v; }
-    }
-
-    // ==================== POWER / POISSON ====================
-    public static class Power {
-        /** Math.pow(ratio, X) amplifies power gap. Higher = stronger team dominates more. */
-        private double ratioExponent = 2.0;
-        /** Total expected goals per match (split by adjusted ratio). */
-        private double expectedGoalsTotal = 3.0;
-        /** Hard cap per team to prevent runaway Poisson tails. */
-        private int maxGoalsPerTeam = 7;
-
-        // ---- Effective-power modifiers (promoted from the test harness in S15) ----
-        // The auto-tuner (S13) converged on these so the game matches the invariant
-        // catalog's morale + home-advantage behaviour. effectivePower =
-        //   base × (moraleFloor + moraleSpread × morale/100) × (home ? homeAdvantage : 1)
-
-        /** Morale=0 → power × moraleFloor. (Tuner value: 0.8.) */
-        private double moraleFloor = 0.8;
-        /** Morale=100 → power × (moraleFloor + moraleSpread). (Tuner value: 0.4 → top morale = 1.2×.) */
-        private double moraleSpread = 0.4;
-        /** Home side power multiplier. (Tuner value: 1.08 ≈ +8%.) */
-        private double homeAdvantage = 1.08;
-
-        public double getRatioExponent() { return ratioExponent; }
-        public void setRatioExponent(double v) { this.ratioExponent = v; }
-        public double getExpectedGoalsTotal() { return expectedGoalsTotal; }
-        public void setExpectedGoalsTotal(double v) { this.expectedGoalsTotal = v; }
-        public int getMaxGoalsPerTeam() { return maxGoalsPerTeam; }
-        public void setMaxGoalsPerTeam(int v) { this.maxGoalsPerTeam = v; }
-        public double getMoraleFloor() { return moraleFloor; }
-        public void setMoraleFloor(double v) { this.moraleFloor = v; }
-        public double getMoraleSpread() { return moraleSpread; }
-        public void setMoraleSpread(double v) { this.moraleSpread = v; }
-        public double getHomeAdvantage() { return homeAdvantage; }
-        public void setHomeAdvantage(double v) { this.homeAdvantage = v; }
     }
 
     // ==================== MORALE ====================
@@ -659,10 +614,13 @@ public class MatchEngineConfig {
         /** Probability of generating an assist event for a non-penalty goal. */
         private double assistProbability = 0.7;
         /**
-         * Per-goal assist share reserved for an eligible on-pitch player with
-         * perfect Passing (20). Multiple perfect passers share this probability.
+         * Assister draw weight for Passing 20. Below 20 the weight is the Passing value
+         * itself; at 20 it jumps to this, and every further level adds
+         * {@link #perfectPassingWeightStep}. With teammates around Passing 12 a 20 takes
+         * ~70% of the assists.
          */
-        private double perfectPassingAssistProbability = 0.7;
+        private double perfectPassingWeight = 250.0;
+        private double perfectPassingWeightStep = 50.0;
         /** Number of substitutions to generate per team in non-live engine. */
         private int substitutionsPerTeam = 3;
         /** Substitution minute uniform range [min, max-1]. */
@@ -680,8 +638,10 @@ public class MatchEngineConfig {
         public void setGoalMinuteMax(int v) { this.goalMinuteMax = v; }
         public double getAssistProbability() { return assistProbability; }
         public void setAssistProbability(double v) { this.assistProbability = v; }
-        public double getPerfectPassingAssistProbability() { return perfectPassingAssistProbability; }
-        public void setPerfectPassingAssistProbability(double v) { this.perfectPassingAssistProbability = v; }
+        public double getPerfectPassingWeight() { return perfectPassingWeight; }
+        public void setPerfectPassingWeight(double v) { this.perfectPassingWeight = v; }
+        public double getPerfectPassingWeightStep() { return perfectPassingWeightStep; }
+        public void setPerfectPassingWeightStep(double v) { this.perfectPassingWeightStep = v; }
         public int getSubstitutionsPerTeam() { return substitutionsPerTeam; }
         public void setSubstitutionsPerTeam(int v) { this.substitutionsPerTeam = v; }
         public int getSubstitutionMinuteMin() { return substitutionMinuteMin; }
@@ -1022,17 +982,6 @@ public class MatchEngineConfig {
 
     // ==================== KNOCKOUT ====================
     public static class Knockout {
-        /** AET win chance baseline + power-share weight: base + weight * (myPower / totalPower).
-         *  Used by the legacy single-shot tiebreak in {@code MatchRoundSimulator}. */
-        private double aetWinChanceBase = 0.35;
-        private double aetWinChanceWeight = 0.3;
-
-        /** Expected total goals for the 30-minute extra-time "mini match" played when a
-         *  tie is level after normal time (single-leg) or on aggregate (two-leg).
-         *  Much lower than the full-match {@code power.expectedGoalsTotal} (default 3.0)
-         *  because extra time is only 30 minutes (two 15-minute halves). */
-        private double extraTimeExpectedGoals = 1.0;
-
         /** Probability the WEAKER team wins a penalty shootout. Penalties are modelled as
          *  a near-coin-flip: 0.5 = pure 50/50; 0.55 gives the weaker side a slight edge
          *  (shootouts are a lottery that levels the playing field). */
@@ -1041,12 +990,6 @@ public class MatchEngineConfig {
         // NOTE: which knockout rounds are two-leg is tournament *structure*, not scoring —
         // it lives in CompetitionFormat / CompetitionFormatConfig (the format single-source).
 
-        public double getAetWinChanceBase() { return aetWinChanceBase; }
-        public void setAetWinChanceBase(double v) { this.aetWinChanceBase = v; }
-        public double getAetWinChanceWeight() { return aetWinChanceWeight; }
-        public void setAetWinChanceWeight(double v) { this.aetWinChanceWeight = v; }
-        public double getExtraTimeExpectedGoals() { return extraTimeExpectedGoals; }
-        public void setExtraTimeExpectedGoals(double v) { this.extraTimeExpectedGoals = v; }
         public double getPenaltyWeakerTeamWinChance() { return penaltyWeakerTeamWinChance; }
         public void setPenaltyWeakerTeamWinChance(double v) { this.penaltyWeakerTeamWinChance = v; }
     }
@@ -1091,21 +1034,12 @@ public class MatchEngineConfig {
 
     // ==================== PLAYER MATCH VALUE (weighted, config-driven) ====================
     /**
-     * Drives {@code PlayerValueService} — the matchday team rating. A starter's match
-     * value is {@code clamp(weightedAvgAttrs × scaleMultiplier, floor, ceil) × familiarity
-     * × moraleFactor × fitnessFactor}. Team value = Σ over the 11 starters. This is the
-     * single source of truth for the power fed to {@code calculateScores}.
-     *
-     * <p>Unlike {@code Human.rating} (the generic skill used only for squad-selection
-     * sorting, transfer values and UI), this value is computed only at matchday and uses
-     * per-position attribute weights so designers can express what matters per position.
+     * Drives {@code PlayerValueService}. A starter's match value is his special rating at the
+     * position he occupies (engine weights) {@code × familiarity × moraleFactor × fitnessFactor},
+     * floored at {@code ratingFloor} (no maximum) before the factors.
      */
     public static class PlayerValue {
-        /** weightedAvg of attrs (1..20) × this → the ~1..300 scale. Default 15 matches
-         *  {@code PlayerSkillsService.computeOverallRating} so there is no scale shock. */
-        private double scaleMultiplier = 15.0;
         private double ratingFloor = 1.0;
-        private double ratingCeil = 300.0;
 
         /** Per-player morale factor: {@code 1.0 + (morale - moraleNeutral) × moraleSlope}. */
         private double moraleNeutral = 70.0;
@@ -1117,51 +1051,11 @@ public class MatchEngineConfig {
         private double defaultFamiliarityPenalty = 0.5;
 
         /**
-         * User OVERRIDES: position → (attributeName → weight 0..5). Attribute keys use the 36
-         * {@code PlayerSkillsService.GETTER_MAP} display names ("First Touch", "Off The Ball", …).
-         * Entries here win per-attribute over the shipped {@link #DEFAULT_WEIGHTS} profiles, so
-         * designers only list the few weights they want to change. Set a weight to 0 to mark an
-         * attribute irrelevant to that position.
-         */
-        private Map<String, Map<String, Double>> weights = new HashMap<>();
-
-        /**
          * User OVERRIDES: natural base position → (used base position → factor in (0,1]). Entries
          * here win over the shipped {@link #DEFAULT_FAMILIARITY} matrix; missing pairs fall back
          * to the default matrix and then to {@link #defaultFamiliarityPenalty}.
          */
         private Map<String, Map<String, Double>> familiarityPenalty = new HashMap<>();
-
-        /**
-         * Resolved weight for (position, attribute):
-         * user override → shipped default profile → 1.0. Within a defined default profile an
-         * unlisted attribute is treated as irrelevant (0.0); positions with no profile are neutral (1.0).
-         */
-        public double weight(String position, String attribute) {
-            Map<String, Double> override = weights.get(position);
-            if (override != null && override.containsKey(attribute)) {
-                return override.get(attribute);
-            }
-            Map<String, Double> profile = DEFAULT_WEIGHTS.get(position);
-            if (profile == null) profile = DEFAULT_WEIGHTS.get(basePosition(position)); // fine pos → base profile
-            if (profile != null) {
-                return profile.getOrDefault(attribute, 0.0);
-            }
-            return 1.0;
-        }
-
-        /** Maps a fine position (DM/AMC/AML/AMR/WBL/WBR) to its base profile owner; others unchanged. */
-        private static String basePosition(String position) {
-            if (position == null) return null;
-            return switch (position) {
-                case "AMC", "DM" -> "MC";
-                case "AML" -> "ML";
-                case "AMR" -> "MR";
-                case "WBL" -> "DL";
-                case "WBR" -> "DR";
-                default -> position;
-            };
-        }
 
         /**
          * Resolved familiarity for (natural → used):
@@ -1180,12 +1074,8 @@ public class MatchEngineConfig {
             return defaultFamiliarityPenalty;
         }
 
-        public double getScaleMultiplier() { return scaleMultiplier; }
-        public void setScaleMultiplier(double v) { this.scaleMultiplier = v; }
         public double getRatingFloor() { return ratingFloor; }
         public void setRatingFloor(double v) { this.ratingFloor = v; }
-        public double getRatingCeil() { return ratingCeil; }
-        public void setRatingCeil(double v) { this.ratingCeil = v; }
         public double getMoraleNeutral() { return moraleNeutral; }
         public void setMoraleNeutral(double v) { this.moraleNeutral = v; }
         public double getMoraleSlope() { return moraleSlope; }
@@ -1194,8 +1084,6 @@ public class MatchEngineConfig {
         public void setFitnessFloor(double v) { this.fitnessFloor = v; }
         public double getDefaultFamiliarityPenalty() { return defaultFamiliarityPenalty; }
         public void setDefaultFamiliarityPenalty(double v) { this.defaultFamiliarityPenalty = v; }
-        public Map<String, Map<String, Double>> getWeights() { return weights; }
-        public void setWeights(Map<String, Map<String, Double>> v) { this.weights = v; }
         public Map<String, Map<String, Double>> getFamiliarityPenalty() { return familiarityPenalty; }
         public void setFamiliarityPenalty(Map<String, Map<String, Double>> v) { this.familiarityPenalty = v; }
 
@@ -1210,68 +1098,10 @@ public class MatchEngineConfig {
             return m;
         }
 
-        /**
-         * Per-position attribute weights (0..5). Sparse: attributes not listed for a position are
-         * treated as irrelevant (0.0) by {@link #weight}. DL/DR share the full-back profile and
-         * ML/MR share the wide profile.
-         */
-        private static final Map<String, Map<String, Double>> DEFAULT_WEIGHTS = new HashMap<>();
-
         /** Per-position familiarity when used out of position (natural → used → factor in (0,1]). */
         private static final Map<String, Map<String, Double>> DEFAULT_FAMILIARITY = new HashMap<>();
 
         static {
-            DEFAULT_WEIGHTS.put("GK", prof(
-                    "Reflexes", 5, "Handling", 5, "One On Ones", 4, "Positioning", 4,
-                    "Command Of Area", 4, "Anticipation", 4, "Concentration", 3, "Agility", 3,
-                    "Composure", 3, "Decisions", 3, "Kicking", 3, "Throwing", 2, "First Touch", 2,
-                    "Bravery", 2, "Jumping Reach", 2, "Passing", 1, "Vision", 1, "Determination", 1,
-                    "Leadership", 1, "Balance", 1, "Strength", 1, "Natural Fitness", 1));
-
-            DEFAULT_WEIGHTS.put("DC", prof(
-                    "Tackling", 5, "Marking", 5, "Positioning", 5, "Heading", 4, "Strength", 4,
-                    "Anticipation", 4, "Concentration", 4, "Bravery", 3, "Jumping Reach", 3,
-                    "Composure", 3, "Decisions", 3, "Aggression", 2, "Pace", 2, "Acceleration", 2,
-                    "Passing", 2, "Determination", 2, "Leadership", 2, "Teamwork", 2, "Work Rate", 1,
-                    "Balance", 1, "Agility", 1, "Stamina", 1, "First Touch", 1, "Technique", 1,
-                    "Natural Fitness", 1));
-
-            Map<String, Double> fullBack = prof(
-                    "Pace", 5, "Tackling", 4, "Marking", 4, "Positioning", 4, "Acceleration", 4,
-                    "Stamina", 4, "Work Rate", 4, "Crossing", 4, "Anticipation", 3, "Concentration", 3,
-                    "Teamwork", 3, "Decisions", 3, "Dribbling", 3, "Passing", 3, "Technique", 2,
-                    "First Touch", 2, "Agility", 2, "Balance", 2, "Strength", 2, "Off The Ball", 2,
-                    "Determination", 2, "Aggression", 1, "Heading", 1, "Natural Fitness", 1,
-                    "Composure", 1, "Vision", 1);
-            DEFAULT_WEIGHTS.put("DL", fullBack);
-            DEFAULT_WEIGHTS.put("DR", fullBack);
-
-            DEFAULT_WEIGHTS.put("MC", prof(
-                    "Passing", 5, "Decisions", 4, "Vision", 4, "Teamwork", 4, "Work Rate", 4,
-                    "Stamina", 4, "Technique", 3, "First Touch", 3, "Composure", 3, "Positioning", 3,
-                    "Anticipation", 3, "Concentration", 3, "Tackling", 3, "Determination", 3,
-                    "Dribbling", 2, "Off The Ball", 2, "Long Shots", 2, "Marking", 2, "Balance", 2,
-                    "Agility", 2, "Strength", 2, "Flair", 2, "Leadership", 2, "Aggression", 1,
-                    "Pace", 1, "Acceleration", 1));
-
-            Map<String, Double> wide = prof(
-                    "Crossing", 5, "Dribbling", 5, "Pace", 5, "Acceleration", 4, "Technique", 4,
-                    "Off The Ball", 4, "Stamina", 4, "First Touch", 3, "Flair", 3, "Agility", 3,
-                    "Work Rate", 3, "Passing", 3, "Decisions", 3, "Anticipation", 3, "Finishing", 3,
-                    "Long Shots", 2, "Balance", 2, "Composure", 2, "Teamwork", 2, "Determination", 2,
-                    "Vision", 2, "Marking", 1, "Tackling", 1, "Positioning", 1, "Strength", 1,
-                    "Concentration", 1);
-            DEFAULT_WEIGHTS.put("ML", wide);
-            DEFAULT_WEIGHTS.put("MR", wide);
-
-            DEFAULT_WEIGHTS.put("ST", prof(
-                    "Finishing", 5, "Off The Ball", 5, "Composure", 4, "First Touch", 4,
-                    "Anticipation", 4, "Heading", 4, "Pace", 4, "Acceleration", 4, "Dribbling", 3,
-                    "Technique", 3, "Decisions", 3, "Strength", 3, "Flair", 3, "Balance", 3,
-                    "Agility", 3, "Jumping Reach", 3, "Long Shots", 3, "Determination", 3,
-                    "Bravery", 2, "Aggression", 2, "Teamwork", 2, "Work Rate", 2, "Passing", 2,
-                    "Vision", 2, "Stamina", 2, "Concentration", 2, "Penalty Taking", 2));
-
             // Familiarity: goalkeepers are unusable outfield (and vice versa); within a line the
             // penalty is mild, across lines it grows, defender↔striker is the harshest.
             DEFAULT_FAMILIARITY.put("GK", prof(
@@ -1483,271 +1313,13 @@ public class MatchEngineConfig {
         }
     }
 
-    // ==================== TEAM TALK ====================
+    // ==================== TACTIC OPTION CATALOG ====================
     /**
-     * Team-level "team talk" multiplier applied (alongside home advantage) to the summed team
-     * value in {@code MatchSimulationService.effectiveTeamPower}. A better man-manager rallies
-     * the squad to extract a little more; a poor one does not. Quality is read from the manager's
-     * reputation (the manager's man-management proxy) and mapped to a small multiplier:
-     * {@code 1 + maxSwing × clamp((reputation - neutralReputation) / reputationSpan, -1, 1)}.
-     *
-     * <p>Deterministic (no RNG) so match seeds are unaffected. Set {@code enabled=false} to pin
-     * the multiplier at a neutral 1.0.
-     */
-    public static class TeamTalk {
-        private boolean enabled = true;
-        /** Maximum deviation from neutral 1.0 at the reputation extremes (e.g. 0.04 = ±4%). */
-        private double maxSwing = 0.04;
-        /** Manager reputation at which the team talk is neutral (multiplier 1.0). */
-        private double neutralReputation = 1500.0;
-        /** Reputation distance from neutral that maps to the full {@link #maxSwing}. */
-        private double reputationSpan = 1500.0;
-
-        public boolean isEnabled() { return enabled; }
-        public void setEnabled(boolean v) { this.enabled = v; }
-        public double getMaxSwing() { return maxSwing; }
-        public void setMaxSwing(double v) { this.maxSwing = v; }
-        public double getNeutralReputation() { return neutralReputation; }
-        public void setNeutralReputation(double v) { this.neutralReputation = v; }
-        public double getReputationSpan() { return reputationSpan; }
-        public void setReputationSpan(double v) { this.reputationSpan = v; }
-
-        /** The team-talk multiplier for a manager of the given reputation. */
-        public double multiplier(double managerReputation) {
-            if (!enabled) return 1.0;
-            double f = (managerReputation - neutralReputation) / reputationSpan;
-            f = Math.max(-1.0, Math.min(1.0, f));
-            return 1.0 + maxSwing * f;
-        }
-    }
-
-    // ==================== LEGACY TACTICAL PRESENTATION MODEL ====================
-    /**
-     * Historical tactical/presentation coefficients retained for non-scoring UI helpers and old
-     * diagnostic tests. Production score generation is exclusively Compartment V1 and none of
-     * these values can select or replace its scorer.
+     * The fixed catalog of tactic option values (mentality, tempo, passing, ...). Read by the
+     * Compartment V1 input factory and the tactic simulator so both explore the same tactic space.
+     * Static because the catalog is fixed; overrides cannot add or remove values.
      */
     public static class TacticalModel {
-        /** How far mentality shifts value between attack and defense (trade-off magnitude). */
-        private double biasStrength = 0.22;
-        /** How much "control" settings (keep ball / time-wasting) raise effective defense. */
-        private double controlStrength = 0.24;
-        /** Attack cost of "control" settings: sitting deep / wasting time cedes territory, so the
-         *  same control that raises defense also lowers the side's own attack. Turns control from a
-         *  free win into a trade-off (breaks the degenerate max-control optimum). 0 = no cost. */
-        private double controlAttackCost = 0.15;
-        /** How much tempo/risk opens the game (raises total goals). */
-        private double opennessStrength = 0.30;
-        /** How much control settings slow the game (lower total goals). */
-        private double controlOpennessStrength = 0.18;
-        /** Base total-goals scale when both sides are balanced. */
-        private double baseOpenness = 3.0;
-        /** Amplifies the attack-vs-defense gap: each side's xG ratio uses {@code att^exp/(att^exp+def^exp)}.
-         *  >1 makes stronger squads dominate more (squad value decisive); 1.0 = raw ratio. Lowered
-         *  2.0→1.5 (2026-05-31) so the strongest squad no longer wins deterministically — leaves room
-         *  for tactics + variance (realistic upsets) while squad value stays the dominant factor. */
-        private double ratioExponent = 1.5;
-        /** Home-side attack bonus (multiplicative on xG). */
-        private double homeAttackBonus = 0.08;
-        /** Max ± boost a coach's offensive/defensive ability gives to the squad's attack/defense
-         *  (e.g. 0.12 → a 100-ability coach is +12%, a 0-ability coach −12%, 50 is neutral). */
-        private double coachStrength = 0.12;
-        /** Strat-2 counters (opponent-dependent, so no universally-best tactic): */
-        /** Own-attack support of pushing the defensive line up (territory); deep line ⇒ small attack loss. */
-        private double lineHeightSupport = 0.06;
-        /** How much a high line is punished by a direct opponent (space behind): raises the goals they
-         *  score against you, scaled by your line height × opponent directness. */
-        private double lineHeightVulnerability = 0.26;
-        /** How much high pressing disrupts the opponent's attack (lowers their effective attack). */
-        private double pressDisruption = 0.16;
-        /** Instant-engine proxy for pressing's stamina cost: high press slightly lowers your own attack. */
-        private double pressStaminaCost = 0.04;
-        /** How much pressing compounds the high-line-vs-direct vulnerability (space behind a pressing high line). */
-        private double pressLineCompound = 0.15;
-        /** Trade-off cost of direct passing: long/direct balls exploit a high line but lose build-up
-         *  precision, costing this fraction of your own attack (scaled by directness). Makes "Long"
-         *  best only vs high-line opponents, not universally. */
-        private double directnessAttackCost = 0.22;
-        /** Trade-off cost of pressing: a high press leaves space behind, so a DIRECT opponent bypasses
-         *  it — your press raises their attack by this × yourPress × theirDirectness. Makes "High press"
-         *  backfire vs direct sides, so it is not universally best. */
-        private double pressBypassVulnerability = 0.12;
-        /** Width rock-paper-scissors strength: wide attack beats a narrow defense and vice versa
-         *  ({@code effAtt ×= 1 + widthStrength · myWidth · (−oppWidth)}). */
-        private double widthStrength = 0.45;
-        /** Squad-aptitude gating (§19.7): a squad's pressing / discipline / stamina aptitude (0..1,
-         *  derived from starters' PlayerSkills) is turned into a centered multiplier on the relevant
-         *  matchup effect: {@code mult = clamp(1 + gateStrength · (aptRaw − baseline), multMin, multMax)}.
-         *  An average squad (aptRaw ≈ baseline) is neutral (mult 1.0); a good squad amplifies the
-         *  tactic's effect, a poor one weakens it. Synthetic/panel opponents pass aptRaw = baseline
-         *  ⇒ mult 1.0 ⇒ no gating. */
-        private double aptitudeGateStrength = 0.5;
-        private double aptitudeBaseline = 0.6;
-        private double aptitudeMultMin = 0.6;
-        private double aptitudeMultMax = 1.4;
-        /** AI width identity: a team whose XI value share in wide positions (ML/MR/DL/DR) is ≥ this
-         *  plays Wide; ≤ {@code aiWidthNarrowThreshold} plays Narrow; otherwise Balanced. Gives the AI
-         *  a squad-shape width so the human's width counter has something to bite. */
-        private double aiWidthWideThreshold = 0.38;
-        private double aiWidthNarrowThreshold = 0.28;
-        /** Hard cap per team. */
-        private int maxGoalsPerTeam = 7;
-        /** Opponent panel for the expected-points tactic ranking: the team's own profile scaled to a
-         *  weaker / equal / stronger opponent. Averaging expected points across this non-mirror panel
-         *  (instead of self-mirror xGD) is what makes the tactic landscape differentiate. */
-        private double[] opponentPanel = {0.7, 1.0, 1.3};
-        /** Openness multiplier for a knockout extra-time mini-match (30' vs a full 90'): scales the
-         *  matchup goal scale down. Default ≈ {@code knockout.extraTimeExpectedGoals / power.expectedGoalsTotal}
-         *  (1.0/3.0). Used by {@code TacticalScoreService.scoreExtraTime}. */
-        private double extraTimeOpennessScale = 0.33;
-        /** OVERRIDE: used base position → share of a player's value assigned to attack (rest = defense). */
-        private Map<String, Double> attackShare = new HashMap<>();
-        /** OVERRIDE: categorical tactic setting → numeric axis contribution (see DEFAULT_* below). */
-        private Map<String, Double> mentalityBias = new HashMap<>();
-        private Map<String, Double> possessionBias = new HashMap<>();
-        private Map<String, Double> tempoRisk = new HashMap<>();
-        private Map<String, Double> passingRisk = new HashMap<>();
-        private Map<String, Double> possessionControl = new HashMap<>();
-        private Map<String, Double> timeWastingControl = new HashMap<>();
-        private Map<String, Double> lineHeightAxis = new HashMap<>();
-        private Map<String, Double> pressAxis = new HashMap<>();
-        private Map<String, Double> widthAxis = new HashMap<>();
-        private Map<String, Double> passingDirectness = new HashMap<>();
-        // Faza 2 team-level instruction → axis contributions (see DEFAULT_* below).
-        private Map<String, Double> dribblingRisk = new HashMap<>();
-        private Map<String, Double> foulControl = new HashMap<>();
-        private Map<String, Double> foulHardnessControl = new HashMap<>();
-        private Map<String, Double> fragmentationControl = new HashMap<>();
-        private Map<String, Double> widePlayWidth = new HashMap<>();
-        private Map<String, Double> widePlayRisk = new HashMap<>();
-        private Map<String, Double> transitionRisk = new HashMap<>();
-        private Map<String, Double> transitionControl = new HashMap<>();
-
-        public double getBiasStrength() { return biasStrength; }
-        public void setBiasStrength(double v) { this.biasStrength = v; }
-        public double getControlStrength() { return controlStrength; }
-        public void setControlStrength(double v) { this.controlStrength = v; }
-        public double getControlAttackCost() { return controlAttackCost; }
-        public void setControlAttackCost(double v) { this.controlAttackCost = v; }
-        public double getOpennessStrength() { return opennessStrength; }
-        public void setOpennessStrength(double v) { this.opennessStrength = v; }
-        public double getControlOpennessStrength() { return controlOpennessStrength; }
-        public void setControlOpennessStrength(double v) { this.controlOpennessStrength = v; }
-        public double getBaseOpenness() { return baseOpenness; }
-        public void setBaseOpenness(double v) { this.baseOpenness = v; }
-        public double getRatioExponent() { return ratioExponent; }
-        public void setRatioExponent(double v) { this.ratioExponent = v; }
-        public double getHomeAttackBonus() { return homeAttackBonus; }
-        public void setHomeAttackBonus(double v) { this.homeAttackBonus = v; }
-        public double getCoachStrength() { return coachStrength; }
-        public void setCoachStrength(double v) { this.coachStrength = v; }
-        public double getLineHeightSupport() { return lineHeightSupport; }
-        public void setLineHeightSupport(double v) { this.lineHeightSupport = v; }
-        public double getLineHeightVulnerability() { return lineHeightVulnerability; }
-        public void setLineHeightVulnerability(double v) { this.lineHeightVulnerability = v; }
-        public double getPressDisruption() { return pressDisruption; }
-        public void setPressDisruption(double v) { this.pressDisruption = v; }
-        public double getPressStaminaCost() { return pressStaminaCost; }
-        public void setPressStaminaCost(double v) { this.pressStaminaCost = v; }
-        public double getPressLineCompound() { return pressLineCompound; }
-        public void setPressLineCompound(double v) { this.pressLineCompound = v; }
-        public double getDirectnessAttackCost() { return directnessAttackCost; }
-        public void setDirectnessAttackCost(double v) { this.directnessAttackCost = v; }
-        public double getPressBypassVulnerability() { return pressBypassVulnerability; }
-        public void setPressBypassVulnerability(double v) { this.pressBypassVulnerability = v; }
-        public double getWidthStrength() { return widthStrength; }
-        public void setWidthStrength(double v) { this.widthStrength = v; }
-        public double getAptitudeGateStrength() { return aptitudeGateStrength; }
-        public void setAptitudeGateStrength(double v) { this.aptitudeGateStrength = v; }
-        public double getAptitudeBaseline() { return aptitudeBaseline; }
-        public void setAptitudeBaseline(double v) { this.aptitudeBaseline = v; }
-        public double getAptitudeMultMin() { return aptitudeMultMin; }
-        public void setAptitudeMultMin(double v) { this.aptitudeMultMin = v; }
-        public double getAptitudeMultMax() { return aptitudeMultMax; }
-        public void setAptitudeMultMax(double v) { this.aptitudeMultMax = v; }
-        public double getAiWidthWideThreshold() { return aiWidthWideThreshold; }
-        public void setAiWidthWideThreshold(double v) { this.aiWidthWideThreshold = v; }
-        public double getAiWidthNarrowThreshold() { return aiWidthNarrowThreshold; }
-        public void setAiWidthNarrowThreshold(double v) { this.aiWidthNarrowThreshold = v; }
-        public int getMaxGoalsPerTeam() { return maxGoalsPerTeam; }
-        public void setMaxGoalsPerTeam(int v) { this.maxGoalsPerTeam = v; }
-        public double[] getOpponentPanel() { return opponentPanel; }
-        public void setOpponentPanel(double[] v) { this.opponentPanel = v; }
-        public double getExtraTimeOpennessScale() { return extraTimeOpennessScale; }
-        public void setExtraTimeOpennessScale(double v) { this.extraTimeOpennessScale = v; }
-        public Map<String, Double> getAttackShare() { return attackShare; }
-        public void setAttackShare(Map<String, Double> v) { this.attackShare = v; }
-        public Map<String, Double> getMentalityBias() { return mentalityBias; }
-        public void setMentalityBias(Map<String, Double> v) { this.mentalityBias = v; }
-        public Map<String, Double> getPossessionBias() { return possessionBias; }
-        public void setPossessionBias(Map<String, Double> v) { this.possessionBias = v; }
-        public Map<String, Double> getTempoRisk() { return tempoRisk; }
-        public void setTempoRisk(Map<String, Double> v) { this.tempoRisk = v; }
-        public Map<String, Double> getPassingRisk() { return passingRisk; }
-        public void setPassingRisk(Map<String, Double> v) { this.passingRisk = v; }
-        public Map<String, Double> getPossessionControl() { return possessionControl; }
-        public void setPossessionControl(Map<String, Double> v) { this.possessionControl = v; }
-        public Map<String, Double> getTimeWastingControl() { return timeWastingControl; }
-        public void setTimeWastingControl(Map<String, Double> v) { this.timeWastingControl = v; }
-        public Map<String, Double> getLineHeightAxis() { return lineHeightAxis; }
-        public void setLineHeightAxis(Map<String, Double> v) { this.lineHeightAxis = v; }
-        public Map<String, Double> getPressAxis() { return pressAxis; }
-        public void setPressAxis(Map<String, Double> v) { this.pressAxis = v; }
-        public Map<String, Double> getWidthAxis() { return widthAxis; }
-        public void setWidthAxis(Map<String, Double> v) { this.widthAxis = v; }
-        public Map<String, Double> getPassingDirectness() { return passingDirectness; }
-        public void setPassingDirectness(Map<String, Double> v) { this.passingDirectness = v; }
-        public Map<String, Double> getDribblingRisk() { return dribblingRisk; }
-        public void setDribblingRisk(Map<String, Double> v) { this.dribblingRisk = v; }
-        public Map<String, Double> getFoulControl() { return foulControl; }
-        public void setFoulControl(Map<String, Double> v) { this.foulControl = v; }
-        public Map<String, Double> getFoulHardnessControl() { return foulHardnessControl; }
-        public void setFoulHardnessControl(Map<String, Double> v) { this.foulHardnessControl = v; }
-        public Map<String, Double> getFragmentationControl() { return fragmentationControl; }
-        public void setFragmentationControl(Map<String, Double> v) { this.fragmentationControl = v; }
-        public Map<String, Double> getWidePlayWidth() { return widePlayWidth; }
-        public void setWidePlayWidth(Map<String, Double> v) { this.widePlayWidth = v; }
-        public Map<String, Double> getWidePlayRisk() { return widePlayRisk; }
-        public void setWidePlayRisk(Map<String, Double> v) { this.widePlayRisk = v; }
-        public Map<String, Double> getTransitionRisk() { return transitionRisk; }
-        public void setTransitionRisk(Map<String, Double> v) { this.transitionRisk = v; }
-        public Map<String, Double> getTransitionControl() { return transitionControl; }
-        public void setTransitionControl(Map<String, Double> v) { this.transitionControl = v; }
-
-        // Resolver accessors: override → shipped default → 0.0 (unknown key), matching prior getOrDefault semantics.
-        public double mentalityBias(String k) { return resolve(mentalityBias, DEFAULT_MENTALITY_BIAS, k); }
-        public double possessionBias(String k) { return resolve(possessionBias, DEFAULT_POSSESSION_BIAS, k); }
-        public double tempoRisk(String k) { return resolve(tempoRisk, DEFAULT_TEMPO_RISK, k); }
-        public double passingRisk(String k) { return resolve(passingRisk, DEFAULT_PASSING_RISK, k); }
-        public double possessionControl(String k) { return resolve(possessionControl, DEFAULT_POSSESSION_CONTROL, k); }
-        public double timeWastingControl(String k) { return resolve(timeWastingControl, DEFAULT_TIME_WASTING_CONTROL, k); }
-        public double lineHeightAxis(String k) { return resolve(lineHeightAxis, DEFAULT_LINE_HEIGHT_AXIS, k); }
-        public double pressAxis(String k) { return resolve(pressAxis, DEFAULT_PRESS_AXIS, k); }
-        public double widthAxis(String k) { return resolve(widthAxis, DEFAULT_WIDTH_AXIS, k); }
-        public double passingDirectness(String k) { return resolve(passingDirectness, DEFAULT_PASSING_DIRECTNESS, k); }
-        public double dribblingRisk(String k) { return resolve(dribblingRisk, DEFAULT_DRIBBLING_RISK, k); }
-        public double foulControl(String k) { return resolve(foulControl, DEFAULT_FOUL_CONTROL, k); }
-        public double foulHardnessControl(String k) { return resolve(foulHardnessControl, DEFAULT_FOUL_HARDNESS_CONTROL, k); }
-        public double fragmentationControl(String k) { return resolve(fragmentationControl, DEFAULT_FRAGMENTATION_CONTROL, k); }
-        public double widePlayWidth(String k) { return resolve(widePlayWidth, DEFAULT_WIDE_PLAY_WIDTH, k); }
-        public double widePlayRisk(String k) { return resolve(widePlayRisk, DEFAULT_WIDE_PLAY_RISK, k); }
-        public double transitionRisk(String k) { return resolve(transitionRisk, DEFAULT_TRANSITION_RISK, k); }
-        public double transitionControl(String k) { return resolve(transitionControl, DEFAULT_TRANSITION_CONTROL, k); }
-
-        private static double resolve(Map<String, Double> override, Map<String, Double> shipped, String key) {
-            Double o = override.get(key);
-            if (o != null) return o;
-            Double d = shipped.get(key);
-            return d == null ? 0.0 : d;
-        }
-
-        // ---------------------------------------------------------------------------------------------
-        // Single-source catalog of the valid categorical values for every tactic axis (ordered). The
-        // numeric DEFAULT_*/override maps above remap what each value DOES; this is the authoritative
-        // list of which values EXIST. Production AI selection, the advisor, and the tests all enumerate
-        // from here so they always explore the exact same tactic space. Static (the catalog is fixed —
-        // overrides cannot add/remove values) so it is reachable without a Spring-managed instance.
-        // ---------------------------------------------------------------------------------------------
         public static final List<String> MENTALITY_OPTIONS =
                 List.of("Very Attacking", "Attacking", "Balanced", "Defensive", "Very Defensive");
         public static final List<String> TIME_WASTING_OPTIONS =
@@ -1779,72 +1351,8 @@ public class MatchEngineConfig {
         public static final List<String> RECOVERY_OPTIONS =
                 List.of("Slow", "Standard", "Very Fast", "Instantly");
 
-        /** Attack share for a used base position: override → shipped default → 0.5. */
-        public double attackShareFor(String position) {
-            Double o = attackShare.get(position);
-            if (o != null) return o;
-            Double d = DEFAULT_ATTACK_SHARE.get(position);
-            return d == null ? 0.5 : d;
+        private TacticalModel() {
         }
-
-        /** Shipped attack/defense split per position (1.0 = pure attack, 0.0 = pure defense). */
-        private static final Map<String, Double> DEFAULT_ATTACK_SHARE = new HashMap<>();
-        static {
-            DEFAULT_ATTACK_SHARE.put("ST", 0.95);
-            DEFAULT_ATTACK_SHARE.put("AMC", 0.72);
-            DEFAULT_ATTACK_SHARE.put("AML", 0.85);
-            DEFAULT_ATTACK_SHARE.put("AMR", 0.85);
-            DEFAULT_ATTACK_SHARE.put("ML", 0.80);
-            DEFAULT_ATTACK_SHARE.put("MR", 0.80);
-            DEFAULT_ATTACK_SHARE.put("MC", 0.50);
-            DEFAULT_ATTACK_SHARE.put("DM", 0.30);
-            DEFAULT_ATTACK_SHARE.put("WBL", 0.55);
-            DEFAULT_ATTACK_SHARE.put("WBR", 0.55);
-            DEFAULT_ATTACK_SHARE.put("DL", 0.45);
-            DEFAULT_ATTACK_SHARE.put("DR", 0.45);
-            DEFAULT_ATTACK_SHARE.put("DC", 0.12);
-            DEFAULT_ATTACK_SHARE.put("GK", 0.00);
-        }
-
-        /** Shipped categorical setting → numeric axis contributions (tunable; override via config maps). */
-        private static final Map<String, Double> DEFAULT_MENTALITY_BIAS = Map.of(
-                "Very Defensive", -1.0, "Defensive", -0.5, "Balanced", 0.0, "Attacking", 0.5, "Very Attacking", 1.0);
-        private static final Map<String, Double> DEFAULT_POSSESSION_BIAS = Map.of(
-                "Standard", 0.0, "Keep Ball", -0.10, "Free Ball Early", 0.15);
-        private static final Map<String, Double> DEFAULT_TEMPO_RISK = Map.of(
-                "Much Lower", -1.0, "Lower", -0.5, "Standard", 0.0, "Higher", 0.5, "Much Higher", 1.0);
-        private static final Map<String, Double> DEFAULT_PASSING_RISK = Map.of(
-                "Short", -0.15, "Normal", 0.0, "Long", 0.20, "Direct", 0.20);
-        private static final Map<String, Double> DEFAULT_POSSESSION_CONTROL = Map.of(
-                "Standard", 0.0, "Keep Ball", 0.6, "Free Ball Early", -0.1);
-        private static final Map<String, Double> DEFAULT_TIME_WASTING_CONTROL = Map.of(
-                "Never", -0.1, "Sometimes", 0.0, "Frequently", 0.4, "Always", 0.6);
-        // Strat-2 axes (neutral key ⇒ 0 so a default tactic is a no-op).
-        private static final Map<String, Double> DEFAULT_LINE_HEIGHT_AXIS = Map.of(
-                "Deep", -1.0, "Standard", 0.0, "High", 1.0);
-        private static final Map<String, Double> DEFAULT_PRESS_AXIS = Map.of(
-                "Low", 0.0, "Standard", 0.5, "High", 1.0);
-        private static final Map<String, Double> DEFAULT_WIDTH_AXIS = Map.of(
-                "Narrow", -1.0, "Balanced", 0.0, "Wide", 1.0);
-        private static final Map<String, Double> DEFAULT_PASSING_DIRECTNESS = Map.of(
-                "Short", 0.0, "Normal", 0.4, "Long", 1.0, "Direct", 1.0);
-        // Faza 2 team-level instructions (neutral key ⇒ 0 so a default tactic is a no-op).
-        private static final Map<String, Double> DEFAULT_DRIBBLING_RISK = Map.of(
-                "Less", -1.0, "Standard", 0.0, "More", 1.0);
-        private static final Map<String, Double> DEFAULT_FOUL_CONTROL = Map.of(
-                "Rarely", -0.15, "Normal", 0.0, "Often", 0.35);
-        private static final Map<String, Double> DEFAULT_FOUL_HARDNESS_CONTROL = Map.of(
-                "Soft", -0.15, "Medium", 0.0, "Hard", 0.35);
-        private static final Map<String, Double> DEFAULT_FRAGMENTATION_CONTROL = Map.of(
-                "Flowing", -0.5, "Normal", 0.0, "Fragment", 0.7);
-        private static final Map<String, Double> DEFAULT_WIDE_PLAY_WIDTH = Map.of(
-                "Cut Inside", -0.9, "Shoot", 0.0, "Cross", 1.0);
-        private static final Map<String, Double> DEFAULT_WIDE_PLAY_RISK = Map.of(
-                "Cut Inside", 0.15, "Shoot", 0.0, "Cross", 0.0);
-        private static final Map<String, Double> DEFAULT_TRANSITION_RISK = Map.of(
-                "Win Fouls", -0.5, "Balanced", 0.0, "Fast Counter", 0.7);
-        private static final Map<String, Double> DEFAULT_TRANSITION_CONTROL = Map.of(
-                "Win Fouls", 0.6, "Balanced", 0.0, "Fast Counter", -0.3);
     }
 
     /**

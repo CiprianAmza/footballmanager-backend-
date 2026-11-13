@@ -12,47 +12,39 @@ import java.util.function.Function;
 /**
  * Single source of truth for a player's <b>match value</b> and a team's matchday rating.
  *
- * <p>A starter's match value is
- * <pre>{@code clamp(weightedAvgAttrs × scaleMultiplier, floor, ceil)
- *        × familiarity(natural, used) × moraleFactor(morale) × fitnessFactor(fitness)}</pre>
- * and a team's value is the sum over its eleven starters. That team value is what feeds
- * {@code MatchSimulationService.calculateScores} (after the team-level team-talk and
- * home-advantage multipliers in {@code effectivePower}).
- *
- * <p>This is deliberately distinct from {@code PlayerSkillsService.computeOverallRating}
- * (the generic skill stored on {@code Human.rating}): that generic value is used only for
- * squad-selection sorting, transfer valuations and UI. The match value uses per-position
- * attribute weights ({@code match.engine.player-value.weights}) so designers can express
- * what matters per position, and it is computed only at matchday.
+ * <p>A starter's match value is his <em>special rating</em> at the position he occupies
+ * (his attributes read through the match engine's weights, {@code compartment-scoring-weights-v1.yml}),
+ * floored at {@code ratingFloor} (no maximum), then
+ * {@code × familiarity(natural, used) × moraleFactor(morale) × fitnessFactor(fitness)}.
+ * It never uses the visible rating's weights ({@code RatingWeightsConfig}).
  */
 @Service
 public class PlayerValueService {
 
     private final MatchEngineConfig engineConfig;
+    private PositionAttributeImportance engineWeights;
 
     @Autowired
     public PlayerValueService(MatchEngineConfig engineConfig) {
         this.engineConfig = engineConfig;
     }
 
+    /** Spring supplies the engine's weight table; otherwise the statically installed one is used. */
+    @Autowired(required = false)
+    void setEngineWeights(PositionAttributeImportance engineWeights) {
+        this.engineWeights = engineWeights;
+    }
+
     /**
-     * Position-weighted attribute value on the same ~1..300 scale as {@code Human.rating},
-     * BEFORE familiarity/morale/fitness. {@code usedPosition} is the base position the
-     * player occupies in the tactic (GK/DL/DR/DC/ML/MR/MC/ST).
+     * The special rating at {@code usedPosition} on the ~1..300 scale, BEFORE
+     * familiarity/morale/fitness.
      */
     public double computePositionalValue(PlayerSkills skills, String usedPosition) {
         MatchEngineConfig.PlayerValue cfg = engineConfig.getPlayerValue();
-        double weightedSum = 0;
-        double weightTotal = 0;
-        for (Map.Entry<String, Function<PlayerSkills, Integer>> e : PlayerSkillsService.GETTER_MAP.entrySet()) {
-            double w = cfg.weight(usedPosition, e.getKey());
-            if (w == 0) continue;
-            weightedSum += e.getValue().apply(skills) * w;
-            weightTotal += w;
-        }
-        double avg = weightTotal > 0 ? weightedSum / weightTotal : 0;
-        double scaled = avg * cfg.getScaleMultiplier();
-        return Math.max(cfg.getRatingFloor(), Math.min(cfg.getRatingCeil(), scaled));
+        PositionAttributeImportance table = engineWeights != null
+                ? engineWeights : PositionAttributeImportance.current();
+        double special = PlayerSkillsService.computeSpecialRating(skills, usedPosition, table);
+        return Math.max(cfg.getRatingFloor(), special);
     }
 
     /** Position-familiarity factor in (0,1]: 1.0 on the natural position, configured penalty otherwise. */

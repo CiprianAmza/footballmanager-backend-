@@ -39,6 +39,7 @@ import java.util.Objects;
 public class GameAdvanceService {
 
     @Autowired private UserContext userContext;
+    @Autowired private PlannedTransferService plannedTransferService;
     @Autowired private CalendarService calendarService;
     @Autowired private GameCalendarRepository gameCalendarRepository;
     @Autowired private CalendarEventRepository calendarEventRepository;
@@ -46,6 +47,7 @@ public class GameAdvanceService {
     @Autowired private UserRepository userRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired @Lazy private JobOfferService jobOfferService;
+    @Autowired(required = false) private com.footballmanagergamesimulator.service.press.FirstDayService firstDayService;
     @Autowired @Lazy private AdminController adminController;
 
     @Autowired private CalendarEventDispatcher calendarEventDispatcher;
@@ -263,6 +265,27 @@ public class GameAdvanceService {
             if (jobOfferBlock != null) return jobOfferBlock;
         }
 
+        // Hard pause: a manager's first day at a new club is not over (design DESIGN_START_CARIERA §6).
+        if (scope == null && !alwaysContinue && firstDayService != null) {
+            for (var u : userRepository.findAll()) {
+                if (u.getTeamId() == null || u.getTeamId() <= 0) continue;
+                var firstDay = firstDayService.status(u.getTeamId());
+                if (!firstDay.pending()) continue;
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("paused", true);
+                result.put("reason", "FIRST_DAY_PENDING");
+                result.put("awaitingInput", true);
+                result.put("firstDayNext", firstDay.nextLabel());
+                // Whose first day it is: another manager's first day pauses the game too, but is not mine to finish.
+                result.put("firstDayTeamId", u.getTeamId());
+                result.put("season", season);
+                result.put("day", calendar.getCurrentDay());
+                result.put("phase", calendar.getCurrentPhase());
+                result.put("dateDisplay", calendarService.getDateDisplay(calendar.getCurrentDay()));
+                return result;
+            }
+        }
+
         // Hard pause: an uncommitted live-match session exists for a human user
         // (typically because the user refreshed the browser mid-match). Block
         // advance and signal the FE to resume the live modal — without this,
@@ -393,6 +416,11 @@ public class GameAdvanceService {
             calendarEventDispatcher.processMonthlyWages(season);
         }
 
+        // AI transfers planned for the window happen one day at a time (design §3.6).
+        if (calendar.getCurrentDay() != startDay) {
+            plannedTransferService.executeDue();
+        }
+
         // Safety net: if we're past day 355 with no pending events, trigger season transition
         if (calendar.getCurrentDay() >= 355 && !calendar.isPaused()) {
             CalendarEvent pendingEvent = calendarService.getNextPendingEvent(season);
@@ -447,7 +475,7 @@ public class GameAdvanceService {
             result.put("reason", pauseReason);
             result.put("blockingEvent", blockingEvent);
         }
-        result.put("transferWindowOpen", calendar.isTransferWindowOpen());
+        result.put("transferWindowOpen", com.footballmanagergamesimulator.util.TransferWindow.isOpen(calendar.getCurrentDay()));
         result.put("alwaysContinue", alwaysContinue);
 
         // Find next upcoming event
@@ -475,7 +503,7 @@ public class GameAdvanceService {
         state.put("dayOfWeek", calendarService.getDayOfWeek(calendar.getCurrentDay()));
         state.put("dateDisplay", calendarService.getDateDisplay(calendar.getCurrentDay()));
         state.put("seasonPhase", calendarService.getSeasonPhase(calendar.getCurrentDay()));
-        state.put("transferWindowOpen", calendar.isTransferWindowOpen());
+        state.put("transferWindowOpen", com.footballmanagergamesimulator.util.TransferWindow.isOpen(calendar.getCurrentDay()));
         state.put("managerFired", calendar.isManagerFired());
         state.put("paused", calendar.isPaused());
         state.put("alwaysContinue", isAlwaysContinueActive());

@@ -1,14 +1,11 @@
 package com.footballmanagergamesimulator.testutil;
 
-import com.footballmanagergamesimulator.service.knockout.LegFormat;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 /**
- * Pure bracket / seeding helpers shared by the cup, LoC, and Stars Cup outcome
- * tests: leg-format parsing, power-of-two bracket sizing, stage labels, the
+ * Pure bracket / seeding helpers for tests: power-of-two bracket sizing, stage labels, the
  * group-of-4 double round-robin schedule, and power-based seeding comparators.
  *
  * <p>All methods are stateless and operate on {@link TeamSetup}.
@@ -44,25 +41,6 @@ public final class BracketUtil {
             {{2, 0}, {3, 1}},
             {{3, 0}, {2, 1}},
     };
-
-    /** Parse {@code -Dleg.format}: "single"/"single-leg" (default) or "two"/"two-leg"/"home-away". */
-    public static LegFormat parseLegFormat(String value) {
-        if (value == null || value.isBlank()) return LegFormat.SINGLE_LEG;
-        switch (value.trim().toLowerCase()) {
-            case "single":
-            case "single-leg":
-            case "one":
-                return LegFormat.SINGLE_LEG;
-            case "two":
-            case "two-leg":
-            case "twoleg":
-            case "home-away":
-                return LegFormat.TWO_LEG;
-            default:
-                throw new IllegalArgumentException(
-                        "Invalid -Dleg.format='" + value + "'. Use 'single' or 'two-leg'.");
-        }
-    }
 
     public static int nextPowerOfTwo(int n) {
         int p = 1;

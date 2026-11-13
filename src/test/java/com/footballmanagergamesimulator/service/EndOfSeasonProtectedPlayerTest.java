@@ -52,6 +52,7 @@ class EndOfSeasonProtectedPlayerTest {
         when(users.isHumanTeam(3L)).thenReturn(true);
 
         ReflectionTestUtils.setField(processor, "humanRepository", humans);
+        ReflectionTestUtils.setField(processor, "contractSignature", mock(ContractSignature.class));
         ReflectionTestUtils.setField(processor, "teamRepository", teams);
         ReflectionTestUtils.setField(processor, "transferRepository", transfers);
         ReflectionTestUtils.setField(processor, "loanRepository", loans);
@@ -103,6 +104,7 @@ class EndOfSeasonProtectedPlayerTest {
         when(teams.findById(3L)).thenReturn(Optional.of(team));
 
         ReflectionTestUtils.setField(processor, "humanRepository", humans);
+        ReflectionTestUtils.setField(processor, "contractSignature", mock(ContractSignature.class));
         ReflectionTestUtils.setField(processor, "teamRepository", teams);
         ReflectionTestUtils.setField(processor, "managerInboxRepository", inboxes);
         ReflectionTestUtils.setField(processor, "userContext", users);

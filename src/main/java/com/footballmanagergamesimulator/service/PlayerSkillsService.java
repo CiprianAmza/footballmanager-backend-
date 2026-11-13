@@ -146,53 +146,71 @@ public class PlayerSkillsService {
      * squads land players 120-180, relegation-tier squads 30-80.
      */
     public static double computeOverallRating(PlayerSkills skills) {
-        String pos = skills.getPosition();
-        if (pos == null) pos = "MC";
-        pos = pos.trim().toUpperCase(java.util.Locale.ROOT);
-
-        // Rating is the engine's own valuation, read back through the weights that decide
-        // matches. It used to be a separate hand-written table per position, so a player
-        // could rate 250 and be worth much more or less than another 250 once the
-        // compartments were applied — the transfer market optimised one number while the
-        // league table was settled by the other.
-        PositionAttributeImportance table = PositionAttributeImportance.current();
-        if (table != null && table.knows(pos)) {
-            return engineWeightedRating(skills, pos, table);
+        // The rating: what the world sees (UI, scouting, transfers, AI). It has its own
+        // weights (RatingWeightsConfig), completely separate from the engine's weights that
+        // define the special rating — see computeSpecialRating.
+        Map<String, Double> weights = com.footballmanagergamesimulator.config.RatingWeightsConfig
+                .current().weightsFor(normalizedPosition(skills));
+        double weightTotal = 0;
+        double weightedValue = 0;
+        for (Map.Entry<String, Function<PlayerSkills, Integer>> entry : GETTER_MAP.entrySet()) {
+            Double weight = weights.get(com.footballmanagergamesimulator.config.RatingWeightsConfig
+                    .normalize(entry.getKey()));
+            if (weight == null || weight <= 0) continue;
+            int value = entry.getValue().apply(skills);
+            weightedValue += weight * (value - RATING_ATTRIBUTE_MIN)
+                    / (double) (RATING_ATTRIBUTE_MAX - RATING_ATTRIBUTE_MIN);
+            weightTotal += weight;
         }
+        if (weightTotal <= 0) return 1;
+        // 19 in every weighted attribute = 300. The rating has no maximum: every point
+        // above 19 keeps adding (20 > 19, 21 > 20).
+        return Math.max(1, weightedValue / weightTotal * 300);
+    }
 
-        pos = TacticService.getBasePosition(pos);
+    private static final int RATING_ATTRIBUTE_MIN = 1;
+    private static final int RATING_ATTRIBUTE_MAX = 19;
 
-        double weighted;
-
-        switch (pos) {
-            case "GK" -> weighted = gkRating(skills);
-            case "DC" -> weighted = dcRating(skills);
-            case "DL", "DR" -> weighted = fbRating(skills);
-            case "MC" -> weighted = mcRating(skills);
-            case "ML", "MR" -> weighted = wideRating(skills);
-            case "ST" -> weighted = stRating(skills);
-            default -> weighted = mcRating(skills);
-        }
-
-        // Map from 1-20 attribute scale to a 1-300 rating scale.
-        // weighted is already a 1-20 weighted average of position-relevant attrs.
-        return Math.max(1, Math.min(300, weighted * 15));
+    /**
+     * The special rating: the player read through the weights the match engine scores with,
+     * i.e. what he is really worth in a match at his position, independent of tactic. Same
+     * 1&ndash;300 scale as {@link #computeOverallRating}, but completely separate weights.
+     */
+    public static double computeSpecialRating(PlayerSkills skills) {
+        return computeSpecialRating(skills, skills.getPosition(), PositionAttributeImportance.current());
     }
 
     /**
-     * Weighted average of the attributes this position is scored on, mapped to 1&ndash;300.
-     *
-     * <p>Dividing by the position's shape factor is what makes this the exact inverse of
-     * generation. A generated profile sets each attribute to {@code level x importance},
-     * so its weighted average sits below the level by a factor that depends on how peaked
-     * the position's profile is; without dividing it back out, a striker asked for 300
-     * came back as 223 and a keeper as 251 — the same request producing a different
-     * player depending on where he played.
+     * The special rating of these attributes when played at {@code position} (which may
+     * differ from the player's natural position), read through the given engine weights.
      */
-    private static double engineWeightedRating(PlayerSkills skills, String position,
-                                               PositionAttributeImportance table) {
-        Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double> importance =
-                table.importance(position);
+    public static double computeSpecialRating(PlayerSkills skills, String position,
+                                              PositionAttributeImportance table) {
+        String pos = position == null ? "MC" : position.trim().toUpperCase(java.util.Locale.ROOT);
+        if (table != null && table.knows(pos)) {
+            return weightedRating(skills, table, table.importance(pos));
+        }
+        throw new IllegalStateException(
+                "Engine weights are not installed; the special rating needs compartment-scoring-weights-v1.yml");
+    }
+
+    private static String normalizedPosition(PlayerSkills skills) {
+        String pos = skills.getPosition();
+        if (pos == null) pos = "MC";
+        return pos.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * Weighted average of the attributes this position is scored on, mapped to 1&ndash;300:
+     * 19 in every weighted attribute = 300, the same scale as {@link #computeOverallRating}.
+     *
+     * <p>It used to be divided by the position's generation shape factor, back when generation
+     * targeted this rating. Generation now targets the rating ({@code calibrateOverallRating}),
+     * so that division only inflated the special rating (~450 for a 300-rated player).
+     */
+    private static double weightedRating(PlayerSkills skills,
+                                         PositionAttributeImportance table,
+                                         Map<com.footballmanagergamesimulator.compartment.PlayerAttribute, Double> importance) {
         double weightTotal = 0;
         double weightedValue = 0;
         int attributeMin = table.attributeMin();
@@ -205,48 +223,74 @@ public class PlayerSkillsService {
             weightTotal += weight;
             int raw = com.footballmanagergamesimulator.compartment.adapter.PlayerAttributeMapping
                     .rawValue(skills, entry.getKey());
-            // 20 is an exceptional marker. Ordinary overall rating treats it exactly as
-            // 19; only the explicitly selected special role can unlock its discontinuity.
-            int ordinaryValue = Math.min(raw, attributeMax);
-            weightedValue += weight * ((ordinaryValue - attributeMin) / span);
+            // Every point counts, also above attribute-max (19): 20 rates above 19.
+            weightedValue += weight * ((raw - attributeMin) / span);
         }
         if (weightTotal <= 0) return 1;
 
-        double average = weightedValue / weightTotal;
-        double shape = Math.max(table.shapeFactor(position), 0.0001);
-        return Math.max(1, Math.min(300, (average / shape) * 300));
+        return Math.max(1, weightedValue / weightTotal * 300);
     }
 
     /**
-     * Moves only attributes that contribute to the positional overall until the
-     * computed value is as close as the integer 1-20 attribute scale permits.
-     * Non-relevant attributes are left unchanged, preserving the position profile.
+     * g: moves only attributes that contribute to the positional overall until the computed
+     * value is as close to {@code targetRating} as the integer 1-19 scale permits. Used for
+     * generation: attributes above 19 are left untouched and none is pushed past 19.
+     * Non-relevant attributes are left unchanged, preserving the position profile. There is
+     * no rating maximum; a target beyond what 19s give is simply not reached.
      */
     public static double calibrateOverallRating(PlayerSkills skills, double targetRating) {
-        double target = Math.max(1, Math.min(300, targetRating));
+        return calibrate(skills, targetRating, null, null);
+    }
+
+    /**
+     * Δ: moves only the given {@code attributes} until the rating is as close to
+     * {@code targetRating} as the integer scale permits. Each point goes to an attribute
+     * drawn at random (uniformly) among those of the set that still bring the rating closer.
+     * Past 19 each level needs the rare roll of {@link AttributeCeilingOdds} (as in training);
+     * a missed roll spends the point and that attribute grows no further in this growth, so the
+     * rating may end below the target.
+     */
+    public static double calibrateOverallRating(PlayerSkills skills, double targetRating,
+                                                Set<String> attributes, Random rng) {
+        return calibrate(skills, targetRating, Objects.requireNonNull(attributes),
+                Objects.requireNonNull(rng));
+    }
+
+    /**
+     * {@code rng == null}: g (generation) — deterministic, always the step that lands
+     * closest, never past 19 and never touching a 20+. Otherwise Δ — a random pick among
+     * the allowed attributes that improve, each level past 19 behind the rare roll.
+     */
+    private static double calibrate(PlayerSkills skills, double targetRating,
+                                    Set<String> allowed, Random rng) {
+        double target = Math.max(1, targetRating);
         double current = computeOverallRating(skills);
         if (Double.compare(target, current) == 0) return current;
 
         double currentError = Math.abs(target - current);
-        int ordinaryMax = PositionAttributeImportance.current() == null
-                ? 19 : PositionAttributeImportance.current().attributeMax();
-        int maxSteps = SETTER_MAP.size() * ordinaryMax;
+        int ordinaryMax = 19;
+        // One attribute moves one point per step; the bound only guards against a runaway loop.
+        int maxSteps = SETTER_MAP.size() * 40;
+        // Δ only: attributes whose rare roll past 19 failed in this growth.
+        Set<String> blocked = new HashSet<>();
 
         for (int step = 0; step < maxSteps && currentError > 0.000001; step++) {
             int direction = Double.compare(target, current);
+            List<String> improving = new ArrayList<>();
+            List<Double> improvingRatings = new ArrayList<>();
             String bestAttribute = null;
-            int bestValue = 0;
             double bestRating = current;
             double bestError = currentError;
 
             for (Map.Entry<String, Function<PlayerSkills, Integer>> entry : GETTER_MAP.entrySet()) {
                 String attribute = entry.getKey();
+                if (allowed != null && !allowed.contains(attribute)) continue;
+                if (blocked.contains(attribute)) continue;
                 int originalValue = entry.getValue().apply(skills);
-                // Never create or erase a hand-authored exceptional ability while
-                // calibrating the ordinary overall rating.
-                if (originalValue == 20) continue;
                 int candidateValue = originalValue + direction;
-                if (candidateValue < 1 || candidateValue > ordinaryMax) continue;
+                if (candidateValue < 1) continue;
+                // Generation never creates or erases an exceptional (20+) ability.
+                if (rng == null && (originalValue > ordinaryMax || candidateValue > ordinaryMax)) continue;
 
                 BiConsumer<PlayerSkills, Integer> setter = SETTER_MAP.get(attribute);
                 setter.accept(skills, candidateValue);
@@ -254,123 +298,36 @@ public class PlayerSkillsService {
                 setter.accept(skills, originalValue);
 
                 double candidateError = Math.abs(target - candidateRating);
+                if (candidateError + 0.000001 >= currentError) continue; // must get closer
+                improving.add(attribute);
+                improvingRatings.add(candidateRating);
                 if (candidateError + 0.000001 < bestError) {
                     bestAttribute = attribute;
-                    bestValue = candidateValue;
                     bestRating = candidateRating;
                     bestError = candidateError;
                 }
             }
 
-            if (bestAttribute == null) break;
-            SETTER_MAP.get(bestAttribute).accept(skills, bestValue);
+            if (improving.isEmpty()) break;
+            if (rng != null) {
+                int pick = rng.nextInt(improving.size());
+                bestAttribute = improving.get(pick);
+                bestRating = improvingRatings.get(pick);
+                bestError = Math.abs(target - bestRating);
+                int from = GETTER_MAP.get(bestAttribute).apply(skills);
+                // Past 19 every level needs the same rare roll as training (design question 8, decided):
+                // a missed roll spends the point and the attribute grows no further in this growth.
+                if (direction > 0 && from + 1 > ordinaryMax && !AttributeCeilingOdds.reaches(from + 1, rng)) {
+                    blocked.add(bestAttribute);
+                    continue;
+                }
+            }
+            int value = GETTER_MAP.get(bestAttribute).apply(skills);
+            SETTER_MAP.get(bestAttribute).accept(skills, value + direction);
             current = bestRating;
             currentError = bestError;
         }
 
         return current;
-    }
-
-    private static double gkRating(PlayerSkills s) {
-        return s.getReflexes() * 0.18
-                + s.getHandling() * 0.16
-                + s.getPositioning() * 0.12
-                + s.getOneOnOnes() * 0.10
-                + s.getCommandOfArea() * 0.10
-                + s.getKicking() * 0.06
-                + s.getThrowing() * 0.04
-                + s.getConcentration() * 0.06
-                + s.getAnticipation() * 0.06
-                + s.getComposure() * 0.04
-                + s.getAgility() * 0.04
-                + s.getDecisions() * 0.04;
-    }
-
-    private static double dcRating(PlayerSkills s) {
-        return s.getTackling() * 0.14
-                + s.getMarking() * 0.12
-                + s.getPositioning() * 0.12
-                + s.getHeading() * 0.08
-                + s.getStrength() * 0.08
-                + s.getAnticipation() * 0.08
-                + s.getConcentration() * 0.08
-                + s.getBravery() * 0.06
-                + s.getComposure() * 0.05
-                + s.getPace() * 0.05
-                + s.getJumpingReach() * 0.05
-                + s.getPassing() * 0.04
-                + s.getDecisions() * 0.05;
-    }
-
-    private static double fbRating(PlayerSkills s) {
-        return s.getTackling() * 0.10
-                + s.getCrossing() * 0.10
-                + s.getPace() * 0.10
-                + s.getStamina() * 0.08
-                + s.getPositioning() * 0.08
-                + s.getMarking() * 0.07
-                + s.getAnticipation() * 0.06
-                + s.getWorkRate() * 0.06
-                + s.getDribbling() * 0.05
-                + s.getPassing() * 0.06
-                + s.getAcceleration() * 0.06
-                + s.getConcentration() * 0.05
-                + s.getTeamwork() * 0.05
-                + s.getDecisions() * 0.04
-                + s.getFirstTouch() * 0.04;
-    }
-
-    private static double mcRating(PlayerSkills s) {
-        return s.getPassing() * 0.14
-                + s.getVision() * 0.10
-                + s.getDecisions() * 0.08
-                + s.getTeamwork() * 0.07
-                + s.getFirstTouch() * 0.07
-                + s.getTechnique() * 0.07
-                + s.getStamina() * 0.06
-                + s.getWorkRate() * 0.06
-                + s.getPositioning() * 0.06
-                + s.getTackling() * 0.05
-                + s.getConcentration() * 0.05
-                + s.getComposure() * 0.05
-                + s.getAnticipation() * 0.05
-                + s.getDribbling() * 0.04
-                + s.getLongShots() * 0.05;
-    }
-
-    private static double wideRating(PlayerSkills s) {
-        return s.getCrossing() * 0.12
-                + s.getDribbling() * 0.12
-                + s.getPace() * 0.10
-                + s.getAcceleration() * 0.08
-                + s.getTechnique() * 0.07
-                + s.getFirstTouch() * 0.06
-                + s.getOffTheBall() * 0.06
-                + s.getFlair() * 0.05
-                + s.getPassing() * 0.06
-                + s.getStamina() * 0.05
-                + s.getWorkRate() * 0.05
-                + s.getAgility() * 0.05
-                + s.getFinishing() * 0.05
-                + s.getDecisions() * 0.04
-                + s.getAnticipation() * 0.04;
-    }
-
-    private static double stRating(PlayerSkills s) {
-        return s.getFinishing() * 0.16
-                + s.getOffTheBall() * 0.10
-                + s.getComposure() * 0.09
-                + s.getFirstTouch() * 0.07
-                + s.getDribbling() * 0.07
-                + s.getHeading() * 0.06
-                + s.getPace() * 0.06
-                + s.getAcceleration() * 0.05
-                + s.getAnticipation() * 0.06
-                + s.getTechnique() * 0.06
-                + s.getStrength() * 0.05
-                + s.getDecisions() * 0.05
-                + s.getFlair() * 0.04
-                + s.getBalance() * 0.04
-                + s.getAgility() * 0.04;
     }
 }

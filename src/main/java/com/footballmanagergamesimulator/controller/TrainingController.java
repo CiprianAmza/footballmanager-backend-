@@ -5,7 +5,9 @@ import com.footballmanagergamesimulator.model.TrainingSchedule;
 import com.footballmanagergamesimulator.repository.HumanRepository;
 import com.footballmanagergamesimulator.repository.TrainingScheduleRepository;
 import com.footballmanagergamesimulator.service.CoachPermissionService;
+import com.footballmanagergamesimulator.service.TrainingDelegationService;
 import com.footballmanagergamesimulator.service.TrainingService;
+import com.footballmanagergamesimulator.service.TrainingType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,6 +34,9 @@ public class TrainingController {
     @Autowired
     CoachPermissionService coachPermissionService;
 
+    @Autowired
+    TrainingDelegationService trainingDelegationService;
+
     private void requireTrainingPermission(long teamId) {
         if (!coachPermissionService.canSetTraining(teamId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Restricționat de patron: nu poți schimba antrenamentul.");
@@ -43,6 +48,32 @@ public class TrainingController {
         if (player != null && player.getTeamId() != null) {
             requireTrainingPermission(player.getTeamId());
         }
+    }
+
+    /** Training type → the staff id delegated to coach it (types nobody coaches are absent). */
+    @GetMapping("/delegations/{teamId}")
+    public Map<TrainingType, Long> getDelegations(@PathVariable(name = "teamId") long teamId) {
+        return trainingDelegationService.delegations(teamId);
+    }
+
+    /** Per training type: the delegate, the coach actually used (the best one when nobody is delegated), the candidates. */
+    @GetMapping("/delegations/{teamId}/overview")
+    public List<TrainingDelegationService.TypeOverview> getDelegationOverview(@PathVariable(name = "teamId") long teamId) {
+        return trainingDelegationService.overview(teamId);
+    }
+
+    /** Delegates a coach of the team to a training type; a null staffId removes the delegation. */
+    @PutMapping("/delegations/{teamId}/{type}")
+    public Map<TrainingType, Long> delegate(@PathVariable(name = "teamId") long teamId,
+                                            @PathVariable(name = "type") TrainingType type,
+                                            @RequestParam(name = "staffId", required = false) Long staffId) {
+        requireTrainingPermission(teamId);
+        try {
+            trainingDelegationService.delegate(teamId, type, staffId);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+        return trainingDelegationService.delegations(teamId);
     }
 
     @GetMapping("/schedule/{teamId}")

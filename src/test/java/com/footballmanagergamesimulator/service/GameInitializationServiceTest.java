@@ -50,6 +50,7 @@ class GameInitializationServiceTest {
     @Mock private CompetitionReputationService competitionReputationService;
     @Mock private MemoryCheckpointService memoryCheckpointService;
     @Mock private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
+    @Mock private AgentService agentService;
 
     @BeforeEach
     void setUp() {
@@ -75,6 +76,7 @@ class GameInitializationServiceTest {
         inject("competitionReputationService", competitionReputationService);
         inject("memoryCheckpointService", memoryCheckpointService);
         inject("newSeasonPlayerReadinessService", newSeasonPlayerReadinessService);
+        inject("agentService", agentService);
     }
 
     @Test

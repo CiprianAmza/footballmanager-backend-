@@ -41,6 +41,8 @@ public class MinimumSquadService {
 
     @Autowired private TeamRepository teamRepository;
     @Autowired private HumanRepository humanRepository;
+    @Autowired private ContractSignature contractSignature;
+    @Autowired private PlayerBondService playerBondService;
     @Autowired private YouthPlayerRepository youthPlayerRepository;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
     @Autowired private TeamPlayerHistoricalRelationRepository historicalRelationRepository;
@@ -149,6 +151,7 @@ public class MinimumSquadService {
         humanRepository.saveAll(newPlayers);
         playerSkillsRepository.saveAll(skills);
         historicalRelationRepository.saveAll(relations);
+        promotions.forEach(p -> playerBondService.recordYouthProduct(p.player().getId(), p.team().getId()));
         youthPlayerRepository.saveAll(promotions.stream().map(Promotion::prospect).toList());
         teamRepository.saveAll(promotions.stream().map(Promotion::team).distinct().toList());
 
@@ -196,6 +199,7 @@ public class MinimumSquadService {
         player.setCurrentStatus("Junior");
         player.setRetired(false);
         player.setContractEndSeason(season + 5);
+        contractSignature.mark(player);
         player.setWage(wage);
         player.setSalary(wage);
         player.setReleaseClause(wage * 52 * 5);

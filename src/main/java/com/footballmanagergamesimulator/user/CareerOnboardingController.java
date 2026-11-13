@@ -16,6 +16,8 @@ public class CareerOnboardingController {
 
     private final CurrentUserService currentUserService;
     private final CareerOnboardingService onboardingService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ManagerBackgroundService backgroundService;
 
     public CareerOnboardingController(CurrentUserService currentUserService,
                                       CareerOnboardingService onboardingService) {
@@ -26,6 +28,12 @@ public class CareerOnboardingController {
     @GetMapping("/status")
     public Map<String, Object> status() {
         return onboardingService.status(currentUserService.requireUser());
+    }
+
+    /** Choices for the manager creation screen: nations, tactics, playing careers, licences. */
+    @GetMapping("/manager/options")
+    public Map<String, Object> managerOptions() {
+        return backgroundService.options();
     }
 
     @PostMapping("/manager/setup")

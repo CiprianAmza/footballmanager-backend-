@@ -65,6 +65,7 @@ class AiTransferMarketBenchmarkIT {
     @Autowired private MatchSimulationOrchestrator matchSimulation;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private EntityManager entityManager;
+    @Autowired private PlannedTransferService plannedTransferService;
 
     record Result(long milliseconds, Map<Long, Long> buyerByPlayer,
                   Map<Long, Long> ownersByPlayer, Map<Long, Long> budgetsByTeam,
@@ -119,6 +120,7 @@ class AiTransferMarketBenchmarkIT {
             List<Transfer> transfers = processor.runAiTransferMarket(
                     allTeams.stream().map(Team::getId).toList(), humanTeamIds,
                     byId, season, season);
+            plannedTransferService.drainWindow(); // MEMORY plans the moves over the window; LEGACY made them already
             entityManager.flush();
             long elapsedMs = (System.nanoTime() - started) / 1_000_000;
 

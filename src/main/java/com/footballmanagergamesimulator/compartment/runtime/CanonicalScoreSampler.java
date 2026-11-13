@@ -211,8 +211,8 @@ public final class CanonicalScoreSampler {
         if (strikers.isEmpty()) return PassingGoals.none();
         TeamCompartmentAggregator.PassingStriker striker = strikers.get(random.nextInt(strikers.size()));
         int opportunities = mechanic.sampleOpportunityCount(random.nextDouble());
-        int opponentPace20 = mechanic.pace20Midfielders(opponent.passingStyle(), opponentRed.playerId());
-        double chance = mechanic.strikerGoalChance(controlChance, striker.finishing(), striker.pace(), opponentPace20);
+        double opponentPace20Penalty = mechanic.opponentPace20Penalty(opponent.passingStyle(), opponentRed.playerId());
+        double chance = mechanic.strikerGoalChance(controlChance, striker.finishing(), striker.pace(), opponentPace20Penalty);
         int goals = 0;
         for (int opportunity = 0; opportunity < opportunities; opportunity++) {
             if (random.nextDouble() < chance) goals++;

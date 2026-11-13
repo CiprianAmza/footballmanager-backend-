@@ -45,8 +45,8 @@ public class PlayerRoleService {
     public double computeRoleSuitability(PlayerSkills skills, String roleName) {
         RoleDef role = findRole(skills.getPosition(), roleName);
         if (role == null) {
-            // Unknown role: fall back to position-based rating
-            return PlayerSkillsService.computeOverallRating(skills);
+            // Unknown role: fall back to the position's match value (special rating)
+            return PlayerSkillsService.computeSpecialRating(skills);
         }
 
         return weightedRoleSuitability(skills, role, false);
@@ -151,10 +151,11 @@ public class PlayerRoleService {
 
     /**
      * Compute the effective match rating for a player in a specific role, blending the
-     * generic overall rating with role suitability (config-tunable blend weights).
+     * player's match value at his position (special rating) with role suitability
+     * (config-tunable blend weights).
      */
     public double computeEffectiveRating(PlayerSkills skills, String roleName) {
-        return computeEffectiveRating(skills, roleName, PlayerSkillsService.computeOverallRating(skills));
+        return computeEffectiveRating(skills, roleName, PlayerSkillsService.computeSpecialRating(skills));
     }
 
     /**

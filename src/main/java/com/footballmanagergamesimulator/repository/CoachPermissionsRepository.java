@@ -7,4 +7,6 @@ import java.util.Optional;
 
 public interface CoachPermissionsRepository extends JpaRepository<CoachPermissions, Long> {
     Optional<CoachPermissions> findByTeamId(long teamId);
+
+    java.util.List<CoachPermissions> findAllByTeamIdIn(java.util.Collection<Long> teamIds);
 }

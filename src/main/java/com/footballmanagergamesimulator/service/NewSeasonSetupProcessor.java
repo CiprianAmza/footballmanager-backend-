@@ -16,7 +16,6 @@ import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.model.TeamFacilities;
 import com.footballmanagergamesimulator.model.TeamPlayerHistoricalRelation;
-import com.footballmanagergamesimulator.model.TrainingSchedule;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
 import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoMatchRepository;
@@ -33,7 +32,6 @@ import com.footballmanagergamesimulator.repository.TeamCompetitionDetailReposito
 import com.footballmanagergamesimulator.repository.TeamFacilitiesRepository;
 import com.footballmanagergamesimulator.repository.TeamPlayerHistoricalRelationRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
-import com.footballmanagergamesimulator.repository.TrainingScheduleRepository;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,7 +43,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -92,6 +89,7 @@ public class NewSeasonSetupProcessor {
             "Athletic Sohatu");
 
     @Autowired private RoundRepository roundRepository;
+    @Autowired(required = false) private MatchDetailRetentionService matchDetailRetentionService;
     @Autowired private TeamRepository teamRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private CompetitionRepository competitionRepository;
@@ -102,8 +100,8 @@ public class NewSeasonSetupProcessor {
     @Autowired private LoanRepository loanRepository;
     @Autowired private ManagerInboxRepository managerInboxRepository;
     @Autowired private ScorerRepository scorerRepository;
+    @Autowired private SeasonStatGrowthService seasonStatGrowthService;
     @Autowired private ScorerLeaderboardRepository scorerLeaderboardRepository;
-    @Autowired private TrainingScheduleRepository trainingScheduleRepository;
     @Autowired private TeamFacilitiesRepository teamFacilitiesRepository;
     @Autowired private TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
@@ -179,7 +177,8 @@ public class NewSeasonSetupProcessor {
         resetCompetitionData();
         superCupService.prepareSeason(newSeason);
         removeCompetitionData((long) newSeason);
-        addImprovementToOverachievers();
+        // A good season grows the league's top 3 in each statistics category (attributes; rating follows).
+        seasonStatGrowthService.apply((int) oldSeason, new Random());
         stageStarted = logSetupStage(oldSeason, "competition_reset", stageStarted);
 
         // Ageing + retirements already applied in processEndOfSeason, before the market.
@@ -295,6 +294,8 @@ public class NewSeasonSetupProcessor {
         // boost all recomputed player ratings — drop every cached AI base rating so
         // the new season starts from current squad strength.
         matchSimulationOrchestrator.invalidateAllRatingCaches();
+        // Per-match detail older than the previous season is dropped (decided 2026-11-12).
+        if (matchDetailRetentionService != null) matchDetailRetentionService.prune(newSeason);
 
         // Publish the new season only after every setup write succeeded. The
         // in-memory Round is updated after commit, keeping concurrent reads on
@@ -530,63 +531,6 @@ public class NewSeasonSetupProcessor {
     }
 
     // ============================================================
-    //  End-of-season player-rating reward for overachieving scorers.
-    // ============================================================
-
-    public void addImprovementToOverachievers() {
-        long season = currentSeason();
-        System.out.println("Starting rating adjusting for season " + season);
-        Random random = new Random();
-        List<ScorerLeaderboardEntry> allEntries = scorerLeaderboardRepository.findAll();
-
-        // Preload every player once into a map so the per-entry reward is a map
-        // lookup instead of a findById (N+1); collect mutated rows for one saveAll each.
-        Map<Long, Human> playersById = humanRepository.findAll().stream()
-                .collect(Collectors.toMap(Human::getId, h -> h, (a, b) -> a));
-        List<Human> playersToSave = new ArrayList<>();
-        List<ScorerLeaderboardEntry> entriesToSave = new ArrayList<>();
-
-        for (ScorerLeaderboardEntry entry : allEntries) {
-            if (entry.getCurrentSeasonGames() < 20) continue; // play at least half of the games
-
-            double ratio = 0D;
-            if (entry.getCurrentSeasonLeagueGames() > 0 && entry.getCurrentSeasonLeagueGoals() > 0) {
-                ratio = (double) entry.getCurrentSeasonLeagueGoals() / entry.getCurrentSeasonLeagueGames();
-            } else if (entry.getCurrentSeasonSecondLeagueGames() > 0 && entry.getCurrentSeasonSecondLeagueGoals() > 0) {
-                ratio = (double) entry.getCurrentSeasonSecondLeagueGoals() / entry.getCurrentSeasonSecondLeagueGames();
-            }
-
-            int ratingIncrease;
-            if (ratio >= 1.0D) ratingIncrease = random.nextInt(15, 20);
-            else if (ratio >= 0.75) ratingIncrease = random.nextInt(10, 15);
-            else if (ratio >= 0.5) ratingIncrease = random.nextInt(7, 10);
-            else if (ratio >= 0.4) ratingIncrease = random.nextInt(3, 7);
-            else continue;
-            if (entry.getLeagueGoals() < entry.getSecondLeagueGoals()) {
-                ratingIncrease /= 2; // overachieving in second league is less impressive
-            }
-
-            Human player = playersById.get(entry.getPlayerId());
-            if (player != null) {
-                System.out.println("Player " + player.getName() + " from team " + entry.getTeamName()
-                        + " had rating increased from " + player.getRating() + " to "
-                        + (player.getRating() + ratingIncrease) + " because of ratio of " + ratio);
-                player.setRating(player.getRating() + ratingIncrease);
-                playersToSave.add(player);
-
-                entry.setCurrentRating(player.getRating());
-                if (entry.getCurrentRating() > entry.getBestEverRating()) {
-                    entry.setBestEverRating(entry.getCurrentRating());
-                    entry.setSeasonOfBestEverRating((int) season);
-                }
-                entriesToSave.add(entry);
-            }
-        }
-        humanRepository.saveAll(playersToSave);
-        scorerLeaderboardRepository.saveAll(entriesToSave);
-    }
-
-    // ============================================================
     //  Historical snapshots
     // ============================================================
 
@@ -686,45 +630,5 @@ public class NewSeasonSetupProcessor {
             newDetails.add(newTcd);
         }
         teamCompetitionDetailRepository.saveAll(newDetails);
-    }
-
-    // ============================================================
-    //  Season-end training rating boost.
-    // ============================================================
-
-    public void applyTrainingEffect(List<Long> teamIds) {
-        long season = currentSeason();
-        List<TrainingSchedule> allSchedules = trainingScheduleRepository.findAll();
-        Map<Long, Double> teamAvgIntensity = allSchedules.stream()
-                .collect(Collectors.groupingBy(TrainingSchedule::getTeamId,
-                        Collectors.averagingInt(TrainingSchedule::getIntensity)));
-
-        Set<Long> eligibleTeamIds = new HashSet<>(teamIds);
-        List<Human> playersToSave = new ArrayList<>();
-        for (Human player : humanRepository.findAllByTypeId(TypeNames.PLAYER_TYPE)) {
-            Long teamId = player.getTeamId();
-            if (teamId == null || !eligibleTeamIds.contains(teamId)) continue;
-            double avgIntensity = teamAvgIntensity.getOrDefault(teamId, 0.0);
-            if (avgIntensity == 0) continue;
-            if (player.isRetired()) continue;
-
-            double baseBoost = 0.5 + (avgIntensity / 100.0) * 1.5;
-            double ageModifier;
-            if (player.getAge() < 23) ageModifier = 1.5;
-            else if (player.getAge() > 30) ageModifier = 0.5;
-            else ageModifier = 1.0;
-
-            double newRating = player.getRating() + baseBoost * ageModifier;
-            if (player.getPotentialAbility() > 0 && newRating > player.getPotentialAbility()) {
-                newRating = player.getPotentialAbility();
-            }
-            player.setRating(newRating);
-            if (newRating > player.getBestEverRating()) {
-                player.setBestEverRating(newRating);
-                player.setSeasonOfBestEverRating((int) season);
-            }
-            playersToSave.add(player);
-        }
-        humanRepository.saveAll(playersToSave);
     }
 }

@@ -23,9 +23,6 @@ import com.footballmanagergamesimulator.repository.MatchAnimationRecipeRepositor
 import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
-import com.footballmanagergamesimulator.service.TacticalScoreService.Matchup;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -90,7 +87,6 @@ class Faza2GateHarness {
 
     final MatchEngineConfig engineConfig = new MatchEngineConfig();
     final LiveMatchSimulationService service = new LiveMatchSimulationService();
-    final TacticalScoreService tacticalScoreService = new TacticalScoreService();
     final ObjectMapper mapper = new ObjectMapper();
 
     final MatchPlanService matchPlanService = mock(MatchPlanService.class);
@@ -136,10 +132,6 @@ class Faza2GateHarness {
         inject("liveCommitContextRepository", liveCommitContextRepository);
         inject("matchAnimationRecipeRepository", matchAnimationRecipeRepository);
         inject("objectMapper", mapper);
-
-        var f = TacticalScoreService.class.getDeclaredField("engineConfig");
-        f.setAccessible(true);
-        f.set(tacticalScoreService, engineConfig);
 
         when(humanRepository.findAllByTeamIdAndTypeId(HOME_TEAM, 1L)).thenReturn(squad(100L));
         when(humanRepository.findAllByTeamIdAndTypeId(AWAY_TEAM, 1L)).thenReturn(squad(200L));
@@ -218,7 +210,7 @@ class Faza2GateHarness {
     LiveMatchSession start(boolean generateGoalAnimations) {
         return service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, SEASON, ROUND,
-                generateGoalAnimations, matchup(), TARGET_HOME, TARGET_AWAY,
+                generateGoalAnimations, TARGET_HOME, TARGET_AWAY,
                 MATCH_ROW, "442", "442");
     }
 
@@ -233,12 +225,6 @@ class Faza2GateHarness {
     /** Cold recovery through the production resume path. */
     LiveMatchSession coldRecover() {
         return service.getSessionOrRecover(LIVE_KEY);
-    }
-
-    Matchup matchup() {
-        return tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
     }
 
     // ---- checkpoint access ------------------------------------------------

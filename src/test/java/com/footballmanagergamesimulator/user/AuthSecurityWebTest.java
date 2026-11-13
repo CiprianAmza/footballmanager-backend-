@@ -78,6 +78,7 @@ class AuthSecurityWebTest {
     @MockBean private TraderAdviserService traderAdviserService;
     @MockBean private ChairmanInboxNotificationService chairmanInboxNotificationService;
     @MockBean private GameCalendarRepository gameCalendarRepository;
+    @MockBean private ManagerBackgroundService managerBackgroundService;
     @SpyBean private CareerOnboardingService onboardingService;
 
     private User user;

@@ -79,6 +79,7 @@ class TransferWindowReportIT {
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private TransferRepository transferRepository;
+    @Autowired private com.footballmanagergamesimulator.service.PlannedTransferService plannedTransferService;
     @Autowired private LoanRepository loanRepository;
     @Autowired private RoundRepository roundRepository;
     @Autowired private SeasonTransitionService seasonTransitionService;
@@ -184,6 +185,7 @@ class TransferWindowReportIT {
         strategy.setRandomForTesting(new Random(SEED));
         long tWindow = System.currentTimeMillis();
         seasonTransitionService.processEndOfSeason(season);
+        plannedTransferService.drainWindow(); // the AI moves are planned over the window's days
         long windowMs = System.currentTimeMillis() - tWindow;
         System.out.println("=== TIMING: leagues=" + leagues.size()
                 + " matchdays=" + matchdays

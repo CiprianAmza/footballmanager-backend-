@@ -40,9 +40,7 @@ public class TrainingService {
     @Autowired
     MatchEngineConfig engineConfig;
     @Autowired
-    TrainingCadenceService trainingCadenceService;
-    @Autowired
-    PlayerPersonalityService playerPersonalityService;
+    TrainingCounterService trainingCounterService;
     @Autowired
     InjuryTimelineService injuryTimelineService;
     @Autowired(required = false)
@@ -52,18 +50,7 @@ public class TrainingService {
             "Muscle Strain", "Twisted Ankle", "Minor Knock", "Hamstring Tweak", "Bruised Shin"
     };
 
-    // Attributes that decline with age (physical)
-    private static final Set<String> PHYSICAL_ATTRS = Set.of(
-            "Acceleration", "Agility", "Balance", "Jumping Reach", "Natural Fitness",
-            "Pace", "Stamina", "Strength");
-
-    // Attributes that can grow even late career (mental)
-    private static final Set<String> MENTAL_ATTRS = Set.of(
-            "Aggression", "Anticipation", "Bravery", "Composure", "Concentration",
-            "Decisions", "Determination", "Flair", "Leadership", "Off The Ball",
-            "Positioning", "Teamwork", "Vision", "Work Rate");
-
-    // Training focus -> which attributes improve faster
+    // Training focus -> the attributes one session trains (counted toward the monthly update)
     private static final Map<String, Set<String>> TRAINING_FOCUS_ATTRS = Map.of(
             "Attacking", Set.of("Finishing", "Off The Ball", "Composure", "Dribbling",
                     "First Touch", "Long Shots", "Technique", "Anticipation", "Flair"),
@@ -108,20 +95,12 @@ public class TrainingService {
         // source: config + FacilityTraining, age-based youth vs senior level).
         TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
         MatchEngineConfig.Training trainingCfg = engineConfig.getTraining();
-        boolean updateRatings = trainingCadenceService.isRatingUpdateDay(currentDay);
-
-        // Development runs once per cadence block and uses one IN query instead
-        // of one PlayerSkills lookup for every player in every daily session.
-        Map<Long, PlayerSkills> skillsByPlayer = new HashMap<>();
-        if (updateRatings) {
-            List<Long> playerIds = players.stream().map(Human::getId).toList();
-            for (PlayerSkills skills : playerSkillsRepository.findAllByPlayerIdIn(playerIds)) {
-                skillsByPlayer.put(skills.getPlayerId(), skills);
-            }
-        }
+        // Attributes only change on the league's monthly update day
+        // (MonthlyTrainingUpdateService); a session just counts what it trained.
+        Map<Long, Set<String>> trainedByPlayer = new HashMap<>();
+        Map<Long, Set<String>> relevantByPlayer = new HashMap<>();
 
         List<Human> modifiedPlayers = new ArrayList<>();
-        List<PlayerSkills> modifiedSkills = new ArrayList<>();
 
         for (Human player : players) {
             // Skip injured players
@@ -137,46 +116,11 @@ public class TrainingService {
             if (trainingCfg.isScaleFitnessGain()) fitnessGain *= facilityFactor;
             player.setFitness(Math.min(100.0, player.getFitness() + fitnessGain));
 
-            if (updateRatings) {
-                Set<String> effectiveFocusAttrs = getEffectiveFocusAttrs(player, focusAttrs);
-                PlayerSkills skills = skillsByPlayer.get(player.getId());
-                if (skills != null) {
-                    double personalityFactor = playerPersonalityService.trainingDevelopmentFactor(player, trainingFocus);
-                    boolean attributeChanged = trainAttributes(
-                            player, skills, effectiveFocusAttrs, random, facilityFactor * personalityFactor);
-
-                    if (attributeChanged) {
-                        double newRating = PlayerSkillsService.computeOverallRating(skills);
-                        if (player.getPotentialAbility() > 0) {
-                            newRating = Math.min(newRating, player.getPotentialAbility());
-                        }
-                        newRating = Math.max(1.0, newRating);
-                        player.setRating(newRating);
-
-                        if (newRating > player.getBestEverRating()) {
-                            player.setBestEverRating(newRating);
-                            player.setSeasonOfBestEverRating(season);
-                        }
-                        modifiedSkills.add(skills);
-                    }
-                } else {
-                    // Fallback: old-style rating-only training.
-                    double ratingChange = calculateDevelopmentChange(player, random);
-                    if (ratingChange != 0) {
-                        double newRating = player.getRating() + ratingChange;
-                        if (ratingChange > 0 && player.getPotentialAbility() > 0) {
-                            newRating = Math.min(newRating, player.getPotentialAbility());
-                        }
-                        newRating = Math.max(newRating, 1.0);
-                        player.setRating(newRating);
-
-                        if (newRating > player.getBestEverRating()) {
-                            player.setBestEverRating(newRating);
-                            player.setSeasonOfBestEverRating(season);
-                        }
-                    }
-                }
-            }
+            Set<String> relevant = MonthlyTrainingUpdateService.relevantAttributes(player.getPosition());
+            Set<String> trained = new HashSet<>(getEffectiveFocusAttrs(player, focusAttrs));
+            trained.retainAll(relevant);
+            trainedByPlayer.put(player.getId(), trained);
+            relevantByPlayer.put(player.getId(), relevant);
 
             // Very small chance (1%) of training injury
             if (!availabilityDisabled() && random.nextDouble() < 0.01) {
@@ -195,120 +139,12 @@ public class TrainingService {
         }
 
         humanRepository.saveAll(modifiedPlayers);
-        if (!modifiedSkills.isEmpty()) {
-            playerSkillsRepository.saveAll(modifiedSkills);
-        }
-
-        if (updateRatings) {
-            // Training recomputed player ratings — drop this team's cached AI base
-            // rating so its match power reflects the new values from the next match.
-            //
-            // Squad-level only: training changes what the players are worth, not which
-            // formation the manager prefers. Re-deriving that ranks every formation
-            // against the squad and costs over a second per club, and this runs ~88
-            // times a season per team. It is also what made the AI transfer window take
-            // two minutes: the window trains everyone and then immediately reads all
-            // 106 best XIs. The manager's choice is refreshed at the season boundary
-            // via invalidateAllRatingCaches().
-            matchSimulationOrchestrator.invalidateSquadCaches(teamId);
-        }
+        trainingCounterService.recordSession(teamId, trainedByPlayer, relevantByPlayer,
+                TrainingUpdateSchedule.monthKey(season, currentDay));
     }
 
     private boolean availabilityDisabled() {
         return gameplayFeatures != null && gameplayFeatures.isPlayerAvailabilityDisabled();
-    }
-
-    /**
-     * Train individual attributes based on age, training focus, and position.
-     * Returns true if any attribute was changed.
-     *
-     * Young players: all attributes can grow, physical + technical have higher chance
-     * Peak players: mental attributes still develop, physical/technical maintain
-     * Old players: physical attributes decline, mental can still grow slightly
-     */
-    private boolean trainAttributes(Human player, PlayerSkills skills, Set<String> focusAttrs, Random random,
-                                    double facilityFactor) {
-        int age = player.getAge();
-        int matchesPlayed = player.getSeasonMatchesPlayed();
-        double matchBonus = Math.min(matchesPlayed * 0.002, 0.05);
-        boolean anyChanged = false;
-
-        for (Map.Entry<String, Function<PlayerSkills, Integer>> entry : PlayerSkillsService.GETTER_MAP.entrySet()) {
-            String attrName = entry.getKey();
-            int currentVal = entry.getValue().apply(skills);
-
-            // Skip GK attrs for outfield and vice versa
-            if (!isRelevantAttribute(attrName, skills.getPosition())) continue;
-
-            boolean isPhysical = PHYSICAL_ATTRS.contains(attrName);
-            boolean isMental = MENTAL_ATTRS.contains(attrName);
-            boolean isFocused = focusAttrs.contains(attrName);
-
-            double changeChance;
-            double changeAmount;
-
-            if (age <= 20) {
-                // Youth: high growth everywhere, focused attrs even more
-                changeChance = (isFocused ? 0.12 : 0.06) + matchBonus;
-                changeAmount = random.nextDouble(0.3, 1.0);
-            } else if (age <= 23) {
-                changeChance = (isFocused ? 0.08 : 0.04) + matchBonus;
-                changeAmount = random.nextDouble(0.2, 0.8);
-            } else if (age <= 33) {
-                // Extended prime plateau (24-33): net change ~0. Physical jitters
-                // symmetrically (no systematic loss), mental can still nudge up a
-                // little (experience), so ability stays roughly flat until 34.
-                if (isPhysical) {
-                    changeChance = 0.02;
-                    changeAmount = random.nextDouble(-0.15, 0.15);
-                } else if (isMental) {
-                    changeChance = (isFocused ? 0.03 : 0.02) + matchBonus * 0.5;
-                    changeAmount = random.nextDouble(0.0, 0.2);
-                } else {
-                    changeChance = 0.02;
-                    changeAmount = random.nextDouble(-0.1, 0.1);
-                }
-            } else {
-                // 34+: significant decline, especially physical
-                if (isPhysical) {
-                    changeChance = 0.15;
-                    changeAmount = -random.nextDouble(0.3, 0.8);
-                } else if (isMental) {
-                    changeChance = 0.01;
-                    changeAmount = random.nextDouble(-0.05, 0.1);
-                } else {
-                    changeChance = 0.08;
-                    changeAmount = -random.nextDouble(0.1, 0.4);
-                }
-            }
-
-            // Better facilities amplify GROWTH only (decline is never accelerated),
-            // matching HumanService.trainIndividualAttributes. Single source: the
-            // factor comes from FacilityTraining + MatchEngineConfig.Training.
-            if (changeAmount > 0) {
-                changeAmount *= facilityFactor;
-            }
-
-            if (random.nextDouble() < changeChance) {
-                if (currentVal == 20) continue; // exceptional, hand-authored and stable
-                int newVal = (int) Math.round(currentVal + changeAmount);
-                newVal = Math.max(1, Math.min(19, newVal));
-                if (newVal != currentVal) {
-                    PlayerSkillsService.SETTER_MAP.get(attrName).accept(skills, newVal);
-                    anyChanged = true;
-                }
-            }
-        }
-
-        return anyChanged;
-    }
-
-    private boolean isRelevantAttribute(String attrName, String position) {
-        boolean isGK = "GK".equals(position);
-        boolean isGKAttr = PlayerSkillsService.GOALKEEPER.contains(attrName);
-        // GK trains GK attrs + mental + physical; outfield trains non-GK attrs
-        if (isGK) return true;
-        return !isGKAttr;
     }
 
     private String getTrainingFocus(long teamId) {
@@ -438,52 +274,6 @@ public class TrainingService {
         result.put("roles", roles);
 
         return result;
-    }
-
-    /**
-     * Fallback: Age-based development curves for players without PlayerSkills.
-     */
-    private double calculateDevelopmentChange(Human player, Random random) {
-        int age = player.getAge();
-        int matchesPlayed = player.getSeasonMatchesPlayed();
-        double matchBonus = Math.min(matchesPlayed * 0.002, 0.05);
-
-        if (age <= 20) {
-            if (random.nextDouble() < 0.12 + matchBonus) {
-                return random.nextDouble(0.1, 0.4);
-            }
-        } else if (age <= 23) {
-            if (random.nextDouble() < 0.08 + matchBonus) {
-                return random.nextDouble(0.1, 0.3);
-            }
-        } else if (age <= 26) {
-            if (random.nextDouble() < 0.05 + matchBonus) {
-                return random.nextDouble(0.05, 0.15);
-            }
-        } else if (age <= 29) {
-            double roll = random.nextDouble();
-            if (roll < 0.03 + matchBonus * 0.5) {
-                return random.nextDouble(0.02, 0.1);
-            } else if (roll > 0.97) {
-                return -random.nextDouble(0.02, 0.08);
-            }
-        } else if (age <= 31) {
-            double roll = random.nextDouble();
-            if (roll < 0.03) {
-                return random.nextDouble(0.01, 0.05);
-            } else if (roll > 0.94) {
-                return -random.nextDouble(0.05, 0.15);
-            }
-        } else if (age <= 33) {
-            if (random.nextDouble() > 0.92) {
-                return -random.nextDouble(0.1, 0.25);
-            }
-        } else {
-            if (random.nextDouble() > 0.88) {
-                return -random.nextDouble(0.15, 0.4);
-            }
-        }
-        return 0;
     }
 
     public void setTrainingFocus(long teamId, String focus) {

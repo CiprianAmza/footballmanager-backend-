@@ -50,14 +50,38 @@ class PassingStyleMatchMechanicTest {
     }
 
     @Test
-    void finishing20UnlocksControlAndFinishing19LosesFortyPercent() {
-        assertThat(mechanic.strikerGoalChance(0.60, 20, 20, 0)).isCloseTo(0.60, within(1e-12));
+    void finishing20ConvertsEightyPercentAndFinishing19Sixty() {
+        assertThat(mechanic.strikerGoalChance(0.60, 20, 20, 0)).isCloseTo(0.48, within(1e-12));
         assertThat(mechanic.strikerGoalChance(0.60, 20, 19, 0)).isCloseTo(0.25, within(1e-12));
-        assertThat(mechanic.strikerGoalChance(0.60, 20, 20, 2)).isCloseTo(0.40, within(1e-12));
+        assertThat(mechanic.strikerGoalChance(0.60, 20, 20, 0.20)).isCloseTo(0.28, within(1e-12));
         assertThat(mechanic.strikerGoalChance(0.60, 19, 20, 0)).isCloseTo(0.36, within(1e-12));
         assertThat(mechanic.strikerGoalChance(0.60, 18, 20, 0))
                 .isLessThan(0.36)
                 .isCloseTo(0.3410526315789474, within(1e-12));
+    }
+
+    @Test
+    void everyFinishingLevelAbove20AddsFourPointsUpToTheFullControlChance() {
+        assertThat(mechanic.strikerGoalChance(1.0, 21, 20, 0)).isCloseTo(0.84, within(1e-12));
+        assertThat(mechanic.strikerGoalChance(1.0, 22, 20, 0)).isCloseTo(0.88, within(1e-12));
+        assertThat(mechanic.strikerGoalChance(1.0, 25, 20, 0)).isCloseTo(1.00, within(1e-12));
+        assertThat(mechanic.strikerGoalChance(1.0, 30, 20, 0)).isCloseTo(1.00, within(1e-12));
+    }
+
+    @Test
+    void paceAbove20RaisesTheMidfieldBonusAndTheOpponentPenaltyByOnePointPerLevel() {
+        // Long-passing base 0.85; each non-20 costs 10%, a 20 adds 5%, a 22 adds 7%.
+        assertThat(mechanic.suppression(profile(19, 19), null, "Long", "Normal"))
+                .isCloseTo(0.65, within(1e-12));
+        assertThat(mechanic.suppression(profile(20, 19), null, "Long", "Normal"))
+                .isCloseTo(0.80, within(1e-12));
+        assertThat(mechanic.suppression(profile(22, 19), null, "Long", "Normal"))
+                .isCloseTo(0.82, within(1e-12));
+
+        assertThat(mechanic.opponentPace20Penalty(profile(19, 20, 22), null)).isCloseTo(0.10 + 0.12, within(1e-12));
+        assertThat(mechanic.opponentPace20Penalty(profile(20, 22), 2L)).isCloseTo(0.10, within(1e-12));
+        // Pace above 20 is still uncapped for the striker.
+        assertThat(mechanic.strikerGoalChance(0.60, 19, 23, 0)).isCloseTo(0.36, within(1e-12));
     }
 
     @Test

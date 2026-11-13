@@ -159,8 +159,16 @@ public class TransferMarketService {
         managerInboxRepository.saveAll(inboxes);
     }
 
+    @Autowired
+    private com.footballmanagergamesimulator.repository.GameCalendarRepository gameCalendarRepository;
+
+    /** Whether managers can sign players today: a pure function of the current day (June–September, January). */
     public boolean isOpen() {
-        return transferWindowOpen;
+        if (gameCalendarRepository == null) return transferWindowOpen; // plain unit tests
+        return gameCalendarRepository.findAll().stream()
+                .max(java.util.Comparator.comparingInt(com.footballmanagergamesimulator.model.GameCalendar::getSeason))
+                .map(calendar -> com.footballmanagergamesimulator.util.TransferWindow.isOpen(calendar.getCurrentDay()))
+                .orElse(transferWindowOpen);
     }
 
     public void setOpen(boolean open) {

@@ -47,8 +47,6 @@ public class LiveMatchSimulationService {
     @Autowired
     MatchEngineConfig engineConfig;
     @Autowired
-    TacticalScoreService tacticalScoreService;
-    @Autowired
     PlayerValueService playerValueService;
     @Autowired
     MatchSimulationService matchSimulationService;
@@ -87,10 +85,7 @@ public class LiveMatchSimulationService {
     private final Map<String, LiveMatchData> liveMatchCache = new ConcurrentHashMap<>();
 
     record CommitOutcome(int homeGoals, int awayGoals,
-                         double homePower, double awayPower,
-                         TacticalScoreService.TeamProfile homeProfile,
-                         TacticalScoreService.TeamProfile awayProfile,
-                         boolean recalculated) {}
+                         double homePower, double awayPower) {}
 
     // Commentary templates
     static final String[] POSSESSION_COMMENTARY = {
@@ -971,7 +966,7 @@ public class LiveMatchSimulationService {
             if (ctxOpt.isPresent()) {
                 com.footballmanagergamesimulator.matchplan.LiveCommitContext ctx = ctxOpt.get();
                 LiveMatchSession s = recoverCanonicalSession(t1, t2, ctx.getHomePower(), ctx.getAwayPower(),
-                        comp, season, round, true, null, ctx.getMatchRowId());
+                        comp, season, round, true, ctx.getMatchRowId());
                 if (s != null) {
                     s.setDeferredContext(ctx.getHomePower(), ctx.getAwayPower(),
                             ctx.getHomeTactic(), ctx.getAwayTactic(), null, null,
@@ -1005,7 +1000,7 @@ public class LiveMatchSimulationService {
             List<com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch> fixtures =
                     fixtureRepositoryForRecovery.findPlayedFixture(comp, round, String.valueOf(season), t1, t2, 0);
             if (fixtures.isEmpty()) return null;
-            return recoverCanonicalSession(t1, t2, 0.0, 0.0, comp, season, round, true, null, fixtures.get(0).getId());
+            return recoverCanonicalSession(t1, t2, 0.0, 0.0, comp, season, round, true, fixtures.get(0).getId());
         } catch (NumberFormatException e) {
             return null;
         }
@@ -1169,65 +1164,7 @@ public class LiveMatchSimulationService {
         // but it must never switch the fixture to the removed two-axis/scalar scorer at commit.
         return new CommitOutcome(
                 session.getHomeScore(), session.getAwayScore(),
-                session.getDeferredTeamPower1(), session.getDeferredTeamPower2(),
-                null, null, false);
-    }
-
-    private TacticalScoreService.TeamProfile currentOnPitchProfile(LiveMatchSession session, boolean home) {
-        List<Human> squad = home ? session.team1All : session.team2All;
-        if (squad == null || squad.isEmpty()) return null;
-
-        List<Human> onPitch = squad.stream()
-                .filter(player -> {
-                    PlayerMatchState state = session.matchStates.get(player.getId());
-                    return state != null && state.isOnPitch;
-                })
-                .toList();
-        if (onPitch.isEmpty()) return null;
-
-        Map<Long, PlayerSkills> skillsById = loadSkillsCache(onPitch, List.of());
-        List<TacticalScoreService.StarterValue> starters = new ArrayList<>();
-        for (Human player : onPitch) {
-            PlayerMatchState state = session.matchStates.get(player.getId());
-            if (state == null) continue;
-            String usedPosition = player.getPosition();
-            PlayerSkills skills = skillsById.get(player.getId());
-            double fitness = Math.max(0.0, Math.min(100.0, state.currentStamina));
-            double value = skills != null
-                    ? playerValueService.evaluatePlayer(skills, player.getPosition(), usedPosition, player.getMorale(), fitness)
-                    : playerValueService.evaluatePlayer(player.getRating(), player.getPosition(), usedPosition, player.getMorale(), fitness);
-            starters.add(new TacticalScoreService.StarterValue(usedPosition, value));
-        }
-        if (starters.isEmpty()) return null;
-
-        TacticalScoreService.TeamProfile raw = tacticalScoreService.profile(starters);
-        double[] coach = coachAbilities(home ? session.getTeamId1() : session.getTeamId2());
-        TacticalScoreService.TeamProfile coached = tacticalScoreService.coachedProfile(raw, coach[0], coach[1]);
-        return tacticalScoreService.scaled(coached, teamTalkFactor(home ? session.getTeamId1() : session.getTeamId2()));
-    }
-
-    private double[] coachAbilities(long teamId) {
-        return humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
-                .filter(m -> !m.isRetired())
-                .findFirst()
-                .map(m -> new double[]{m.getOffensiveAbility(), m.getDefensiveAbility()})
-                .orElse(new double[]{50.0, 50.0});
-    }
-
-    private double teamTalkFactor(long teamId) {
-        double reputation = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
-                .filter(m -> !m.isRetired())
-                .findFirst()
-                .map(m -> (double) m.getManagerReputation())
-                .orElse(engineConfig.getTeamTalk().getNeutralReputation());
-        return engineConfig.getTeamTalk().multiplier(reputation);
-    }
-
-    long commitScoreSeed(LiveMatchSession session) {
-        return session.getCompetitionId() * 1_000_003L
-                + session.getRound() * 31L
-                + session.getTeamId1() * 17L
-                + session.getTeamId2();
+                session.getDeferredTeamPower1(), session.getDeferredTeamPower2());
     }
 
     /**
@@ -1245,41 +1182,24 @@ public class LiveMatchSimulationService {
             long competitionId, int season, int round,
             boolean generateGoalAnimations) {
         return createInteractiveSession(teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations, null);
+                competitionId, season, round, generateGoalAnimations, -1, -1);
     }
 
     /**
-     * Two-axis variant: when {@code matchup} is non-null the live engine derives possession + attack
-     * chances from the attack-vs-defense matchup (production model) instead of the scalar power ratio.
+     * Pinned variant: the live narration is pinned to a predetermined scoreline
+     * ({@code targetHomeGoals}/{@code targetAwayGoals}), the canonical score. The session
+     * pre-schedules that many goal minutes per team and forces/caps goals to those minutes,
+     * while every other live element (possession, shots, cards, subs, commentary) stays live.
+     * Pass {@code -1, -1} for unpinned mode.
      */
     public LiveMatchSession createInteractiveSession(
             long teamId1, long teamId2,
             double power1, double power2,
             long competitionId, int season, int round,
             boolean generateGoalAnimations,
-            TacticalScoreService.Matchup matchup) {
-        return createInteractiveSession(teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations, matchup, -1, -1);
-    }
-
-    /**
-     * Engine-unification variant: the live narration is pinned to a predetermined
-     * scoreline ({@code targetHomeGoals}/{@code targetAwayGoals}) — the exact
-     * result the instant two-axis engine produces for this matchup. The session
-     * pre-schedules that many goal minutes per team and forces/caps goals to
-     * those minutes, so the live final score equals the instant one while every
-     * other live element (possession, shots, cards, subs, commentary) stays live.
-     * Pass {@code -1, -1} for legacy stochastic mode (no pinning).
-     */
-    public LiveMatchSession createInteractiveSession(
-            long teamId1, long teamId2,
-            double power1, double power2,
-            long competitionId, int season, int round,
-            boolean generateGoalAnimations,
-            TacticalScoreService.Matchup matchup,
             int targetHomeGoals, int targetAwayGoals) {
         return createInteractiveSessionWithRandom(teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations, matchup,
+                competitionId, season, round, generateGoalAnimations,
                 targetHomeGoals, targetAwayGoals, new Random());
     }
 
@@ -1288,14 +1208,13 @@ public class LiveMatchSimulationService {
             double power1, double power2,
             long competitionId, int season, int round,
             boolean generateGoalAnimations,
-            TacticalScoreService.Matchup matchup,
             int targetHomeGoals, int targetAwayGoals,
         Random liveRandom) {
         String key = buildKey(competitionId, season, round, teamId1, teamId2);
         LiveMatchSession session = liveMatchSessions.compute(key, (fixtureKey, existing) -> {
             if (existing != null) return existing;
             return new LiveMatchSession(this, teamId1, teamId2, power1, power2,
-                    competitionId, season, round, generateGoalAnimations, matchup, liveRandom,
+                    competitionId, season, round, generateGoalAnimations, liveRandom,
                     targetHomeGoals, targetAwayGoals, true);
         });
         // Also seed liveMatchCache with the initial snapshot so legacy
@@ -1332,7 +1251,7 @@ public class LiveMatchSimulationService {
     public LiveMatchSession recoverCanonicalSession(
             long teamId1, long teamId2, double power1, double power2,
             long competitionId, int season, int round, boolean generateGoalAnimations,
-            TacticalScoreService.Matchup matchup, long matchRowId) {
+            long matchRowId) {
         if (matchPlanService == null || !matchPlanService.isEnabled() || matchRowId <= 0) return null;
         String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                 .competitionFixtureKey(matchRowId);
@@ -1346,7 +1265,7 @@ public class LiveMatchSimulationService {
         int targetAway = snap.regularTimeSlots(teamId2).size();
         LiveMatchSession session = new LiveMatchSession(this,
                 teamId1, teamId2, power1, power2, competitionId, season, round,
-                generateGoalAnimations, matchup,
+                generateGoalAnimations,
                 new CheckpointRandom(canonicalLiveSeed(matchRowId, competitionId, season, round, teamId1, teamId2)),
                 targetHome, targetAway, true);
         session.adoptCanonicalXi(
@@ -1375,11 +1294,10 @@ public class LiveMatchSimulationService {
             double power1, double power2,
             long competitionId, int season, int round,
             boolean generateGoalAnimations,
-            TacticalScoreService.Matchup matchup,
             int targetHomeGoals, int targetAwayGoals,
             long matchRowId, String homeTactic, String awayTactic) {
         return createInteractiveSession(teamId1, teamId2, power1, power2, competitionId, season, round,
-                generateGoalAnimations, matchup, targetHomeGoals, targetAwayGoals, matchRowId,
+                generateGoalAnimations, targetHomeGoals, targetAwayGoals, matchRowId,
                 homeTactic, awayTactic, -1, -1, -1, -1);
     }
 
@@ -1395,7 +1313,6 @@ public class LiveMatchSimulationService {
             double power1, double power2,
             long competitionId, int season, int round,
             boolean generateGoalAnimations,
-            TacticalScoreService.Matchup matchup,
             int targetHomeGoals, int targetAwayGoals,
             long matchRowId, String homeTactic, String awayTactic,
             int homeScoreET, int awayScoreET, int homeShootout, int awayShootout) {
@@ -1405,7 +1322,7 @@ public class LiveMatchSimulationService {
                 ? new CheckpointRandom(canonicalLiveSeed(matchRowId, competitionId, season, round, teamId1, teamId2))
                 : new Random();
         LiveMatchSession session = createInteractiveSessionWithRandom(teamId1, teamId2, power1, power2,
-                competitionId, season, round, generateGoalAnimations, matchup,
+                competitionId, season, round, generateGoalAnimations,
                 targetHomeGoals, targetAwayGoals, liveRandom);
 
         // Kickoff selection is authoritative independently of MatchPlan persistence.

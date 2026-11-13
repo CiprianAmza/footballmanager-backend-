@@ -11,9 +11,6 @@ import com.footballmanagergamesimulator.frontend.GoalAnimationData;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.repository.*;
-import com.footballmanagergamesimulator.service.TacticalScoreService.Matchup;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -42,7 +39,6 @@ import static org.mockito.Mockito.*;
 class LiveMatchCanonicalPlanBindingTest {
 
     private LiveMatchSimulationService service;
-    private TacticalScoreService tacticalScoreService;
     private MatchEngineConfig engineConfig;
     private MatchPlanService matchPlanService;
     private GoalAnimationService goalAnimationService;
@@ -82,8 +78,6 @@ class LiveMatchCanonicalPlanBindingTest {
         injectService("matchAnimationRecipeRepository", matchAnimationRecipeRepository);
         injectService("objectMapper", new ObjectMapper());
 
-        tacticalScoreService = new TacticalScoreService();
-        injectField(TacticalScoreService.class, tacticalScoreService, "engineConfig", engineConfig);
 
         when(humanRepository.findAllByTeamIdAndTypeId(HOME_TEAM, 1L)).thenReturn(buildSquad(100L));
         when(humanRepository.findAllByTeamIdAndTypeId(AWAY_TEAM, 1L)).thenReturn(buildSquad(200L));
@@ -126,12 +120,9 @@ class LiveMatchCanonicalPlanBindingTest {
                     return List.of(goalEvent(onPitch.isEmpty() ? 0L : onPitch.get(0).playerId()));
                 });
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, targetHome, targetAway, MATCH_ROW, "4-4-2", "4-4-2");
+                false, targetHome, targetAway, MATCH_ROW, "4-4-2", "4-4-2");
 
         assertTrue(session.isCanonicalPlanBound(), "the persisted plan is bound to the session");
         assertEquals("CTIM:" + MATCH_ROW, session.getCanonicalFixtureKey());
@@ -173,12 +164,9 @@ class LiveMatchCanonicalPlanBindingTest {
         when(matchPlanService.loadLivePlanSnapshot("CTIM:" + MATCH_ROW))
                 .thenReturn(java.util.Optional.of(snap));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 0, 0, MATCH_ROW, "4-4-2", "4-4-2");
+                false, 0, 0, MATCH_ROW, "4-4-2", "4-4-2");
 
         assertEquals(0.84, session.team1PossChance, 0.000_001,
                 "live possession must use the PASSING control stored in the canonical plan");
@@ -204,12 +192,9 @@ class LiveMatchCanonicalPlanBindingTest {
                     return List.of(goalEvent(5000 + slotIndex));
                 });
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 2, 1, MATCH_ROW, "4-4-2", "4-4-2");
+                false, 2, 1, MATCH_ROW, "4-4-2", "4-4-2");
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
 
         var goals = session.snapshot().getTimeline().stream()
@@ -233,12 +218,9 @@ class LiveMatchCanonicalPlanBindingTest {
         when(matchPlanService.resolveDueSlot(anyString(), anyLong(), anyInt(), anyInt(), anyInt(), anyList()))
                 .thenAnswer(inv -> List.of(goalEvent(5000 + (int) inv.getArgument(4))));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 2, 1, MATCH_ROW, "4-4-2", "4-4-2");
+                false, 2, 1, MATCH_ROW, "4-4-2", "4-4-2");
 
         // Play to 30', sub the top outfielder (101, on-pitch) off for the bench ST (112),
         // then finish. The minute-20 goal was before the sub; the minute-60 goal after.
@@ -307,12 +289,9 @@ class LiveMatchCanonicalPlanBindingTest {
                 anyLong(), anyLong(), anyLong(), anyInt(), anyString()))
                 .thenAnswer(inv -> new GoalAnimationData());
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                true, matchup, 2, 1, MATCH_ROW, "4-4-2", "4-4-2"); // animations ON
+                true, 2, 1, MATCH_ROW, "4-4-2", "4-4-2"); // animations ON
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
 
         assertEquals(2, session.getHomeScore(), "both same-minute goals count");
@@ -394,12 +373,9 @@ class LiveMatchCanonicalPlanBindingTest {
                     return List.of(goalEvent(onPitch.get(0).playerId()));
                 });
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 1, 0, MATCH_ROW, "4-4-2", "4-4-2");
+                false, 1, 0, MATCH_ROW, "4-4-2", "4-4-2");
 
         // The failed persistence fails the advance and mutates NOTHING (no phantom goal).
         assertThrows(RuntimeException.class,
@@ -428,12 +404,9 @@ class LiveMatchCanonicalPlanBindingTest {
         doThrow(new RuntimeException("db down")).when(matchPlanService)
                 .recordLiveSubstitution(anyString(), anyLong(), anyInt(), anyLong(), anyLong());
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 0, 0, MATCH_ROW, "4-4-2", "4-4-2");
+                false, 0, 0, MATCH_ROW, "4-4-2", "4-4-2");
         session.advanceUntilAndSnapshot(30);
 
         // The atomic persist fails → the substitution is rejected and nothing is mutated.
@@ -457,12 +430,9 @@ class LiveMatchCanonicalPlanBindingTest {
         when(goalAnimationService.generatePenalty(anyList(), anyList(), any(), anyLong(), anyLong(),
                 anyLong(), anyInt(), anyBoolean())).thenAnswer(inv -> new GoalAnimationData());
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                true, matchup, 1, 0, MATCH_ROW, "4-4-2", "4-4-2");
+                true, 1, 0, MATCH_ROW, "4-4-2", "4-4-2");
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
 
         assertEquals(1, session.getHomeScore(), "penalty goal scored");
@@ -491,11 +461,8 @@ class LiveMatchCanonicalPlanBindingTest {
                 List.of(), List.of(), List.of());
         when(matchPlanService.loadLivePlanSnapshot("CTIM:" + MATCH_ROW)).thenReturn(java.util.Optional.of(snap));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         service.createInteractiveSession(HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 0, 0, MATCH_ROW, "4-4-2", "4-4-2");
+                false, 0, 0, MATCH_ROW, "4-4-2", "4-4-2");
 
         // The prepared kickoff snapshot's XI is the adapter's, and the taker flag survives.
         ArgumentCaptor<com.footballmanagergamesimulator.matchplan.Lineup> homeCap =
@@ -531,12 +498,9 @@ class LiveMatchCanonicalPlanBindingTest {
         when(matchPlanService.resolveDueSlot(anyString(), anyLong(), anyInt(), anyInt(), anyInt(), anyList()))
                 .thenAnswer(inv -> List.of(goalEvent(((List<Contributor>) inv.getArgument(5)).get(0).playerId())));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         // Cold recovery from persisted state (no prior in-memory session).
         LiveMatchSession recovered = service.recoverCanonicalSession(
-                HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7, false, matchup, MATCH_ROW);
+                HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7, false, MATCH_ROW);
         assertNotNull(recovered, "a non-committed plan is recoverable");
         recovered.advanceUntilAndSnapshot(recovered.getTotalMinutes());
 
@@ -658,12 +622,9 @@ class LiveMatchCanonicalPlanBindingTest {
         when(matchPlanService.resolveDueSlot(anyString(), anyLong(), anyInt(), anyInt(), anyInt(), anyList()))
                 .thenAnswer(inv -> List.of(goalEvent(((List<Contributor>) inv.getArgument(5)).get(0).playerId())));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession original = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 2, 0, MATCH_ROW, "442", "442");
+                false, 2, 0, MATCH_ROW, "442", "442");
         original.advanceUntilAndSnapshot(30);
         original.applyUserSubAtMinuteAndSnapshot(101L, 112L, 30);
         original.advanceUntilAndSnapshot(50);
@@ -705,13 +666,10 @@ class LiveMatchCanonicalPlanBindingTest {
     @Test
     void flagOff_doesNotPrepareOrBind_legacyNarration() {
         engineConfig.getMatchPlan().setEnabled(false);
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
 
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 2, 1, MATCH_ROW, "4-4-2", "4-4-2");
+                false, 2, 1, MATCH_ROW, "4-4-2", "4-4-2");
 
         assertFalse(session.isCanonicalPlanBound(), "flag off → no canonical plan");
         verify(matchPlanService, never()).prepareLivePlan(anyString(), anyLong(), anyInt(), anyInt(),
@@ -742,13 +700,10 @@ class LiveMatchCanonicalPlanBindingTest {
         when(matchPlanService.resolveDueSlot(anyString(), anyLong(), anyInt(), anyInt(), anyInt(), anyList()))
                 .thenAnswer(inv -> List.of(goalEvent(5000 + (int) (long) (Integer) inv.getArgument(4))));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         // 18-param overload: 90' 1-1, ET 1-0 home, shootout 4-2.
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                false, matchup, 1, 1, MATCH_ROW, "4-4-2", "4-4-2",
+                false, 1, 1, MATCH_ROW, "4-4-2", "4-4-2",
                 1, 0, 4, 2);
 
         assertTrue(session.isCanonicalPlanBound());

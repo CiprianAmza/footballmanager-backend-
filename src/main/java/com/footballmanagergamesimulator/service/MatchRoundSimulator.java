@@ -129,7 +129,6 @@ public class MatchRoundSimulator {
     @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired private CoachPermissionService coachPermissionService;
     @Autowired private PlayerSkillsRepository playerSkillsRepository;
-    @Autowired private TacticalScoreService tacticalScoreService;
     @Autowired private PlayerMatchStatService playerMatchStatService;
     @Autowired private UserContext userContext;
     @Autowired private UserRepository userRepository;
@@ -379,6 +378,15 @@ public class MatchRoundSimulator {
         // Availability changes every matchday. Preserve the expensive squad/skill
         // cache, but always rebuild the XI, bench and match power.
         participatingTeamIds.forEach(this::invalidateMatchdayLineupCaches);
+        // Clubs whose squad is not cached (first round after a restart, a transfer, the monthly
+        // training update) are loaded together: the players are already here, so this is one
+        // skills query and one permissions query for the round instead of two queries per club.
+        if (!participatingTeamIds.isEmpty()) {
+            Map<Long, List<Human>> activeSquads = new HashMap<>();
+            playersByTeam.forEach((teamId, players) -> activeSquads.put(teamId,
+                    players.stream().filter(player -> !player.isRetired()).toList()));
+            warmFormationSquads(participatingTeamIds, activeSquads);
+        }
 
         roundContext.set(new RoundContext(playersByTeam, managersByTeam, injuredIdsByTeam,
                 suspendedIdsByTeam,
@@ -507,9 +515,6 @@ public class MatchRoundSimulator {
                     // superset locally, so the most general preference always wins safely.
                     boolean generateGoalAnims = true;
                     // The live narration is pinned to the authoritative canonical score.
-                    // A null presentation matchup makes the session derive possession/chance
-                    // flavour from the canonical powers; it never generates another scoreline.
-                    TacticalScoreService.Matchup liveMatchup = null;
                     int targetHomeGoals = -1, targetAwayGoals = -1;
                     targetHomeGoals = adminScore == null ? humanCanonicalScore.homeGoals() : adminScore[0];
                     targetAwayGoals = adminScore == null ? humanCanonicalScore.awayGoals() : adminScore[1];
@@ -532,7 +537,7 @@ public class MatchRoundSimulator {
                     LiveMatchSession liveSession = liveMatchSimulationService.createInteractiveSession(
                             teamId1, teamId2, teamPower1, teamPower2,
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
-                            generateGoalAnims, liveMatchup, targetHomeGoals, targetAwayGoals,
+                            generateGoalAnims, targetHomeGoals, targetAwayGoals,
                             match.getId(), tactic1, tactic2,
                             etHome, etAway, shootoutHome, shootoutAway);
                     liveSession.setCanonicalExpectedGoals(
@@ -1442,8 +1447,7 @@ public class MatchRoundSimulator {
      *
      * <p>Per-player morale and fitness now live inside this value (not the team-level
      * effective-power curve), so a fitter / higher-morale eleven yields a higher team value.
-     * Team talk and home advantage are applied later via
-     * {@link MatchSimulationService#effectiveTeamPower}.
+     * The match score itself comes from Compartment V1.
      */
     private double getSimpleTeamRating(long teamId) {
         if (simpleRatingCache.containsKey(teamId)) return simpleRatingCache.get(teamId);
@@ -1801,6 +1805,8 @@ public class MatchRoundSimulator {
                 ? Map.of()
                 : playerSkillsRepository.findAllByPlayerIdIn(allPlayerIds).stream()
                         .collect(Collectors.toMap(PlayerSkills::getPlayerId, skills -> skills, (a, b) -> a));
+        Map<Long, List<CoachPermissionService.LockedSlot>> lockedByTeam =
+                coachPermissionService.lockedSlotsByTeam(missing);
 
         for (Long teamId : missing) {
             List<Human> squad = squadsByTeam.getOrDefault(teamId, List.of());
@@ -1811,7 +1817,7 @@ public class MatchRoundSimulator {
             }
             formationSquadCache.put(teamId, new FormationEvaluationSquad(
                     teamId, squad, skillsByPlayerId,
-                    List.copyOf(coachPermissionService.lockedSlots(teamId))));
+                    List.copyOf(lockedByTeam.getOrDefault(teamId, List.of()))));
         }
     }
 
@@ -1966,34 +1972,20 @@ public class MatchRoundSimulator {
      * formation; that controller intentionally enriches every PlayerView with nation/face/UI data,
      * which caused hundreds of redundant queries per team and pegged a CPU during matchdays.
      *
-     * <p>This path loads players and skills once, selects the same natural-position-first XI, and
-     * evaluates the exact PlayerValue/TacticalScore formula. The selected lineup is then reused for
-     * scoring, analytics, and the historical match snapshot.
+     * <p>This path loads players once and selects the same natural-position-first XI. A
+     * formation is worth the sum of its eleven starters' base ratings: the AI judges by the base
+     * rating only (what scouting and transfers see), never by the engine's valuation.
      */
     private double calculateFormationBaseValue(long teamId, String formation) {
         FormationEvaluationSquad squad = formationSquadCache.computeIfAbsent(
                 teamId, this::loadFormationEvaluationSquad);
         if (squad.players().isEmpty()) return 0;
 
-        List<FormationEvaluationStarter> selected = selectFormationStarters(squad, formation);
-        List<TacticalScoreService.StarterValue> values = new ArrayList<>();
-        for (FormationEvaluationStarter starter : selected) {
-            Human player = starter.player();
-            PlayerSkills skills = squad.skillsByPlayerId().get(player.getId());
-            double value = skills != null
-                    ? playerValueService.evaluatePlayer(
-                            skills, player.getPosition(), starter.usedPosition(),
-                            player.getMorale(), player.getFitness())
-                    : playerValueService.evaluatePlayer(
-                            player.getRating(), player.getPosition(), starter.usedPosition(),
-                            player.getMorale(), player.getFitness());
-            double[] aptitudes = TacticalScoreService.playerAptitudes(skills, player.getFitness());
-            values.add(new TacticalScoreService.StarterValue(
-                    starter.usedPosition(), value, aptitudes[0], aptitudes[1], aptitudes[2]));
+        double total = 0;
+        for (FormationEvaluationStarter starter : selectFormationStarters(squad, formation)) {
+            total += starter.player().getRating();
         }
-
-        TacticalScoreService.TeamProfile profile = tacticalScoreService.profile(values);
-        return profile.attack() + profile.defense();
+        return total;
     }
 
     private List<FormationEvaluationStarter> selectFormationStarters(

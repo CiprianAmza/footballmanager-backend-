@@ -45,6 +45,7 @@ public class AdminTransferService {
 
     @Autowired private AdminPlayerMovementRepository movementRepository;
     @Autowired private HumanRepository humanRepository;
+    @Autowired private ContractSignature contractSignature;
     @Autowired private TeamRepository teamRepository;
     @Autowired private TransferRepository transferRepository;
     @Autowired private LoanRepository loanRepository;
@@ -350,6 +351,7 @@ public class AdminTransferService {
         player.setWage(movement.getWage());
         player.setSalary(movement.getWage());
         player.setContractEndSeason(season + movement.getContractSeasons());
+        contractSignature.mark(player);
         player.setPreContractTeamId(0);
         player.setSeasonMatchesPlayed(0);
         player.setConsecutiveBenched(0);

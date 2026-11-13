@@ -155,6 +155,30 @@ class PlayerMatchStatServiceTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("""
+            GIVEN a strong aerial centre-back (heading, jumping reach, strength, bravery 18, the rest 8)
+             and a weak one (all 8)
+            WHEN each plays a match
+            THEN both record aerial duels won, the strong one more
+            """)
+    void aerialAttributes_recordMoreAerialDuelsWon() {
+        PlayerSkills strong = uniformSkills(5L, 8, "DC");
+        strong.setHeading(18);
+        strong.setJumpingReach(18);
+        strong.setStrength(18);
+        strong.setBravery(18);
+        PlayerSkills weak = uniformSkills(6L, 8, "DC");
+        when(skillsRepo.findAllByPlayerIdIn(any())).thenReturn(List.of(strong, weak));
+
+        statService.recordRealMatchForTeam(1L, List.of(view(5L, "DC"), view(6L, "DC")), tactic("Standard"), COMP, SEASON);
+
+        double strongValue = statRepo.findByPlayerIdAndCompetitionIdAndSeasonNumber(5L, COMP, SEASON).orElseThrow().getAerialDuelsWon();
+        double weakValue = statRepo.findByPlayerIdAndCompetitionIdAndSeasonNumber(6L, COMP, SEASON).orElseThrow().getAerialDuelsWon();
+        assertThat(weakValue).isGreaterThan(0.0);
+        assertThat(strongValue).isGreaterThan(weakValue);
+    }
+
+    @Test
     void analytics_prefersAccumulated_whenAppearancesMeetThreshold() {
         int threshold = engineConfig.getAnalytics().getMinAppearances();
         PlayerSkills s = uniformSkills(3L, 14, "MC");

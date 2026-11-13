@@ -52,6 +52,16 @@ public class CoachPermissionService {
         return parseLockedSlots(getOrDefault(teamId).getLockedSlots());
     }
 
+    /** Locked slots of many clubs in one query; clubs with no permissions row have none. */
+    public java.util.Map<Long, List<LockedSlot>> lockedSlotsByTeam(java.util.Collection<Long> teamIds) {
+        java.util.Map<Long, List<LockedSlot>> result = new java.util.HashMap<>();
+        if (teamIds == null || teamIds.isEmpty()) return result;
+        for (CoachPermissions permissions : repository.findAllByTeamIdIn(teamIds)) {
+            result.putIfAbsent(permissions.getTeamId(), parseLockedSlots(permissions.getLockedSlots()));
+        }
+        return result;
+    }
+
     public List<LockedSlot> parseLockedSlots(String json) {
         if (json == null || json.isBlank()) return new ArrayList<>();
         try {

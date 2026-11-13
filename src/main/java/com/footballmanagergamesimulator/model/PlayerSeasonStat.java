@@ -63,4 +63,7 @@ public class PlayerSeasonStat {
     /** Successful take-ons. Used together with chances created for the entertainment award. */
     @Column(name = "dribbles_completed")
     private double dribblesCompleted;
+    /** Aerial duels won (synthetic, from the aerial attributes). Grows the AERIAL_DUELS category at season end. */
+    @Column(name = "aerial_duels_won", columnDefinition = "double precision default 0 not null")
+    private double aerialDuelsWon;
 }

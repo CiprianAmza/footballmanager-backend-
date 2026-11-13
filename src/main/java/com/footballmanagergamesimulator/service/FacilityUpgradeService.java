@@ -14,6 +14,13 @@ import java.util.*;
 public class FacilityUpgradeService {
 
     private static final int MAX_LEVEL = 10;
+    /** Training facilities go up to 20: level 10 trains at x1, 20 at x2 (see TrainingQuality). */
+    private static final int TRAINING_MAX_LEVEL = 20;
+
+    static int maxLevel(String facilityType) {
+        return "TRAINING_GROUND".equals(facilityType) || "YOUTH_TRAINING".equals(facilityType)
+                ? TRAINING_MAX_LEVEL : MAX_LEVEL;
+    }
 
     @Autowired
     private UserContext userContext;
@@ -67,7 +74,7 @@ public class FacilityUpgradeService {
         if (team == null) return null;
 
         int currentLevel = getFacilityLevel(teamId, facilityType);
-        if (currentLevel >= MAX_LEVEL) return null;
+        if (currentLevel >= maxLevel(facilityType)) return null;
 
         // Check if there's already an upgrade in progress for this facility
         List<FacilityUpgrade> inProgress = facilityUpgradeRepository.findAllByTeamIdAndCompletedFalse(teamId);
@@ -344,10 +351,10 @@ public class FacilityUpgradeService {
             item.put("name", formatFacilityName(type));
             item.put("description", getFacilityDescription(type));
             item.put("currentLevel", currentLevel);
-            item.put("maxLevel", MAX_LEVEL);
+            item.put("maxLevel", maxLevel(type));
             item.put("upgrading", upgrading.contains(type));
 
-            if (currentLevel < MAX_LEVEL && !upgrading.contains(type)) {
+            if (currentLevel < maxLevel(type) && !upgrading.contains(type)) {
                 int targetLevel = currentLevel + 1;
                 long cost = config[0] * targetLevel;
                 int duration = (int) config[1] + (targetLevel * 5);

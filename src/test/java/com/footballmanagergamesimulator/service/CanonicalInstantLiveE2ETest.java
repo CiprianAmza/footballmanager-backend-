@@ -21,9 +21,6 @@ import com.footballmanagergamesimulator.repository.MatchEventRepository;
 import com.footballmanagergamesimulator.repository.MatchPlanRepository;
 import com.footballmanagergamesimulator.repository.PlayerSkillsRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
-import com.footballmanagergamesimulator.service.TacticalScoreService.Matchup;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import com.footballmanagergamesimulator.user.UserContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -109,6 +106,39 @@ class CanonicalInstantLiveE2ETest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("""
+            GIVEN 40 fixtures between the same two sides, each with its own seed, score 3–2
+            WHEN each is resolved instantly and also played live to the end
+            THEN every fixture credits the same goals (minute, side, scorer) on both paths:
+             the live match no longer sends off players the canonical plan keeps on the pitch
+            """)
+    void manySeeds_liveNeverCreditsADifferentScorer() {
+        List<String> mismatches = new ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
+            fixture.setCompetitionId(COMPETITION);
+            fixture.setSeasonNumber(String.valueOf(SEASON));
+            fixture.setRound(ROUND);
+            fixture.setTeam1Id(HOME);
+            fixture.setTeam2Id(AWAY);
+            fixture = fixtureRepository.saveAndFlush(fixture);
+            String fixtureKey = MatchPlanService.competitionFixtureKey(fixture.getId());
+            long seed = MatchPlanService.seedFor(fixtureKey, COMPETITION, SEASON, ROUND, HOME, AWAY);
+            MatchPlan instantPlan = planningService.plan(fixtureKey, seed, HOME, AWAY, 3, 2);
+            List<GoalKey> expected = goalKeys(instantExecutor.execute(instantPlan, homeLineup, awayLineup,
+                    new InstantMatchExecutor.MatchContext(fixtureKey, COMPETITION, SEASON, ROUND)));
+
+            LiveMatchSession live = liveService().createInteractiveSession(
+                    HOME, AWAY, 100.0, 90.0, COMPETITION, SEASON, ROUND,
+                    false, 3, 2, fixture.getId(), "442", "442");
+            live.advanceUntilAndSnapshot(live.getTotalMinutes());
+            List<GoalKey> persisted = goalKeys(eventRepository.findByFixtureKey(fixtureKey));
+            if (!expected.equals(persisted)) mismatches.add(fixtureKey + ": " + expected + " vs " + persisted);
+        }
+        assertEquals(List.of(), mismatches);
+    }
+
+    @Test
     void sameFixture_instantAndLiveProduceIdenticalCanonicalGoalsAndDurableDisplay() {
         CompetitionTeamInfoMatch fixture = new CompetitionTeamInfoMatch();
         fixture.setCompetitionId(COMPETITION);
@@ -125,15 +155,10 @@ class CanonicalInstantLiveE2ETest {
                 new InstantMatchExecutor.MatchContext(fixtureKey, COMPETITION, SEASON, ROUND));
 
         LiveMatchSimulationService liveService = liveService();
-        TacticalScoreService tacticalScoreService = new TacticalScoreService();
-        ReflectionTestUtils.setField(tacticalScoreService, "engineConfig", engineConfig);
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 60), new TacticVector(0.2, 0.1, 0.0),
-                new TeamProfile(65, 55), new TacticVector(-0.1, 0.2, 0.1));
 
         LiveMatchSession live = liveService.createInteractiveSession(
                 HOME, AWAY, 100.0, 90.0, COMPETITION, SEASON, ROUND,
-                false, matchup, 3, 2, fixture.getId(), "442", "442");
+                false, 3, 2, fixture.getId(), "442", "442");
         assertTrue(live.isCanonicalPlanBound());
         live.advanceUntilAndSnapshot(live.getTotalMinutes());
 

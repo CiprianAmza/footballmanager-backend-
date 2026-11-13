@@ -47,7 +47,7 @@ class HumanControllerTest {
         when(playerCardService.getPlayerCard(7L)).thenReturn(Optional.of(cardView));
 
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
-                new HumanController(humanRepository, teamRepository, playerSkillsRepository, nationService, playerCardService))
+                withPlannedTransfers(new HumanController(humanRepository, teamRepository, playerSkillsRepository, nationService, playerCardService)))
                 .build();
 
         mockMvc.perform(get("/humans/7/card"))
@@ -85,7 +85,7 @@ class HumanControllerTest {
         when(nationService.infoForTeam(1L)).thenReturn(new NationService.NationInfo(2L, "Khess", "KH"));
 
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
-                new HumanController(humanRepository, teamRepository, playerSkillsRepository, nationService, playerCardService))
+                withPlannedTransfers(new HumanController(humanRepository, teamRepository, playerSkillsRepository, nationService, playerCardService)))
                 .build();
 
         mockMvc.perform(get("/humans/7"))
@@ -113,7 +113,7 @@ class HumanControllerTest {
         when(nationService.infoForTeam(1L)).thenReturn(new NationService.NationInfo(2L, "Khess", "KH"));
 
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
-                new HumanController(humanRepository, teamRepository, playerSkillsRepository, nationService, playerCardService))
+                withPlannedTransfers(new HumanController(humanRepository, teamRepository, playerSkillsRepository, nationService, playerCardService)))
                 .build();
 
         mockMvc.perform(get("/humans/8"))
@@ -131,5 +131,12 @@ class HumanControllerTest {
         player.setPosition("ST");
         player.setStayForward(stayForward);
         return player;
+    }
+
+    /** The player view also asks whether the AI plans to sign him; nobody is "wanted" here. */
+    private static HumanController withPlannedTransfers(HumanController controller) {
+        controller.plannedTransferService = org.mockito.Mockito.mock(
+                com.footballmanagergamesimulator.service.PlannedTransferService.class);
+        return controller;
     }
 }

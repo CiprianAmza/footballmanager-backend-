@@ -523,12 +523,11 @@ public final class TeamCompartmentAggregator {
                 throw new IllegalArgumentException("overallRating must be finite and non-negative");
             }
             if (traits.contains(PlayerTrait.SHOOTER)
-                    && (longShots < 1 || longShots > 20 || positioning < 1 || positioning > 20)) {
-                throw new IllegalArgumentException("SHOOTER Long Shots and Positioning must be in [1,20]");
+                    && (longShots < 1 || positioning < 1)) {
+                throw new IllegalArgumentException("SHOOTER Long Shots and Positioning must be at least 1");
             }
-            if (finishing < 1 || finishing > 20 || pace < 1 || pace > 20
-                    || ballRecovery < 1 || ballRecovery > 20 || tackling < 1 || tackling > 20) {
-                throw new IllegalArgumentException("passing-style attributes must be in [1,20]");
+            if (finishing < 1 || pace < 1 || ballRecovery < 1 || tackling < 1) {
+                throw new IllegalArgumentException("passing-style attributes must be at least 1");
             }
         }
     }
@@ -656,8 +655,8 @@ public final class TeamCompartmentAggregator {
     public record ShooterProfile(long playerId, int longShots, int positioning) {
         public ShooterProfile {
             if (playerId <= 0) throw new IllegalArgumentException("shooter playerId must be positive");
-            if (longShots < 1 || longShots > 20 || positioning < 1 || positioning > 20) {
-                throw new IllegalArgumentException("shooter attributes must be in [1,20]");
+            if (longShots < 1 || positioning < 1) {
+                throw new IllegalArgumentException("shooter attributes must be at least 1");
             }
         }
     }

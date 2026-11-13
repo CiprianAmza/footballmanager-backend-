@@ -54,6 +54,18 @@ public class TeamPostMatchService {
 
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
     @Autowired private TeamRepository teamRepository;
+    /** The chairman's trust in the manager moves with results (design DESIGN_START_CARIERA §5.0.1). */
+    @Autowired(required = false) @org.springframework.context.annotation.Lazy
+    private com.footballmanagergamesimulator.service.board.BoardTrustService boardTrustService;
+    /** Staff loyalty moves with results too (design DESIGN_START_CARIERA §5.2). */
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.StaffLoyaltyService> staffLoyalty;
+    /** Extra match bonuses are paid on a win (design DESIGN_START_CARIERA §6.4). */
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.squad.MatchBonusService> matchBonus;
+    /** The front coach may revolt (design DESIGN_START_CARIERA §4). */
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.FrontCoachService> frontCoach;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private ScorerRepository scorerRepository;
@@ -367,14 +379,6 @@ public class TeamPostMatchService {
         return topTeams.contains(teamId) && topTeams.contains(opponentTeamId);
     }
 
-    // ============================================================
-    //  Score generation — see MatchSimulationService.calculateScores
-    // ============================================================
-    // The old hardcoded scorer (exponent 1.5, fixed 3.0 goals, unseeded Random)
-    // was removed: all match scoring now goes through the single, config-driven,
-    // tuned MatchSimulationService.calculateScores so the game uses the exact
-    // mechanism the invariant/tuner tests validate.
-
     public enum PredeterminedScoreResolution {
         ABSENT, ALREADY_CONSUMED, CONSUMED, DIVERGENT
     }
@@ -485,6 +489,25 @@ public class TeamPostMatchService {
      * losing to weaker team). Clamps to [0, 10000].
      */
     public void updateManagerReputationAfterMatch(long teamId1, long teamId2, int score1, int score2) {
+        if (boardTrustService != null) {
+            boardTrustService.matchPlayed(teamId1, score1, score2);
+            boardTrustService.matchPlayed(teamId2, score2, score1);
+        }
+        com.footballmanagergamesimulator.service.board.StaffLoyaltyService loyalty = staffLoyalty == null ? null : staffLoyalty.getIfAvailable();
+        if (loyalty != null) {
+            if (userContext.isHumanTeam(teamId1)) loyalty.matchPlayed(teamId1, score1, score2);
+            if (userContext.isHumanTeam(teamId2)) loyalty.matchPlayed(teamId2, score2, score1);
+        }
+        com.footballmanagergamesimulator.service.squad.MatchBonusService bonus = matchBonus == null ? null : matchBonus.getIfAvailable();
+        if (bonus != null) {
+            if (userContext.isHumanTeam(teamId1)) bonus.matchPlayed(teamId1, score1, score2);
+            if (userContext.isHumanTeam(teamId2)) bonus.matchPlayed(teamId2, score2, score1);
+        }
+        com.footballmanagergamesimulator.service.board.FrontCoachService front = frontCoach == null ? null : frontCoach.getIfAvailable();
+        if (front != null) {
+            if (userContext.isHumanTeam(teamId1)) front.matchPlayed(teamId1, score1, score2);
+            if (userContext.isHumanTeam(teamId2)) front.matchPlayed(teamId2, score2, score1);
+        }
         Team team1 = teamRepository.findById(teamId1).orElse(null);
         Team team2 = teamRepository.findById(teamId2).orElse(null);
         if (team1 == null || team2 == null) return;

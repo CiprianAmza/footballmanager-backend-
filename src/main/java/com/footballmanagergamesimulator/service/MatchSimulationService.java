@@ -33,7 +33,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Core match simulation utilities: score generation (Poisson), match events
+ * Core match simulation utilities (scores themselves come from Compartment V1): match events
  * timeline, player availability, manager-reputation deltas, per-player match
  * ratings, and morale changes.
  *
@@ -56,131 +56,14 @@ public class MatchSimulationService {
     @Autowired(required = false) GameplayFeatureConfig gameplayFeatures;
 
     /**
-     * Shared RNG used by {@link #calculateScores} and other scoring helpers.
-     * Held as a field (not local) so fuzz/integration tests can swap in a
-     * seeded {@link Random} via {@link #setRandomForTesting(Random)} and get
-     * reproducible match outcomes across iterations.
-     *
-     * <p>Production code never touches this field — it stays the default
-     * non-seeded {@link Random} so live matches feel random as before.
+     * Shared RNG for match ratings and event timelines. A field so tests can swap in a seeded
+     * {@link Random} via {@link #setRandomForTesting(Random)}; production keeps the default.
      */
     private Random random = new Random();
 
-    /**
-     * Test-only seam: swap the RNG for fuzz tests so the same seed produces
-     * the same Poisson sample. Public so fuzz tests in
-     * {@code integration/fuzz/} (different package) can call it — production
-     * code MUST NOT use this method. Callers MUST restore the production RNG
-     * when done (or rely on the test creating a fresh service instance).
-     */
+    /** Test-only seam: swap the RNG for a seeded one. Production code must not call this. */
     public void setRandomForTesting(Random random) {
         this.random = random;
-    }
-
-    // ==================== SCORING UTILITIES ====================
-
-    /**
-     * Calculate match scores using Poisson distribution based on team power ratings.
-     * The stronger team gets a larger share of the expected ~3.0 total goals per match.
-     *
-     * @param power1 team 1 power rating (sum of best XI ratings with morale/fitness adjustments)
-     * @param power2 team 2 power rating
-     * @return list of two integers: [team1Score, team2Score]
-     */
-    public List<Integer> calculateScores(double power1, double power2) {
-        return calculateScores(power1, power2, engineConfig.getPower().getExpectedGoalsTotal());
-    }
-
-    /**
-     * Convert a base squad rating into the "effective power" fed to
-     * {@link #calculateScores} — the same model the invariant/tuner harness uses,
-     * now config-driven so the game matches the tuned invariants:
-     * {@code base × (moraleFloor + moraleSpread × morale/100) × (home ? homeAdvantage : 1)}.
-     *
-     * @param basePower raw squad rating (best XI), before morale/home adjustment
-     * @param morale    squad morale on a 0..100 scale
-     * @param home      true if this side plays at home
-     */
-    public double effectivePower(double basePower, double morale, boolean home) {
-        MatchEngineConfig.Power p = engineConfig.getPower();
-        double moraleMult = p.getMoraleFloor() + p.getMoraleSpread() * (morale / 100.0);
-        double homeMult = home ? p.getHomeAdvantage() : 1.0;
-        return basePower * moraleMult * homeMult;
-    }
-
-    /**
-     * Production scoring path: the team value already carries per-player morale and fitness
-     * (computed in {@link PlayerValueService}), so this overload applies ONLY the team-level
-     * modifiers — the manager's team talk and home advantage:
-     * {@code base × teamTalk × (home ? homeAdvantage : 1)}.
-     *
-     * <p>The {@link #effectivePower(double, double, boolean)} morale-curve overload is kept
-     * for the invariant/tuner harness, which validates that curve in isolation.
-     *
-     * @param teamTalk team-talk multiplier centered on 1.0 (neutral). AI uses 1.0.
-     */
-    public double effectiveTeamPower(double basePower, double teamTalk, boolean home) {
-        double homeMult = home ? engineConfig.getPower().getHomeAdvantage() : 1.0;
-        return basePower * teamTalk * homeMult;
-    }
-
-    /**
-     * Same as {@link #calculateScores(double, double)} but with a caller-supplied
-     * total expected goals. Used for short matches such as the 30-minute extra-time
-     * "mini match" in knockout ties, where far fewer goals are expected than over a
-     * full 90 minutes.
-     *
-     * @param totalExpectedGoals expected combined goals, split by the amplified power ratio
-     */
-    public List<Integer> calculateScores(double power1, double power2, double totalExpectedGoals) {
-        return calculateScores(power1, power2, totalExpectedGoals, this.random);
-    }
-
-    /** Deterministic-friendly overload used by live-commit rescores. */
-    public List<Integer> calculateScores(double power1, double power2, Random rng) {
-        return calculateScores(power1, power2, engineConfig.getPower().getExpectedGoalsTotal(), rng);
-    }
-
-    private List<Integer> calculateScores(double power1, double power2, double totalExpectedGoals, Random rng) {
-        double total = power1 + power2;
-        if (total == 0) return List.of(1, 1);
-
-        double ratio1 = power1 / total;
-        double ratio2 = power2 / total;
-
-        // Amplify power difference: raise ratio to power N then renormalize.
-        // Exponent sourced from MatchEngineConfig.power.ratioExponent so fuzz
-        // tests can sweep without recompiling.
-        double exp = engineConfig.getPower().getRatioExponent();
-        double amp1 = Math.pow(ratio1, exp);
-        double amp2 = Math.pow(ratio2, exp);
-        double ampTotal = amp1 + amp2;
-        double adjRatio1 = amp1 / ampTotal;
-        double adjRatio2 = amp2 / ampTotal;
-
-        double expected1 = totalExpectedGoals * adjRatio1;
-        double expected2 = totalExpectedGoals * adjRatio2;
-
-        int maxGoals = engineConfig.getPower().getMaxGoalsPerTeam();
-        int score1 = poissonGoals(rng, expected1, maxGoals);
-        int score2 = poissonGoals(rng, expected2, maxGoals);
-
-        return List.of(score1, score2);
-    }
-
-    /**
-     * Poisson distribution sampling using Knuth's algorithm.
-     * Capped at {@code maxGoals} per team per match.
-     */
-    private int poissonGoals(Random random, double expectedGoals, int maxGoals) {
-        double L = Math.exp(-expectedGoals);
-        double p = 1.0;
-        int k = 0;
-        do {
-            k++;
-            p *= random.nextDouble();
-        } while (p > L);
-        return Math.min(k - 1, maxGoals);
     }
 
     // ==================== PLAYER AVAILABILITY ====================

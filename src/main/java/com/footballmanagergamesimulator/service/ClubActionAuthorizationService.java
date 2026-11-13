@@ -18,7 +18,12 @@ import java.util.Map;
 /** Resolves the authenticated club actor for transfer and player-contract mutations. */
 @Service
 public class ClubActionAuthorizationService {
-    public enum Action { TRANSFER, CONTRACT, ACQUISITION, CLUB_LEGACY }
+    /**
+     * MANAGER_DUTY: what only the club's own manager does (the meetings and press conference of his first day).
+     * A chairman cannot do it for him, and the chairman's transfer/contract switches do not bar it, or the first
+     * day could never end.
+     */
+    public enum Action { TRANSFER, CONTRACT, ACQUISITION, CLUB_LEGACY, MANAGER_DUTY }
 
     public record ClubActor(long teamId, boolean chairman) { }
 
@@ -44,6 +49,9 @@ public class ClubActionAuthorizationService {
         User user = currentUserService.requireUser(request);
         Long requestedTeamId = requestedTeamId(body);
         if (user.getCareerRole() == CareerRole.CHAIRMAN) {
+            if (action == Action.MANAGER_DUTY) {
+                throw rejected(HttpStatus.FORBIDDEN, "MANAGER_ONLY");
+            }
             if (requestedTeamId == null) {
                 throw rejected(HttpStatus.BAD_REQUEST, "ACTING_CLUB_REQUIRED");
             }

@@ -59,6 +59,7 @@ class AdminTransferServiceTest {
 
         ReflectionTestUtils.setField(service, "movementRepository", movements);
         ReflectionTestUtils.setField(service, "humanRepository", humans);
+        ReflectionTestUtils.setField(service, "contractSignature", mock(ContractSignature.class));
         ReflectionTestUtils.setField(service, "teamRepository", teams);
         ReflectionTestUtils.setField(service, "transferRepository", transfers);
         ReflectionTestUtils.setField(service, "loanRepository", loans);

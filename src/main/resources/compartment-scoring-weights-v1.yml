@@ -207,12 +207,17 @@ match:
         attack-contribution: 0.20
         midfield-contribution: 0.00
         defense-contribution: 0.10
-        # Long Shots 1..19 stays below 70%; 20 jumps discontinuously to 100%.
+        # Long Shots 1..19 stays below 70% (19 -> 68%); 20 jumps to 80% and every further
+        # level adds 4 points (21 -> 84% ... 25 -> 100%).
         regular-long-shots-ceiling: 0.68
         regular-long-shots-exponent: 3.0
+        exceptional-long-shots-chance: 0.80
+        exceptional-long-shots-step: 0.04
         # Probability for exactly 0,1,2,3,4,5 special shots.
         standard-shot-distribution: [0.25, 0.40, 0.20, 0.075, 0.05, 0.025]
+        # Positioning 20; every further level moves this step from "0 shots" to "2 shots".
         exceptional-positioning-shot-distribution: [0.05, 0.50, 0.225, 0.10, 0.075, 0.05]
+        exceptional-positioning-zero-shot-step: 0.01
         pressing:
           "Very Easy":       { shot-reduction: 0.01, red-card-chance: 0.00 }
           "Easy":            { shot-reduction: 0.15, red-card-chance: 0.025 }
@@ -225,11 +230,16 @@ match:
         aggressive-suppression: 0.97
         very-aggressive-suppression: 0.90
         long-passing-suppression: 0.85
+        # Pace 20 bonus/penalty; every further level adds pace20-step to both.
         pace20-bonus: 0.05
         non-pace20-penalty: 0.10
         opponent-pace20-penalty: 0.10
-        # Finishing 20 gets the full control percentage. At 19 it loses 40%; below 19 it loses more.
+        pace20-step: 0.01
+        # Share of the control percentage converted: 60% x Finishing/19 below 20,
+        # 80% at 20, +4 points per further level.
         finishing19-factor: 0.60
+        finishing20-factor: 0.80
+        finishing-step: 0.04
         # A striker with pace 19 is capped at 25%; lower pace scales proportionally.
         pace19-chance: 0.25
         # Probability for exactly 0,1,2,3,4,5,6 special striker opportunities.

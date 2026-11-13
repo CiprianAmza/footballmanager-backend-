@@ -28,7 +28,7 @@ import java.util.Objects;
  * <p>Deliberate boundary decisions (documented in
  * {@code docs/compartment-engine/COMPARTMENT_ENGINE_V1_PHASE_2_ADAPTER.md}):
  * <ul>
- *   <li>attributes are clamped into the configured 1&ndash;20 domain; a missing attribute defaults
+ *   <li>attributes are floored at the configured minimum (no maximum: 20+ is rare but legal); a missing attribute defaults
  *       to the configured minimum;</li>
  *   <li>an unknown/blank used position falls back to the natural position, then to
  *       {@link #UNKNOWN_POSITION} (which the calculator treats with the default multipliers);</li>
@@ -89,8 +89,7 @@ public final class CompartmentDomainAdapter {
         for (PlayerAttribute attribute : PlayerAttribute.values()) {
             Integer raw = snapshot.attributes().get(attribute);
             int value = raw == null ? rating.getAttributeMin() : raw;
-            attributes.put(attribute, clampInt(value, rating.getAttributeMin(),
-                    rating.getExceptionalAttributeValue()));
+            attributes.put(attribute, Math.max(value, rating.getAttributeMin()));
         }
 
         String position = firstNonBlank(snapshot.usedPosition(), snapshot.naturalPosition(), UNKNOWN_POSITION);
@@ -103,8 +102,11 @@ public final class CompartmentDomainAdapter {
 
         Map<PlayerAttribute, Double> coefficients = context == null
                 ? Map.of() : contextMapper.map(context).coefficients();
+        // Level 1 reads the attributes at the natural position; the position played only
+        // enters level 2 (multipliers, familiarity).
+        String naturalPosition = firstNonBlank(snapshot.naturalPosition(), position);
         return new PlayerRatingInput(position, role, duty, attributes, coefficients,
-                familiarity, snapshot.fitness(), snapshot.morale(), suitability);
+                familiarity, snapshot.fitness(), snapshot.morale(), suitability, naturalPosition);
     }
 
     /**
@@ -127,9 +129,6 @@ public final class CompartmentDomainAdapter {
         }
     }
 
-    private static int clampInt(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
 
     private static String blankToEmpty(String value) {
         return value == null || value.isBlank() ? "" : value;

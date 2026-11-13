@@ -8,9 +8,6 @@ import com.footballmanagergamesimulator.matchplan.MatchPlanService;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.repository.*;
-import com.footballmanagergamesimulator.service.TacticalScoreService.Matchup;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import com.footballmanagergamesimulator.user.UserContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,7 +43,6 @@ class MatchdayCoordinatorCanonicalCommitTest {
     private LiveMatchSimulationService realLiveService;   // builds the real bound session
     private MatchPlanService matchPlanService;
     private MatchEngineConfig engineConfig;
-    private TacticalScoreService tacticalScoreService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -70,8 +66,6 @@ class MatchdayCoordinatorCanonicalCommitTest {
         inject(LiveMatchSimulationService.class, realLiveService, "engineConfig", engineConfig);
         inject(LiveMatchSimulationService.class, realLiveService, "matchPlanService", matchPlanService);
 
-        tacticalScoreService = new TacticalScoreService();
-        inject(TacticalScoreService.class, tacticalScoreService, "engineConfig", engineConfig);
 
         when(humanRepository.findAllByTeamIdAndTypeId(HOME_TEAM, 1L)).thenReturn(buildSquad(100L));
         when(humanRepository.findAllByTeamIdAndTypeId(AWAY_TEAM, 1L)).thenReturn(buildSquad(200L));
@@ -102,12 +96,9 @@ class MatchdayCoordinatorCanonicalCommitTest {
     @Test
     void canonicalCommit_finalizesPlanAndProjectsScorersFromCanonicalEvents() throws Exception {
         // 1) Build a real canonical-bound session and play it to full time.
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = realLiveService.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 1,
-                false, matchup, 2, 1, MATCH_ROW, "442", "442");
+                false, 2, 1, MATCH_ROW, "442", "442");
         session.setDeferredContext(100.0, 80.0, "442", "442", null, null, false, 0, 0L, 0);
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
 
@@ -121,7 +112,7 @@ class MatchdayCoordinatorCanonicalCommitTest {
         int canonicalHome = session.getHomeScore();
         int canonicalAway = session.getAwayScore();
         when(liveMock.resolveCommitOutcome(session)).thenReturn(
-                new LiveMatchSimulationService.CommitOutcome(99, 98, 100.0, 80.0, null, null, true));
+                new LiveMatchSimulationService.CommitOutcome(99, 98, 100.0, 80.0));
 
         MatchEventRepository matchEventRepository = mock(MatchEventRepository.class);
         when(matchEventRepository.findByFixtureKey(FIXTURE_KEY)).thenReturn(List.of(
@@ -167,12 +158,9 @@ class MatchdayCoordinatorCanonicalCommitTest {
 
     @Test
     void rollbackAfterDeferredPersistence_resetsInMemoryFlags_soRetryDoesNotSkipArtifacts() throws Exception {
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = realLiveService.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 1,
-                false, matchup, 2, 1, MATCH_ROW, "442", "442");
+                false, 2, 1, MATCH_ROW, "442", "442");
         session.setDeferredContext(100.0, 80.0, "442", "442", null, null,
                 false, 0, 0L, 0);
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
@@ -181,7 +169,7 @@ class MatchdayCoordinatorCanonicalCommitTest {
         LiveMatchSimulationService liveMock = mock(LiveMatchSimulationService.class);
         when(liveMock.getSession(LIVE_KEY)).thenReturn(session);
         when(liveMock.resolveCommitOutcome(session)).thenReturn(
-                new LiveMatchSimulationService.CommitOutcome(2, 1, 100.0, 80.0, null, null, false));
+                new LiveMatchSimulationService.CommitOutcome(2, 1, 100.0, 80.0));
         MatchEventRepository events = mock(MatchEventRepository.class);
         when(events.findByFixtureKey(FIXTURE_KEY)).thenReturn(List.of(
                 goalEvent(105L, HOME_TEAM), goalEvent(106L, HOME_TEAM), goalEvent(205L, AWAY_TEAM)));
@@ -238,12 +226,9 @@ class MatchdayCoordinatorCanonicalCommitTest {
                 participants, List.of());
         when(matchPlanService.loadLivePlanSnapshot(FIXTURE_KEY)).thenReturn(java.util.Optional.of(snap));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = realLiveService.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 1,
-                false, matchup, 1, 1, MATCH_ROW, "442", "442", 0, 0, 4, 2);
+                false, 1, 1, MATCH_ROW, "442", "442", 0, 0, 4, 2);
         // Single-leg knockout deferred context (legNumber 0, tieId 0).
         session.setDeferredContext(100.0, 80.0, "442", "442", null, null, true, 0, 0L, 0);
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
@@ -254,7 +239,7 @@ class MatchdayCoordinatorCanonicalCommitTest {
         LiveMatchSimulationService liveMock = mock(LiveMatchSimulationService.class);
         when(liveMock.getSession(LIVE_KEY)).thenReturn(session);
         when(liveMock.resolveCommitOutcome(session)).thenReturn(
-                new LiveMatchSimulationService.CommitOutcome(1, 1, 100.0, 80.0, null, null, false));
+                new LiveMatchSimulationService.CommitOutcome(1, 1, 100.0, 80.0));
 
         MatchEventRepository matchEventRepository = mock(MatchEventRepository.class);
         when(matchEventRepository.findByFixtureKey(FIXTURE_KEY)).thenReturn(List.of(
@@ -316,12 +301,9 @@ class MatchdayCoordinatorCanonicalCommitTest {
                 participants, List.of());
         when(matchPlanService.loadLivePlanSnapshot(FIXTURE_KEY)).thenReturn(java.util.Optional.of(snap));
 
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = realLiveService.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 1,
-                false, matchup, 1, 0, MATCH_ROW, "442", "442", 0, 0, 5, 4);
+                false, 1, 0, MATCH_ROW, "442", "442", 0, 0, 5, 4);
         session.setDeferredContext(100.0, 80.0, "442", "442", null, null, true, 2, tieId, 3);
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
         assertEquals(1, session.getHomeScore());
@@ -331,7 +313,7 @@ class MatchdayCoordinatorCanonicalCommitTest {
         LiveMatchSimulationService liveMock = mock(LiveMatchSimulationService.class);
         when(liveMock.getSession(LIVE_KEY)).thenReturn(session);
         when(liveMock.resolveCommitOutcome(session)).thenReturn(
-                new LiveMatchSimulationService.CommitOutcome(1, 0, 100.0, 80.0, null, null, false));
+                new LiveMatchSimulationService.CommitOutcome(1, 0, 100.0, 80.0));
 
         MatchEventRepository matchEventRepository = mock(MatchEventRepository.class);
         when(matchEventRepository.findByFixtureKey(FIXTURE_KEY)).thenReturn(List.of(goalEvent(105L, HOME_TEAM)));

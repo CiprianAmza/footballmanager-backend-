@@ -698,13 +698,24 @@ public class FixtureSchedulingService {
     private List<CalendarEvent> generateTransferWindowEvents(int season) {
         List<CalendarEvent> events = new ArrayList<>();
 
+        // Summer window: June–September, across the season boundary (TransferWindow).
+        CalendarEvent summerCloseFromLastSeason = new CalendarEvent();
+        summerCloseFromLastSeason.setSeason(season);
+        summerCloseFromLastSeason.setDay(com.footballmanagergamesimulator.util.TransferWindow.SUMMER_CLOSE_DAY);
+        summerCloseFromLastSeason.setPhase("MORNING");
+        summerCloseFromLastSeason.setEventType("TRANSFER_WINDOW_CLOSE");
+        summerCloseFromLastSeason.setStatus("PENDING");
+        summerCloseFromLastSeason.setTitle("Summer Transfer Window Closes");
+        summerCloseFromLastSeason.setPriority(1);
+        events.add(summerCloseFromLastSeason);
+
         CalendarEvent summerClose = new CalendarEvent();
         summerClose.setSeason(season);
-        summerClose.setDay(355);
+        summerClose.setDay(com.footballmanagergamesimulator.util.TransferWindow.SUMMER_OPEN_DAY);
         summerClose.setPhase("MORNING");
-        summerClose.setEventType("TRANSFER_WINDOW_CLOSE");
+        summerClose.setEventType("TRANSFER_WINDOW_OPEN");
         summerClose.setStatus("PENDING");
-        summerClose.setTitle("Transfer Window Closes");
+        summerClose.setTitle("Summer Transfer Window Opens");
         summerClose.setPriority(1);
         events.add(summerClose);
 

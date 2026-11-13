@@ -48,6 +48,7 @@ class TransferOfferControllerTest {
     @Mock CoachPermissionService coachPermissionService;
     @Mock TransferOfferLifecycleService transferOfferLifecycleService;
     @Mock UserContext userContext;
+    @Mock com.footballmanagergamesimulator.service.ContractSignature contractSignature;
     @InjectMocks TransferOfferController controller;
 
     @Test

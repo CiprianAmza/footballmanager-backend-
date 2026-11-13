@@ -1,4 +1,8 @@
 spring:
+  # This file shadows src/main/resources/application.yml in tests, so the engine weights the special
+  # rating needs (and the match plan the compartment engine requires) are brought in here too.
+  config:
+    import: classpath:compartment-scoring-weights-v1.yml
   datasource:
     url: jdbc:h2:mem:${random.uuid};DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
     username: sa
@@ -13,3 +17,8 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: create-drop
+
+match:
+  engine:
+    match-plan:
+      enabled: true

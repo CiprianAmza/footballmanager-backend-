@@ -270,34 +270,7 @@ public class ManagerCareerService {
             content = "The board has lost all confidence in your ability to manage this club. "
                     + "You have been relieved of your duties with immediate effect. "
                     + "Check the available jobs to find a new position.";
-            List<User> usersWithTeam = userRepository.findAllByTeamId(humanTeamId);
-            for (User user : usersWithTeam) {
-                user.setFired(true);
-                user.setLastTeamId(humanTeamId);
-                user.setTeamId(null);
-                userRepository.save(user);
-            }
-            List<GameCalendar> nextCalendars = gameCalendarRepository.findBySeason(season + 1);
-            if (!nextCalendars.isEmpty()) {
-                GameCalendar cal = nextCalendars.get(0);
-                cal.setManagerFired(true);
-                gameCalendarRepository.save(cal);
-            } else {
-                List<GameCalendar> calendars = gameCalendarRepository.findBySeason(season);
-                if (!calendars.isEmpty()) {
-                    GameCalendar cal = calendars.get(0);
-                    cal.setManagerFired(true);
-                    gameCalendarRepository.save(cal);
-                }
-            }
-            Human humanManager = humanRepository.findAllByTeamIdAndTypeId(humanTeamId, TypeNames.MANAGER_TYPE)
-                    .stream().findFirst().orElse(null);
-            if (humanManager != null) {
-                humanManager.setManagerReputation(Math.max(0, humanManager.getManagerReputation() - 100));
-                humanManager.setTeamId(0L);
-                humanRepository.save(humanManager);
-            }
-            System.out.println("=== HUMAN MANAGER FIRED - Game paused for job selection ===");
+            sackHumanManager(humanTeamId, season);
         } else if (firingScore >= 8) {
             title = "Board Disappointed - Final Warning";
             content = "The board is extremely disappointed with your performance this season. "
@@ -327,6 +300,43 @@ public class ManagerCareerService {
         inbox.setRead(false);
         inbox.setCreatedAt(System.currentTimeMillis());
         managerInboxRepository.save(inbox);
+    }
+
+    /**
+     * Sacks the human manager of {@code humanTeamId}: the users lose the club and go job hunting, the game pauses
+     * for it, his reputation drops by 100. Shared by the end-of-season objectives check and the chairman's trust.
+     */
+    public void sackHumanManager(long humanTeamId, int season) {
+        {
+            List<User> usersWithTeam = userRepository.findAllByTeamId(humanTeamId);
+            for (User user : usersWithTeam) {
+                user.setFired(true);
+                user.setLastTeamId(humanTeamId);
+                user.setTeamId(null);
+                userRepository.save(user);
+            }
+            List<GameCalendar> nextCalendars = gameCalendarRepository.findBySeason(season + 1);
+            if (!nextCalendars.isEmpty()) {
+                GameCalendar cal = nextCalendars.get(0);
+                cal.setManagerFired(true);
+                gameCalendarRepository.save(cal);
+            } else {
+                List<GameCalendar> calendars = gameCalendarRepository.findBySeason(season);
+                if (!calendars.isEmpty()) {
+                    GameCalendar cal = calendars.get(0);
+                    cal.setManagerFired(true);
+                    gameCalendarRepository.save(cal);
+                }
+            }
+            Human humanManager = humanRepository.findAllByTeamIdAndTypeId(humanTeamId, TypeNames.MANAGER_TYPE)
+                    .stream().findFirst().orElse(null);
+            if (humanManager != null) {
+                humanManager.setManagerReputation(Math.max(0, humanManager.getManagerReputation() - 100));
+                humanManager.setTeamId(0L);
+                humanRepository.save(humanManager);
+            }
+            System.out.println("=== HUMAN MANAGER FIRED - Game paused for job selection ===");
+        }
     }
 
     private Human resolveHumanManager(long teamId) {
@@ -377,7 +387,7 @@ public class ManagerCareerService {
                 newManager.setName(compositeNameGenerator.generateName(1L));
                 newManager.setTypeId(TypeNames.MANAGER_TYPE);
                 newManager.setTeamId(team.getId());
-                newManager.setManagerReputation(team.getReputation() / 3);
+                newManager.setManagerReputation(ManagerReputation.startingFor(team.getReputation()));
                 newManager.setAge(35 + new Random().nextInt(20));
                 newManager.setSeasonCreated(season);
                 newManager.setMorale(100D);
