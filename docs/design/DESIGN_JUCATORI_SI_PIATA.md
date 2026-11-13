@@ -520,6 +520,49 @@ Consecință naturală: un club cu salarii mari oferă mai multe puncte decât u
 
 ---
 
+### 3.8 Discuții despre transferuri cu patronul, directorul general și agenții (idee, 2026-11-13)
+
+**Ideea (de la utilizator):** pe lângă negocierea propriu-zisă cu un club sau cu un agent (§3.2–3.5), există **discuții de planificare** despre transferuri. Au loc față în față, de exemplu **la un hotel**, cu:
+- **patronul**;
+- **directorul general** (la cluburile care au unul, DESIGN_START_CARIERA §5);
+- **agenții** jucătorilor.
+
+**Cum decurge o discuție de planificare (idee):**
+1. **Analiza mea:** stabilesc ce poziții trebuie întărite (de exemplu fundaș central, extremă stângă).
+2. **Propunerile:** patronul propune ceva, eu propun ceva, iar directorul general propune același lucru sau altceva (poate agenda lui, DESIGN_START_CARIERA §5).
+3. **Negocierea:** ne înțelegem asupra pozițiilor și asupra jucătorilor vizați.
+4. **Banii:** se discută **salariile estimative** și **suma de transfer posibilă** pentru fiecare jucător, evident doar în ipoteza că jucătorul ar accepta să vină.
+
+**Discuția cu un agent la hotel (idee):** agentul spune, fără angajament, cât ar cere jucătorul lui ca salariu și dacă ar fi dispus să vină. Nu e încă o negociere de contract (§3.3); e o sondare.
+
+**Locul discuției, pe ecran (idee):** fiecare discuție are o **imagine frumoasă cu locul** unde are loc (hotel, restaurant etc.), ca fundal al ecranului de discuție. Locul se alege după situație. Propunerea mea:
+
+| Situație | Locul |
+|---|---|
+| Planificarea ferestrei cu patronul | restaurantul unui hotel elegant, la cină |
+| Patronul e nemulțumit (încredere scăzută) | biroul patronului, la club: mai rece, mai formal |
+| Discuție doar cu directorul general | o cafenea discretă sau barul hotelului |
+| Directorul ambițios cu agenda lui | un separeu într-un restaurant, „între noi” |
+| Sondarea unui agent | holul unui hotel din orașul jucătorului |
+| Agent pentru un jucător mare / transfer scump | terasa unui hotel de lux sau un club privat |
+| Club mic, buget mic | o masă simplă într-un restaurant local sau sala de ședințe de la stadion |
+| Discuție de urgență în ultima zi a ferestrei | un salon de aeroport sau o cameră de hotel, noaptea |
+
+Imaginea se poate schimba și cu ora (cină, noapte) și cu sezonul.
+
+**Legături cu ce există:**
+- încrederea patronului și a directorului în mine (DESIGN_START_CARIERA §5.0.1): o propunere a lor pe care o refuz sau o accept mută încrederea, ca la dorințele lunare ale directorului;
+- directorul ambițios poate împinge un jucător pentru că are o înțelegere cu agentul lui (DESIGN_START_CARIERA §5, „mesaje cu sursă incertă”);
+- bugetul de transferuri și cel de salarii ies din discuția cu patronul, nu doar dintr-o cifră fixă.
+
+**Întrebări deschise:**
+- Când au loc discuțiile: înainte de fiecare fereastră de transferuri, sau oricând le cer eu?
+- Ce iese concret din discuție: un buget de transferuri și de salarii, o listă de ținte aprobate, sau ambele?
+- Dacă nu ajungem la un acord, cine are ultimul cuvânt: patronul?
+- Se pot ține promisiunile făcute în discuție (de exemplu „îți aduc un fundaș central”)? Dacă nu, ce pierd?
+- Cât de exacte sunt estimările de salariu și de preț? (De exemplu, cu o marjă care scade dacă am un scouter bun sau o relație bună cu agentul.)
+- De unde vin imaginile locurilor: un set fix de ilustrații (câte una sau mai multe pe tip de loc), generate o dată și păstrate în proiect?
+
 ## 4. Întrebări deschise (index)
 
 1. ~~Δ: după ce criteriu se aleg atributele?~~ Decis (revizuit): după categorii de statistici, cei mai buni din ligă cresc la atributele legate (§2.3)
@@ -550,3 +593,4 @@ Consecință naturală: un club cu salarii mari oferă mai multe puncte decât u
 11. ~~Scăderea atributelor neantrenate?~~ Decis: combinat; sub 28 rar și doar neantrenate de mult, peste 30 mai ales fizice, chiar antrenate (§2.4)
 4. Minor: chiar niciun atribut comun între portari și jucătorii de câmp (mentale, fizice)? (§2.3)
 28. Moralul în motorul de meci (acum inactiv). Decis: discursul de la pauză modifică moralul pentru repriza a doua (vechiul multiplicator de putere după reputație a fost șters). Cum influențează moralul motorul — de stabilit, pas separat.
+29. Discuțiile de planificare a transferurilor (patron, director general, agenți, la hotel): când au loc, ce produc (buget, ținte aprobate), cine decide la dezacord, cât de exacte sunt estimările (§3.8)
