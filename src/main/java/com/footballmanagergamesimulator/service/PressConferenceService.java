@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
+import com.footballmanagergamesimulator.model.CompetitionTeamInfoMatch;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.Ownership;
@@ -144,13 +145,49 @@ public class PressConferenceService {
             "Do you accept that the opposition coach won the tactical battle?"
     );
 
+    /** A pre-match answer replaced by a later conference before it was given. */
+    public static final String MISSED = "MISSED";
+
+    /**
+     * One pre-match conference for every candidate team that plays this round, not only the first human team
+     * found (design DESIGN_MEDIA_SI_COMPETITII §1). The caller picks the candidates (human teams whose manager
+     * attends press conferences).
+     */
+    public List<PressConference> generatePreMatchPressConferences(Collection<Long> candidateTeamIds, long competitionId,
+                                                                  int matchday, int legNumber, int season) {
+        if (candidateTeamIds == null || candidateTeamIds.isEmpty() || competitionId <= 0 || matchday <= 0) {
+            return List.of();
+        }
+        List<CompetitionTeamInfoMatch> roundMatches = competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(competitionId, matchday, String.valueOf(season));
+        List<PressConference> generated = new ArrayList<>();
+        for (long teamId : candidateTeamIds) {
+            boolean plays = roundMatches.stream().anyMatch(m -> m.getTeam1Id() == teamId || m.getTeam2Id() == teamId);
+            if (plays) generated.add(generatePreMatchPressConference(teamId, competitionId, matchday, legNumber, season));
+        }
+        return generated;
+    }
+
     public PressConference generatePreMatchPressConference(long teamId, long competitionId, int matchday, int season) {
+        return generatePreMatchPressConference(teamId, competitionId, matchday, 0, season);
+    }
+
+    public PressConference generatePreMatchPressConference(long teamId, long competitionId, int matchday,
+                                                           int legNumber, int season) {
+        // An older pre-match conference still unanswered can no longer be answered: its match is gone or replaced.
+        List<PressConference> missed = pressConferenceRepository.findAllByTeamIdAndSeasonNumber(teamId, season).stream()
+                .filter(pc -> pc.getResponseChosen() == null && isPreMatch(pc))
+                .toList();
+        missed.forEach(pc -> pc.setResponseChosen(MISSED));
+        if (!missed.isEmpty()) pressConferenceRepository.saveAll(missed);
 
         PressConference pressConference = new PressConference();
         pressConference.setTeamId(teamId);
         pressConference.setSeasonNumber(season);
         pressConference.setDay(matchday);
         pressConference.setMatchDay(matchday);
+        pressConference.setCompetitionId(competitionId);
+        pressConference.setLegNumber(legNumber);
         String question = selectQuestion(PRE_MATCH_QUESTIONS, teamId, competitionId, matchday, season, "PRE_MATCH");
         pressConference.setTopic("PRE_MATCH:" + question);
         pressConference.setResponseChosen(null); // null means PENDING
@@ -188,6 +225,7 @@ public class PressConferenceService {
         pressConference.setSeasonNumber(season);
         pressConference.setDay(matchday);
         pressConference.setMatchDay(matchday);
+        pressConference.setCompetitionId(competitionId);
         String question = selectQuestion(questions, teamId, competitionId, matchday, season, "POST_MATCH:" + outcome);
         pressConference.setTopic("POST_MATCH:" + outcome + "|" + question);
         pressConference.setResponseChosen(null);
@@ -291,45 +329,40 @@ public class PressConferenceService {
     public Map<String, Object> respondToPressConference(long pressConferenceId, String responseType) {
 
         PressConference pressConference = pressConferenceRepository.findById(pressConferenceId)
-                .orElseThrow(() -> new RuntimeException("Press conference not found: " + pressConferenceId));
+                .orElseThrow(() -> new NoSuchElementException("Press conference not found: " + pressConferenceId));
+        requireUnanswered(pressConference);
 
         if (pressConference.getTopic() != null && pressConference.getTopic().startsWith("BOARDROOM")) {
             return respondToBoardroom(pressConference, responseType);
         }
 
-        int moraleEffect = 0;
-        int reputationIfWin = 0;
-        int reputationIfLose = 0;
+        int moraleEffect;
         String responseDescription;
 
-        switch (responseType) {
+        switch (responseType == null ? "" : responseType) {
             case "confident":
                 moraleEffect = 2;
-                reputationIfWin = 1;
-                reputationIfLose = -3;
                 responseDescription = "The manager expressed full confidence in the team's ability to win.";
                 break;
             case "cautious":
                 moraleEffect = 0;
-                reputationIfWin = 0;
-                reputationIfLose = 0;
                 responseDescription = "The manager gave a measured, cautious response to the media.";
                 break;
             case "aggressive":
                 moraleEffect = 3;
-                reputationIfWin = 2;
-                reputationIfLose = -5;
                 responseDescription = "The manager made bold, aggressive statements to the press.";
                 break;
             case "deflect":
                 moraleEffect = -1;
-                reputationIfWin = 0;
-                reputationIfLose = 0;
                 responseDescription = "The manager deflected all questions from the media.";
                 break;
             default:
-                throw new RuntimeException("Invalid response type: " + responseType);
+                throw new IllegalArgumentException("Invalid response type: " + responseType);
         }
+        // Only a pre-match answer is a bet on a result still to come; it is settled after the match.
+        int[] bet = isPreMatch(pressConference) ? reputationBet(responseType) : new int[]{0, 0};
+        int reputationIfWin = bet[0];
+        int reputationIfLose = bet[1];
 
         // Apply morale effect to all team players
         List<Human> teamPlayers = humanRepository.findAllByTeamIdAndTypeId(pressConference.getTeamId(), TypeNames.PLAYER_TYPE);
@@ -342,7 +375,7 @@ public class PressConferenceService {
         // Update press conference
         pressConference.setResponseChosen(responseType);
         pressConference.setMoraleEffect(moraleEffect);
-        pressConference.setReputationEffect(reputationIfWin); // store potential win effect
+        pressConference.setReputationEffect(0); // the real change is known only after the match
         pressConferenceRepository.save(pressConference);
 
         String mediaHeadline = switch (responseType) {
@@ -378,6 +411,94 @@ public class PressConferenceService {
         return result;
     }
 
+    /** A conference can be answered once; a pre-match one replaced by a later conference has expired. */
+    private static void requireUnanswered(PressConference pressConference) {
+        String chosen = pressConference.getResponseChosen();
+        if (chosen == null) return;
+        throw new IllegalStateException(MISSED.equals(chosen) ? "EXPIRED" : "ALREADY_ANSWERED");
+    }
+
+    static boolean isPreMatch(PressConference pressConference) {
+        return pressConference.getTopic() != null && pressConference.getTopic().startsWith("PRE_MATCH");
+    }
+
+    /** {reputation on a win, reputation on a defeat} staked by a pre-match answer; a draw changes nothing. */
+    static int[] reputationBet(String responseType) {
+        if (responseType == null) return new int[]{0, 0};
+        return switch (responseType) {
+            case "confident" -> new int[]{1, -3};
+            case "aggressive" -> new int[]{2, -5};
+            default -> new int[]{0, 0};
+        };
+    }
+
+    /**
+     * The team's pre-match conference still to answer before its match is played, or null. Shown to its own
+     * manager by the frontend, whoever pressed Continue (and in multiplayer rooms, where Continue never pauses).
+     */
+    public PressConference pendingPreMatch(long teamId, int season) {
+        return pressConferenceRepository.findAllByTeamIdAndSeasonNumber(teamId, season).stream()
+                .filter(pc -> pc.getResponseChosen() == null && isPreMatch(pc) && pc.getCompetitionId() > 0)
+                .max(Comparator.comparingLong(PressConference::getId))
+                .filter(this::matchStillToPlay)
+                .orElse(null);
+    }
+
+    /** Whether any of these teams still has a pre-match conference to answer before its match. */
+    public boolean anyPendingPreMatch(Collection<Long> teamIds, int season) {
+        return teamIds.stream().anyMatch(teamId -> pendingPreMatch(teamId, season) != null);
+    }
+
+    private boolean matchStillToPlay(PressConference pc) {
+        return competitionTeamInfoMatchRepository
+                .findAllByCompetitionIdAndRoundAndSeasonNumber(pc.getCompetitionId(), pc.getMatchDay(),
+                        String.valueOf(pc.getSeasonNumber()))
+                .stream()
+                .anyMatch(m -> (m.getTeam1Id() == pc.getTeamId() || m.getTeam2Id() == pc.getTeamId())
+                        && (pc.getLegNumber() == 0 || m.getLegNumber() == pc.getLegNumber())
+                        && m.getTeam1Score() < 0);
+    }
+
+    /**
+     * Settles the reputation staked by the pre-match answer once the match is played (design
+     * DESIGN_MEDIA_SI_COMPETITII §1): confident +1 / -3, aggressive +2 / -5, a draw nothing. The conference is the
+     * latest pre-match one of the team for this competition and round (the second leg of a tie has its own);
+     * a settled conference keeps its change and is never settled again. Returns the change.
+     */
+    public int settleReputationBet(long teamId, long competitionId, int round, int season,
+                                   int teamScore, int opponentScore) {
+        PressConference pc = pressConferenceRepository.findAllByTeamIdAndSeasonNumber(teamId, season).stream()
+                .filter(c -> isPreMatch(c) && c.getCompetitionId() == competitionId && c.getMatchDay() == round)
+                .max(Comparator.comparingLong(PressConference::getId))
+                .orElse(null);
+        if (pc == null || pc.getReputationEffect() != 0) return 0;
+        int[] bet = reputationBet(pc.getResponseChosen());
+        int change = teamScore > opponentScore ? bet[0] : teamScore < opponentScore ? bet[1] : 0;
+        if (change == 0) return 0;
+        Human manager = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE).stream()
+                .filter(m -> !m.isRetired())
+                .min(Comparator.comparingLong(Human::getId))
+                .orElse(null);
+        if (manager == null) return 0;
+        manager.setManagerReputation(Math.max(0, Math.min(10_000, manager.getManagerReputation() + change)));
+        humanRepository.save(manager);
+        pc.setReputationEffect(change);
+        pressConferenceRepository.save(pc);
+        if (Math.abs(change) >= 2) {
+            boolean won = change > 0;
+            sendInboxMessage(teamId, season, round,
+                    won ? "Media reaction: bold words backed up by the result"
+                        : "Media reaction: pre-match words come back to haunt the manager",
+                    (won ? "Before kick-off the manager promised a statement. The result delivered it, and the media "
+                            + "now treat the confidence as justified."
+                         : "The confident message before kick-off is now being quoted back after the defeat. "
+                            + "Expect the same words to be raised at the next press conference.")
+                            + "\n\nManager reputation: " + (won ? "+" : "") + change + ".",
+                    "MEDIA_REACTION");
+        }
+        return change;
+    }
+
     public List<PressConference> getPendingPressConferences(long teamId, int season) {
 
         return pressConferenceRepository.findAllByTeamIdAndSeasonNumber(teamId, season)
@@ -403,7 +524,7 @@ public class PressConferenceService {
             case "accept" -> { delta = -cfg.getPressHumiliationDelta() * 0.5; who = "coach"; description = "Antrenorul a acceptat public rolul patronului."; }
             case "assertive" -> { delta = cfg.getPressArroganceDelta(); who = "owner"; description = "Patronul a reafirmat că el ia deciziile."; }
             case "humble" -> { delta = -cfg.getPressArroganceDelta() * 0.5; who = "owner"; description = "Patronul a dat credit antrenorului."; }
-            default -> throw new RuntimeException("Invalid boardroom response type: " + responseType);
+            default -> throw new IllegalArgumentException("Invalid boardroom response type: " + responseType);
         }
 
         double arroganceAfter = 0;
