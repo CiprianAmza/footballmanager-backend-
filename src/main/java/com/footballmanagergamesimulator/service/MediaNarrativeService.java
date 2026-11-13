@@ -4,33 +4,81 @@ import com.footballmanagergamesimulator.model.InboxAudience;
 import com.footballmanagergamesimulator.model.ManagerInbox;
 import com.footballmanagergamesimulator.model.TransferOffer;
 import com.footballmanagergamesimulator.repository.ManagerInboxRepository;
+import com.footballmanagergamesimulator.service.press.MatchReactionArticle;
+import com.footballmanagergamesimulator.service.press.PressDeskService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Produces original, event-driven football media stories for human managers.
  * The tone mirrors familiar sports-news patterns (pressure, momentum, tactical
  * talking points and supporter reaction) without quoting or impersonating a
  * real publication or pundit.
+ *
+ * <p>Each story is written and signed by one of the league's reporters, in his own voice
+ * ({@link PressDeskService}, design DESIGN_START_CARIERA §6.1.1). The plain texts below are what is published when
+ * the press desk has nothing to offer (no reporter, no fragment).
  */
 @Service
 public class MediaNarrativeService {
 
     private final ManagerInboxRepository inboxRepository;
 
+    @Autowired(required = false)
+    private PressDeskService pressDesk;
+
     public MediaNarrativeService(ManagerInboxRepository inboxRepository) {
         this.inboxRepository = inboxRepository;
     }
 
+    private record Story(String title, String content) {
+    }
+
+    /** The reaction to a match whose saved numbers are not known to the caller. */
     public void publishPostMatchReaction(long teamId, String teamName,
                                          long opponentTeamId, String opponentName,
                                          int teamScore, int opponentScore,
                                          String competitionName, int season, int round) {
-        String deduplicationKey = "MEDIA_MATCH:" + season + ":" + round + ":" + teamId + ":"
-                + opponentTeamId + ":" + teamScore + ":" + opponentScore;
+        publishPostMatchReaction(new MatchReactionArticle.Facts(teamId, teamName, opponentTeamId, opponentName,
+                teamScore, opponentScore, 0, competitionName, season, round, 0, 0));
+    }
+
+    public void publishPostMatchReaction(MatchReactionArticle.Facts facts) {
+        long teamId = facts.teamId();
+        String deduplicationKey = "MEDIA_MATCH:" + facts.season() + ":" + facts.round() + ":" + teamId + ":"
+                + facts.opponentTeamId() + ":" + facts.teamScore() + ":" + facts.opponentScore();
         if (inboxRepository.existsByTeamIdAndDeduplicationKey(teamId, deduplicationKey)) return;
 
-        int margin = teamScore - opponentScore;
-        int totalGoals = teamScore + opponentScore;
+        Story story = signed(pressDesk == null ? Optional.empty() : pressDesk.matchReaction(facts))
+                .orElseGet(() -> plainReaction(facts));
+
+        ManagerInbox message = new ManagerInbox();
+        message.setTeamId(teamId);
+        message.setSeasonNumber(facts.season());
+        message.setRoundNumber(facts.round());
+        message.setTitle(story.title());
+        message.setContent(story.content());
+        message.setCategory("MEDIA_REACTION");
+        message.setRead(false);
+        message.setCreatedAt(System.currentTimeMillis());
+        message.setAudience(InboxAudience.MANAGER);
+        message.setDeduplicationKey(deduplicationKey);
+        inboxRepository.save(message);
+    }
+
+    private static Optional<Story> signed(Optional<PressDeskService.Piece> piece) {
+        return piece.map(written -> new Story(written.headline(), written.body()));
+    }
+
+    private static Story plainReaction(MatchReactionArticle.Facts facts) {
+        String teamName = facts.teamName();
+        String opponentName = facts.opponentName();
+        int margin = facts.teamScore() - facts.opponentScore();
+        int totalGoals = facts.teamScore() + facts.opponentScore();
         String title;
         String verdict;
         String pressure;
@@ -62,22 +110,11 @@ public class MediaNarrativeService {
         }
 
         String content = "MEDIA WATCH\n\n"
-                + competitionName + ": " + teamName + " " + teamScore + "-" + opponentScore + " " + opponentName + ".\n\n"
+                + facts.competitionName() + ": " + teamName + " " + facts.teamScore() + "-" + facts.opponentScore()
+                + " " + opponentName + ".\n\n"
                 + "Studio verdict: " + verdict + "\n\n"
                 + "The talking point: " + pressure;
-
-        ManagerInbox message = new ManagerInbox();
-        message.setTeamId(teamId);
-        message.setSeasonNumber(season);
-        message.setRoundNumber(round);
-        message.setTitle(title);
-        message.setContent(content);
-        message.setCategory("MEDIA_REACTION");
-        message.setRead(false);
-        message.setCreatedAt(System.currentTimeMillis());
-        message.setAudience(InboxAudience.MANAGER);
-        message.setDeduplicationKey(deduplicationKey);
-        inboxRepository.save(message);
+        return new Story(title, content);
     }
 
     /**
@@ -87,6 +124,20 @@ public class MediaNarrativeService {
      */
     public void publishTransferRumour(TransferOffer offer, int round) {
         if (offer == null || offer.getId() <= 0) return;
+        List<Long> readers = new ArrayList<>();
+        readers.add(offer.getFromTeamId());
+        if (offer.getToTeamId() != offer.getFromTeamId()) readers.add(offer.getToTeamId());
+        readers.removeIf(teamId -> inboxRepository.existsByTeamIdAndDeduplicationKey(teamId, rumourKey(offer, teamId)));
+        if (readers.isEmpty()) return;
+
+        Story story = signed(pressDesk == null ? Optional.empty() : pressDesk.transferRumour(offer, round))
+                .orElseGet(() -> plainRumour(offer));
+        for (long teamId : readers) {
+            publishRumourForTeam(offer, teamId, round, story.title(), story.content());
+        }
+    }
+
+    private Story plainRumour(TransferOffer offer) {
         int credibility = rumourCredibility(offer);
         String source = rumourSource(offer);
         String title = credibility >= 75
@@ -102,15 +153,14 @@ public class MediaNarrativeService {
                 + offer.getFromTeamName() + " are being linked with a move for " + offer.getPlayerName()
                 + " of " + offer.getToTeamName() + ", with figures around " + amount + " being discussed.\n\n"
                 + statusLine + " Neither club has publicly confirmed the story.";
-        publishRumourForTeam(offer, offer.getFromTeamId(), round, title, content);
-        if (offer.getToTeamId() != offer.getFromTeamId()) {
-            publishRumourForTeam(offer, offer.getToTeamId(), round, title, content);
-        }
+        return new Story(title, content);
+    }
+
+    private static String rumourKey(TransferOffer offer, long teamId) {
+        return "TRANSFER_RUMOUR:" + offer.getId() + ":" + teamId;
     }
 
     private void publishRumourForTeam(TransferOffer offer, long teamId, int round, String title, String content) {
-        String key = "TRANSFER_RUMOUR:" + offer.getId() + ":" + teamId;
-        if (inboxRepository.existsByTeamIdAndDeduplicationKey(teamId, key)) return;
         ManagerInbox message = new ManagerInbox();
         message.setTeamId(teamId);
         message.setSeasonNumber(offer.getSeasonNumber());
@@ -121,7 +171,7 @@ public class MediaNarrativeService {
         message.setRead(false);
         message.setCreatedAt(System.currentTimeMillis());
         message.setAudience(InboxAudience.MANAGER);
-        message.setDeduplicationKey(key);
+        message.setDeduplicationKey(rumourKey(offer, teamId));
         inboxRepository.save(message);
     }
 

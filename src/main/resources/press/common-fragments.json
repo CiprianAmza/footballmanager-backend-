@@ -1,0 +1,506 @@
+[
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "STATEMENT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "ROUT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "MASTERCLASS"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "RAMPANT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "NO MERCY"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "RUTHLESS"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "SHOWTIME"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_WIN",
+  "text": "DEMOLITION"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "JOB DONE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "GRIT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "OVER THE LINE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "NERVE HOLDS"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "HARD-EARNED"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "GOT THERE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "STEEL"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "WIN",
+  "text": "BUSINESSLIKE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "THRILLER"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "CHAOS"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "BREATHLESS"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "END TO END"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "MADNESS"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "WILD ONE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "NO BRAKES"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "HIGH_DRAW",
+  "text": "PURE DRAMA"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "STALEMATE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "DEADLOCK"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "ALL SQUARE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "NO WAY THROUGH"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "HONOURS EVEN"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "CANCELLED OUT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "LOCKED TIGHT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "DRAW",
+  "text": "NOTHING IN IT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "SETBACK"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "STUNG"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "FALLING SHORT"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "BRUISED"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "NOT ENOUGH"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "UNDONE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "SECOND BEST"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "LOSS",
+  "text": "BEATEN"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "MELTDOWN"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "HUMBLED"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "SHAMBLES"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "TAKEN APART"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "NIGHTMARE"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "ROUTED"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "NO ANSWERS"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "KICKER",
+  "bucket": "BIG_LOSS",
+  "text": "WAKE-UP CALL"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_ON_TOP",
+  "text": "The numbers back the result. The shot count read {shots} to {opponentShots}, with {shotsOnTarget} on target to {opponentShotsOnTarget}, and {team} had {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_ON_TOP",
+  "text": "On the figures there is little to argue with: {shotsOnTarget} on target for {team} to {opponentShotsOnTarget} for {opponent}, a shot count of {shots} to {opponentShots}, and {possession}% of possession for the winners."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_ON_TOP",
+  "text": "The count of chances tells the same story as the score. {team} against {opponent} read {shots} to {opponentShots} on shots and {shotsOnTarget} to {opponentShotsOnTarget} on target, from {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_ON_TOP",
+  "text": "{team} can point to the numbers as well as the result: {shotsOnTarget} on target to {opponent}'s {opponentShotsOnTarget}, {shots} to {opponentShots} on total shots, and {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_ON_TOP",
+  "text": "For those who like their evidence in figures: shots {shots} to {opponentShots}, on target {shotsOnTarget} to {opponentShotsOnTarget}, possession {possession}% for {team}. The win was earned."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_ON_TOP",
+  "text": "Nothing in the match numbers contradicts the outcome. {team} had {shotsOnTarget} on target to {opponentShotsOnTarget}, the shot count stood at {shots} to {opponentShots}, and possession was {possession}% for the winners."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_SECOND_BEST",
+  "text": "The numbers were less kind than the scoreline. The shot count read {shots} to {opponentShots}, with {shotsOnTarget} on target to {opponentShotsOnTarget}, and {team} saw {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_SECOND_BEST",
+  "text": "It was a win the figures did not predict: {shotsOnTarget} on target for {team} to {opponentShotsOnTarget} for {opponent}, a shot count of {shots} to {opponentShots}, and possession at {possession}% for the winners."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_SECOND_BEST",
+  "text": "{team} won without winning the count. On shots it finished {shots} to {opponentShots}, on target {shotsOnTarget} to {opponentShotsOnTarget}, with {possession}% of possession. Efficiency did the rest."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_SECOND_BEST",
+  "text": "Anyone reading only the statistics would have guessed a different result. {team} against {opponent} read {shots} to {opponentShots} on shots and {shotsOnTarget} to {opponentShotsOnTarget} on target, on {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_SECOND_BEST",
+  "text": "The figures suggest {team} made a little go a long way: {shotsOnTarget} on target to {opponent}'s {opponentShotsOnTarget}, {shots} to {opponentShots} on total shots, and {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "WIN_SECOND_BEST",
+  "text": "On chances alone, {opponent} will feel they did enough. Shots finished {shots} to {opponentShots} and on target {shotsOnTarget} to {opponentShotsOnTarget}, with {team} on {possession}% of the ball, and {team} still took the win."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_ON_TOP",
+  "text": "The numbers lean towards {team}. The shot count read {shots} to {opponentShots}, with {shotsOnTarget} on target to {opponentShotsOnTarget}, from {possession}% of possession. On that evidence a draw is a modest return."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_ON_TOP",
+  "text": "If either side had a case for more, it was {team}: {shotsOnTarget} on target to {opponentShotsOnTarget} for {opponent}, a shot count of {shots} to {opponentShots}, and {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_ON_TOP",
+  "text": "The count of chances was on {team}'s side, the scoreboard was not. On shots it finished {shots} to {opponentShots}, on target {shotsOnTarget} to {opponentShotsOnTarget}, with {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_ON_TOP",
+  "text": "{team} did a little more of what usually wins matches. Against {opponent} the figures read {shots} to {opponentShots} on shots and {shotsOnTarget} to {opponentShotsOnTarget} on target, with {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_ON_TOP",
+  "text": "A level score, slightly less level numbers: {shotsOnTarget} on target to {opponent}'s {opponentShotsOnTarget}, {shots} to {opponentShots} on total shots, and possession at {possession}% for {team}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_ON_TOP",
+  "text": "The statistics give {team} the edge the result did not. Shots finished {shots} to {opponentShots} and on target {shotsOnTarget} to {opponentShotsOnTarget}, from {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_SECOND_BEST",
+  "text": "On the numbers, {team} may consider the draw a fair return or better. The shot count read {shots} to {opponentShots}, with {shotsOnTarget} on target to {opponentShotsOnTarget}, and possession for {team} was {possession}%."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_SECOND_BEST",
+  "text": "The figures lean towards {opponent}: {shotsOnTarget} on target for {team} to {opponentShotsOnTarget}, a shot count of {shots} to {opponentShots}, and {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_SECOND_BEST",
+  "text": "{team} came away level despite losing the count. On shots it finished {shots} to {opponentShots}, on target {shotsOnTarget} to {opponentShotsOnTarget}, with {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_SECOND_BEST",
+  "text": "A level score flatters the numbers a little from {team}'s side. Against {opponent} they read {shots} to {opponentShots} on shots and {shotsOnTarget} to {opponentShotsOnTarget} on target, on {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_SECOND_BEST",
+  "text": "If one side will feel it should have won, the statistics point to {opponent}: {shotsOnTarget} on target to their {opponentShotsOnTarget}, {shots} to {opponentShots} on total shots, and {team} on {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "DRAW_SECOND_BEST",
+  "text": "The match numbers were not on {team}'s side. Shots finished {shots} to {opponentShots} and on target {shotsOnTarget} to {opponentShotsOnTarget}, from {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_ON_TOP",
+  "text": "The numbers will be little comfort, but they are on {team}'s side. The shot count read {shots} to {opponentShots}, with {shotsOnTarget} on target to {opponentShotsOnTarget}, and {team} had {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_ON_TOP",
+  "text": "{team} lost a match the figures say they shaded: {shotsOnTarget} on target to {opponentShotsOnTarget} for {opponent}, a shot count of {shots} to {opponentShots}, and possession at {possession}% for the beaten side."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_ON_TOP",
+  "text": "Defeat came in spite of the count, not because of it. On shots it finished {shots} to {opponentShots}, on target {shotsOnTarget} to {opponentShotsOnTarget}, with {possession}% of possession for {team}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_ON_TOP",
+  "text": "On the statistics alone {team} did enough to take something. Against {opponent} the figures read {shots} to {opponentShots} on shots and {shotsOnTarget} to {opponentShotsOnTarget} on target, on {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_ON_TOP",
+  "text": "The scoreline and the figures disagree: {shotsOnTarget} on target to {opponent}'s {opponentShotsOnTarget}, {shots} to {opponentShots} on total shots, {possession}% of possession, and {team} were beaten all the same."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_ON_TOP",
+  "text": "For what it is worth, the match numbers favoured {team}. Shots finished {shots} to {opponentShots} and on target {shotsOnTarget} to {opponentShotsOnTarget}, from {possession}% of the ball. {opponent} were simply more efficient."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_SECOND_BEST",
+  "text": "The numbers offer no hiding place. The shot count read {shots} to {opponentShots}, with {shotsOnTarget} on target to {opponentShotsOnTarget}, and {team} had {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_SECOND_BEST",
+  "text": "Nothing in the figures argues with the result: {shotsOnTarget} on target for {team} to {opponentShotsOnTarget} for {opponent}, a shot count of {shots} to {opponentShots}, and possession at {possession}% for the beaten side."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_SECOND_BEST",
+  "text": "{team} were second best on the scoreboard and in the count. On shots it finished {shots} to {opponentShots}, on target {shotsOnTarget} to {opponentShotsOnTarget}, from {possession}% of possession."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_SECOND_BEST",
+  "text": "The statistics tell the same story as the score. Against {opponent} they read {shots} to {opponentShots} on shots and {shotsOnTarget} to {opponentShotsOnTarget} on target, with {team} on {possession}% of the ball."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_SECOND_BEST",
+  "text": "There is no case to be made from the match numbers: {shotsOnTarget} on target to {opponent}'s {opponentShotsOnTarget}, {shots} to {opponentShots} on total shots, and {possession}% of possession for {team}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "STATS",
+  "bucket": "LOSS_SECOND_BEST",
+  "text": "Beaten on the day and beaten on the figures. Shots finished {shots} to {opponentShots} and on target {shotsOnTarget} to {opponentShotsOnTarget}, with {team} on {possession}% of the ball."
+ }
+]

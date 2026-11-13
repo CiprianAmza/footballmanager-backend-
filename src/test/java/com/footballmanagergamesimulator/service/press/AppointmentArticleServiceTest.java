@@ -63,7 +63,8 @@ class AppointmentArticleServiceTest {
         AppointmentArticleService.Article first = articles.publish(manager, club.getId()).orElseThrow();
         AppointmentArticleService.Article second = articles.publish(manager, club.getId()).orElseThrow();
 
-        assertEquals(985, fragments.count());
+        assertEquals(985, fragments.findAll().stream()
+                .filter(f -> PressFragmentService.APPOINTMENT.equals(f.getEventType())).count());
         assertEquals(3, analysts.findAllByCompetitionId(leagueId).size());
         assertEquals(9, first.paragraphs().size());
         assertFalse(first.headline().isBlank());

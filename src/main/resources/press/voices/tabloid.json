@@ -1,0 +1,968 @@
+[
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "{team} demolish {opponent} in a {score} rout"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "Hammered! {opponent} blown away by rampant {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "Carnage as {team} run riot against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "Party time as {team} destroy {opponent} {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "Total mayhem: {opponent} flattened by {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "{team} roar to a stunning {score} win and {opponent} are left in tatters"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "{team} edge out {opponent} in a {score} thriller"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "Job done! {team} grind out a {score} win"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "Fans roar as {team} see off {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "Hard-fought {score} victory for {team} over {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "Heroes! {team} beat {opponent} {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "{team} take the spoils in a nerve-shredder against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Madness! {team} and {opponent} trade blows in a {score} thriller"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Defences on holiday as {team} draw {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Goal-fest leaves {team} and {opponent} all square"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Wild {score} draw leaves {team} fans breathless"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Roller-coaster ride as {team} share the spoils with {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Nobody can defend as {team} and {opponent} finish {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "{team} and {opponent} cancel each other out"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "Honours even as {team} and {opponent} settle for a draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "Stalemate! {team} frustrated by stubborn {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "No winner as {team} and {opponent} battle to a {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "Nothing to separate {team} and {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "Deadlock holds for {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "{team} sunk by {opponent} in a {score} blow"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "Heartbreak as {team} fall to {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "Gutted! {team} beaten {score} by {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "{opponent} stun {team} in a tense {score} win"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "Pain for {team} as {opponent} take the spoils"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "Bitter pill for {team} after {score} defeat"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Shambles! {team} humiliated {score} by {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "{team} crumble as {opponent} run riot"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Meltdown! {opponent} tear {team} apart"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Nightmare for {team} in a {score} thrashing"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "{team} blown away by rampant {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Fans fume as {team} suffer {score} hammering"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "{team} were sensational against {opponent}. They swept aside every challenge and won {score} with a swagger that left their rivals reeling. Expect {manager} to be grinning from ear to ear after a {competition} night to remember."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "What a statement! {team} tore {opponent} to shreds, and even a {score} scoreline barely tells the full story. Everything clicked, and {opponent} simply had no answer to the onslaught."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "Ruthless is the word. {team} smelled blood against {opponent} and finished the job in style, winning {score} in {competition}. Rarely does a display look this easy, and the fans will be dining out on it for weeks."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "{opponent} came looking for a fight and found a buzzsaw. {team} cut them down {score} in {competition}, and {manager} has every right to purr about such a fearless, ferocious team display."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "Pure class from {team}. They played with joy, they played with menace, and {opponent} were dragged along for the ride in a {score} procession. Rival bosses will be taking notes."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "This was not a contest, it was a masterclass. {team} dominated {opponent} from every angle, and the {score} result was no more than they deserved. Suddenly {manager} has a squad bursting with belief."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "Fireworks from {team}! They ripped {opponent} open time and again, and the {score} win in {competition} could have been even bigger. Confidence is soaring and the swagger is back."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "TABLOID",
+  "text": "{team} turned {opponent} into bystanders. The {score} scoreline is a thumping advert for {manager}'s methods, and everyone else in {competition} has been put firmly on notice."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "{team} got the job done against {opponent}, and the {score} win will be celebrated loudly. It was not always pretty, but grit and nerve carried them through a proper {competition} test."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "Tough, gritty and gloriously stubborn. {team} dug in against {opponent} and came out on top, {score}. The fight shown by the troops will have delighted {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "A win is a win, and {team} will take this one with both hands. {opponent} made life awkward, yet {team} found a way to win {score} in {competition}. Winners do that."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "{team} rode their luck at times, but who cares? They beat {opponent} {score} and showed real heart doing it. Smiles all round, and {manager} can enjoy the buzz."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "Brave, bold and just good enough. {team} edged {opponent} {score} in a nail-biter that had supporters chewing their scarves. Not perfect, but heroes are rarely perfect."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "{opponent} threw everything at {team} and still came up short. The {score} result in {competition} owes plenty to spirit and some sharp thinking from {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "There were wobbles, there were gasps, but {team} came through it {score}. {opponent} will feel they deserved more, though {team} will not lose any sleep over it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "TABLOID",
+  "text": "Another tick in the right column for {team}. The {score} win over {opponent} was earned with sweat and determination, and the mood around the club is buzzing."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Wow, what a game! {team} and {opponent} threw caution to the wind and finished {score}, with defences on both sides left looking decidedly shaky. Neutrals loved it, managers will not."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Absolute bedlam. {team} and {opponent} served up a rollercoaster in {competition}, and the {score} draw means plenty of sleepless nights for {manager} over the state of the backline."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Blink and you missed something. {team} and {opponent} could not stop attacking, or defending badly, and a {score} draw was the fitting reward for a wild night."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Entertainment of the highest order, defending of the lowest. {team} were thrilling going forward yet wobbly at the back, and {opponent} were just the same in a {score} cracker."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "Fans got their money's worth as {team} and {opponent} shared a {score} draw. It was gripping, it was daft, and {manager} will have plenty to untangle at the back."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "If you like your football with the brakes off, this was for you. {team} and {opponent} slugged it out to a {score} draw in {competition}, and nobody looked safe."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "{team} can attack all day, but those leaky moments at the back cost them against {opponent}. The {score} draw was a joy to watch and a headache to analyse."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "TABLOID",
+  "text": "A pulsating {score} draw between {team} and {opponent} had everything except a winner. Both defences will cringe on the video review, and {manager} knows fixes are needed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "{team} and {opponent} cancelled each other out in {competition}, and neither will feel entirely satisfied. It was tight, tense and short on fireworks, with {manager} left wanting more."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "A cagey affair that never quite caught fire. {team} had their moments against {opponent}, but the {score} draw was probably fair on a night of little daring."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "Frustration written all over this one. {team} huffed and puffed against stubborn {opponent}, yet nobody could find a way to win it. A draw it was, {score}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "{team} will wonder what might have been. They pushed, they probed, and {opponent} held firm, so honours finished even at {score}. A winner was what {manager} wanted, and it never came."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "No winners, no losers and not much sparkle. {team} and {opponent} played out a {score} draw in {competition} that was more battle than ballet, and a lot more grind than glamour."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "Gritty, grinding and stubborn. {team} could not break {opponent} down, and the {score} draw leaves the dressing room with a nagging feeling that more was there for the taking."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "{opponent} were happy to stand firm, and {team} could not find the key. The {score} draw is a decent outcome but hardly one to set the pulses racing."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "TABLOID",
+  "text": "Tense. Tight. Tedious in patches. {team} and {opponent} finished level at {score}, and {manager} will have to find a spark next time out if the fans are to be entertained."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "Heartbreak for {team}. They battled hard against {opponent}, but the {score} defeat in {competition} stings, and the fans will feel every last ounce of the hurt."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "{team} were not far off, yet not far off is not enough. {opponent} took their chances and left with a {score} win, while {manager} is left to ponder what went wrong."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "It was a sore one for {team}. {opponent} were sharper and hungrier, and the {score} defeat was a deserved reward for that. Lessons must be learned, and quickly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "A bitter evening for {team}. They had spells where they threatened {opponent}, but a {score} loss shows that spells are simply not enough in {competition}, and the lesson is a painful one."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "Not good enough, and everyone knows it. {team} fell {score} to {opponent}, and {manager} has questions to answer about where the sharpness went and why the spark vanished."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "Gutting. {team} gave plenty, and still {opponent} walked off winners by {score}. There was spirit on show, but spirit alone does not win games, and the dressing room knows it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "{opponent} grabbed the win and {team} were left empty-handed. The {score} defeat was frustrating, a bruise to the pride, and a reminder that details decide {competition} games."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "TABLOID",
+  "text": "The fans deserved better from {team}. {opponent} edged the contest {score}, and while it was close in places, there is no hiding from a defeat that hurts."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "A dreadful night for {team}. {opponent} ran them ragged and the {score} defeat in {competition} was a humbling lesson. Some very tough conversations await {manager} in the days ahead."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Shambolic. {team} were outplayed, outfought and outthought by {opponent}, who strolled to a {score} win. Nothing about this was acceptable, and nobody at the club can pretend otherwise."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "{team} fell apart and {opponent} gleefully took advantage. A {score} thrashing is the sort of scoreline that haunts a squad, and {manager} must find answers fast."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "It was a nightmare from start to finish. {opponent} were rampant, {team} were chasing shadows, and the {score} result in {competition} is one to forget quickly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Meltdown at {team}. The {score} hammering by {opponent} exposed gaping holes, and the supporters will want to know how on earth this was allowed to happen."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "{opponent} tore through {team} like a storm. A {score} defeat is a damning verdict on a night when little went right, and {manager} will feel the heat."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Not a single {team} supporter will want to relive this. {opponent} dominated, and the {score} scoreline is a stinging blow that demands a proper response."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "TABLOID",
+  "text": "Humiliation is a strong word, but {team} gave it plenty of reasons. Beaten {score} by {opponent}, they looked short of ideas, shape and fight in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "TABLOID",
+  "text": "A win is welcome, but {manager} should not get carried away. {opponent} exposed plenty to worry about, and {team} will need to tighten up fast in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "TABLOID",
+  "text": "Beating {opponent} is fine, yet sceptics will say {team} were far from convincing. It is up to {manager} to show it was not a fluke."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "TABLOID",
+  "text": "Do not be fooled by the result. {team} still have plenty to fix, and {manager} will be expected to deliver more than a lucky escape next time in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "TABLOID",
+  "text": "Win or not, the questions are not going away. {team} must prove they can repeat this under the spotlight, and {manager} will be watched closely."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "TABLOID",
+  "text": "A good result, with work still to do. {team} can enjoy the win over {opponent}, then {manager} must turn attention to the next {competition} test."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "TABLOID",
+  "text": "{team} have banked a useful win against {opponent}. Now {manager} has to build on it and show the team can back it up when {competition} resumes."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "TABLOID",
+  "text": "Credit where it is due, but plenty remains to improve. {team} should savour this win, then get straight back to work."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "TABLOID",
+  "text": "The win over {opponent} is a step forward, not a finish line. What {manager} will want now is consistency from {team} before anyone starts getting excited."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "Superb stuff from {team}, and {manager} deserves every pat on the back. Keep the momentum rolling in {competition} and the fans will keep the party going!"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "What a boost for {team}! The squad are believing under {manager}, and the next {competition} outing is a chance to show it was no fluke."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "Take a bow, {team}. The win over {opponent} proves the group is on the right path, and {manager} should be proud of the response."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "Credit to {manager} for steering {team} in the right direction, because the fans are loving it. More of the same in {competition}, please."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "TABLOID",
+  "text": "A draw will not satisfy anyone, and {manager} knows it. {team} must find a cutting edge, because settling for a draw against {opponent} is not good enough."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "TABLOID",
+  "text": "{team} had a chance to win and let it slip, and that is a worry. Over to {manager} to explain why the team lacked punch in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "TABLOID",
+  "text": "Questions are mounting for {manager}. A draw with {opponent} offers little comfort, and {team} must show far more ambition next time."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "TABLOID",
+  "text": "Frankly, {team} should be demanding more of themselves. Shrugging off draws like this in {competition} is a luxury {manager} cannot afford."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "TABLOID",
+  "text": "A fair result against {opponent}, with positives and negatives for {team}. The job for {manager} is turning solid efforts into wins when {competition} returns."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "TABLOID",
+  "text": "The draw leaves {team} with something to build on and something to fix. Sharper finishing and fewer lapses next time are what {manager} will be asking for."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "TABLOID",
+  "text": "Not a disaster, not a triumph. {team} must now find the extra edge that turns draws like this into victories in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "TABLOID",
+  "text": "{team} take a draw from {opponent} and move on. A little more spark in the next {competition} fixture is all {manager} will ask of the squad."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "There is plenty to like about {team}, and {manager} will be encouraged. Keep believing, because wins are coming in {competition}!"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "A draw against {opponent} is a solid base to build from. The fans are on side with {manager}, and the team just needs one more spark."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "Stay positive, {team} fans! Something good is being built by {manager}, and next time out the breakthrough could come in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "{team} showed heart against {opponent}, and that is a great foundation. Give {manager} time, and the wins will follow."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "TABLOID",
+  "text": "Responsibility lies with {manager}. {team} were beaten by {opponent}, and excuses will not wash with fans demanding answers in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "TABLOID",
+  "text": "This is not good enough from {team}. Decisive action is needed from {manager}, or the pressure will only grow when {competition} returns."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "TABLOID",
+  "text": "Time for some honesty at {team}. The fans want {manager} to explain what went wrong against {opponent}, and fix it right now."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "TABLOID",
+  "text": "The buck stops with {manager}. {team} must show an immediate response in the next {competition} game, or the critics will pounce."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "TABLOID",
+  "text": "A setback for {team}, but not the end of the world. The lesson from {opponent} is there for {manager} to learn, and a reaction is due when {competition} resumes."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "TABLOID",
+  "text": "{team} have work to do after this loss. A calm review of the mistakes is the first job for {manager}, then getting the group back on track."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "TABLOID",
+  "text": "It stings, yet there were signs to build on. {team} need a response in {competition}, and {manager} has the chance to provide it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "TABLOID",
+  "text": "Defeat to {opponent} is a bump in the road. How {team} bounce back in the next {competition} fixture will tell us plenty about {manager}'s squad."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "Chin up, {team}! Patience has been earned by {manager}, and the fans should stay behind a squad that is learning. Brighter days are ahead in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "One defeat does not define {team}. Back {manager}, back the lads, and watch the response in the next {competition} game."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "Do not panic. In {manager} the club have the right man to lift {team} after losing to {opponent}, and the faithful should stand tall."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "TABLOID",
+  "text": "Time to stick together at {team}. Backing is what {manager} deserves after this knock, and the team can bounce back in {competition}."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "{buyer} step up chase for {seller} star {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "Talks heat up as {buyer} go all out for {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "{buyer} lock horns with {seller} over {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "Deal edging closer? {buyer} in serious talks for {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "{buyer} keeping tabs on {seller} ace {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "Whisper in the wind: {buyer} fancy {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "{buyer} cast admiring glance at {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "Early noises link {player} with {buyer}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "Sources say {buyer} are pushing hard for {player}, and talks with {seller} have moved well beyond a polite chat. A fee in the region of {fee} is said to be in the mix, though nothing is settled."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "Things are hotting up! {buyer} are believed to be in serious discussions with {seller} about {player}, with around {fee} mentioned. Plenty of work remains before anything is agreed."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "{buyer} mean business over {player}. Whispers suggest talks with {seller} are well under way and a figure close to {fee} is being batted about, but it is far from over."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "The chase is on. {buyer} have reportedly stepped up their interest in {player}, and {seller} are listening to offers around {fee}. Nobody is saying a deal is close to the line yet."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "TABLOID",
+  "text": "Insiders claim {buyer} and {seller} are now talking numbers for {player}, with {fee} the figure doing the rounds. It is a long way from a finished story, but the signs are lively."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "{buyer} have been spotted showing a flicker of interest in {player} of {seller}. It is very early days, with nothing close to settled, and a fee near {fee} is purely speculation."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "A little bird tells us {buyer} like what they see in {player}. Nothing is close, {seller} have heard nothing formal, and any price of around {fee} is guesswork."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "Just a whisper for now, but {player} has caught the eye at {buyer}. {seller} are in no hurry to do business, so do not hold your breath for {fee}."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "{buyer} are said to be casting an eye over {player}. It is the very first sniff of interest, with {seller} unbothered and a fee in the region of {fee} nothing more than chatter."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "TABLOID",
+  "text": "Keep this one in the back of your mind. {buyer} have reportedly noted {player} at {seller}, but there is no deal and no real progress, just a vague idea of {fee}."
+ }
+]

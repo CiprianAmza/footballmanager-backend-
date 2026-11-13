@@ -7,5 +7,8 @@ import java.util.List;
 
 public interface PressFragmentRepository extends JpaRepository<PressFragment, Long> {
 
-    List<PressFragment> findAllByCategoryAndBucket(String category, String bucket);
+    List<PressFragment> findAllByEventTypeAndCategoryAndBucket(String eventType, String category, String bucket);
+
+    /** Fragments loaded before articles had an event type: they all belong to the appointment article. */
+    List<PressFragment> findAllByEventTypeIsNull();
 }

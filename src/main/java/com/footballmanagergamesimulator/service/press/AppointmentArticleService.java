@@ -134,7 +134,8 @@ public class AppointmentArticleService {
             Analyst.Temperament tone = stance(analyst, manager.getId());
             if (unlicensed && tone.ordinal() > 0) tone = Analyst.Temperament.values()[tone.ordinal() - 1];
             String bucket = AppointmentArticle.analystBucket(tone, gap, affinity);
-            pick("ANALYST", bucket, today, rng, values)
+            fragments.next(PressFragmentService.APPOINTMENT, voiceOf(analyst), "ANALYST", bucket, today, rng)
+                    .map(text -> AppointmentArticle.fill(text, values))
                     .ifPresent(quote -> paragraphs.add(analyst.getName() + " (" + role(analyst) + "): “" + quote + "”"));
         }
         conflictParagraph(club, manager, rng).ifPresent(paragraphs::add);
@@ -167,13 +168,17 @@ public class AppointmentArticleService {
 
     /** His temperament, shifted by what he remembers of this manager (press conference answers, refusals). */
     Analyst.Temperament stance(Analyst analyst, long managerId) {
-        if (relationService == null) return analyst.getTemperament();
+        if (relationService == null) return analyst.tone();
         int relation = relationService.relation(RelationParty.ANALYST, analyst.getId(), RelationParty.MANAGER, managerId);
-        return AnalystStance.effective(analyst.getTemperament(), relation);
+        return AnalystStance.towards(analyst, relation);
     }
 
     private Optional<String> pick(String category, String bucket, int today, Random rng, Map<String, String> values) {
         return fragments.next(category, bucket, today, rng).map(text -> AppointmentArticle.fill(text, values));
+    }
+
+    private static String voiceOf(Analyst analyst) {
+        return analyst.getVoice() == null ? null : analyst.getVoice().name();
     }
 
     private static String role(Analyst analyst) {

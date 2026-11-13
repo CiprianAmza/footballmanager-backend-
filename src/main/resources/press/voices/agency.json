@@ -1,0 +1,968 @@
+[
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{team} beat {opponent} {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{opponent} beaten {score} by {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{team} win {score} by a wide margin"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{team} record {score} victory over {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{score} result gives {team} a heavy win against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{opponent} lose {score} to {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{team} defeat {opponent} {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{opponent} lose to {team} by {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "Win for {team} over {opponent}, {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{score} victory recorded by {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{team} take victory over {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{team} win {score} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "{team} and {opponent} share {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "{score} draw between {team} and {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "{opponent} held by {team} in {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "Scoring on both sides as {team} draw {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "{team} draw {score} with {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "Draw settled at {score} between {team} and {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "{team} and {opponent} draw {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "{score} draw separates {team} and {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "Level at {score} for {opponent} and {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "Neither side wins as {team} draw with {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "{team} draw with {opponent} at {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "Match between {team} and {opponent} ends level"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{team} lose {score} to {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} beat {team} {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{score} defeat for {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{team} beaten by {opponent}, {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "Defeat for {team} as {opponent} win {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} take victory over {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{team} heavily beaten {score} by {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} win {score} against {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "Heavy {score} defeat for {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{team} well beaten by {opponent}, {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} record {score} victory over {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "Wide margin of defeat for {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{team} defeated {opponent} {score} in the {competition} match. The margin was the main basis of assessment, with {manager}'s selection and approach judged to have been effective. The result is likely to be seen as a strong one."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "Analysis of the {score} win over {opponent} has centred on the scale of the result. {team} created and used their chances more efficiently than the opposition. The outcome is expected to raise expectations around {manager}'s side."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{team} won {score} against {opponent} in {competition}. Few observers are expected to dispute the outcome, given the size of the margin. The performance is being described as one of the more complete efforts under {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "A {score} victory over {opponent} gives {team} a result that is likely to draw wide attention. Assessment of the {competition} match has focused on the gap between the sides. {opponent} are expected to review their approach."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "The scale of {team}'s win, {score} against {opponent}, is the main feature of the {competition} match. Reaction to the performance has been largely positive. Questions about the margin are expected to be put to {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{team} secured a {score} result against {opponent}. The size of the win is regarded as significant, although views on the strength of the opposition vary. The result reflects well on {manager}'s preparation."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{opponent} were beaten {score} by {team} in {competition}. Early assessments describe the result as decisive and the performance as well organised. The scoreline is likely to be cited in future discussion of {manager}'s squad."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "AGENCY",
+  "text": "{team} recorded a {score} win, a margin that is uncommon in {competition}. Commentary has concentrated on the efficiency of the performance rather than its style. {opponent} are expected to face questions over their defensive organisation."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{team} beat {opponent} {score} in {competition}. The result is being assessed as a solid one, with the margin considered sufficient rather than emphatic. The approach of {manager} is likely to be viewed as having worked."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "A {score} win over {opponent} gives {team} a result to build on in {competition}. Analysis has noted the limited nature of the advantage. The performance is being judged as adequate to secure the outcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{team} won {score} against {opponent}. Reports describe a contest in which the margin was small and the outcome was not settled easily. Questions about the gap between the sides are expected to be put to {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "The {score} result against {opponent} is regarded as a satisfactory one for {team}. Assessment of the {competition} match has focused on organisation and efficiency. Opinion is divided on how convincing the performance was."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{opponent} lost {score} to {team} in {competition}. The result stands as a victory for {manager}'s side, though early reaction is measured. Some assessments point to areas that could still be improved."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "{team} came through the {competition} match against {opponent} with a {score} win. The margin leaves little room for dispute over the outcome. The performance is likely to be reviewed for consistency."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "Reaction to {team}'s {score} win over {opponent} has been mixed in tone but accepting of the result. The victory is recorded as deserved by most early accounts. A comment on the performance is expected from {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "AGENCY",
+  "text": "A narrow margin separated {team} and {opponent}, with {team} winning {score}. The {competition} fixture is being assessed as a closely contested one. The result is likely to be seen as a reward for efficiency."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "{team} and {opponent} drew {score} in {competition}. The match produced several goals and exposed weaknesses in both defences. A review of the defensive organisation is expected from {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "A {score} draw with {opponent} is being described as an open and uncertain contest. Neither side established control for any sustained period. The result is likely to prompt questions about {team}'s defensive structure."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "{team}'s {score} draw against {opponent} produced a high number of goals. Analysis has noted that both sides were vulnerable at the back. The outcome is regarded as a fair reflection of the contest."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "The {competition} match between {team} and {opponent} ended {score}. Assessments describe an entertaining fixture with limited defensive discipline. {team} have an attacking performance to weigh against defensive concerns."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "Honours were shared at {score} by {opponent} and {team}, a result that gave neither side a clear advantage. Reports point to defensive errors on both sides. The draw is being seen as an even but untidy outcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "Scoring was frequent as {team} drew {score} with {opponent}. The match is being assessed as one in which attacking play outweighed defensive organisation. The number of chances allowed is likely to be put to {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "With a {score} draw, {team} and {opponent} are left with differing views of the same match. The contest was open, and each side is said to have had opportunities. Defensive assessments of both teams are likely to be critical."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "AGENCY",
+  "text": "{team} drew {score} with {opponent} in {competition}. The scoreline reflects an exchange of chances rather than a controlled performance. The result is expected to be discussed mainly in terms of defensive reliability."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "{team} and {opponent} drew {score} in {competition}. The match is being assessed as a tightly contested one in which neither side gained a clear advantage. The result is regarded as a fair reflection of the contest."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "A {score} draw with {opponent} leaves {team} with a result that divides opinion. Some assessments emphasise defensive discipline, others a lack of cutting edge. The approach of {manager} is likely to be reviewed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "The {competition} match between {team} and {opponent} ended {score}. Analysis describes a cautious contest with few clear opportunities. The outcome is regarded as a fair one."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "{opponent} were held to a {score} draw by {team}. Reports describe a contest decided by organisation rather than invention. The result is likely to be viewed as neutral for both sides."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "{team} drew {score} with {opponent}, a result that settled nothing between the sides. Early assessments point to a measured performance. Attention is expected to turn to what {manager} might change."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "Neither {team} nor {opponent} found a way to win the {competition} match, which ended {score}. The performance is described as steady rather than decisive. A draw is seen as a reasonable outcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "The {score} draw is being treated as an even result. {team} and {opponent} were closely matched, according to early reports. The selection and tactical approach chosen by {manager} are likely to be assessed on that basis."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "AGENCY",
+  "text": "Control of the match, rather than chances, is the focus of analysis after the {score} draw between {team} and {opponent}. The contest is described as balanced. The performance is considered adequate but unremarkable."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{team} lost {score} to {opponent} in {competition}. The result is being assessed as a setback, with the margin regarded as limited enough to leave the outcome open to debate. The approach of {manager} is likely to be reviewed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "A {score} defeat by {opponent} leaves {team} with questions to answer. Analysis has noted that the gap between the sides was small. The performance is described as short of the standard required."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} beat {team} {score} in the {competition} match. Early reaction describes a contest that was close but ultimately decided by the efficiency of {opponent}. The result is regarded as avoidable by some observers."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "The {score} loss to {opponent} is being examined for tactical causes. Early assessments point to selection and structure as the main areas of concern. Questions on both are expected to be put to {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{team}'s {score} defeat against {opponent} is recorded as a loss by a limited margin. Reports describe the performance as competitive but insufficient. The outcome is likely to prompt a review of the side's decision-making."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} won {score} against {team}. The result is described as disappointing for {team}, although the margin leaves room for recovery. Assessment of the performance is mixed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "Reaction to {team}'s {score} defeat has been measured. The loss to {opponent} is regarded as a missed opportunity in {competition}. How the side responds is likely to be the basis on which {manager} is judged."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "AGENCY",
+  "text": "{team} were beaten {score} by {opponent}, with analysis focusing on the small gap between the sides. The performance contained positive elements, according to some accounts, but not enough to alter the outcome. The result is recorded as a defeat in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{team} lost {score} to {opponent} in {competition}. The scale of the defeat is the central feature of the match and is likely to be seen as a serious setback. The performance is being assessed as well below the required standard."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "A {score} defeat by {opponent} has prompted a critical assessment of {team}. Analysis points to widespread shortcomings in organisation and application. Pressure on {manager} is expected to increase."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} beat {team} {score} in the {competition} match. The margin is regarded as heavy by any measure, and early reaction is negative. The result is likely to be reviewed in detail within the squad."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "The {score} result against {opponent} is a heavy one for {team}. Reports describe a contest in which the gap between the sides was wide. The selection and structure chosen by {manager} are likely to be examined closely."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{team} were beaten {score} by {opponent}, a margin that leaves little room for mitigation. Assessment of the performance has been largely critical in tone, according to early reports. Questions are expected to be put to {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "Early reaction to {team}'s {score} defeat against {opponent} has been strongly negative. The size of the loss in {competition} is seen as a significant concern. A thorough review of the performance is expected."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "{opponent} won by {score}, a result that exposed the extent of the difference between the sides. The performance of {team} is described as unable to meet the demands of the fixture. The outcome is likely to carry consequences for selection."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "AGENCY",
+  "text": "The heavy {score} loss to {opponent} is the main subject of reaction to {team}'s {competition} fixture. Analysts have noted problems in several areas of the side's play. The outcome is likely to be discussed as a test of the authority of {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "AGENCY",
+  "text": "The result does not remove the need for improvement, and {manager} is expected to be asked to explain what must change before the next {competition} fixture."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "AGENCY",
+  "text": "{team} are required to show that the win over {opponent} was not an isolated performance. Expectations of consistency remain unchanged."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "AGENCY",
+  "text": "Scrutiny of {manager}'s selection and tactics is expected to continue regardless of the outcome. The next fixture will test whether {team} can repeat the standard."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "AGENCY",
+  "text": "A win places responsibility on {team} to demonstrate that weaknesses have been addressed. Observers will look for evidence of this in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "AGENCY",
+  "text": "{team} now turn to their next fixture, with {manager} expected to weigh squad selection and recovery. The win over {opponent} provides a basis but not a guarantee."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "AGENCY",
+  "text": "The next {competition} assignment will show how much of the performance against {opponent} can be repeated. Assessment will rest on consistency."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "AGENCY",
+  "text": "Attention moves to preparation for the next match. It offers {manager} an opportunity to build on the result while addressing areas that remain uneven."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "AGENCY",
+  "text": "It is expected that {team} will retain much of the same approach, while details are reviewed by {manager}. The win over {opponent} will be assessed against what follows."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "The win over {opponent} strengthens the case for {manager}'s methods, and {team} are expected to carry that confidence into the next {competition} fixture."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "{team} have a result to build on and a clear direction under {manager}. The next fixture offers a chance to extend the progress shown against {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "Progress under {manager} is considered to be continuing. The next match will give {team} an opportunity to confirm that assessment."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "A positive result gives {team} encouragement ahead of the next {competition} fixture. Support for {manager}'s approach is likely to grow if the standard is maintained."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "AGENCY",
+  "text": "A draw with {opponent} is unlikely to satisfy those expecting more of {team}. It is expected that {manager} will be asked why the side did not find a way to win."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "AGENCY",
+  "text": "Demands for improvement will continue after this result. {team} must show in the next fixture that a draw is not the ceiling of what they can achieve."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "AGENCY",
+  "text": "Expectations of a decisive result will be placed on {manager} next time. A repeat of the draw with {opponent} would be viewed unfavourably."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "AGENCY",
+  "text": "The draw leaves unanswered questions about {team}'s ability to win matches of this kind. The next {competition} fixture is regarded as an opportunity to provide answers."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "AGENCY",
+  "text": "{team} will look to the next fixture with the result against {opponent} regarded as neutral. It is expected that {manager} will assess whether changes to selection are required."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "AGENCY",
+  "text": "The draw offers {team} neither cause for concern nor grounds for celebration. The next {competition} match will provide a clearer indication of direction."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "AGENCY",
+  "text": "Preparation for the next fixture begins with a result that can be read in more than one way. {team} are expected to review what the match against {opponent} showed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "AGENCY",
+  "text": "A draw keeps matters open for {team}. Much will depend on the response in the next match, which will be closely watched under {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "The draw with {opponent} is a result {team} can build upon, and {manager} is expected to take encouragement from the organisation shown."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "There is a case that the draw reflects a side still developing under {manager}. The next {competition} fixture offers a chance to turn promise into a win."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "{team} have shown resilience in avoiding defeat, and the plans of {manager} are expected to remain unchanged for the next match."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "Patience is advised in assessing the draw. Given time, the approach of {manager} may yield more decisive results for {team} in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "AGENCY",
+  "text": "The defeat places {manager} under pressure to explain what went wrong. {team} must demonstrate in the next fixture that lessons have been learned."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "AGENCY",
+  "text": "Accountability for the result lies with those responsible for selection and tactics. {team} are expected to show a marked response in the next {competition} match."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "AGENCY",
+  "text": "A repeat of the defeat by {opponent} would raise serious questions about the direction of {team}. Explanations from {manager} are expected to be demanded."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "AGENCY",
+  "text": "Explanations will be required after the loss. {team} are expected to show clear improvement, and the next fixture is likely to be treated as a test of {manager}'s judgement."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "AGENCY",
+  "text": "{team} must now respond in the next fixture. The defeat by {opponent} gives {manager} specific areas to address, and the response will be assessed accordingly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "AGENCY",
+  "text": "The loss is recorded, and attention turns to the next {competition} match. Whether {team} can respond will be the main question."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "AGENCY",
+  "text": "A review of the match against {opponent} is expected within the squad. The next fixture will show how {team} have absorbed the result."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "AGENCY",
+  "text": "Neither the result nor the reaction to it should be overstated. {team} have the next match to show what, if anything, needs to change under {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "One defeat does not alter the assessment of {manager}'s work, and {team} are expected to be given time. The next {competition} fixture offers a chance to respond."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "Patience is considered appropriate after the defeat by {opponent}. {team} retain support, and the plans of {manager} are expected to be judged over a longer period."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "There is a case for continuity at {team}. Backing for {manager} remains among those who view the loss as an isolated setback rather than a pattern."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "AGENCY",
+  "text": "The defeat is not expected to change the direction taken under {manager}. {team} will look to the next match as an opportunity to recover."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "{buyer} understood to be in talks over {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "{player} talks with {buyer} reported to be advancing"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "{buyer} step up interest in {seller}'s {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "Discussions between {buyer} and {seller} over {player} reported"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "{buyer} reported to be interested in {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "First interest from {buyer} in {player}, according to reports"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "{player} attracts early interest from {buyer}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "{buyer} make early enquiry about {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "{buyer} are understood to have held talks regarding {player}, with discussions said to have moved beyond an initial approach. A fee in the region of {fee} is mentioned in reports. {seller} have not confirmed any agreement."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "According to reports, negotiations between {buyer} and {seller} over {player} are at an advanced stage of discussion. The figure under consideration is around {fee}. No deal has been announced by either club."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "It is understood that {buyer} have made a formal approach for {player}, and that {seller} have engaged in talks. A fee of about {fee} has been mentioned. Neither club has commented publicly."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "Talks over {player} are believed to have progressed, with {buyer} said to be prepared to pay up to {fee}. {seller} are reported to be considering the position. The matter remains unresolved."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "AGENCY",
+  "text": "Reports indicate that {buyer} are pursuing {player} seriously and that contact with {seller} has intensified. A fee in the region of {fee} is thought to be under discussion. A conclusion has not been reached."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "{buyer} are reported to have shown initial interest in {player}. It is understood that the matter has not advanced with {seller}. Any fee, which might be around {fee}, remains to be settled."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "According to early reports, {player} has been noted by {buyer}. The interest is described as preliminary, and talks with {seller} are not thought to have taken place. A valuation of around {fee} is speculative."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "Interest in {player} from {buyer} is said to be at an early stage. {seller} are not believed to be close to a decision. Any move would depend on a fee, with figures near {fee} mentioned only as a guide."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "It is reported that {buyer} have asked about {player} in general terms. Nothing is thought to be close, and {seller} are understood to have taken no position. A figure in the region of {fee} has been suggested without confirmation."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "AGENCY",
+  "text": "Reports suggest {buyer} are monitoring {player} ahead of any decision. No response from {seller} has been confirmed. Any transfer fee would be a matter for negotiation, with {fee} cited as a possible level."
+ }
+]

@@ -1,0 +1,968 @@
+[
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "{team} dismantle {opponent} with structural superiority"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "Spacing and tempo allow {team} to overwhelm {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "{score} reflects a clear gap in organisation"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "How {team} stretched {opponent} until the shape broke"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "Pressing triggers turn {score} into a controlled rout"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} unable to solve {team}'s transitions"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "{team} win by controlling the spaces between the lines"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "Compact shape underpins {team} victory over {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "{score} win built on better chance quality"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "Why {team} edged the structural contest with {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "Disciplined rest defence carries {team} past {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} outmanoeuvred in the key zones by {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "{score} draw exposes open structures on both sides"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Stretched midfields shape a {score} draw between {team} and {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "{team} and {opponent} trade space for chance quality"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Loose rest defence leaves {team} and {opponent} level"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Why neither {team} nor {opponent} could close the gaps"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Transitions dominate a {score} draw for {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "{team} and {opponent} cancel each other out structurally"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Mirrored shapes produce a {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Compactness on both sides limits {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "{score} draw reflects a tightly balanced contest"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Why {team} could not break {opponent}'s shape"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Little separates {team} and {opponent} in structure"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} find the better answers to {team}'s structure"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{team} undone by gaps between the lines"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "Build-up problems cost {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{score} defeat traced to poor spacing and transitions"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "Why {team}'s pressing could not hold against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "Rest defence lets {opponent} control the contest"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} exploit every structural weakness in {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{score} defeat exposes a collapse in {team}'s shape"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "Spacing breaks down as {team} lose to {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{team} cannot contain {opponent}'s transitions"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "Pressing disconnected, {team} beaten {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "Why {team}'s compactness disappeared against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "{team} were structurally superior to {opponent} in {competition}. Their pressing was coordinated, the distances between the lines stayed short, and each recovery of the ball led quickly into space. A {score} win is the logical product of that organisation."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "The {score} scoreline owes more to design than to chance. {team} created passing angles that {opponent} could not close, and their rest defence was sound whenever possession was lost. It was a methodical performance in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} were stretched until their shape no longer held. {team} used width to pull the back line apart and then attacked the gaps that appeared, which explains why {score} is a fair reflection of the contest."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "What stood out was tempo control. {team} varied the speed of their build-up, forced {opponent} into poor pressing decisions and punished each of them. Under {manager}, the structure looked well drilled and the {score} result was earned."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "{team} won {score} because their spacing was consistently better. Short passing options were always available in build-up, and the midfield line stayed compact enough to win the ball back high. {opponent} had no structural answer."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "A clear pattern defined this {competition} fixture: {team} won the ball in advanced areas and attacked before {opponent} could reorganise. Chance quality was high because the preparation was sound. The {score} margin is easy to explain."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} tried to compress the centre, but {team} switched play quickly and exploited the width that was left. That repeated pressure created better chances than the opposition could produce. {score} is an accurate measure of the gap in organisation."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "ANALYTICAL",
+  "text": "It was a lesson in cause and effect. {team} pressed in coordinated units, which forced hurried clearances from {opponent}, and the resulting second balls were collected with ease. The control became a {score} victory for {manager}'s side."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "{team} edged a structurally tight contest with {opponent}. Their compact midfield denied space between the lines, and they chose their moments to attack with clear purpose. The {score} result rests on discipline rather than dominance."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "The difference was chance quality. {team} waited for the right openings in {competition}, while {opponent} settled for lower-value attempts. That patience, rather than volume, is what produced the {score} win."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "{team} won {score} by keeping their rest defence organised whenever they committed players forward. This allowed them to attack with numbers without becoming exposed in transition, a balance that {manager} appears to have judged well."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} had spells of control, yet {team} managed the spaces more sensibly. Their pressing was selective, their lines stayed close, and their build-up found the free player often enough. A {score} win followed from those habits."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "Structure decided this {competition} tie. {team} narrowed the pitch when out of possession and widened it when they had the ball, an alternation that {opponent} never fully resolved. The {score} margin is deserved."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "There was nothing frantic about the way {team} won {score}. They circulated the ball to draw {opponent} out of shape, then attacked the gaps. It was efficient rather than spectacular, and the underlying structure held up well."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "Transitions favoured {team}. Each time {opponent} lost possession they were slow to compress, and {team} moved the ball forward before the shape could recover. That explains a {score} win that never relied on chaos."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "ANALYTICAL",
+  "text": "A measured display from {team}, built on short distances between units. {opponent} found it hard to play through the middle, and the {score} win owes much to that restriction of space and to the clear patterns of {manager}'s build-up."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "A {score} draw tells of two teams that stretched themselves. {team} and {opponent} both left large gaps between defence and midfield, and neither could repair them. The chances that followed were a predictable consequence of that openness."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Neither pressing structure held for long. {team} pressed high but lost compactness whenever the first line was bypassed, and {opponent} suffered the same problem. The {score} result in {competition} reflects defences that were repeatedly out of shape."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Rest defence was the common weakness. {team} committed too many players beyond the ball, and {opponent} did likewise, so every turnover became a transition with space to run into. A {score} draw is the arithmetic outcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "The contest was decided by tempo rather than control. Both sides accepted a stretched, end-to-end pattern, and {team} will see the {score} draw as a result of choices about risk that {manager} may wish to revisit."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} and {team} shared a structural flaw: wide areas were left unprotected once the ball turned over. That produced a high volume of quality chances and a {score} draw, but it also exposes how little control either side had."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "There was plenty of attacking quality but little defensive coordination. {team} created openings through quick combinations, yet the distances between their lines were too great when {opponent} countered. The {score} draw is fair."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Open midfields produced an open game. With neither {team} nor {opponent} willing to sit deep, the {competition} fixture became a sequence of transitions, and the {score} draw follows naturally from structures built to attack."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "ANALYTICAL",
+  "text": "This {score} draw leaves {team} with a clear task. Their attacking patterns functioned, but the spacing behind the ball did not, and {opponent} used that gap often enough to keep the contest level. Those are fixable structural details."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "{team} and {opponent} produced a draw built on caution and compact shape. Neither side allowed much space between the lines, so the contest in {competition} turned on small margins in positioning rather than on open play."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "A {score} draw is the expected product of two well-organised blocks. {team} controlled the central zones reasonably well, but {opponent} responded by narrowing the pitch, and the final pass was rarely available."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "The structure of this match explains the result. {opponent} matched {team}'s pressing with their own, which squeezed the time on the ball and kept the chance quality modest. A {score} draw followed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Little separated the two sides in organisation. {team} had phases of sound build-up, yet {opponent}'s compactness limited the openings that came from them. Under {manager}, the shape was secure, but the final third lacked variety."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "{team} will take some positives from the defensive balance in this {competition} fixture, since the distances between units were sensible. The {score} draw does, however, point to a shortage of imaginative movement behind the opposing midfield."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Tempo stayed low and spacing stayed tight. Both teams preferred to protect their structure over taking risks, and the {score} draw is an honest reflection of that approach. It was decided by what neither side was willing to give up."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "Rest defence and pressing triggers cancelled each other out. {team} could not progress the ball through {opponent}'s middle block with any consistency, and the opposition found equal difficulty. A {score} draw suits a match so evenly managed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "ANALYTICAL",
+  "text": "The {score} draw reflects a match of narrow margins. {team} found width but little penetration, while {opponent} defended their central lane with discipline. A single better decision in the final third could have changed the outcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} were better organised, and that explains the {score} defeat. {team} left too much space between midfield and defence, which allowed {opponent} to receive the ball facing forward and build their moves from comfortable positions."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "The problem for {team} was structural rather than individual. Their pressing was not coordinated, so {opponent} bypassed the first line with ease and found space behind it. A {score} defeat in {competition} was the logical outcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{team} lost {score} because the transitions were poorly managed. Possession was surrendered in positions where the rest defence was not set, and {opponent} used the openings sensibly. The spacing in those moments will need review by {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "There were sound ideas in {team}'s build-up, yet they were not supported by compact positioning when the ball was lost. {opponent} exploited that gap repeatedly, and the {score} margin reflects the cumulative effect."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "A {score} defeat hides a clear pattern. {opponent} found the free player between the lines more often than {team} could prevent, and that edge in chance quality, rather than any dramatic event, settled the contest."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{team} were too open at the wrong moments. Committing numbers forward left them exposed on the turnover, and {opponent} had the time and space to choose their passes. The {score} defeat follows from that imbalance."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} dictated the tempo, and {team} spent too long reacting to it. Their lines were stretched, the pressing was late, and the distances between units were often too large. {score} is a fair reflection of that imbalance."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "ANALYTICAL",
+  "text": "In {competition}, {team} met a side that read their patterns well. {opponent} blocked the central routes, forced play wide and attacked the space that was left behind. Without a structural adjustment, a {score} defeat was always possible."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{team}'s shape fell apart against {opponent}. The distances between defence, midfield and attack were far too large, and every transition gave {opponent} room to operate. A {score} defeat is the predictable result of such disorganisation."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "This was a structural collapse more than a tactical misjudgement. {team} pressed without cohesion, left their rest defence undermanned, and {opponent} punished each lapse. The {score} margin in {competition} is a verdict on organisation."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} exposed the gaps between {team}'s lines with simple, repeated patterns. The pressing was bypassed, the midfield was out of reach of the back line, and the {score} defeat shows what happens when compactness is lost."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "There is little to defend in the way {team} managed the spaces. {opponent} moved the ball into the free zones with ease, and the lack of a recognisable defensive structure made a {score} defeat difficult to avoid."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "The {score} scoreline reflects a mismatch in organisation. {team} attempted to press high without the compactness to support it, which left open channels that {opponent} used with discipline. That leaves {manager} facing a clear structural problem."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "{opponent} controlled the transitions and {team} had no reliable response. Their build-up was easy to anticipate, their rest defence was thin, and the {score} defeat in {competition} was the cumulative result."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "A {score} defeat of this size is rarely the product of a single error. {team} lacked cohesion in each phase, from build-up to pressing to recovery, and {opponent} took advantage of all three. The structural review will be extensive."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "ANALYTICAL",
+  "text": "Spacing was the central failure. {team} could neither compress the pitch nor protect the zone in front of their back line, so {opponent} played through them repeatedly. The {score} margin reflects how thoroughly the shape was undone."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "A win should not hide the structural flaws that remain. It is for {manager} to show that the spacing between the lines can be maintained against a side that presses better than {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "The result is welcome, yet {team}'s rest defence will not always be spared by less careful opposition. That is something {manager} needs to address before the next {competition} fixture."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "Victory raises the standard rather than lowering it. {team} must demonstrate in the next match that the pressing structure is a settled habit and not a one-off."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "Questions about transitions have not gone away. Until {manager} produces a consistently compact shape, a win over {opponent} will be treated as a result that flatters the underlying work."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "The next task for {team} is to repeat this level of organisation against a different problem. There is more to learn, for {manager}, from how the structure copes with a changed approach from the opposition."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "Positives are clear in the spacing and the pressing, while the build-up still has scope to improve. The next {competition} fixture will show how much of this is repeatable."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "{team} can build on a sound structure, though the margins for improvement in transitions remain. What {manager} chooses to refine in training will matter more than the win over {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "Consistency is the next measure. If {team} sustain this shape and tempo, the result will look like a platform; if not, it will look like an isolated display."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "Credit goes to {manager} for a structure that worked as designed. If {team} keep refining the spacing and pressing patterns, further improvement should follow in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "This was a well-prepared performance, and {team} now have a solid base to develop. Another step in build-up and chance quality would make the structure harder still to read."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "The evidence points to a coherent plan under {manager}. {team} can approach the next match in {competition} with confidence that their shape is understood and trusted."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "{team} have found a structure that suits them, and {manager} is right to build on it. Small adjustments in tempo should extend what the win over {opponent} has shown."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "A draw with so little structural invention is not enough. The answer must come from {manager}, who has to find a way to create better chances against compact opposition, or the same pattern will repeat."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "{team} cannot keep relying on a secure shape alone. Unless {manager} improves the final-third patterns, tight matches in {competition} will keep ending level."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "The structure held, but it did not win anything. Questions will be put to {manager} over why {team} did not take more calculated risks in build-up against {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "Accountability sits with the manager for the lack of variation. {team} need a plan to break down organised blocks, and the next match is the time to show one."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "Both the defensive balance and the lack of penetration deserve attention. The aim for {manager} should be to keep the former and improve the latter before the next {competition} match."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "{team} have a stable platform, and the question is how to add variety in the final third. The coming fixtures will show whether adjustments to the build-up are working."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "The draw with {opponent} offers as many lessons as reassurance. If {team} can keep the compactness and add sharper movement, the balance will tilt in their favour."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "Next steps are modest and specific: faster circulation, more width at the right moments, and the same discipline in rest defence. The squad available to {manager} is capable of attempting each of them."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "A team that is difficult to open up, as {manager} has built, is a sound foundation. A little more tempo in {team}'s build-up should convert stability into wins."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "There was enough in the structure to be encouraged by. {team} need patience as the attacking patterns develop, and {manager} deserves the time to refine them."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "A draw like this is a reasonable base for growth. With small improvements in chance creation, {team} should be well placed for the next {competition} fixture."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "The organisation was sound, and {manager} can take heart from that. {team} should keep faith with the process, because the attacking side will follow once the spacing is trusted."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "A defeat like this demands answers about the structure. Some explanation is owed by {manager} on why {team}'s pressing and rest defence did not work, along with a visible fix in the next match."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "Responsibility lies with the manager for the disorganisation. If {team} are to compete in {competition}, the spacing between units must be corrected quickly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "The performance exposed repeated structural problems, and {manager} cannot treat it as a one-off. A clear change in shape is expected against the next opponent."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "ANALYTICAL",
+  "text": "Excuses will be hard to find after losing to {opponent}. {team} need a coherent plan for transitions, and {manager} will be judged on whether it appears."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "The defeat has identifiable causes in spacing and transitions, which makes it fixable. The next training week should be used by {manager} to address them before {team} play again in {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "{team} have both problems and positives to review. Tightening the distances between units would be the sensible first step, and the next match will show whether it has worked."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "A single result does not define a structure, but the pattern matters. It falls to {manager} to look at how {opponent} found space and decide what to change in {team}'s approach."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "ANALYTICAL",
+  "text": "The next fixture is a chance to test corrections to the pressing and rest defence. If the adjustments are sound, the defeat will carry useful lessons rather than lasting damage."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "{team} should be given time to correct these details. A clear idea of the structure exists under {manager}, and patience will allow it to bed in during {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "One defeat does not undo careful work. Backing is deserved by {manager} as {team} refine their spacing, and the next match is a fair opportunity to show progress."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "Patience is warranted here. The structural ideas behind {team}'s approach are sound, and with small corrections in transitions {manager} can restore the balance quickly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "ANALYTICAL",
+  "text": "The benefit of the doubt has been earned by {manager}, and {team} should be allowed to learn from {opponent}. The corrections needed are matters of detail, not of direction."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "{buyer} step up interest in {player} from {seller}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "Talks over {player} are said to be advancing at {buyer}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "{player} could fit {buyer}'s structure as talks progress"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "{buyer} and {seller} believed to be discussing {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "{buyer} are monitoring {player} of {seller}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "Early interest from {buyer} in {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "{player} on the radar at {buyer}, nothing advanced"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "Could {player} suit {buyer}? First interest noted"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "{buyer} are believed to have moved beyond a simple enquiry for {player}, with a figure around {fee} said to be under discussion with {seller}. On structural grounds the move makes sense, since {player} would add options to how {buyer} build play. Nothing is settled."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "Talks between {buyer} and {seller} over {player} appear to be progressing, with a valuation in the region of {fee} mentioned. The logic is one of squad fit, as {player} would address a gap in the way {buyer} create and use space. A deal is far from certain."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "{seller} may find it hard to resist a serious approach from {buyer} for {player}, particularly at around {fee}. The valuation looks reasonable for what the player could add to {buyer}'s structure, though the matter remains open."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "The interest from {buyer} in {player} is understood to be serious, with {fee} the approximate level under consideration. Whether {seller} will accept depends on how they value the player against the structural gap a sale would leave."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "ANALYTICAL",
+  "text": "Discussions are said to have advanced between {buyer} and {seller}, who hold {player}. A fee near {fee} would be a fair reflection of the improvement in balance that {player} could bring to {buyer}, but several steps remain before any outcome."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "{buyer} are thought to have registered first interest in {player}, though nothing suggests talks with {seller} have begun. Any fee would probably start near {fee}, and the question is whether the player fits {buyer}'s way of building play."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "It is early days for {buyer} and {player}. A preliminary look at the profile suggests some compatibility with {buyer}'s structure, but there is no indication that {seller} would entertain an offer, and a figure such as {fee} is only speculation."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "Scouting interest from {buyer} in {player} is the most that can be said at present. A valuation of around {fee} would be debated, and any move would depend on whether the fit with {buyer}'s system justifies the outlay."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "{player} has been noted by {buyer}, but this is initial attention rather than a negotiation. {seller} would expect a figure close to {fee} before talks begin, and {buyer} would have to decide whether the player improves their balance."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "ANALYTICAL",
+  "text": "For now the link between {player} and {buyer} rests on admiration from a distance. The case for it is structural, as the player could improve {buyer}'s options, but nothing suggests {seller} are close to selling, and a fee near {fee} remains hypothetical."
+ }
+]

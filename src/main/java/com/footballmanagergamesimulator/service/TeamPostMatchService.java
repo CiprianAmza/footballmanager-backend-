@@ -634,8 +634,9 @@ public class TeamPostMatchService {
         inbox.setCreatedAt(System.currentTimeMillis());
 
         managerInboxRepository.save(inbox);
-        mediaNarrativeService.publishPostMatchReaction(teamId, teamName, opponentTeamId, opponentName,
-                teamScore, opponentScore, competitionName, seasonNumber, roundNumber);
+        mediaNarrativeService.publishPostMatchReaction(new com.footballmanagergamesimulator.service.press.MatchReactionArticle.Facts(
+                teamId, teamName, opponentTeamId, opponentName, teamScore, opponentScore, competitionId,
+                competitionName, seasonNumber, roundNumber, homeTeamId, awayTeamId));
         formerPlayerStatementService.publishPostMatchStatement(teamId, teamName, opponentTeamId, opponentName,
                 teamScore, opponentScore, competitionName, seasonNumber, roundNumber);
         formerManagerStatementService.publishPostMatchStatement(teamId, teamName, opponentTeamId, opponentName,

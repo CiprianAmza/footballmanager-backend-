@@ -5,8 +5,8 @@ import lombok.Data;
 
 /**
  * One reusable piece of press text (design DESIGN_START_CARIERA §6.1, decided 2026-11-12): pre-written by agents,
- * shipped in {@code press/appointment-fragments.json}, loaded into this table and rotated (least used first) so
- * articles do not repeat. Placeholders such as {@code {club}} are filled when an article is written.
+ * shipped in the {@code press/} resources, loaded into this table and rotated (least used first) so articles do
+ * not repeat. Placeholders such as {@code {club}} are filled when an article is written.
  */
 @Entity
 @Data
@@ -17,7 +17,11 @@ public class PressFragment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
 
-    /** WHO, DECISION, CONTEXT, ANALYST, TENURE, HEADLINE. */
+    /** The kind of article it belongs to: APPOINTMENT, POST_MATCH, TRANSFER_RUMOUR. */
+    private String eventType;
+    /** The journalist voice it is written in (an {@link Analyst.Voice} name); null = fits any voice. */
+    private String voice;
+    /** The section of the article, e.g. HEADLINE, WHO, ANALYST, VERDICT, TALKING_POINT, BODY. */
     private String category;
     /** The situation it fits, e.g. INTERNATIONAL, SURPRISE, CRITIC_BELOW_RIVAL. */
     private String bucket;

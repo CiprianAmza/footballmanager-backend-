@@ -1,0 +1,968 @@
+[
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} rout {opponent} and leave nobody in doubt"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "A proper hiding for {opponent} as {team} run riot, {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "{score} and not a soul could argue with it"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Honest graft earns {team} a handsome win over {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "{opponent} sent packing as {team} show what hard work buys"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Take a bow, {team}, for a {score} lesson to {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} do it the old way and edge {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Grit and good sense carry {team} past {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "A {score} win that {team} earned with sweat"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "{opponent} beaten as {team} stand up to be counted"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Plain honest football brings {team} a worthy victory"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Sound, sensible and successful as {team} see off {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} and {opponent} give us a wild one, {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "A {score} draw: grand to watch, grim for the back lines"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Backs to the wall? Not here, as {team} and {opponent} trade blows"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "An old-fashioned shootout between {team} and {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Entertainment aplenty, defending optional, in {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Draw of {score} that would have thrilled the old terraces"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} and {opponent} cannot be parted"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Honours even between {team} and {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "A draw that leaves {team} wanting a little more"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} hold {opponent} in a tight, tidy contest"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Neither {team} nor {opponent} would give an inch"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Stubborn stand-off between {team} and {opponent} ends level"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} beaten by {opponent} but the lessons are plain"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "A {score} defeat that {team} will have to swallow"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "{opponent} had the better of it as {team} fall short"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Not good enough, {team}, and well you know it"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Hard luck, hard truths for {team} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} lose {score} and must look in the mirror"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} taken apart by {opponent}, {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "A sorry {score} hiding for {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "{opponent} teach {team} a harsh lesson"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Where was the backbone, {team}?"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "{score} defeat leaves {team} with plenty to answer for"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Embarrassment for {team} as {opponent} run riot"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "I have seen many afternoons like this and few as satisfying. {team} worked for each other, closed ranks when needed and gave {opponent} no peace, and the {score} scoreline is simply the reward of honest toil."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "You cannot fake that sort of togetherness. {team} ran, tackled and shared the load against {opponent}, and a {score} victory in the {competition} was the natural reward for men who wanted it more."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "My old gaffer used to say that a team which works hard gets lucky. {team} were not lucky, merely better, and {opponent} were brushed aside by a side that knew exactly what it stood for."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "There is a gladness in watching eleven men pull the same rope. {team} did that against {opponent}, and while {manager} will rightly be pleased, the real credit belongs to those who did the running."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Fancy words are cheap, but a {score} win speaks plain English. {team} wanted every ball, stood firm in every duel and left {opponent} wondering where their afternoon had gone in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Some days a side simply plays like it means it. {team} did, and {opponent} had no answer to such appetite, so the {score} result tells no lie about who was the better team."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "I will not pretend to be surprised, because character shows. {team} carried themselves like men with something to prove, and {opponent} were swept aside in a {competition} game settled by sheer willingness."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "A result like {score} is built on dull things: effort, discipline, looking out for your neighbour. {team} did those dull things beautifully against {opponent}, and {manager} deserves a nod for getting them so sharp."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Not a spectacle for the poets, perhaps, but a win is a win and {team} earned this one. They stood up to {opponent} when it mattered, and that honesty is worth more than any fancy passing pattern."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "There was graft in it, and there was sense. {team} beat {opponent} {score} in the {competition} by doing the simple things properly, which is a lesson the modern lot seem to forget."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "I like a team that knows what it is about, and {team} did here. {opponent} asked questions and {team} answered them with plain, stubborn effort, which is how a {score} win gets built."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Victory by {score} will not set the neighbourhood talking for long, but the manner pleased me. {team} stayed honest, kept their shape without any fuss, and {manager}'s men looked like they meant business."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Give me a side that rolls its sleeves up and I will forgive a scruffy finish. {team} did that against {opponent}, and the {score} result in the {competition} was a fair reward for plain commitment."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Some wins are pretty and some are earned, and this one was firmly the earned kind. {team} dug in, did the unglamorous jobs and got past {opponent} {score}, which is all the {competition} asks."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "I saw a team that wanted it, and that is rarer than people think. {team} had more appetite than {opponent}, and {manager} can take quiet satisfaction from a {score} win built on appetite and nerve."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "OLD_SCHOOL",
+  "text": "Credit where it is due: {team} were honest, organised and a touch braver than {opponent}. A {score} victory is no accident, and those who dismiss it as dull have clearly forgotten what winning feels like."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "What a game for the old men on the benches, and what a headache for the coaches. {team} and {opponent} traded blows in a {score} draw, and neither back line will enjoy the video nights."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Entertaining, certainly, but I would not have wanted to be a defender. {team} and {opponent} left the neutrals delighted and the coaches clutching their heads after a {score} draw in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "A {score} draw is a fine thing to watch and a poor thing to build on. {team} showed plenty of spirit against {opponent}, yet spirit alone does not mend a leaky back line, and {manager} knows it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "My heart enjoyed it and my head did not. {team} and {opponent} went at each other like boys in a back garden, finishing {score}, and the tidy defending I grew up admiring was nowhere to be found."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Nobody could say {team} lacked courage against {opponent}; they went toe to toe and never ducked. Still, a {score} draw in the {competition} says as much about loose marking as about bold attacking."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Football as it was played in the parks of my youth: all heart, little caution. {team} and {opponent} could not be separated in a {score} draw, and I enjoyed it more than I should admit."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Spirit is not the trouble with {team}, and this {score} draw with {opponent} proved it. The trouble is the lack of a steady hand at the back, a thing {manager} must now address with some urgency."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "A feast for the neutral and indigestion for the coaching staff, I should think. {team} and {opponent} each had plenty to be proud of in that {score} draw, and plenty to be embarrassed about at the back."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "A draw is neither a feast nor a famine, and so it proved. {team} were steady and sensible against {opponent}, but steady and sensible seldom sets the heart racing in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Honest, hard-working and just short of memorable. {team} stood their ground against {opponent} and deserved something from the game, though I would not call it a fair measure of what they might do with more daring."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "There is a wisdom in not losing, my father used to say, and a sadness in not winning. {team} and {opponent} cancelled each other out in the {competition}, and the draw suited neither side's ambition."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Tight, careful and rather cautious: that is how I would describe it. {team} respected {opponent} perhaps a little too much, and a draw was the sensible outcome of two sides afraid to make a mistake."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "I will not scold {team} for a draw, because they worked for it. Still, a braver pass here and there might have turned it in the {competition}, and {manager} will feel the same."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "Neither side gave way and neither deserved to. {team} showed backbone against {opponent}, which counts for something in my book, though backbone must be married to a little imagination before it wins matches."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "A draw with {opponent} is the sort of result that looks better on reflection than it felt in the moment. {team} did the sensible things, and the game rewarded them with exactly what they had earned."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "OLD_SCHOOL",
+  "text": "You can learn a lot from a game nobody wins. {team} were organised and difficult to play against, yet {opponent} were no pushovers, and the draw in the {competition} was the honest answer to a closely matched contest."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "I take no pleasure in saying it, but {opponent} wanted this more. {team} lost {score}, and while the effort was not absent, the hunger was, and hunger is the one thing a manager cannot buy."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "A {score} defeat stings, and it should. {team} had their moments against {opponent} but did not grab hold of the game, and that lack of stubbornness separates a good side from a hard one to beat."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Lose with dignity, my father said, and learn with humility. {team} did the first against {opponent}, and I trust {manager} will see to the next, because there were plain lessons in that {score} defeat."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "{team} were a step behind, and there is no shame in saying so out loud. A {score} loss in the {competition} is an honest verdict on a side that did not stand up to be counted when it mattered."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Too polite, too tidy and too easily moved: that is how {team} looked against {opponent}. A {score} defeat is the price of playing the game rather than fighting for it, and fighting is what is needed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "I have seen worse sides lose by more and better sides lose by less. {team} were beaten {score} by {opponent}, and it was the lack of grit in the key moments that tipped it, not any lack of talent."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "There was no disgrace in it, but no credit either. {opponent} were sharper and meaner, and {team} lost {score} because they were slightly too nice at the wrong time in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "A defeat like this is a mirror, and it is not always flattering. {team} lost {score} to {opponent}, and what the mirror shows is a side that must toughen up before it asks others to respect it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "I have not enjoyed writing a sentence this much less. {team} were beaten {score} by {opponent}, and the backbone I look for in any decent side was simply missing."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "A {score} thrashing is not decided by tactics. It is decided by who wants to be there, and {opponent} wanted it far more than {team}, who looked like men waiting for the final whistle."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "There are bad days, and then there is this. {team} came apart against {opponent} in the {competition}, and a {score} defeat of such size asks questions that no amount of fancy talk will answer."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "My old schoolmaster would have called it a disgrace and asked for the culprits to step forward. {team} lost {score} to {opponent}, and every one of them should reflect, because nobody covered himself in glory."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Heavy defeats are rarely about one error. {team} were outworked and outfought by {opponent}, and {manager} must find out why a group of professionals looked so little like a team."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "I am an old man and not easily shocked, yet that {score} defeat shook me. {team} offered {opponent} far too much room, far too much respect and far too little resistance in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "Football is a simple game made hard by those who will not do the simple things. {team} did none of them against {opponent}, and the {score} result is the bill for it, in full."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "OLD_SCHOOL",
+  "text": "I will say this kindly but plainly: that was not good enough. {team} went down {score} to {opponent} with barely a fight, and the people who follow them deserve a good deal better than shrugged shoulders."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "A win is welcome, but I will wait to see whether {team} can repeat this graft before I hand out any medals, and {manager} knows the {competition} gives no marks for one good day."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "Winning against {opponent} is the minimum, not a miracle. Now {manager} must show that {team} can do it when the going is rough, and not only when everything runs smoothly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "Do not let anyone tell you the work is finished. {team} still have faults a sharp opponent in the {competition} will find, and I expect {manager} to be looking hard at them rather than basking."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "Pleasing, yes, but a few good habits do not make a side. Until {team} show it again and again, I shall keep my hat on my head and my doubts in my pocket."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "A fair win, fairly earned, with a few loose ends to tidy. Next, {manager} will want {team} to keep the honest work and sharpen the rest before the next {competition} test."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "Neither a triumph to shout about nor an accident to dismiss. {team} should enjoy it quietly, then get back to the training ground and see what can be made better."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "The next task for {team} is to prove this was no fluke and no flash. Here {manager} has a decent platform after beating {opponent}, but platforms only matter if somebody builds on them."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "There is good here and there is work still to do, as there always is. If {team} keep their feet on the ground, the {competition} may yet reward their patience."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "Good on them, I say. {team} showed what honest effort can do, and I hope {manager} lets the lads enjoy it, because a happy dressing room is half the battle in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "This is exactly the sort of day to build on, and {manager} has the right instincts for it. Keep going, {team}, keep working, and the rewards will follow in good time."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "A handshake for {manager} on this one, and for the men who did the running. If {team} carry this spirit forward, {opponent} will not be the last side to leave disappointed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "A proud result for a proud club, and I am glad to see it. With {manager} steering sensibly, {team} can look ahead to the {competition} with a good deal of confidence."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "A draw will not satisfy anyone who expects better, and I count myself among them. Now {manager} must explain how {team} intend to turn good intentions into wins in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "Drawing with {opponent} is not a disaster, but it is not an answer either. {team} need to show some bite soon, or the patience of those watching will begin to wear thin."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "I have no wish to be unkind, yet a side with ambitions finishes these games off. Here {manager} will need to show that {team} have the nerve to do so, and not just the neat intentions."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "Easy draws breed easy habits, and that worries me. The coming weeks will tell whether {team} have the appetite to push on in the {competition}, or are content merely to tick over."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "A draw leaves everything open, and so it should be taken for what it is. {team} must find the extra edge and {manager} must find the means of giving it to them."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "Not bad, not brilliant. {team} have something to build on after facing {opponent}, though the next {competition} fixture will show whether they build or merely admire the foundations."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "Both sensible and slightly frustrating, which is about right for a draw. Next, {manager} can take the sound parts and fix the rest, and {team} will be better for the exercise."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "The honest view is that {team} neither lost ground nor gained it. What they do next, with a little more daring, will decide whether this draw proves useful or merely forgettable."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "There is plenty to be encouraged by here. {team} showed the right spirit against {opponent}, and with {manager} guiding them I expect the wins to come if they stay patient."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "I would not fret over this one. A draw against {opponent} shows {team} are hard to beat, and that is a fine foundation for a side that is still growing."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "Hold your heads up, {team}. I say {manager} has them playing with heart, and a little more luck in the {competition} will turn draws like this into victories."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "A result of pride, if not of glory. Still, {manager}'s men gave nothing away cheaply, and I would back them to sharpen up and win the next one."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "Defeat demands answers, and {manager} owes them. {team} must show in the next {competition} fixture that they understand why they lost to {opponent}, or the questions will grow louder."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "I will not dress it up: this was not good enough, and someone must take responsibility. Here {manager} has to show that {team} can respond, and quickly, for sympathy runs out sooner than most think."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "A manager's job is to find solutions, and {manager} has a good deal of finding to do. {team} cannot simply shrug off a defeat like this in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "OLD_SCHOOL",
+  "text": "There is no hiding place after a defeat like this. {team} need to hear hunger, honesty and a few unwelcome truths from the dressing room, and {manager} must be the one to deliver them."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "One defeat does not ruin a season, nor should it be waved away. Now {manager} must work out what went wrong against {opponent} and {team} must show some character in the {competition} next."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "A setback, then, and a chance to learn. If {team} take the lesson sensibly and {manager} chooses the right response, this will prove only a bump in the road."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "The truth lies somewhere between despair and denial. {team} need to be honest about what {opponent} did better, and then get on with doing their jobs properly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "OLD_SCHOOL",
+  "text": "Pick yourself up, dust yourself off, and think hard. Here {manager} has the next {competition} fixture to show that {team} have understood what went wrong."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "Patience, I say, and plenty of it. I think {manager} is building something worth waiting for at {team}, and a defeat by {opponent} should not make anyone lose their nerve."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "Every good side has been beaten and every good manager has been doubted. I would back {manager} to put it right, and {team} deserve the time to do so in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "Chin up, {team}. A defeat hurts, but a club that sticks together comes through, and I have faith that {manager} will find the right words and the right answers."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "OLD_SCHOOL",
+  "text": "Do not write them off on one bad day against {opponent}. I say {manager} has earned our trust and {team} will bounce back, because decent sides always do."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "{buyer} edge closer to {player}, or so they say"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "Whispers turn to talk as {buyer} chase {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "{buyer} and {seller} said to be in earnest talks over {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "Smoke and fire? {buyer} look serious about {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "{buyer} cast an eye towards {player}, nothing more"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "Tongues wag over {player} but {buyer} are only looking"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "A first flutter of interest in {player} from {buyer}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "Idle chatter links {buyer} with {player} at {seller}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "Talk is cheap, but this talk has legs. {buyer} are said to have moved well beyond a polite enquiry for {player}, and a figure around {fee} is being mentioned, though nothing is settled until {seller} say so."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "I have seen enough transfer seasons to distrust every whisper, yet this one carries weight. {buyer} are believed to be negotiating seriously for {player}, with {fee} in the region of what {seller} might accept."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "Money has a way of talking louder than sentiment, and {buyer} have plenty of it. Talks over {player} are said to be well advanced, with {fee} floated as a sum that might tempt {seller}, but I shall believe it when I see it."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "The rumour mill has been grinding steadily, and this time it seems to have grain in it. {buyer} are understood to be in proper discussions with {seller} about {player}, around {fee}, although much can still go wrong."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "OLD_SCHOOL",
+  "text": "In my day a man stayed where he was loved, but times change and so do bank balances. {buyer} look to have pushed their interest in {player} a good way forward, with {fee} said to be the figure, and {seller} are not yet convinced."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "Every transfer season brings a rumour, and this is one of them. {buyer} are said to like {player}, but nothing suggests {seller} have even been approached, and I would not rush to price it at {fee}."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "A rumour is a seed, not a tree. {buyer} have apparently noticed {player}, yet there is no sign of real talks with {seller}, and any figure near {fee} is guesswork at this stage."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "Money in the game has made fools of wiser men than me, so forgive my caution. {buyer} are said to be curious about {player}, but it is early days, {seller} have no reason to talk, and {fee} is merely a number someone has thrown about."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "Interest is cheap and costs nothing to claim. {buyer} are linked with {player}, but I hear of no serious steps, and {seller} will want far more than a murmur and a figure like {fee} before they take it seriously."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "OLD_SCHOOL",
+  "text": "I have learned to treat early chatter like a pub boast. {buyer} have been named alongside {player}, but nothing suggests {seller} have heard from them, and {fee} is probably the invention of a bored imagination."
+ }
+]

@@ -352,6 +352,39 @@ Primul lucru după semnare e un articol de presă despre numirea mea. Conține:
 - **Livrarea:** articolul ajunge în inbox, categoria „Press”, la orice numire (carieră nouă cu club, ofertă acceptată, aplicare la un post).
 - Secțiunea „DG conflict club” vine cu pasul 8.
 
+### 6.1.1 Reporterii și stilul fiecărui jurnalist (decis și implementat 2026-11-13)
+
+**Fără agent la rulare (decis de utilizator):** textele rămân scrise dinainte, ca la §6.1. Jocul doar alege și compune. Un agent la rulare ar cere cheie de API sau model local, ar încetini „Continue” și ar putea greși scorul.
+
+**Reporterii:** pe lângă analiști (care sunt citați), fiecare ligă are reporteri, care scriu și semnează articolele: 2 pe meciuri și 1 pe transferuri, fiecare cu altă voce. Stau în aceeași tabelă (`analyst`), cu `role` = `PUNDIT` sau `REPORTER`. Cam jumătate au un club favorit, ca analiștii.
+
+**Parametrii de stil** (coloane în `analyst`, se pot modifica direct în bază):
+
+| Coloană | Valori | Ce face |
+|---|---|---|
+| `voice` | TABLOID, ANALYTICAL, OLD_SCHOOL, POLEMICIST, INSIDER, AGENCY | din ce set de fragmente scrie |
+| `harshness` | 0–100 | tonul: 67+ critic, 34–66 echilibrat, sub 34 binevoitor; gol = se folosește `temperament` |
+| `sensationalism` | 0–100 | șansa ca titlul să primească un supratitlu („MELTDOWN: …”) |
+| `stats_focus` | 0–100 | șansa unui paragraf cu cifrele meciului (șuturi, pe poartă, posesie) |
+| `verbosity` | 1–3 | 1 = verdictul; 2 = verdict + concluzie; 3 = două verdicte + concluzie |
+| `reliability` | 0–100 | la zvonuri: credibilitatea afișată și cât de aproape e suma de cea reală |
+| `stubbornness` | 0–100 | câte puncte de relație îi schimbă tonul cu o treaptă: 10 + valoarea/5 (50 → 20, ca înainte) |
+| `beat` | MATCHES, TRANSFERS, BOARDROOM | despre ce scrie un reporter (BOARDROOM: încă nefolosit) |
+
+Valorile de pornire se trag din intervalul vocii (un tabloid e zgomotos și puțin credibil, un reporter de agenție e sec și sigur). Lumile vechi primesc automat stil pentru analiștii existenți și reporteri noi, la primul articol.
+
+**Tonul într-un articol:** tonul propriu, mutat de relația cu managerul (ca la §6.4), apoi o treaptă mai blând la clubul favorit și o treaptă mai dur la un rival al acestuia.
+
+**Fragmentele:** tabela `press_fragment` are două coloane noi: `event_type` (APPOINTMENT, POST_MATCH, TRANSFER_RUMOUR) și `voice` (gol = se potrivește oricărei voci). Jurnalistul ia întâi fragmentele vocii lui; dacă nu are, pe cele comune. Sunt 1.897 de fragmente: 985 de numire, 828 pe voci (138 pe voce), 84 comune (supratitluri și cifre), în `press/appointment-fragments.json`, `press/voices/*.json`, `press/common-fragments.json`.
+
+**Reacția după meci** (`MEDIA_REACTION`): titlu (cu sau fără supratitlu), linia cu scorul, apoi paragrafele după `verbosity`. Verdictul depinde de rezultat (victorie mare, victorie, egal cu multe goluri, egal, înfrângere, înfrângere mare), concluzia de rezultat și de ton. Cifrele apar doar dacă statisticile meciului sunt salvate.
+
+**Zvonul de transfer** (`TRANSFER_RUMOUR`): îl scrie reporterul de transferuri din liga clubului cumpărător. Oferta din spate e reală; reporterul poate greși suma cu cel mult jumătate din ce-i lipsește până la 100 la `reliability` (90 → ±5%, 50 → ±25%). Stadiul (discuții avansate sau abia începute) vine din starea ofertei.
+
+**Rezervă:** dacă liga nu are reporter sau lipsește un fragment, se publică textul simplu, nesemnat, de dinainte.
+
+**Urmează (nedecis):** fragmente pe voci și pentru citatele analiștilor din articolul de numire; articolele despre finanțe scrise de un reporter BOARDROOM; autorul afișat separat în interfață.
+
 ### 6.2 Întâlnirea cu patronul și cu DG-ul (decis)
 
 După articol urmează întâlnirea cu patronul și cu DG-ul (dacă clubul are DG):

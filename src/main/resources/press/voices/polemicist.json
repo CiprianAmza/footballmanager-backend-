@@ -1,0 +1,968 @@
+[
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "{team} flatten {opponent} and my doubters can wait outside"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Was anyone really expecting {team} to be this ruthless?"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "{score} and not a single excuse left for {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "I said it would be easy, and {team} made it look absurd"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "{team} treat {opponent} like a rehearsal"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Call it a masterclass, because {team} just delivered one"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "Winning ugly is still winning, and {team} know it"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "{team} beat {opponent}, but spare me the victory parade"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "Why {team} deserved to win {score} against {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "A win is a win, but was this one convincing?"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "{team} take it {score} and the argument is over"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "Beating {opponent} {score} proves {team} can be stubborn"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "A {score} thriller proves {team} and {opponent} cannot defend"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Glorious chaos between {team} and {opponent}, and I loved it"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Defending optional as {team} and {opponent} share a {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Entertainment is not a defensive plan, {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "{team} and {opponent} serve up chaos, then call it a draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Who needs defenders when {team} play like this?"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "{team} and {opponent} cancel each other out, yawn"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "A draw nobody will remember, and nobody should"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Why did {team} settle for so little against {opponent}?"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Neither {team} nor {opponent} dared to win it"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Stalemate with {opponent} exposes the timidity of {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Not brave enough, {team}, and a draw is the proof"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "{team} lose to {opponent}, and the excuses are already queuing"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "Do not blame luck, because {team} deserved this defeat"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "{opponent} were better, and I will say it plainly"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "A {score} defeat is a verdict, not an accident"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "Where was the courage, {team}?"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "{team} fall to {opponent} and somebody has to answer for it"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "{team} humbled {score} and nobody can hide"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "A {score} hiding for {team} is no accident, believe me"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "{opponent} played, {team} watched"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "How did {team} allow this to happen against {opponent}?"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "Time to stop calling this a bad day, {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "{team} were taken apart by {opponent}, and I am not shocked"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Let me be blunt: {team} did not beat {opponent}, they dismantled them, and {score} was a fair reflection. Anyone still asking whether this side can be ruthless has an answer now, and the {competition} should be nervous."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "A {score} win is the kind of result that makes cynics like me look foolish, and I will admit it exactly once. {team} were sharper, hungrier and braver than {opponent} in every department. Enjoy it, because I will be back to criticising soon enough."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Was this a contest? I struggle to say so. {team} played with such authority that {opponent} looked as though they had wandered into the wrong building, and {manager} should be quietly delighted with {score}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Spare me the talk of {opponent} having an off day. {team} created that off day through relentless pressure, and the {score} result was earned rather than gifted. If this is the standard, I will gladly eat my earlier words."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "I have rarely seen a {competition} tie so lopsided. {team} were clinical, {opponent} were hopeless, and {score} flattered the losers if anything. Nobody should pretend this was ever close, and anyone who does is selling something."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Here is my verdict: {team} were magnificent, and {manager} deserves credit for a plan that worked perfectly. {opponent} had no answer to it, hence {score}. Now the real question is whether they can repeat it when nobody is flattering them."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Every so often a result forces even the harshest critic to put down the pen. {team} humiliated {opponent} with a {score} win, and I refuse to look for a flaw simply to keep my reputation intact."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "POLEMICIST",
+  "text": "Who exactly thought {opponent} had a chance? A {score} win says {team} had the quality all along, waiting for a plan brave enough to use it. I suspect {manager} knew it, and the rest of us were not paying attention."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "I will not pretend this was pretty, but who asked for pretty? {team} beat {opponent} {score}, and the {competition} rewards winners, not poets. Judge them on the result and the argument collapses."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "{team} won {score}, and the neutral in me wants to complain about a lack of ambition. The partisan in me says to be quiet. I side with the partisan, since {opponent} offered enough resistance to make the win mean something."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "A {score} win over {opponent} will be praised as gritty, which is what people say when they cannot defend the display. Good? Not especially, but it was enough, and {manager} knows the difference."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "Let the pedants complain; {team} found a way past {opponent}, and in the {competition} that is the only skill that matters. I would have loved more style, yet I will take substance and a {score} result any day."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "Do not let the {score} win fool you into thinking everything is fixed. {team} were good enough to beat {opponent}, no more, and {manager} will know that better than any columnist. Winning covers many sins, but it does not forgive them."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "I came expecting to be annoyed, and {team} annoyed me by winning. {opponent} gave them a proper game, the {score} margin was honest, and the better side took it. I hate it when the sensible outcome arrives on schedule."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "Is a modest win worth celebrating? When it comes against {opponent} and with this much nerve, yes. {team} showed a vein of stubbornness I rarely see, and {manager} should bottle it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "POLEMICIST",
+  "text": "The scoreline reads {score} to {team}, and the tidy-minded will call it deserved. I call it fortunate in places and brave in others, which is exactly what winning in the {competition} usually looks like. {opponent} will feel aggrieved, and I have little sympathy."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Plenty of goals, and not a defender with a clue. {team} and {opponent} turned a {competition} fixture into a pantomime, and I enjoyed every shambolic moment of the {score} draw. Please do not call it a tactical battle."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "I adore a goal feast, but I would not mistake it for quality. {team} and {opponent} defended like people guarding a sandcastle, and the {score} draw says more about their weaknesses than their ambition."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Spare a thought for the defenders of {team} after this. A {score} draw against {opponent} was thrilling for neutrals and a nightmare for {manager}, who will be rewatching the goals with growing dread."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Entertainment is a fine excuse, and I have used it often. But {team} and {opponent} sharing a {score} draw is the kind of open invitation to criticism no serious side should send. Fun does not win the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Was that a football match or a charity auction for goals? {team} gave and {opponent} gave back, and the {score} draw was a fair price. The question for {manager} is whether chaos is a plan or an accident."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Everybody will call it a classic. I call it a warning. {team} showed flair, but a {score} draw against {opponent} proves that flair without structure is just an expensive way of losing control."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "I cannot decide whether to applaud or to weep. {team} and {opponent} threw punches throughout, defended like amateurs and finished level at {score}. Nobody could call it dull, and that is the best I can say."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "POLEMICIST",
+  "text": "Here is an unpopular opinion: goals in bulk are a symptom, not a celebration. {team} and {opponent} were both generous in the {score} draw, and {manager} should worry more about the generosity than the entertainment."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "I have seen livelier waiting rooms. {team} and {opponent} cancelled each other out in the {competition}, and the {score} draw was the only fair verdict in a contest nobody dared to win."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Is caution a virtue or a disease? A {score} draw with {opponent} suggests {team} have mistaken one for the other. I wanted a statement and received a polite shrug."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Nobody should dress this up. {team} and {opponent} played out a {score} draw because neither had the courage to take a real risk, and the {competition} is poorer for it. I would rather see a brave defeat."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Defenders will call it discipline, and I will call it fear. {team} were tidy but timid, which is a strange definition of ambition. A {score} draw against {opponent} should embarrass nobody, yet it should excite nobody either."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "A fair result, and I hate fair results. {team} and {opponent} earned a {score} draw by matching each other stride for stride, with neither willing to gamble. Some will call it a solid base, but I call it a missed opportunity."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Someone has to say it: {team} drifted through this {score} draw against {opponent} like a side afraid of its own ambition. The supporters are owed more than a polite stalemate in the {competition}, and {manager} knows it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Draws like this one are why I need coffee. {team} and {opponent} produced a {score} stalemate so tidy and so tame that the {competition} might as well award a prize for politeness. Neat defending, perhaps, but terrible theatre."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "POLEMICIST",
+  "text": "Do not mistake stubbornness for substance. {team} stood their ground against {opponent} and the {score} draw was the reward, but standing still has never won anything worth keeping. A sharper plan is what {manager} needs to find, and soon."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "Let us not insult anyone's intelligence: {opponent} deserved it. {team} lost {score} in the {competition} because they were slower, softer and less certain, and no excuse in the world rewrites that."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "A {score} defeat is not a tragedy, but it is an indictment. {team} showed too little appetite against {opponent}, and I am tired of hearing that the effort deserved better."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "Who is responsible for this? Those who picked the team and those who set the plan. Expect talk of margins from {manager}, but {opponent} were simply more convincing and {team} had no real answer."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "Defeat by {score} has a way of clarifying things. {team} looked a step behind {opponent} throughout, and the bravest thing now would be to admit it rather than hunt for a villain in the {competition}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "I will defend {team} against lazy abuse, but I will not defend this. {opponent} won {score} because they wanted it more, and wanting it more is the one thing nobody should ever lose to."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "Losing happens, even to good sides, and I accept that. What I cannot accept is how tamely {team} accepted it against {opponent}; there was no fury, no edge, nothing to suggest a team that hated being beaten {score}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "Is it too early to panic? In the {competition} nobody panics until it is too late, which is precisely the problem. {team} lost to {opponent}, and sooner or later somebody has to ask hard questions about how they play."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "POLEMICIST",
+  "text": "I give {opponent} full credit, and I give {team} none. A {score} defeat in the {competition} was built on small, avoidable hesitations that a sharper plan would have cured. The lesson for {manager} is to read that as a challenge, not an insult."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "There is no kind way to put this. {team} were taken apart by {opponent}, the {score} defeat was deserved, and anyone talking about bad luck is not watching the same match I was."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "A {score} hammering is not an accident, it is a diagnosis. {team} were outplayed, outthought and outworked by {opponent}, and the {competition} has now seen every weakness laid bare."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "I have been asked to find positives, and I cannot. {team} were swamped by {opponent}, lost {score} and offered little resistance. Somebody must explain how a side with this much ability looked so lost."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "Do not tell me it was one of those days. Days like this are built, and {team} built a {score} defeat out of sheer carelessness against {opponent}. That is not bad luck, it is a choice."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "This was a rout, and I will not soften the word. {opponent} took {team} to pieces in the {competition}, and the {score} margin only confirms what everyone could see. An uncomfortable few days await {manager}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "What exactly was the plan? If it was to survive, {team} did not manage it, because {opponent} ran through them and made {score} look unavoidable. Whatever it was, it has been exposed in public, and the {competition} will take note."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "I will say what polite columnists will not. A {score} defeat to {opponent} is unacceptable at this level, and {team} must treat it as a crisis rather than a blip."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "POLEMICIST",
+  "text": "Humiliation is a strong word, but a {score} defeat leaves me no alternative. {team} were a long way behind {opponent} in every department, and nobody should dress that up."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "A win over {opponent} buys {manager} nothing but time, and I intend to spend it asking what exactly has been fixed. The next {competition} test will tell me whether this was progress or luck."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "Do not mistake relief for brilliance. {team} must now show they can win without needing everything to go right, because the next opponent will not be as accommodating as {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "Why should I applaud a result that merely met the minimum? A quiet nod is all {manager} has earned, and the next selection will say whether the lessons have been learnt."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "Winning is the least {team} owe their supporters, so forgive me if I stay unmoved. Let us see whether {manager} can turn one decent day into a standard, because standards are what the {competition} demands."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "A good result, with work still to do. {team} should enjoy it, then look honestly at what {opponent} exposed, because the next opponent will look for the same weaknesses."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "Praise where it is due, questions where they are needed. There is a win to build on and a few details for {manager} to tidy, and the next {competition} test will show which matters more."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "I am neither dancing nor sulking. {team} did enough against {opponent}, and the sensible next step is to repeat the good parts and quietly remove the careless ones."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "The sensible reading is that {team} took a step forward, not a leap. Whether {manager} can keep walking in that direction in the {competition} is the only question I care about now."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "To the doubters I say this: look at the scoreboard and put the pen down. It was {manager} who got it right against {opponent}, and {team} deserve to carry that belief into the next {competition} test."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Give {manager} the credit and spare us the caveats. {team} did exactly what a good side should against {opponent}, and I cannot wait to see them build on it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Every fair-minded person should be pleased. {team} have shown character, and if {manager} keeps the faith, the next {competition} outing could be a statement rather than a step."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Nobody wins like this by accident, and the cynics will have to find another hobby. {team} should trust the plan that beat {opponent} and walk into the next game with their heads high."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "A draw with {opponent} should leave {manager} uneasy, not comforted. The next {competition} outing is a chance to prove {team} can finish what they start, and I will be watching for evidence, not excuses."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "I am not impressed by those praising a draw. {team} need to show more nerve next time, and {manager} must explain why caution was considered a plan against {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "Why settle? That is the question {team} must answer before the next game, because sides that fear defeat rarely deserve to win. Changes are needed, and {manager} knows where."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "One draw is a shrug, and I am running out of patience for shrugs. A sharper selection is what {manager} must find for the next {competition} test, or the criticism will only get louder."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "Neither triumph nor disaster. {team} can take the good from the draw with {opponent}, fix the rest, and arrive at the next {competition} test knowing what needs to change."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "It is fair to say {team} were competitive and fair to say they were cautious. Now there is a chance for {manager} to prove which description sticks, and the next game will tell us."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "I would not hang a banner or burn a flag over this draw. What matters is how {team} respond, and {manager} has every tool to make the next {competition} outing sharper."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "A draw leaves the argument open, which suits a columnist nicely. {team} should use the next fixture to settle it, preferably in a way that makes my next column easy to write."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Those who sneer at a draw with {opponent} have forgotten how hard this game is. {team} showed enough to deserve faith, and {manager} deserves time to turn it into something bigger."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "I refuse to join the chorus of disappointment. There is a good group here, a sensible plan for {manager} and a draw to build on, and the next {competition} test is a chance to prove the sceptics wrong."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Patience, please, because this is a side still growing. {team} are better than a draw with {opponent} suggests, and I would back {manager} to show it next time."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Call it a stepping stone, not a stumble. {team} will learn from this draw, and I expect {manager} to have the squad sharper when the next {competition} test arrives."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "Somebody must be held to account for this defeat, and the buck stops at {manager}'s door. Unless {team} show clear improvement in the next {competition} outing, the questions will turn into demands."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "Enough with the excuses. {team} lost to {opponent} because the plan did not work, and {manager} must show the next selection has learnt something, or explain why not."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "I expect hard decisions after this, not soothing words. If {team} turn up for the next {competition} test with the same flaws, then patience will be the wrong response."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "POLEMICIST",
+  "text": "A defeat to {opponent} demands change, and promises will not be enough. Either the team, the approach or the excuses must change under {manager}, and I would not bet on the third."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "One defeat proves little, and I am wary of those who say otherwise. {team} must now show how they respond, and the next {competition} outing will be more revealing than this one."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "There is both blame and credit to hand out. {opponent} were good, {team} were not good enough, and {manager} faces the sensible task of sorting out which is which."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "Neither panic nor excuses will help {team} now. A calm review, honest changes and a better display in the next {competition} test are all that is required."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "POLEMICIST",
+  "text": "I would not tear the club down after one bad result, nor would I pretend it did not matter. The wise course for {manager} is to keep calm and let the next game provide the answer."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Lay off {manager}, all of you. {team} lost to {opponent}, but anyone calling for drastic action after one defeat has more appetite for noise than for football."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "I will say this loudly: {team} are in good hands. A defeat by {opponent} is a bruise, not a verdict, and {manager} deserves patience before the next {competition} test."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "The knives are out, and I intend to stand in their way. Trust has been earned by {manager}, and a bad day against {opponent} should not cancel it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "POLEMICIST",
+  "text": "Back the manager, back the players, and back them harder when it hurts. {team} will answer this in the next {competition} outing, and I will be delighted to say I told you so."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "{buyer} are closing in on {player}, and I think it is a shrewd gamble"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "Talks over {player} are serious, and {seller} should be nervous"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "Is the pursuit of {player} by {buyer} the smartest idea of the window?"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "{buyer} want {player} badly, and I am not sure they should"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "{buyer} have glanced at {player}, and that is all for now"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "Early whispers link {player} with {buyer}, but I am unconvinced"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "Why would {seller} sell {player} to {buyer} anyway?"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "{buyer} sniff around {player}, and I say stay patient"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "Talks between {buyer} and {seller} over {player} are said to have moved well beyond a polite enquiry, with a fee in the region of {fee} being discussed. I think it is a sensible piece of business for {buyer}, but nothing is settled, and nobody should pretend otherwise."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "{buyer} appear serious about {player}, and the numbers mentioned hover around {fee}. Do I think it works? Only if {buyer} have a clear plan for the player, which I doubt, and {seller} will hold out for more anyway."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "Whatever {buyer} say publicly, the story from the inside is that talks with {seller} about {player} have gathered pace, with {fee} the figure mentioned. Frankly, that is a lot to pay, and I would want guarantees before anyone gets carried away."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "I am told {buyer} have moved past flirtation and are now negotiating seriously for {player}, with {seller} reportedly asking nearer {fee}. It could be a masterstroke or an expensive mistake, and anyone who claims to know is guessing."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "POLEMICIST",
+  "text": "Here is my read: {buyer} are in earnest talks with {seller} over {player}, and a deal around {fee} is being discussed, though it is far from certain. If it happens I will applaud the ambition, but I will not applaud the price."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "{buyer} have shown first interest in {player}, and that is about as far as this goes. Nobody has even agreed a price, though {fee} is the sort of figure being mentioned in idle conversation. I would not rush to book the unveiling."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "A name, a rumour and not much else: {buyer} like {player}, but there is no sign that {seller} have been approached seriously. If a fee near {fee} ever appears, then we can talk."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "I would call this wishful thinking, not news. {buyer} have been linked with {player}, yet {seller} have no reason to sell, and a fee around {fee} would hardly tempt them. It makes little sense for {buyer} anyway."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "Early days, and I mean very early. {buyer} are admirers of {player}, nothing more, and until {seller} are asked a real question, the figure of {fee} is pure speculation. Admiration, as I keep saying, is cheap."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "POLEMICIST",
+  "text": "Let us keep our heads: {buyer} may like {player}, but liking is not buying. {seller} have not been moved to negotiate, and I suspect {fee} would not tempt them even if it were offered."
+ }
+]

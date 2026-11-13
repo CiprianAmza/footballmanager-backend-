@@ -1,0 +1,968 @@
+[
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "Calm confidence behind the scenes after {team} rout {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "{team} win {score} and the mood inside the club lifts"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "Relief and quiet pride as {team} brush aside {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "I'm told {team} were expecting to make a statement like this"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "Those close to {team} say the {score} win was welcome"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "Smiles around {team} after a commanding win over {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "Measured approval inside {team} after beating {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "{team} do the job and the club exhales"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "Quiet satisfaction as {team} see off {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "The feeling around {team} after a {score} win"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "Nothing flashy, but {team} get what they came for"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "Settled mood at {team} following win over {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "Entertainment aplenty, but {team} left with mixed feelings"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "{team} and {opponent} share a wild {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "Thrilling yet frustrating, is the view around {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "Questions linger at {team} after a {score} draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "Restless mood at {team} despite a lively draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "Spirit admired, shape questioned after {team} draw {score}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "Flat mood at {team} after stalemate with {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "{team} and {opponent} cannot be separated"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "A shrug rather than a sigh inside {team}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "Unfinished business for {team} after the draw"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "Patience urged around {team} following a level result"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "Quiet disappointment as {team} draw with {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "Heavy mood inside {team} after defeat to {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "{team} beaten, and the club knows it"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "Disappointment but no panic around {team} after {score} loss"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "I'm told {team} will reflect hard on this one"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "Muted atmosphere at {team} following the {score} defeat"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "Setback for {team} as {opponent} take the win"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "Grim mood around {team} after heavy defeat"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "{opponent} too strong and {team} feel it deeply"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "Concern grows inside {team} following {score} loss"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "A sombre mood at {team} after being well beaten"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "Real disquiet around {team} after the {score} defeat"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "HEADLINE",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "Patience tested at {team} after heavy loss to {opponent}"
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "{team} were ruthless against {opponent}, and I'm told the feeling inside the club is one of relief rather than celebration. A {score} win is the kind of result that quietens the doubters around the place, at least for now."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "Those close to the dressing room speak of a group that played with real freedom in the {competition} fixture against {opponent}. The {score} scoreline will be welcomed warmly upstairs, though nobody I hear from is getting carried away."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "The feeling around {team} is that this was a statement. Beating {opponent} {score} gives {manager} real credit with those who matter, and the mood in the corridors has noticeably softened."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "I'm told {team} were quietly confident about this one, and a {score} result against {opponent} will do nothing to dent that belief. People around the board will see it as proof the project is sound, even if they say so only in private."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "{team} dismantled {opponent} with an authority that will be noted well beyond the training ground. Calm satisfaction is easy to find around the club, and the word I keep hearing is control."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "A {score} win in the {competition} will have eased plenty of nerves around {team}. I'm hearing the mood is relaxed but not complacent, with {opponent} seen as a decent yardstick that was handled well."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "There is a sense of vindication around {team} after the {score} win over {opponent}. Nobody wants to gloat, but those close to the squad hint that confidence in {manager}'s approach has quietly deepened."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_WIN",
+  "voice": "INSIDER",
+  "text": "The scoreline flatters nobody inside {team}, I gather; the view is that {opponent} were simply outclassed. Expect the mood to stay buoyant, with expectations rising a notch as a result."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "{team} got the job done against {opponent}, and the feeling inside the club is one of measured approval. A {score} win is not the stuff of legend, but those close to the dressing room say it was exactly what was required."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "I'm told there was little drama in the reaction around {team} after beating {opponent} {score}. People at the club talk of a professional display in the {competition}, the sort that keeps everybody calm and the corridors quiet."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "The mood around {team} is cautiously upbeat following the {score} victory. {opponent} made it awkward, I hear, and the general view is that the result matters more than the manner of it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "Quiet relief rather than loud celebration is how the win over {opponent} is being described to me. {team} found a way, the {score} margin gives them something to build on, and the atmosphere has shifted slightly in the right direction."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "People around the board are said to be pleased with {team} after the {score} win, though pleased is as far as it goes. The expectation is that wins like this become routine rather than occasional."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "Nobody inside {team} is pretending the {score} win over {opponent} was perfect, I hear. But a win is what settles the mood, and this {competition} fixture has done exactly that."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "Those close to the squad suggest {team} are growing in belief, with this {score} win over {opponent} adding to a quiet sense that things are heading the right way. It is a hint rather than a claim, but the tone has changed."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "WIN",
+  "voice": "INSIDER",
+  "text": "I'm hearing a sense of steady satisfaction after {team} saw off {opponent}. The {score} result will be filed away as useful, and the feeling is that {manager} has earned a calmer few days."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "{team} and {opponent} served up plenty of entertainment, but I'm told the mood inside the club is more frustrated than thrilled. A {score} draw suggests defensive work that will be discussed, quietly, in the days ahead."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "The feeling around {team} after the {score} draw is one of mixed emotions. Those close to the dressing room enjoyed the spectacle in the {competition}, yet nobody is pretending the back line can stay so open."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "I gather a {score} draw with {opponent} has left people around {team} somewhere between pleased and exasperated. The attacking spirit is welcomed, but the appetite for a more disciplined approach is growing."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "Nobody could call it dull, and nobody inside {team} is calling it satisfactory either. The {score} draw against {opponent} leaves a sense that the side is exciting but exposed, and that is a view {manager} will be aware of."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "Open, end-to-end and slightly chaotic is how the {score} draw is being described to me by those near {team}. I'm told the entertainment value is appreciated, though the preference is for fewer nervy moments."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "There will be a spirited debate behind the scenes at {team} after the {score} draw with {opponent}. One camp sees courage, the other sees carelessness, and the truth is probably a bit of both."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "{team} showed their attacking side against {opponent}, I hear, but a {score} draw leaves an unmistakable feeling that more was available. The mood is restless without being unhappy."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "HIGH_DRAW",
+  "voice": "INSIDER",
+  "text": "The {score} draw in the {competition} has done little to calm talk around {team} that the defensive side needs attention. People close to the club speak warmly of the spirit, less warmly of the shape."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "A draw with {opponent} is not what {team} wanted, and I'm told the mood inside the club reflects that. The feeling is of a job left slightly unfinished, though nobody is calling it a disaster."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "{team} and {opponent} could not be separated, and those close to the dressing room describe the reaction as flat rather than angry. A {score} draw gives people plenty to think about but little to complain about loudly."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "The feeling around {team} after the {score} draw is one of quiet disappointment. I gather there was a belief that this {competition} fixture was there to be won, and that belief has not entirely gone away."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "I'm hearing a shrug rather than a sigh from people around the board following the draw with {opponent}. It was a result with something in it, they suggest, but not enough to change the mood either way."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "Evenly matched is the polite description, and I suspect it is also the accurate one. {team} will not be unhappy with a {score} draw against {opponent}, but the ambition inside the club is plainly higher."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "Nothing to cheer, nothing to fear is the general reading inside {team} after the draw. The dressing room, I gather, is content to treat it as a stepping stone."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "A cagey encounter with {opponent} ended level, and the word I keep hearing around {team} is patience. The {score} result will not alarm anyone, though {manager} knows a little more edge would be welcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "DRAW",
+  "voice": "INSIDER",
+  "text": "People close to {team} describe the draw with {opponent} as a result that settles nothing. There is no panic and no celebration, only a feeling that the {competition} campaign needs a bit more bite."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "{team} were beaten by {opponent}, and I'm told the mood inside the club has turned noticeably heavy. A {score} defeat is not a catastrophe, but it has set people talking in lower voices than usual."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "The feeling around {team} after the {score} loss is one of frustration rather than alarm. Those close to the dressing room suggest the performance was not bad enough to panic over, yet not good enough to defend easily."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "I gather {opponent} were the better side in the {competition}, and people around the board are not pretending otherwise. The {score} defeat will be digested quietly, with questions saved for when the dust settles."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "There is no shortage of disappointment around {team} following the defeat. I'm hearing that patience with {manager} remains, but it is not a limitless resource, and a result like {score} tests it a little."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "A {score} defeat to {opponent} has left a muted atmosphere around the club. Those who know the mood suggest this is a setback to be explained, not a crisis to be managed, at least for now."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "The word I keep hearing around {team} is unlucky, though not everybody is using it with conviction. The {score} loss will provoke honest thinking, I suspect, rather than raised voices."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "{team} will be disappointed by the {score} defeat to {opponent}, and I'm told that disappointment is shared from the boardroom to the training ground. The hope is that it proves a bump rather than a pattern."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "LOSS",
+  "voice": "INSIDER",
+  "text": "People close to the squad speak of a group that knows it was below its best against {opponent}. The {score} loss stings, but the mood is more reflective than rebellious, with confidence in {manager} intact for the moment."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "A {score} defeat to {opponent} is the kind of result that changes the atmosphere around a club, and I'm told {team} are feeling it. The mood is grim, and the expectation of a swift response is high."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "Make no mistake, the feeling inside {team} is that this was not good enough. Losing {score} to {opponent} in the {competition} has unsettled people who were prepared to be patient."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "The mood around the board is said to be sombre after the {score} loss. Nobody is making wild noises, I gather, but the quiet is of the uncomfortable sort, and {manager} will sense it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "I'm hearing real concern around {team} after being beaten {score} by {opponent}. The patient voices have not gone silent, but they are being spoken over by those who want visible answers."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "Those close to the dressing room describe a stunned atmosphere following the heavy defeat. A {score} result against {opponent} is hard to explain away, and the feeling is that the club will want to see a reaction."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "{team} were well beaten, and nobody inside the club is disputing it. The {score} scoreline will linger, I suspect, and the patience that {manager} has enjoyed is now being quietly measured."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "A heavy defeat for {team}, with {opponent} proving far too strong. The feeling inside the club is that a {score} loss demands more than platitudes, though no one seems keen to point fingers."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "VERDICT",
+  "bucket": "BIG_LOSS",
+  "voice": "INSIDER",
+  "text": "People around {team} are not hiding their disquiet after the {score} defeat in the {competition}. The belief that things can be turned around is still there, I'm told, but it now carries conditions."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "INSIDER",
+  "text": "Winning is the minimum, I'm told, and the feeling around {team} is that {manager} will need to show more than this to convince the sceptics. The next {competition} fixture will be watched closely."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "INSIDER",
+  "text": "Those who expect more from {team} will not be satisfied by one win, and people around the board are said to want evidence that it is more than a one-off. For {manager}, this is a result and not a reprieve."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "INSIDER",
+  "text": "Expect scrutiny to continue regardless of the result. The feeling inside the club is that {team} must now back this up in the {competition}, and I'm hearing that nothing less will quieten the doubts."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_CRITIC",
+  "voice": "INSIDER",
+  "text": "A win buys {manager} time, but not much of it, I gather. The question being asked quietly is whether {team} can repeat the level against sterner opposition than {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "INSIDER",
+  "text": "The next step is consistency, and the feeling inside the club is that {team} are capable of it. The aim for {manager} is to carry this mood into the next {competition} fixture without losing sharpness."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "INSIDER",
+  "text": "I'm told the view around {team} is sensible: a good result, a few things to tidy, and a quick turn of attention to what comes next. The next {competition} outing will say more than this one did."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "INSIDER",
+  "text": "Neither celebration nor complaint seems appropriate, and the mood around {team} reflects that. What matters now is how {manager} keeps the group focused after beating {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_BALANCED",
+  "voice": "INSIDER",
+  "text": "There is satisfaction, but also an awareness that harder tests lie ahead. Those close to {team} suggest the aim is simply to build steadily from here, one {competition} fixture at a time."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "The feeling inside the club is that {manager} is getting things right, and this win over {opponent} only strengthens that belief. {team} look a side with growing assurance, I'm told, and the best may be ahead."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "People around {team} are quietly delighted for {manager}, and I gather the hope is that confidence now carries into the next {competition} fixture. A group that believes in itself is a dangerous one."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "I'm hearing nothing but encouragement around the club, and rightly so. {team} will go into the next fixture with their heads high, and {manager} deserves credit for the atmosphere that has been built."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "WIN_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "Those close to the squad suggest this win can be a foundation. If {team} keep this spirit, {manager} may find the {competition} rather kinder than some have feared."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "INSIDER",
+  "text": "A draw will not satisfy those who expect more, and I'm told {manager} will feel the weight of that expectation. {team} need to show a sharper edge next time out, or the murmurs will grow."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "INSIDER",
+  "text": "Patience around the board is not unlimited, I gather, and results like this one against {opponent} make it harder to sustain. The next {competition} fixture is being viewed as an important marker."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "INSIDER",
+  "text": "The honest question being asked inside the club is why {team} did not do more. An answer is expected from {manager}, and a convincing one, before the next {competition} outing."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_CRITIC",
+  "voice": "INSIDER",
+  "text": "Draws of this kind are tolerated only for so long, those close to the club suggest. {team} must find a way to turn level results into wins, and soon."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "INSIDER",
+  "text": "It was a fair result, and the mood inside {team} is one of sober assessment. The next {competition} fixture offers a chance to show that this was a pause, not a stall."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "INSIDER",
+  "text": "I'm told the view is that {team} can take something positive from the draw while accepting there is room to improve. Some sharpening is needed from {manager} before the next test."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "INSIDER",
+  "text": "Neither side of the debate around {team} has much ammunition after this one. What happens in the next {competition} fixture is likely to tip the mood one way or the other."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_BALANCED",
+  "voice": "INSIDER",
+  "text": "The feeling is that it is too early to read anything big into a draw with {opponent}. Quick momentum is what {manager} will be seeking, and the club will be watching for signs of it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "People around {team} are keen to stress that a draw with {opponent} is no cause for worry. The belief inside the club is that {manager} has the group moving in the right direction, and the wins will come."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "Those close to the dressing room remain upbeat, and I gather the message is simply to keep going. {team} have shown enough to suggest the next {competition} fixture can bring a better outcome."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "I'm hearing calm and confidence rather than concern. The club still backs {manager}, and the hope is that this draw proves a small step on the way to something firmer."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "DRAW_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "A level result is hardly the end of the world, and the mood around {team} reflects that. Give {manager} time and the next {competition} fixture, the feeling goes, and things should click."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "INSIDER",
+  "text": "Questions are being asked, and I'm told they will not go away quickly. There is an anxious wait ahead for {manager} for the next {competition} fixture, and {team} must show a convincing response to {opponent}."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "INSIDER",
+  "text": "Patience has a limit, as people around the board are quietly aware. {team} need a reaction in the next {competition} outing, and {manager} will be held accountable for it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "INSIDER",
+  "text": "The feeling inside the club is that excuses will wear thin fast. A clear identity must come from {manager} for {team} before the next {competition} fixture, or the pressure will build."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_CRITIC",
+  "voice": "INSIDER",
+  "text": "Accountability is the word I keep hearing after this defeat to {opponent}. {team} are expected to put things right, and if they do not, {manager} will find the mood considerably less forgiving."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "INSIDER",
+  "text": "It is one defeat, and the mood around {team} reflects both disappointment and perspective. A response is wanted from {manager} in the next {competition} fixture, and the club will judge the group by it."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "INSIDER",
+  "text": "I'm told the sensible view is to avoid overreaction either way. {team} must learn from the loss to {opponent}, and the next {competition} outing offers a fair chance to show they have."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "INSIDER",
+  "text": "Neither panic nor excuses appear to be on the agenda. Those close to the club suggest {manager} is expected to know what needs changing, and the coming fixtures will reveal whether it works."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_BALANCED",
+  "voice": "INSIDER",
+  "text": "The feeling is that {team} are capable of a better showing, and the next {competition} fixture is the obvious place to demonstrate it. Until then the verdict on {manager} stays open."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "I gather the club is standing firmly behind {manager}, and the plea from those close to {team} is for patience. One defeat against {opponent} should not undo the good work being done."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "People around the board remain convinced that {manager} is the right person for the job, I'm told. {team} deserve time to put this right, and the next {competition} fixture is a fine chance to start."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "The mood is disappointed but loyal. Those close to the squad suggest the group will rally round {manager}, and a better result in the {competition} would soon change the conversation."
+ },
+ {
+  "eventType": "POST_MATCH",
+  "category": "TALKING_POINT",
+  "bucket": "LOSS_SUPPORTIVE",
+  "voice": "INSIDER",
+  "text": "Do not read too much into this defeat, is the message I am hearing around {team}. Backing for {manager} remains strong, and the hope is that the next outing brings the response everyone wants."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "{buyer} believed to be closing in on {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "Talks over {player} have moved beyond first contact, I hear"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "{buyer} and {seller} said to be in serious dialogue over {player}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "Whispers grow louder that {player} could be heading to {buyer}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "{buyer} are keeping an eye on {player}, I'm told"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "Early whispers link {player} with {buyer}"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "{buyer} said to have {player} on a long list"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "HEADLINE",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "Nothing close yet, but {buyer} admire {player} from afar"
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "I'm told talks between {buyer} and {seller} over {player} have moved well beyond the polite enquiry stage. A figure in the region of {fee} is being mentioned, and the feeling is that both clubs are at least speaking the same language. Nothing is settled, though."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "People close to the situation suggest {buyer} are serious about {player}, with discussions said to be progressing around {fee}. {seller} are not thought to be desperate to sell, so this may yet take some time, and plenty can still go wrong."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "The word from those in the know is that {buyer} have gone further than casual interest in {player}. A fee of around {fee} has reportedly been discussed, and the mood around the talks is described as constructive, if not yet decisive."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "Quietly, and away from the spotlight, {buyer} have been working on a move for {player}. I gather {seller} have been listening, with {fee} the sort of number under consideration, though no one is calling this a formality."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "STRONG",
+  "voice": "INSIDER",
+  "text": "Firmer than a whisper, softer than a certainty is how one would describe the talk of {buyer} and {player}. Discussions with {seller} are believed to be live, with a price near {fee} in the air, and the next few days may tell us more."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "It is very early days, but I'm hearing that {buyer} like what they see in {player}. Nothing suggests a deal is near, and any talk of {fee} is premature at this stage. Treat it as background noise for now."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "{player} has been mentioned in conversations around {buyer}, I gather, though only as one name among several. {seller} have little reason to worry yet, and a fee near {fee} is purely speculative."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "A first flicker of interest, nothing more. {buyer} are understood to be admirers of {player}, and while {seller} may be braced for questions, the feeling is that any real move is a long way off."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "I would not call this a serious pursuit, but {buyer} are certainly aware of {player}. Early thinking puts the price in the region of {fee}, though I stress that is guesswork and the interest may well fade."
+ },
+ {
+  "eventType": "TRANSFER_RUMOUR",
+  "category": "BODY",
+  "bucket": "EARLY",
+  "voice": "INSIDER",
+  "text": "Those around {buyer} are said to be curious about {player}, and curiosity is where it stands. {seller} are not thought to be preparing for a bid, and any figure like {fee} is a long way from anything concrete."
+ }
+]
