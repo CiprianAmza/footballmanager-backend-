@@ -541,6 +541,13 @@ Consecință naturală: un club cu salarii mari oferă mai multe puncte decât u
 
 **Garanția antrenorului (idee, de stabilit):** dacă jucătorul pentru care am garantat nu confirmă, încrederea patronului în mine scade; dacă reușește, crește. De stabilit: cum se măsoară „confirmă” (rating mediu, meciuri ca titular, după un sezon?), cât de mare e efectul și câte garanții pot avea deodată.
 
+**Spionajul făcut de mine (idee, 2026-11-13):** ca manager, pot merge eu la meciurile altor echipe ca să urmăresc jucători. Ce văd acolo îmi dă argumente în discuția cu patronul, pentru a-mi aproba ținta sau ca bază pentru garanția mea.
+
+De stabilit:
+- ce costă: o zi lipsă de la antrenament sau de la club, deplasarea;
+- cât de precisă e impresia mea față de cea a unui scouter (după experiența și atributele mele de antrenor?);
+- dacă presa sau clubul jucătorului află că am fost în tribună („l-a urmărit pe X”), cu efect asupra prețului și asupra zvonurilor.
+
 **Locul discuției, pe ecran (idee):** fiecare discuție are o **imagine frumoasă cu locul** unde are loc (hotel, restaurant etc.), ca fundal al ecranului de discuție. Locul se alege după situație. Propunerea mea:
 
 | Situație | Locul |
@@ -597,4 +604,4 @@ Imaginea se poate schimba și cu ora (cină, noapte) și cu sezonul.
 11. ~~Scăderea atributelor neantrenate?~~ Decis: combinat; sub 28 rar și doar neantrenate de mult, peste 30 mai ales fizice, chiar antrenate (§2.4)
 4. Minor: chiar niciun atribut comun între portari și jucătorii de câmp (mentale, fizice)? (§2.3)
 28. Moralul în motorul de meci (acum inactiv). Decis: discursul de la pauză modifică moralul pentru repriza a doua (vechiul multiplicator de putere după reputație a fost șters). Cum influențează moralul motorul — de stabilit, pas separat.
-29. Discuțiile de planificare a transferurilor (patron, director general, agenți, la hotel): când au loc, cât de exacte sunt estimările, cum funcționează garanția antrenorului (§3.8). Decis: produc ținte aprobate; fără aprobare nu pot face oferte; la dezacord decide patronul, cu excepția jucătorului pentru care garantez eu
+29. Discuțiile de planificare a transferurilor (patron, director general, agenți, la hotel): când au loc, cât de exacte sunt estimările, cum funcționează garanția antrenorului, ce costă și cât de precis e spionajul făcut de mine la alte meciuri (§3.8). Decis: produc ținte aprobate; fără aprobare nu pot face oferte; la dezacord decide patronul, cu excepția jucătorului pentru care garantez eu
