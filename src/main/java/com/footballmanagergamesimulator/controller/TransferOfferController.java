@@ -22,7 +22,7 @@ import java.util.*;
 @RestController
 @RequestMapping("/transferOffer")
 @CrossOrigin(origins = "${cors.allowed-origins:http://localhost:4200}")
-public class TransferOfferController {
+public class TransferOfferController implements com.footballmanagergamesimulator.service.AgreedTransferHandler {
 
     @Autowired
     UserContext userContext;
@@ -80,6 +80,22 @@ public class TransferOfferController {
 
     private final Random random = new Random();
 
+    @Autowired
+    com.footballmanagergamesimulator.service.TransferPricingService transferPricingService;
+
+    @Autowired
+    GameCalendarRepository gameCalendarRepository;
+
+    @Autowired
+    com.footballmanagergamesimulator.service.PlannedTransferService plannedTransferService;
+
+    @Autowired
+    com.footballmanagergamesimulator.service.TransferInstallmentService transferInstallmentService;
+    @Autowired
+    com.footballmanagergamesimulator.service.TransferBonusService transferBonusService;
+    @org.springframework.beans.factory.annotation.Autowired
+    com.footballmanagergamesimulator.service.ContractSignature contractSignature;
+
     @GetMapping("/incoming/{teamId}")
     @Transactional
     public List<TransferOfferView> getIncomingOffers(@PathVariable(name = "teamId") long teamId) {
@@ -100,10 +116,12 @@ public class TransferOfferController {
         List<TransferOffer> pending = transferOfferRepository.findAllByFromTeamIdAndStatus(teamId, "pending");
         List<TransferOffer> negotiating = transferOfferRepository.findAllByFromTeamIdAndStatus(teamId, "negotiating");
         List<TransferOffer> counter = transferOfferRepository.findAllByFromTeamIdAndStatus(teamId, "counter");
+        List<TransferOffer> feeAgreed = transferOfferRepository.findAllByFromTeamIdAndStatus(teamId, TransferOffer.STATUS_FEE_AGREED);
         List<TransferOffer> all = new ArrayList<>();
         all.addAll(pending);
         all.addAll(negotiating);
         all.addAll(counter);
+        all.addAll(feeAgreed);
         Set<Long> playerIds = all.stream().map(TransferOffer::getPlayerId)
                 .collect(java.util.stream.Collectors.toSet());
         Map<Long, Human> players = humanRepository.findAllById(playerIds).stream()
@@ -134,64 +152,53 @@ public class TransferOfferController {
         return combined;
     }
 
-    @PostMapping("/makeOffer")
+    // ==================== FEE TALKS WITH THE SELLING CLUB (rounds, decided 2026-11-12) ====================
+
+    /** A rejected request; the code is stable for the frontend, the message readable. */
+    private static ResponseEntity<Map<String, Object>> talksError(int status, String code, String message) {
+        return ResponseEntity.status(status).body(Map.of("success", false, "code", code, "message", message));
+    }
+
+    /**
+     * "Make transfer offer": opens fee talks with the selling club, or returns the talks already open
+     * (or the fee already agreed) for this player, so the button always leads back to them.
+     */
+    @PostMapping("/talks/start")
     @Transactional
-    public ResponseEntity<?> makeOffer(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        if (!competitionController.isTransferWindowOpen()) {
-            return ResponseEntity.badRequest().body("Transfer window is not open. You can only make offers during the transfer window (end of season).");
-        }
-
+    public ResponseEntity<?> startTalks(HttpServletRequest request, @RequestBody Map<String, Object> body) {
         long playerId = ((Number) body.get("playerId")).longValue();
-        long offerAmount = ((Number) body.get("offerAmount")).longValue();
+        long humanTeamId = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER).teamId();
 
-        // Lock ownership until the offer response and any immediate transfer finish.
-        Optional<Human> playerOpt = humanRepository.findByIdForUpdate(playerId);
-        if (playerOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body("Player not found");
-        }
+        Optional<TransferOffer> existing = transferOfferRepository.findAllByPlayerIdAndStatusIn(playerId,
+                        List.of(TransferOffer.STATUS_TALKS, TransferOffer.STATUS_FINAL_OFFER, TransferOffer.STATUS_FEE_AGREED))
+                .stream().filter(o -> o.getFromTeamId() == humanTeamId && "outgoing".equalsIgnoreCase(o.getDirection()))
+                .findFirst();
+        if (existing.isPresent()) return ResponseEntity.ok(talksView(existing.get()));
 
-        Human player = playerOpt.get();
-        var actor = clubActionAuthorizationService.authorize(request, body,
-                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER);
-        long humanTeamId = actor.teamId();
-
-        long buyCap = coachPermissionService.transferBudgetCap(humanTeamId);
-        if (!actor.chairman() && buyCap >= 0 && offerAmount > buyCap) {
-            return ResponseEntity.status(403).body("Restricționat de patron: oferta depășește plafonul de transfer (" + buyCap + ").");
-        }
-
-        if (player.getTeamId() == null || player.getTeamId() == humanTeamId) {
-            return ResponseEntity.badRequest().body("Cannot buy a player from your own team");
+        int today = gameDay();
+        int blockedUntil = transferOfferRepository.findAllByPlayerIdAndStatusIn(playerId, List.of(TransferOffer.STATUS_REJECTED))
+                .stream().filter(o -> o.getFromTeamId() == humanTeamId)
+                .mapToInt(TransferOffer::getRetryAfterDay).max().orElse(0);
+        if (blockedUntil > today) {
+            int days = blockedUntil - today;
+            return talksError(409, "COOLDOWN", "The club will not talk to you about this player for "
+                    + days + (days == 1 ? " more day." : " more days."));
         }
 
-        if (player.isRetired()) {
-            return ResponseEntity.badRequest().body("Player is retired");
+        if (!competitionController.isTransferWindowOpen()) {
+            return talksError(400, "WINDOW_CLOSED", "Transfer window is not open.");
         }
-        if (player.isWillNeverLeave()) {
-            return ResponseEntity.status(409).body("This player will never leave their current club");
-        }
-        if (!loanRepository.findAllByPlayerIdAndStatus(player.getId(), "active").isEmpty()) {
-            return ResponseEntity.status(409).body("A player currently on loan cannot be transferred permanently");
-        }
+        Human player = humanRepository.findByIdForUpdate(playerId).orElse(null);
+        if (player == null) return talksError(400, "PLAYER_NOT_FOUND", "Player not found");
+        ResponseEntity<Map<String, Object>> unavailable = unavailableForTransfer(player, humanTeamId);
+        if (unavailable != null) return unavailable;
 
         Team humanTeam = teamRepository.findById(humanTeamId).orElse(null);
-        if (humanTeam == null) {
-            return ResponseEntity.badRequest().body("Human team not found");
-        }
-
-        if (offerAmount > humanTeam.getTransferBudget()) {
-            return ResponseEntity.badRequest().body("Insufficient transfer budget");
-        }
-
         Team sellingTeam = teamRepository.findById(player.getTeamId()).orElse(null);
-        if (sellingTeam == null) {
-            return ResponseEntity.badRequest().body("Selling team not found");
-        }
+        if (humanTeam == null || sellingTeam == null) return talksError(400, "TEAM_NOT_FOUND", "Team not found");
 
-        long askingPrice = calculateTransferValue(player.getAge(), player.getPosition(), player.getRating());
         Round round = roundRepository.findById(1L).orElse(new Round());
-        int season = (int) round.getSeason();
-
         TransferOffer offer = new TransferOffer();
         offer.setPlayerId(player.getId());
         offer.setPlayerName(player.getName());
@@ -199,57 +206,257 @@ public class TransferOfferController {
         offer.setFromTeamName(humanTeam.getName());
         offer.setToTeamId(sellingTeam.getId());
         offer.setToTeamName(sellingTeam.getName());
-        offer.setOfferAmount(offerAmount);
-        offer.setAskingPrice(askingPrice);
-        offer.setSeasonNumber(season);
+        // Real price → the club's ask (−35%…+40%, shown) → its minimum (ask −0…30%, hidden).
+        long realPrice = transferPricingService.realPrice(player, humanTeamId, (int) round.getSeason());
+        long ask = com.footballmanagergamesimulator.service.TransferPricing.clubWants(
+                realPrice, player.getReleaseClause(), random);
+        offer.setRealPrice(realPrice);
+        offer.setSellerSituation(transferPricingService.sellerSituation(player, (int) round.getSeason()).name());
+        offer.setAskingPrice(ask);
+        offer.setMinimumPrice(com.footballmanagergamesimulator.service.ClubNegotiation.minimum(ask, random));
+        offer.setSeasonNumber((int) round.getSeason());
         offer.setDirection("outgoing");
         offer.setCreatedAt(System.currentTimeMillis());
+        offer.setStatus(TransferOffer.STATUS_TALKS);
+        offer.setRound(1);
+        offer.setRounds(com.footballmanagergamesimulator.service.ClubNegotiation.roundsOf(sellingTeam.getId()));
+        return ResponseEntity.ok(talksView(transferOfferRepository.save(offer)));
+    }
 
-        // Release clause enforcement: if player has a release clause and offer meets it, auto-accept
-        if (player.getReleaseClause() > 0 && offerAmount >= player.getReleaseClause()) {
-            offer.setStatus("accepted");
-            transferOfferRepository.save(offer);
-            executeTransfer(player, sellingTeam, humanTeam, offerAmount, season);
-            transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
-            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Release Clause Triggered",
-                    "Your offer of " + offerAmount + " has triggered the release clause for " +
-                    player.getName() + ". The transfer is complete!",
-                    "transfer");
-            return ResponseEntity.ok(offer);
+    @GetMapping("/talks/{offerId}")
+    public ResponseEntity<?> getTalks(HttpServletRequest request, @PathVariable long offerId) {
+        long humanTeamId = userContext.getTeamId(request);
+        Optional<TransferOffer> offer = transferOfferRepository.findById(offerId)
+                .filter(o -> o.getFromTeamId() == humanTeamId && "outgoing".equalsIgnoreCase(o.getDirection()));
+        if (offer.isEmpty()) return talksError(404, "OFFER_NOT_FOUND", "Offer not found");
+        return ResponseEntity.ok(talksView(offer.get()));
+    }
+
+    /** My fee offer in the current round. */
+    @PostMapping("/talks/{offerId}/offer")
+    @Transactional
+    public ResponseEntity<?> offerInTalks(HttpServletRequest request, @PathVariable long offerId,
+                                          @RequestBody Map<String, Object> body) {
+        var actor = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER);
+        com.footballmanagergamesimulator.service.TransferPoints.Offer extras = new com.footballmanagergamesimulator.service.TransferPoints.Offer(
+                longOf(body, "offerAmount"), (int) longOf(body, "installmentCount"), longOf(body, "installmentAmount"),
+                (int) longOf(body, "sellOnPercent"), longOf(body, "buyBackPrice"),
+                (int) longOf(body, "goalsBonusTarget"), longOf(body, "goalsBonusAmount"), longOf(body, "titleBonusAmount"));
+        long amount = extras.upfront();
+        TransferOffer offer = ownTalks(offerId, actor.teamId());
+        if (offer == null) return talksError(404, "OFFER_NOT_FOUND", "Offer not found");
+        if (!TransferOffer.STATUS_TALKS.equals(offer.getStatus())) {
+            return talksError(409, "NOT_OPEN", "There is no round open for an offer.");
+        }
+        if (!competitionController.isTransferWindowOpen()) return closeWithWindow(offer);
+        Human player = humanRepository.findByIdForUpdate(offer.getPlayerId()).orElse(null);
+        if (player == null || !Objects.equals(player.getTeamId(), offer.getToTeamId())) {
+            return endTalks(offer, "The player is no longer at " + offer.getToTeamName() + ".");
+        }
+        if (!extras.valid()) {
+            return talksError(400, "INVALID_OFFER",
+                    "Check the offer: up to 3 instalments, a sell-on of 0–50%, a goals bonus needs a target of 1–60 goals.");
+        }
+        if (amount > 0) {
+            ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, amount);
+            if (unaffordable != null) return unaffordable;
         }
 
-        // AI responds immediately
-        if (offerAmount >= askingPrice) {
-            // Accept - execute transfer
-            offer.setStatus("accepted");
-            transferOfferRepository.save(offer);
-            executeTransfer(player, sellingTeam, humanTeam, offerAmount, season);
-            transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
-            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Accepted",
-                    sellingTeam.getName() + " have accepted your offer of " + offerAmount +
-                    " for " + player.getName() + ". The transfer is complete!",
-                    "transfer");
-        } else if (offerAmount >= (long)(askingPrice * 0.8)) {
-            // Counter with asking price
-            offer.setStatus("counter");
-            offer = transferOfferRepository.save(offer);
-            mediaNarrativeService.publishTransferRumour(offer, (int) round.getRound());
-            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Counter-Offer",
-                    sellingTeam.getName() + " have rejected your offer of " + offerAmount +
-                    " for " + player.getName() + " but are willing to negotiate. " +
-                    "Their asking price is " + askingPrice + ".",
-                    "transfer");
-        } else {
-            // Reject
-            offer.setStatus("rejected");
-            transferOfferRepository.save(offer);
-            sendInboxMessage(humanTeamId, season, (int) round.getRound(), "Transfer Rejected",
-                    sellingTeam.getName() + " have rejected your offer of " + offerAmount +
-                    " for " + player.getName() + ". The offer was too low.",
-                    "transfer");
+        offer.setOfferAmount(amount);
+        offer.setInstallmentCount(extras.instalments());
+        offer.setInstallmentAmount(extras.instalments() == 0 ? 0 : extras.instalmentAmount());
+        offer.setSellOnPercent(extras.sellOnPercent());
+        offer.setBuyBackPrice(extras.buyBackPrice());
+        offer.setGoalsBonusTarget(extras.goalsBonusAmount() == 0 ? 0 : extras.goalsBonusTarget());
+        offer.setGoalsBonusAmount(extras.goalsBonusAmount());
+        offer.setTitleBonusAmount(extras.titleBonusAmount());
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        // The release clause is cash: only the money paid now triggers it. Otherwise the club weighs the whole
+        // offer in transfer points, by what each extra is worth in its situation.
+        boolean clause = player.getReleaseClause() > 0 && amount >= player.getReleaseClause();
+        var chances = transferBonusService.chances(player.getId(), extras.goalsBonusTarget(), offer.getFromTeamId(),
+                com.footballmanagergamesimulator.service.PlannedTransferService.seasonOf(gameDay()));
+        long points = com.footballmanagergamesimulator.service.TransferPoints.points(extras, offer.getRealPrice(),
+                sellerSituation(offer), chances.goals(), chances.title());
+        var answer = com.footballmanagergamesimulator.service.ClubNegotiation.answer(clause ? offer.getAskingPrice() : points,
+                offer.getAskingPrice(), offer.getMinimumPrice(), 0, offer.getRound(), offer.getRounds(), random);
+        offer.setAskingPrice(answer.ask());
+        // The club answered me: an AI club planning to sign him has to wait (design §3.6).
+        plannedTransferService.postpone(offer.getPlayerId());
+        switch (answer.outcome()) {
+            case FEE_AGREED -> agreeFee(offer, round, clause
+                    ? "Your offer of " + amount + " has triggered the release clause for " + player.getName() + "."
+                    : offer.getToTeamName() + " have accepted your offer for " + player.getName() + ": " + describe(offer) + ".");
+            case TURNED_DOWN -> offer.setRound(offer.getRound() + 1);
+            case FINAL_OFFER -> {
+                offer.setRound(offer.getRound() + 1);
+                offer.setStatus(TransferOffer.STATUS_FINAL_OFFER);
+            }
+            case CLUB_WALKED_AWAY -> {
+                offer.setStatus(TransferOffer.STATUS_REJECTED);
+                offer.setRetryAfterDay(gameDay() + com.footballmanagergamesimulator.service.ClubNegotiation.cooldownDays(random));
+                sendInboxMessage(offer.getFromTeamId(), (int) round.getSeason(), (int) round.getRound(), "Transfer Talks Ended",
+                        offer.getToTeamName() + " found your offer of " + amount + " for " + player.getName()
+                                + " far too low and ended the talks.", "transfer");
+            }
         }
+        return ResponseEntity.ok(talksView(transferOfferRepository.save(offer)));
+    }
 
-        return ResponseEntity.ok(offer);
+    /** My answer to the club's take-it-or-leave-it offer (its asking price). */
+    @PostMapping("/talks/{offerId}/final")
+    @Transactional
+    public ResponseEntity<?> answerClubFinalOffer(HttpServletRequest request, @PathVariable long offerId,
+                                                  @RequestBody Map<String, Object> body) {
+        var actor = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER);
+        boolean accept = Boolean.parseBoolean(String.valueOf(body.get("accept")));
+        TransferOffer offer = ownTalks(offerId, actor.teamId());
+        if (offer == null) return talksError(404, "OFFER_NOT_FOUND", "Offer not found");
+        if (!TransferOffer.STATUS_FINAL_OFFER.equals(offer.getStatus())) {
+            return talksError(409, "NO_FINAL_OFFER", "The club has not made a final offer.");
+        }
+        if (!competitionController.isTransferWindowOpen()) return closeWithWindow(offer);
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        if (!accept) {
+            offer.setStatus(TransferOffer.STATUS_REJECTED);
+            offer.setRetryAfterDay(gameDay() + com.footballmanagergamesimulator.service.ClubNegotiation.cooldownDays(random));
+            return ResponseEntity.ok(talksView(transferOfferRepository.save(offer)));
+        }
+        Human player = humanRepository.findByIdForUpdate(offer.getPlayerId()).orElse(null);
+        if (player == null || !Objects.equals(player.getTeamId(), offer.getToTeamId())) {
+            return endTalks(offer, "The player is no longer at " + offer.getToTeamName() + ".");
+        }
+        ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, offer.getAskingPrice());
+        if (unaffordable != null) return unaffordable;
+        offer.setOfferAmount(offer.getAskingPrice());
+        offer.setInstallmentCount(0);
+        offer.setInstallmentAmount(0);
+        offer.setSellOnPercent(0);
+        offer.setBuyBackPrice(0);
+        offer.setGoalsBonusTarget(0);
+        offer.setGoalsBonusAmount(0);
+        offer.setTitleBonusAmount(0);
+        plannedTransferService.postpone(offer.getPlayerId());
+        agreeFee(offer, round, "You accepted the asking price of " + offer.getAskingPrice() + " for "
+                + offer.getPlayerName() + " set by " + offer.getToTeamName() + ".");
+        return ResponseEntity.ok(talksView(transferOfferRepository.save(offer)));
+    }
+
+    /** The talks as the buyer sees them: the club's ask, never its minimum. */
+    Map<String, Object> talksView(TransferOffer offer) {
+        int currentGameDay = gameDay();
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", offer.getId());
+        view.put("playerId", offer.getPlayerId());
+        view.put("playerName", offer.getPlayerName());
+        view.put("toTeamId", offer.getToTeamId());
+        view.put("toTeamName", offer.getToTeamName());
+        view.put("offerAmount", offer.getOfferAmount());
+        view.put("askingPrice", offer.getAskingPrice()); // the minimum stays hidden
+        view.put("status", offer.getStatus());
+        view.put("round", offer.getRound());
+        view.put("rounds", offer.getRounds());
+        view.put("retryAfterDays", Math.max(0, offer.getRetryAfterDay() - currentGameDay));
+        view.put("installmentCount", offer.getInstallmentCount());
+        view.put("installmentAmount", offer.getInstallmentAmount());
+        view.put("sellOnPercent", offer.getSellOnPercent());
+        view.put("buyBackPrice", offer.getBuyBackPrice());
+        view.put("goalsBonusTarget", offer.getGoalsBonusTarget());
+        view.put("goalsBonusAmount", offer.getGoalsBonusAmount());
+        view.put("titleBonusAmount", offer.getTitleBonusAmount());
+        return view;
+    }
+
+    /** Today as an absolute game day (season × 365 + day), for cool-downs that cross a season. */
+    int gameDay() {
+        return gameCalendarRepository.findAll().stream()
+                .max(java.util.Comparator.comparingInt(GameCalendar::getSeason))
+                .map(c -> c.getSeason() * 365 + c.getCurrentDay())
+                .orElse(0);
+    }
+
+    private static com.footballmanagergamesimulator.service.TransferPoints.Situation sellerSituation(TransferOffer offer) {
+        try {
+            return com.footballmanagergamesimulator.service.TransferPoints.Situation.valueOf(offer.getSellerSituation());
+        } catch (RuntimeException unknown) {
+            return com.footballmanagergamesimulator.service.TransferPoints.Situation.STABLE;
+        }
+    }
+
+    private static long longOf(Map<String, Object> body, String key) {
+        Object value = body.get(key);
+        return value == null || String.valueOf(value).isBlank() ? 0 : ((Number) value).longValue();
+    }
+
+    /** "1,000,000 now + 2 × 300,000 + 20% sell-on + buy-back at 2,000,000" */
+    static String describe(TransferOffer offer) {
+        StringBuilder text = new StringBuilder(String.format("%,d now", offer.getOfferAmount()));
+        if (offer.getInstallmentCount() > 0) {
+            text.append(String.format(" + %d × %,d", offer.getInstallmentCount(), offer.getInstallmentAmount()));
+        }
+        if (offer.getSellOnPercent() > 0) text.append(" + ").append(offer.getSellOnPercent()).append("% sell-on");
+        if (offer.getBuyBackPrice() > 0) text.append(String.format(" + buy-back at %,d", offer.getBuyBackPrice()));
+        if (offer.getGoalsBonusAmount() > 0) {
+            text.append(String.format(" + %,d at %d goals in a season", offer.getGoalsBonusAmount(), offer.getGoalsBonusTarget()));
+        }
+        if (offer.getTitleBonusAmount() > 0) text.append(String.format(" + %,d for a league title", offer.getTitleBonusAmount()));
+        return text.toString();
+    }
+
+    private TransferOffer ownTalks(long offerId, long teamId) {
+        return transferOfferRepository.findByIdForUpdate(offerId)
+                .filter(o -> o.getFromTeamId() == teamId && "outgoing".equalsIgnoreCase(o.getDirection()))
+                .orElse(null);
+    }
+
+    /** The fee is agreed: the transfer waits for personal terms, reached from the inbox button. */
+    private void agreeFee(TransferOffer offer, Round round, String content) {
+        offer.setStatus(TransferOffer.STATUS_FEE_AGREED);
+        sendNegotiationInvite(offer, (int) round.getSeason(), (int) round.getRound(), "Transfer Fee Accepted",
+                content + " Agree personal terms with the player to complete the transfer.");
+    }
+
+    /** Fee talks do not block the day, so the window can close under them: they end without a deal. */
+    private ResponseEntity<?> closeWithWindow(TransferOffer offer) {
+        offer.setStatus(TransferOffer.STATUS_REJECTED);
+        transferOfferRepository.save(offer);
+        return talksError(409, "WINDOW_CLOSED", "The transfer window has closed. The talks are over.");
+    }
+
+    /** Talks that can no longer succeed are closed so the day is not blocked. */
+    private ResponseEntity<?> endTalks(TransferOffer offer, String reason) {
+        offer.setStatus(TransferOffer.STATUS_REJECTED);
+        transferOfferRepository.save(offer);
+        return talksError(409, "PLAYER_GONE", reason);
+    }
+
+    /** Null when the offer fits the budget and the owner's cap; otherwise the rejection. */
+    private ResponseEntity<Map<String, Object>> unaffordable(
+            com.footballmanagergamesimulator.service.ClubActionAuthorizationService.ClubActor actor, long amount) {
+        if (amount <= 0) return talksError(400, "INVALID_AMOUNT", "The offer must be positive.");
+        long buyCap = coachPermissionService.transferBudgetCap(actor.teamId());
+        if (!actor.chairman() && buyCap >= 0 && amount > buyCap) {
+            return talksError(403, "OVER_CAP", "Restricționat de patron: oferta depășește plafonul de transfer (" + buyCap + ").");
+        }
+        Team team = teamRepository.findById(actor.teamId()).orElse(null);
+        if (team == null || amount > team.getTransferBudget()) {
+            return talksError(400, "INSUFFICIENT_BUDGET", "Insufficient transfer budget");
+        }
+        return null;
+    }
+
+    /** Null when the player can be bought by this club; otherwise the rejection. */
+    private ResponseEntity<Map<String, Object>> unavailableForTransfer(Human player, long humanTeamId) {
+        if (player.getTeamId() == null || player.getTeamId() == humanTeamId) {
+            return talksError(400, "OWN_PLAYER", "Cannot buy a player from your own team");
+        }
+        if (player.isRetired()) return talksError(400, "RETIRED", "Player is retired");
+        if (!loanRepository.findAllByPlayerIdAndStatus(player.getId(), "active").isEmpty()) {
+            return talksError(409, "ON_LOAN", "A player currently on loan cannot be transferred permanently");
+        }
+        return null;
     }
 
     @PostMapping("/respond/{offerId}")
@@ -632,6 +839,7 @@ public class TransferOfferController {
         long previousTeamId = sellingTeam.getId();
 
         player.setTeamId(buyingTeam.getId());
+        contractSignature.mark(player);
         player.setSeasonMatchesPlayed(0);
         player.setConsecutiveBenched(0);
         // Clear old sell-on clause; the buying team can set a new one during contract negotiation
@@ -695,6 +903,114 @@ public class TransferOfferController {
         return offers.stream()
                 .filter(offer -> !stalePlayerIds.contains(offer.getPlayerId()))
                 .toList();
+    }
+
+    /** Inbox message with a button that opens (and later reopens) the personal-terms negotiation. */
+    private void sendNegotiationInvite(TransferOffer offer, int season, int roundNumber, String title, String content) {
+        ManagerInbox inbox = new ManagerInbox();
+        inbox.setTeamId(offer.getFromTeamId());
+        inbox.setSeasonNumber(season);
+        inbox.setRoundNumber(roundNumber);
+        inbox.setTitle(title);
+        inbox.setContent(content);
+        inbox.setCategory("transfer");
+        inbox.setRead(false);
+        inbox.setCreatedAt(System.currentTimeMillis());
+        inbox.setActionType(ManagerInbox.ACTION_NEGOTIATE_TRANSFER);
+        inbox.setActionRefId(offer.getId());
+        managerInboxRepository.save(inbox);
+    }
+
+    /** Personal terms agreed: the fee-agreed offer becomes the actual transfer. */
+    @Override
+    @Transactional
+    public void complete(long transferOfferId) {
+        TransferOffer offer = transferOfferRepository.findByIdForUpdate(transferOfferId)
+                .filter(o -> TransferOffer.STATUS_FEE_AGREED.equals(o.getStatus()))
+                .orElseThrow(() -> new IllegalStateException("The fee agreement is no longer valid"));
+        Human player = humanRepository.findByIdForUpdate(offer.getPlayerId()).orElseThrow();
+        Team sellingTeam = teamRepository.findById(offer.getToTeamId()).orElseThrow();
+        Team buyingTeam = teamRepository.findById(offer.getFromTeamId()).orElseThrow();
+        executeTransfer(player, sellingTeam, buyingTeam, offer.getOfferAmount(), offer.getSeasonNumber());
+        applyExtras(offer, player, sellingTeam, buyingTeam);
+        offer.setStatus("accepted");
+        transferOfferRepository.save(offer);
+        transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        sendInboxMessage(buyingTeam.getId(), (int) round.getSeason(), (int) round.getRound(), "Transfer Completed",
+                player.getName() + " has agreed personal terms and joins from " + sellingTeam.getName() + ".",
+                "transfer");
+    }
+
+    /**
+     * I sold this player with a buy-back clause: I take him back at the agreed price, as long as the clause runs
+     * and the window is open. No talks: the clause was agreed when I sold him.
+     */
+    @PostMapping("/buyBack/{playerId}")
+    @Transactional
+    public ResponseEntity<?> exerciseBuyBack(HttpServletRequest request, @PathVariable long playerId,
+                                             @RequestBody(required = false) Map<String, Object> body) {
+        var actor = clubActionAuthorizationService.authorize(request, body == null ? Map.of() : body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER);
+        Human player = humanRepository.findByIdForUpdate(playerId).orElse(null);
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        if (player == null || player.getBuyBackClubId() != actor.teamId()
+                || player.getBuyBackUntilSeason() < round.getSeason() || player.getTeamId() == null) {
+            return talksError(400, "NO_BUY_BACK", "You hold no buy-back clause for this player.");
+        }
+        if (!competitionController.isTransferWindowOpen()) {
+            return talksError(400, "WINDOW_CLOSED", "Transfer window is not open.");
+        }
+        ResponseEntity<Map<String, Object>> unaffordable = unaffordable(actor, player.getBuyBackPrice());
+        if (unaffordable != null) return unaffordable;
+        Team seller = teamRepository.findById(player.getTeamId()).orElse(null);
+        Team me = teamRepository.findById(actor.teamId()).orElse(null);
+        if (seller == null || me == null) return talksError(400, "TEAM_NOT_FOUND", "Team not found");
+        long price = player.getBuyBackPrice();
+        player.setBuyBackClubId(0);
+        player.setBuyBackPrice(0);
+        player.setBuyBackUntilSeason(0);
+        executeTransfer(player, seller, me, price, (int) round.getSeason());
+        transferOfferLifecycleService.removeActiveOffersForPlayer(player.getId());
+        sendInboxMessage(me.getId(), (int) round.getSeason(), (int) round.getRound(), "Buy-Back Completed",
+                player.getName() + " is back at the club for " + String.format("%,d", price) + ".", "transfer");
+        return ResponseEntity.ok(Map.of("success", true, "message", player.getName() + " is back at the club."));
+    }
+
+    /** The extras agreed with the selling club: sell-on and buy-back on the player, instalments booked. */
+    private void applyExtras(TransferOffer offer, Human player, Team sellingTeam, Team buyingTeam) {
+        Round round = roundRepository.findById(1L).orElse(new Round());
+        if (offer.getSellOnPercent() > 0) {
+            player.setSellOnPercentage(offer.getSellOnPercent());
+            player.setSellOnClubId(sellingTeam.getId());
+        }
+        if (offer.getBuyBackPrice() > 0) {
+            player.setBuyBackClubId(sellingTeam.getId());
+            player.setBuyBackPrice(offer.getBuyBackPrice());
+            player.setBuyBackUntilSeason((int) round.getSeason() + com.footballmanagergamesimulator.service.TransferPoints.BUY_BACK_SEASONS);
+        }
+        humanRepository.save(player);
+        if (offer.getInstallmentCount() > 0) {
+            transferInstallmentService.schedule(player.getId(), player.getName(), buyingTeam.getId(), sellingTeam.getId(),
+                    offer.getInstallmentCount(), offer.getInstallmentAmount(), (int) round.getSeason());
+        }
+        if (offer.getGoalsBonusAmount() > 0 || offer.getTitleBonusAmount() > 0) {
+            transferBonusService.schedule(player.getId(), player.getName(), buyingTeam.getId(), sellingTeam.getId(),
+                    offer.getGoalsBonusTarget(), offer.getGoalsBonusAmount(), offer.getTitleBonusAmount(), gameDay());
+        }
+    }
+
+    /** Personal terms failed: the fee agreement lapses. */
+    @Override
+    @Transactional
+    public void collapse(long transferOfferId, String reason) {
+        transferOfferRepository.findById(transferOfferId).ifPresent(offer -> {
+            offer.setStatus(TransferOffer.STATUS_TERMS_FAILED);
+            transferOfferRepository.save(offer);
+            Round round = roundRepository.findById(1L).orElse(new Round());
+            sendInboxMessage(offer.getFromTeamId(), (int) round.getSeason(), (int) round.getRound(), "Transfer Collapsed",
+                    "The transfer of " + offer.getPlayerName() + " collapsed: " + reason + ".", "transfer");
+        });
     }
 
     private void sendInboxMessage(long teamId, int season, int roundNumber, String title, String content, String category) {
@@ -786,6 +1102,7 @@ public class TransferOfferController {
         player.setTeamId(humanTeamId);
         player.setWage(offeredWage);
         player.setContractEndSeason(season + contractYears);
+        contractSignature.mark(player);
         player.setSeasonMatchesPlayed(0);
         player.setConsecutiveBenched(0);
         player.setMorale(75);
@@ -804,17 +1121,7 @@ public class TransferOfferController {
     }
 
     public long calculateTransferValue(long age, String position, double rating) {
-        double baseValue = Math.pow(rating, 3) * 20;
-        double ageMultiplier;
-        if (age <= 21) ageMultiplier = 1.3;
-        else if (age <= 23) ageMultiplier = 1.1;
-        else if (age <= 25) ageMultiplier = 1.0;
-        else if (age <= 27) ageMultiplier = 0.95;
-        else if (age <= 29) ageMultiplier = 0.75;
-        else if (age <= 31) ageMultiplier = 0.45;
-        else if (age <= 33) ageMultiplier = 0.2;
-        else ageMultiplier = 0.08;
-        return Math.max(50_000L, (long) (baseValue * ageMultiplier));
+        return com.footballmanagergamesimulator.service.TransferValuation.of(age, rating);
     }
 
 }

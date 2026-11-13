@@ -46,10 +46,14 @@ public final class DefensiveExposureFormula {
         return exposure;
     }
 
+    /**
+     * Inputs are normalised attribute values: 1.0 at 20, above 1 for attributes over 20 (they are allowed since
+     * step 1.3, and every point counts). The centre-back's recovery pace is capped anyway.
+     */
     public double coverage(double bestDm, double secondDm, double cbRecoveryPace) {
-        requireUnit(bestDm, "bestDm");
-        requireUnit(secondDm, "secondDm");
-        requireUnit(cbRecoveryPace, "cbRecoveryPace");
+        requireNonNegative(bestDm, "bestDm");
+        requireNonNegative(secondDm, "secondDm");
+        requireNonNegative(cbRecoveryPace, "cbRecoveryPace");
         return bestDm + config.getExposure().getSecondDmWeight() * secondDm
                 + Math.min(cbRecoveryPace, config.getExposure().getCbRecoveryPaceCap());
     }
@@ -69,9 +73,9 @@ public final class DefensiveExposureFormula {
                 attackProtection * penaltyMultiplier);
     }
 
-    private static void requireUnit(double value, String name) {
-        if (!Double.isFinite(value) || value < 0 || value > 1) {
-            throw new IllegalArgumentException(name + " must be in [0,1]");
+    private static void requireNonNegative(double value, String name) {
+        if (!Double.isFinite(value) || value < 0) {
+            throw new IllegalArgumentException(name + " must be finite and non-negative");
         }
     }
 

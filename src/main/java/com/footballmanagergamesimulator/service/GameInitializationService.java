@@ -88,6 +88,8 @@ public class GameInitializationService {
     @Autowired private SuperCupService superCupService;
     @Autowired private CompetitionReputationService competitionReputationService;
     @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
+    @Autowired private AgentService agentService;
+    @Autowired(required = false) private com.footballmanagergamesimulator.service.board.ClubBoardService clubBoardService;
 
     /**
      * Resume-aware initialization. If a Round row already exists, returns it
@@ -106,6 +108,8 @@ public class GameInitializationService {
                         + " hand-authored player(s) from transfers ===");
             }
             Round round = existing.get();
+            agentService.ensureAgents();
+            if (clubBoardService != null) clubBoardService.ensureBoards();
             applyManagerTacticPolicyDefaultsIfNeeded(round);
             System.out.println("=== Resuming from season " + round.getSeason()
                     + ", round " + round.getRound() + " ===");
@@ -129,6 +133,8 @@ public class GameInitializationService {
             competitionReputationService.ensureReputations();
             bootstrapService.ensureSpecialPlayersNeverLeave();
             newSeasonPlayerReadinessService.resetActiveTeamPlayers();
+            agentService.ensureAgents();
+            if (clubBoardService != null) clubBoardService.ensureBoards();
             Round restored = roundRepository.findById(1L).orElseThrow(() ->
                     new IllegalStateException("Pre-built snapshot contained no Round — delete "
                             + prebuiltDataService.snapshotFile() + " and regenerate"));
@@ -160,6 +166,8 @@ public class GameInitializationService {
 
         generateInitialSquadsAndStaff(round);
         bootstrapService.initializeSpecialPlayers();
+        agentService.ensureAgents();
+        if (clubBoardService != null) clubBoardService.ensureBoards();
         newSeasonPlayerReadinessService.resetActiveTeamPlayers();
 
         staffService.generateFreeAgentCoaches(30, 1);

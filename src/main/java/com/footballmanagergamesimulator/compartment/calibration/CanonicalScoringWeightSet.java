@@ -38,7 +38,7 @@ public final class CanonicalScoringWeightSet {
         if (override.key().contains("quantile") && (override.value() <= 0 || override.value() >= 1)) {
             throw new IllegalArgumentException("quantile must be in (0,1)");
         }
-        if ((override.key().endsWith("suitability-scale") || override.key().endsWith("scale-multiplier"))
+        if (override.key().endsWith("suitability-scale")
                 && override.value() <= 0) throw new IllegalArgumentException("scale must be positive");
         if (key.type() == CanonicalScoringWeightKey.Type.CONTINUOUS && override.value() == 0.0
                 && key.baselineValue() instanceof Number n && n.doubleValue() > 0.0) {
@@ -85,20 +85,12 @@ public final class CanonicalScoringWeightSet {
             match.getPlayerValue().setMoraleNeutral(override.value());
         } else if (key.equals("match.player-value.morale-slope")) {
             match.getPlayerValue().setMoraleSlope(override.value());
-        } else if (key.equals("match.player-value.scale-multiplier")) {
-            match.getPlayerValue().setScaleMultiplier(override.value());
         } else if (key.equals("match.player-value.rating-floor")) {
             match.getPlayerValue().setRatingFloor(override.value());
-        } else if (key.equals("match.player-value.rating-ceil")) {
-            match.getPlayerValue().setRatingCeil(override.value());
         } else if (key.equals("match.player-value.fitness-floor")) {
             match.getPlayerValue().setFitnessFloor(override.value());
         } else if (key.equals("match.player-value.default-familiarity-penalty")) {
             match.getPlayerValue().setDefaultFamiliarityPenalty(override.value());
-        } else if (key.startsWith("match.player-value.weights.")) {
-            String[] parts = key.split("\\.");
-            if (parts.length != 5) throw new IllegalArgumentException("unsupported player-value weight: " + key);
-            match.getPlayerValue().getWeights().computeIfAbsent(parts[3], ignored -> new LinkedHashMap<>()).put(parts[4], override.value());
         } else if (key.startsWith("match.player-value.familiarity-penalty.")) {
             String[] parts = key.split("\\.");
             if (parts.length != 5) throw new IllegalArgumentException("unsupported familiarity weight: " + key);
@@ -367,14 +359,11 @@ public final class CanonicalScoringWeightSet {
     private static MatchEngineConfig copyMatch(MatchEngineConfig source) {
         if (source == null) throw new NullPointerException("match");
         MatchEngineConfig target = new MatchEngineConfig();
-        target.getPlayerValue().setScaleMultiplier(source.getPlayerValue().getScaleMultiplier());
         target.getPlayerValue().setRatingFloor(source.getPlayerValue().getRatingFloor());
-        target.getPlayerValue().setRatingCeil(source.getPlayerValue().getRatingCeil());
         target.getPlayerValue().setMoraleNeutral(source.getPlayerValue().getMoraleNeutral());
         target.getPlayerValue().setMoraleSlope(source.getPlayerValue().getMoraleSlope());
         target.getPlayerValue().setFitnessFloor(source.getPlayerValue().getFitnessFloor());
         target.getPlayerValue().setDefaultFamiliarityPenalty(source.getPlayerValue().getDefaultFamiliarityPenalty());
-        target.getPlayerValue().setWeights(copyNested(source.getPlayerValue().getWeights()));
         target.getPlayerValue().setFamiliarityPenalty(copyNested(source.getPlayerValue().getFamiliarityPenalty()));
         target.getRoleWeights().setOverallBlend(source.getRoleWeights().getOverallBlend());
         target.getRoleWeights().setRoleBlend(source.getRoleWeights().getRoleBlend());

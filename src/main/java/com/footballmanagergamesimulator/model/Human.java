@@ -27,6 +27,9 @@ public class Human {
      */
     private Long teamId;
     private long agentId;
+    /** What he looks for in a move; null = not assigned yet (see {@link PlayerPersonality#of}). */
+    @Enumerated(EnumType.STRING)
+    private PlayerPersonality playerPersonality;
     private long skillsId;
     private long typeId;
 
@@ -47,6 +50,11 @@ public class Human {
      * Contract information
      */
     private int contractEndSeason;
+    /** When he last signed a contract (renewal, transfer, any new deal); season 0 = not in this world's history. */
+    @Column(columnDefinition = "integer default 0 not null")
+    private int contractSignedSeason;
+    @Column(columnDefinition = "integer default 0 not null")
+    private int contractSignedDay;
     private long wage;
     private long releaseClause;
 
@@ -54,7 +62,14 @@ public class Human {
     @Column(columnDefinition = "int default 0")
     private int sellOnPercentage;      // 0-50: % of future sale sent to sellOnClubId
     @Column(columnDefinition = "bigint default 0")
-    private long sellOnClubId;         // club that receives the sell-on fee
+    private long sellOnClubId;
+    /** Buy-back clause: this club may take him back for buyBackPrice until the end of buyBackUntilSeason. */
+    @Column(columnDefinition = "bigint default 0 not null")
+    private long buyBackClubId;
+    @Column(columnDefinition = "bigint default 0 not null")
+    private long buyBackPrice;
+    @Column(columnDefinition = "integer default 0 not null")
+    private int buyBackUntilSeason;         // club that receives the sell-on fee
     @Column(columnDefinition = "int default 0")
     private int optionalExtensionYears; // 0-2: club can unilaterally extend
     @Column(columnDefinition = "bigint default 0")
@@ -244,6 +259,22 @@ public class Human {
     private int workingWithYoungsters;
     @Column(columnDefinition = "int default 0")
     private int motivating;
+    /*
+     * Second coaching attribute of each training type (see TrainingType): a coach's rating on a
+     * type is the average of the pair. 0 = not generated yet (older staff): the first of the pair counts.
+     */
+    @Column(columnDefinition = "int default 0")
+    private int coachingSetPieces;
+    @Column(columnDefinition = "int default 0")
+    private int coachingDuels;
+    @Column(columnDefinition = "int default 0")
+    private int coachingBallWork;
+    @Column(columnDefinition = "int default 0")
+    private int coachingGameReading;
+    @Column(columnDefinition = "int default 0")
+    private int coachingConditioning;
+    @Column(columnDefinition = "int default 0")
+    private int coachingShotStopping;
 
     @Column(name = "retired")
     @JsonProperty("isRetired")

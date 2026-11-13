@@ -16,6 +16,12 @@ import java.util.*;
 public class YouthAcademyService {
 
     @Autowired
+    private ContractSignature contractSignature;
+
+    @Autowired
+    private PlayerBondService playerBondService;
+
+    @Autowired
     YouthPlayerRepository youthPlayerRepository;
     @Autowired
     HumanRepository humanRepository;
@@ -168,6 +174,7 @@ public class YouthAcademyService {
         human.setCurrentStatus("Junior");
         human.setRetired(false);
         human.setContractEndSeason(currentSeason + 5);
+        contractSignature.mark(human);
         human.setWage(youthWage);
         human.setSalary(youthWage);
         human.setReleaseClause(releaseClause);
@@ -180,6 +187,7 @@ public class YouthAcademyService {
         HumanService.generatePhysicalProfile(human, new java.util.Random());
 
         human = humanRepository.save(human);
+        playerBondService.recordYouthProduct(human.getId(), teamId);
 
         // Generate player skills
         PlayerSkills playerSkills = new PlayerSkills();

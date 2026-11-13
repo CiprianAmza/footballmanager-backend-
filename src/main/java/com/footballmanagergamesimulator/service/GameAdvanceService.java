@@ -39,6 +39,7 @@ import java.util.Objects;
 public class GameAdvanceService {
 
     @Autowired private UserContext userContext;
+    @Autowired private PlannedTransferService plannedTransferService;
     @Autowired private CalendarService calendarService;
     @Autowired private GameCalendarRepository gameCalendarRepository;
     @Autowired private CalendarEventRepository calendarEventRepository;
@@ -393,6 +394,11 @@ public class GameAdvanceService {
             calendarEventDispatcher.processMonthlyWages(season);
         }
 
+        // AI transfers planned for the window happen one day at a time (design §3.6).
+        if (calendar.getCurrentDay() != startDay) {
+            plannedTransferService.executeDue();
+        }
+
         // Safety net: if we're past day 355 with no pending events, trigger season transition
         if (calendar.getCurrentDay() >= 355 && !calendar.isPaused()) {
             CalendarEvent pendingEvent = calendarService.getNextPendingEvent(season);
@@ -447,7 +453,7 @@ public class GameAdvanceService {
             result.put("reason", pauseReason);
             result.put("blockingEvent", blockingEvent);
         }
-        result.put("transferWindowOpen", calendar.isTransferWindowOpen());
+        result.put("transferWindowOpen", com.footballmanagergamesimulator.util.TransferWindow.isOpen(calendar.getCurrentDay()));
         result.put("alwaysContinue", alwaysContinue);
 
         // Find next upcoming event
@@ -475,7 +481,7 @@ public class GameAdvanceService {
         state.put("dayOfWeek", calendarService.getDayOfWeek(calendar.getCurrentDay()));
         state.put("dateDisplay", calendarService.getDateDisplay(calendar.getCurrentDay()));
         state.put("seasonPhase", calendarService.getSeasonPhase(calendar.getCurrentDay()));
-        state.put("transferWindowOpen", calendar.isTransferWindowOpen());
+        state.put("transferWindowOpen", com.footballmanagergamesimulator.util.TransferWindow.isOpen(calendar.getCurrentDay()));
         state.put("managerFired", calendar.isManagerFired());
         state.put("paused", calendar.isPaused());
         state.put("alwaysContinue", isAlwaysContinueActive());

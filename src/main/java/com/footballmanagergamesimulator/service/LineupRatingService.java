@@ -102,8 +102,7 @@ public class LineupRatingService {
      */
     public double getBestElevenRatingByTactic(long teamId, String tactic) {
         // Squad value = sum of the per-player ratings (morale/fitness/familiarity/role/instruction
-        // already baked in). Team talk + home advantage are applied centrally at the scoring call
-        // (MatchSimulationService.effectiveTeamPower).
+        // already baked in). The match score itself comes from Compartment V1.
         return computePlayerRatings(teamId, tactic).stream()
                 .mapToDouble(PlayerRatingLine::rating)
                 .sum();

@@ -49,6 +49,8 @@ class ManagerControllerTest {
         ReflectionTestUtils.setField(controller, "roundRepository", roundRepository);
         ReflectionTestUtils.setField(controller, "statsAggregationService", statsService);
         ReflectionTestUtils.setField(controller, "userRepository", userRepository);
+        ReflectionTestUtils.setField(controller, "managerBackgroundService",
+                org.mockito.Mockito.mock(com.footballmanagergamesimulator.user.ManagerBackgroundService.class));
 
         long managerId = 86L;
         long teamId = 86L;

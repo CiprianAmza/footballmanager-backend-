@@ -14,9 +14,6 @@ import com.footballmanagergamesimulator.matchplan.MatchPlanService;
 import com.footballmanagergamesimulator.model.Human;
 import com.footballmanagergamesimulator.model.MatchEvent;
 import com.footballmanagergamesimulator.repository.*;
-import com.footballmanagergamesimulator.service.TacticalScoreService.Matchup;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TacticVector;
-import com.footballmanagergamesimulator.service.TacticalScoreService.TeamProfile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,7 +39,6 @@ import static org.mockito.Mockito.*;
 class AnimationV3LiveWiringTest {
 
     private LiveMatchSimulationService service;
-    private TacticalScoreService tacticalScoreService;
     private MatchEngineConfig engineConfig;
     private MatchPlanService matchPlanService;
     private GoalAnimationService goalAnimationService;
@@ -82,10 +78,6 @@ class AnimationV3LiveWiringTest {
         inject("matchAnimationRecipeRepository", matchAnimationRecipeRepository);
         inject("objectMapper", new ObjectMapper());
 
-        tacticalScoreService = new TacticalScoreService();
-        var f = TacticalScoreService.class.getDeclaredField("engineConfig");
-        f.setAccessible(true);
-        f.set(tacticalScoreService, engineConfig);
 
         when(humanRepository.findAllByTeamIdAndTypeId(HOME_TEAM, 1L)).thenReturn(squad(100L));
         when(humanRepository.findAllByTeamIdAndTypeId(AWAY_TEAM, 1L)).thenReturn(squad(200L));
@@ -172,12 +164,9 @@ class AnimationV3LiveWiringTest {
     }
 
     private LiveMatchSession playToFullTime() {
-        Matchup matchup = tacticalScoreService.matchup(
-                new TeamProfile(70, 55), new TacticVector(0.4, 0.3, 0.2),
-                new TeamProfile(50, 45), new TacticVector(-0.2, -0.1, 0.5));
         LiveMatchSession session = service.createInteractiveSession(
                 HOME_TEAM, AWAY_TEAM, 100.0, 80.0, COMP, 1, 7,
-                true, matchup, 1, 0, MATCH_ROW, "4-4-2", "4-4-2"); // animations ON
+                true, 1, 0, MATCH_ROW, "4-4-2", "4-4-2"); // animations ON
         session.advanceUntilAndSnapshot(session.getTotalMinutes());
         return session;
     }

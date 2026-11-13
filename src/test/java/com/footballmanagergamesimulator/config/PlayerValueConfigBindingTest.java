@@ -11,10 +11,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * De-risks the {@code match.engine.player-value} config binding before designers populate all
- * eight position blocks. Confirms the supported YAML key forms for the nested attribute-weight
- * and familiarity maps — including the multi-word attribute names (e.g. "First Touch") that
- * require bracket/quoted keys.
+ * De-risks the {@code match.engine.player-value} familiarity matrix binding.
  */
 class PlayerValueConfigBindingTest {
 
@@ -22,29 +19,6 @@ class PlayerValueConfigBindingTest {
         ConfigurationPropertySource source = new MapConfigurationPropertySource(props);
         return new Binder(source).bind("match.engine", MatchEngineConfig.class)
                 .orElseGet(MatchEngineConfig::new);
-    }
-
-    @Test
-    void bindsSingleWordAndMultiWordAttributeWeights() {
-        Map<String, Object> props = new LinkedHashMap<>();
-        // single-word attribute: plain dotted key
-        props.put("match.engine.player-value.weights.ST.Finishing", 3.0);
-        // multi-word attribute: bracket form (the YAML quoted-key equivalent)
-        props.put("match.engine.player-value.weights.ST[First Touch]", 4.0);
-        props.put("match.engine.player-value.scale-multiplier", 12.0);
-
-        MatchEngineConfig cfg = bind(props);
-
-        assertThat(cfg.getPlayerValue().getScaleMultiplier()).isEqualTo(12.0);
-        // overrides win per-attribute over the shipped default profile
-        assertThat(cfg.getPlayerValue().weight("ST", "Finishing")).isEqualTo(3.0);
-        assertThat(cfg.getPlayerValue().weight("ST", "First Touch")).isEqualTo(4.0);
-        // a non-overridden attribute keeps its shipped ST default (Heading = 4)
-        assertThat(cfg.getPlayerValue().weight("ST", "Heading")).isEqualTo(4.0);
-        // an attribute irrelevant to the position's default profile resolves to 0.0 (DC has no Finishing)
-        assertThat(cfg.getPlayerValue().weight("DC", "Finishing")).isEqualTo(0.0);
-        // a non-overridden position keeps its shipped default (DC Tackling = 5)
-        assertThat(cfg.getPlayerValue().weight("DC", "Tackling")).isEqualTo(5.0);
     }
 
     @Test

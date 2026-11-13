@@ -24,12 +24,12 @@ public class PersonalizedTactic {
     private String passingType;
     private String tempo;
 
-    // Strat-2 tactical axes (null ⇒ neutral / no-op). See TacticalScoreService.vector().
+    // Strat-2 tactical axes (null ⇒ neutral / no-op). Read by the Compartment V1 input factory.
     private String defensiveLine; // Deep / Standard / High
     private String pressing;      // Low / Standard / High
     private String width;         // Narrow / Balanced / Wide
 
-    // Faza 2 team-level instructions (null ⇒ neutral / no-op). See TacticalScoreService.vector().
+    // Faza 2 team-level instructions (null ⇒ neutral / no-op). Read by the Compartment V1 input factory.
     private String dribbling;          // Less / Standard / More
     private String foulFrequency;      // Rarely / Normal / Often
     private String foulHardness;       // Soft / Medium / Hard

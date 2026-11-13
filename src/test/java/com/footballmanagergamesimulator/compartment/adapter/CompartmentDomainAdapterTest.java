@@ -117,19 +117,19 @@ class CompartmentDomainAdapterTest {
     // ---- Attribute mapping / clamping / missing -----------------------------
 
     @Test
-    void attributesAreClampedIntoTheConfiguredDomain() {
+    void attributesAreFlooredButHaveNoMaximum() {
         Map<PlayerAttribute, Integer> attrs = new EnumMap<>(PlayerAttribute.class);
         for (PlayerAttribute a : PlayerAttribute.values()) {
             attrs.put(a, 10);
         }
         attrs.put(PlayerAttribute.FINISHING, 0);   // legacy below-domain value
-        attrs.put(PlayerAttribute.PASSING, 99);    // legacy above-domain value
+        attrs.put(PlayerAttribute.PASSING, 23);    // above 20: rare but legal
         DomainPlayerSnapshot s = new DomainPlayerSnapshot(1L, "ST", "ST", "Poacher", "Attack",
                 attrs, 100.0, 70.0, 1.0, 50.0);
 
         PlayerRatingInput input = adapter.toRatingInput(s);
         assertThat(input.attributes().get(PlayerAttribute.FINISHING)).isEqualTo(config.getRating().getAttributeMin());
-        assertThat(input.attributes().get(PlayerAttribute.PASSING)).isEqualTo(config.getRating().getAttributeMax());
+        assertThat(input.attributes().get(PlayerAttribute.PASSING)).isEqualTo(23);
     }
 
     @Test

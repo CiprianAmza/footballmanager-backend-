@@ -65,22 +65,6 @@ class HumanServiceTest {
     }
 
     @Test
-    void testTrainPlayer() {
-        Human human = new Human();
-        human.setCurrentStatus("Junior");
-        human.setRating(50.0);
-        human.setAge(20);
-
-        TeamFacilities teamFacilities = new TeamFacilities();
-        teamFacilities.setYouthTrainingLevel(10L);
-        teamFacilities.setSeniorTrainingLevel(10L);
-
-        Human result = humanService.trainPlayer(human, teamFacilities, 1);
-
-        assertTrue(result.getRating() >= 50.0); // Ensure rating doesn't decrease
-    }
-
-    @Test
     void testRetirePlayers() {
         Human human1 = new Human();
         human1.setAge(35);

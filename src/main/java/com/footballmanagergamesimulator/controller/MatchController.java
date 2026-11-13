@@ -644,6 +644,9 @@ public class MatchController {
      * {playerOutId, playerInId} pair. Returns 400 with a human-readable error
      * if the swap is illegal (subs exhausted, GK mismatch, wrong team, etc.).
      */
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.FrontCoachService> frontCoachService;
+
     @PostMapping("/live/{key}/substitute")
     public org.springframework.http.ResponseEntity<?> substituteInLiveMatch(
             @PathVariable String key,
@@ -654,6 +657,11 @@ public class MatchController {
         long userTeamId = userContext.getTeamIdOrNull(null) == null ? 0L : userContext.getTeamIdOrNull(null);
         if (session.teamIdForPlayer(body.playerOutId) != userTeamId || session.teamIdForPlayer(body.playerInId) != userTeamId) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "SUBSTITUTION_TEAM_OWNERSHIP_REQUIRED");
+        }
+        // A revolting front coach refuses the manager's changes (design DESIGN_START_CARIERA §4).
+        com.footballmanagergamesimulator.service.board.FrontCoachService front = frontCoachService == null ? null : frontCoachService.getIfAvailable();
+        if (front != null && front.isRevolting(userTeamId)) {
+            return org.springframework.http.ResponseEntity.badRequest().body(java.util.Map.of("error", front.refusal(userTeamId)));
         }
         try {
             LiveMatchData state = body.atMinute > 0

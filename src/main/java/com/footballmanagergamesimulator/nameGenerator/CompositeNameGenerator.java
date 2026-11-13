@@ -41,6 +41,11 @@ public class CompositeNameGenerator implements NameGeneratorStrategy {
         return strategyFor(nationId).generateName(nationId);
     }
 
+    /** Name for a nation id that must not be read as a competition id (e.g. agents). */
+    public String generateNameForNation(long nationId) {
+        return strategyFor(nationId).generateName(nationId);
+    }
+
     long resolveNationId(long competitionOrNationId) {
         return competitionRepository.findById(competitionOrNationId)
                 .map(Competition::getNationId)

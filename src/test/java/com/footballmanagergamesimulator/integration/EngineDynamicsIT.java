@@ -40,10 +40,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 /**
- * Dynamics invariants exercised through the REAL production services — not the
- * pure {@code calculateScores} function. The outcome/fuzz tests run the engine
- * on a STATIC "sum of top-11 ratings" power; this suite proves that the live
- * inputs that feed real matches actually move the numbers:
+ * Dynamics invariants exercised through the REAL production services: this suite
+ * proves that the live inputs that feed real matches actually move the numbers:
  *
  * <ul>
  *   <li><b>Fitness</b> and <b>morale</b> scale a team's effective squad strength
@@ -246,39 +244,6 @@ class EngineDynamicsIT {
                         before, after)
                 .isLessThan(before)
                 .isGreaterThanOrEqualTo(floor);
-    }
-
-    // ==================== morale + home → effectivePower ====================
-
-    @Test
-    @DisplayName("Morale and home advantage scale effectivePower (the curve outcome tests skip)")
-    void moraleAndHomeScaleEffectivePower() {
-        double base = 1000.0;
-        MatchEngineConfig.Power p = engineConfig.getPower();
-
-        // Morale lifts power monotonically: floor + spread·(morale/100).
-        double lowMorale = matchSimulationService.effectivePower(base, 30.0, false);
-        double highMorale = matchSimulationService.effectivePower(base, 90.0, false);
-        assertThat(highMorale)
-                .as("higher morale must raise effectivePower (low=%.4f, high=%.4f)", lowMorale, highMorale)
-                .isGreaterThan(lowMorale);
-
-        // The away multiplier at morale m matches the configured curve exactly (no RNG).
-        double expectedLow = base * (p.getMoraleFloor() + p.getMoraleSpread() * (30.0 / 100.0));
-        assertThat(lowMorale).isCloseTo(expectedLow, within(1e-9));
-
-        // Home advantage is a pure multiplier on top of the morale curve.
-        double away = matchSimulationService.effectivePower(base, 70.0, false);
-        double home = matchSimulationService.effectivePower(base, 70.0, true);
-        assertThat(home)
-                .as("home advantage must raise power (away=%.4f, home=%.4f)", away, home)
-                .isGreaterThan(away);
-        assertThat(home / away).isCloseTo(p.getHomeAdvantage(), within(1e-9));
-
-        // TournamentEngine.playLeague (used by the outcome tests) calls calculateScores on the
-        // raw power directly — so neither of these multipliers is applied there. This test pins
-        // the dynamic factor the static-power pipeline omits.
-        assertThat(p.getHomeAdvantage()).isGreaterThan(1.0);
     }
 
     @Test

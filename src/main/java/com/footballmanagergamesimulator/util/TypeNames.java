@@ -15,6 +15,10 @@ public class TypeNames {
   public static final Long YOUTH_COACH_TYPE = 9L;
   public static final Long HOYD_TYPE = 10L; // Head of Youth Development
 
+  // Club power structure (design DESIGN_START_CARIERA §5): the owner (chairman) and the general director.
+  public static final Long CHAIRMAN_TYPE = 11L;
+  public static final Long DIRECTOR_TYPE = 12L;
+
   public static boolean isCoachType(long typeId) {
     return typeId >= 5L && typeId <= 10L;
   }

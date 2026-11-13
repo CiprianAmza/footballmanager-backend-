@@ -18,4 +18,11 @@ public interface MatchPlayerRatingRepository extends JpaRepository<MatchPlayerRa
           long competitionId, int seasonNumber);
 
   List<MatchPlayerRating> findAllBySeasonNumber(int seasonNumber);
+
+    /** Detail retention: drops the rows of seasons before {@code season}. */
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("delete from MatchPlayerRating e where e.seasonNumber < :season")
+    int deleteSeasonsBefore(@org.springframework.data.repository.query.Param("season") int season);
+
 }

@@ -106,7 +106,7 @@ class AdminControllerTest {
     }
 
     @Test
-    void generatedPlayerKeepsTheExactAdminRating() {
+    void generatedPlayerRatingIsReadBackFromTheAttributesBuiltForTheAdminTarget() {
         AdminController controller = new AdminController();
         HumanRepository humanRepository = mock(HumanRepository.class);
         PlayerSkillsRepository playerSkillsRepository = mock(PlayerSkillsRepository.class);
@@ -139,19 +139,20 @@ class AdminControllerTest {
 
         assertEquals(200, response.getStatusCode().value());
         assertNotNull(response.getBody());
-        assertEquals(300.0, response.getBody().get("rating"));
 
+        // Saved once to get an id, once more after the rating is read back from the attributes.
         ArgumentCaptor<Human> playerCaptor = ArgumentCaptor.forClass(Human.class);
-        verify(humanRepository, times(1)).save(playerCaptor.capture());
+        verify(humanRepository, times(2)).save(playerCaptor.capture());
         Human savedPlayer = playerCaptor.getValue();
-        assertEquals(300.0, savedPlayer.getRating());
-        assertEquals(300, savedPlayer.getCurrentAbility());
-        org.junit.jupiter.api.Assertions.assertTrue(savedPlayer.getPotentialAbility() > 300);
         verify(leaderboardSyncService).trackNewPlayer(savedPlayer);
 
         ArgumentCaptor<PlayerSkills> skillsCaptor = ArgumentCaptor.forClass(PlayerSkills.class);
         verify(playerSkillsRepository).save(skillsCaptor.capture());
-        assertEquals(300.0, PlayerSkillsService.computeOverallRating(skillsCaptor.getValue()), 0.000001);
+        double fromAttributes = PlayerSkillsService.computeOverallRating(skillsCaptor.getValue());
+        // The stored rating is exactly what the attributes produce, as close to the
+        // admin's 300 as the integer attribute scale allows.
+        assertEquals(fromAttributes, savedPlayer.getRating(), 0.000001);
+        assertEquals(300.0, fromAttributes, 20.0);
     }
 
     @Test

@@ -97,6 +97,13 @@ public class StaffService {
         coach.setCoachingGK(attrs[6]);
         coach.setWorkingWithYoungsters(attrs[7]);
         coach.setMotivating(attrs[8]);
+        // The second attribute of each training type stays close to the first one.
+        coach.setCoachingSetPieces(partner(attrs[0], rng));
+        coach.setCoachingDuels(partner(attrs[1], rng));
+        coach.setCoachingBallWork(partner(attrs[3], rng));
+        coach.setCoachingGameReading(partner(attrs[2], rng));
+        coach.setCoachingConditioning(partner(attrs[5], rng));
+        coach.setCoachingShotStopping(partner(attrs[6], rng));
 
         // Set a useful "rating" as the average of all coaching attributes
         double avgAttr = (attrs[0] + attrs[1] + attrs[2] + attrs[3] + attrs[4]
@@ -104,6 +111,11 @@ public class StaffService {
         coach.setRating(avgAttr);
 
         return humanRepository.save(coach);
+    }
+
+    /** A value within ±2 of {@code first}, on 1-20. */
+    private static int partner(int first, Random rng) {
+        return Math.max(1, Math.min(20, first + rng.nextInt(5) - 2));
     }
 
     private int[] generateCoachingAttributes(long typeId, int quality, Random rng) {
@@ -348,6 +360,12 @@ public class StaffService {
             m.put("coachingGK", c.getCoachingGK());
             m.put("workingWithYoungsters", c.getWorkingWithYoungsters());
             m.put("motivating", c.getMotivating());
+            m.put("coachingSetPieces", c.getCoachingSetPieces());
+            m.put("coachingDuels", c.getCoachingDuels());
+            m.put("coachingBallWork", c.getCoachingBallWork());
+            m.put("coachingGameReading", c.getCoachingGameReading());
+            m.put("coachingConditioning", c.getCoachingConditioning());
+            m.put("coachingShotStopping", c.getCoachingShotStopping());
             return m;
         }).collect(Collectors.toList());
 

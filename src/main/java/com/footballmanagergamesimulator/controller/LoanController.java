@@ -43,6 +43,9 @@ public class LoanController {
     @Autowired
     com.footballmanagergamesimulator.service.ClubActionAuthorizationService clubActionAuthorizationService;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.TransferPricingService transferPricingService;
+
     /**
      * Get active loans where team is either parent or loan team
      */
@@ -116,22 +119,20 @@ public class LoanController {
             return ResponseEntity.badRequest().body("Team not found.");
         }
 
-        // AI decision: accept if loanFee >= 5% of transfer value AND player NOT in top 15 by rating
-        long minFee = Math.max(1, (long) (player.getTransferValue() * 0.05));
-        long maxFee = (long) (player.getTransferValue() * 0.10);
-        boolean feeAcceptable = loanFee >= minFee && loanFee <= maxFee;
-
-        // Check if player is NOT in the team's top 15 by rating
+        // The parent club's decision, with the option or obligation to buy weighed in (LoanTerms).
         List<Human> teamPlayers = humanRepository.findAllByTeamIdAndTypeId(player.getTeamId(), 1L);
-        List<Human> top15 = teamPlayers.stream()
+        boolean inTop15 = teamPlayers.stream()
                 .sorted((a, b) -> Double.compare(b.getRating(), a.getRating()))
-                .limit(15)
-                .toList();
-        boolean notInTop15 = top15.stream().noneMatch(p -> p.getId() == player.getId());
+                .limit(com.footballmanagergamesimulator.service.LoanTerms.PROTECTED_SQUAD_PLACES)
+                .anyMatch(p -> p.getId() == player.getId());
 
         Round round = roundRepository.findById(1L).orElse(new Round());
+        int season = (int) round.getSeason();
+        long realPrice = transferPricingService.realPrice(player, humanTeamId, season);
+        String refusal = com.footballmanagergamesimulator.service.LoanTerms.refusal(loanFee, player.getTransferValue(),
+                inTop15, buyOptionFee, buyObligatory, realPrice, transferPricingService.sellerSituation(player, season));
 
-        if (feeAcceptable && notInTop15) {
+        if (refusal == null) {
             // Accept the loan
             player.setTeamId(humanTeamId);
             humanRepository.save(player);
@@ -186,16 +187,7 @@ public class LoanController {
 
             return ResponseEntity.ok(loan);
         } else {
-            // Reject
-            String reason;
-            if (!notInTop15) {
-                reason = "The club considers this player too important to loan out (top 15 in squad).";
-            } else if (loanFee < minFee) {
-                reason = "Loan fee too low. Minimum required: " + minFee + " (5% of value).";
-            } else {
-                reason = "Loan fee too high. Maximum acceptable: " + maxFee + " (10% of value).";
-            }
-            return ResponseEntity.badRequest().body("Loan offer rejected. " + reason);
+            return ResponseEntity.badRequest().body("Loan offer rejected. " + refusal);
         }
     }
 

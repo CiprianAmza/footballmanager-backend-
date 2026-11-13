@@ -18,17 +18,10 @@ public class CalendarService {
     @Autowired
     CalendarEventRepository calendarEventRepository;
 
-    // Month definitions: name, start day, number of days
-    private static final String[] MONTH_NAMES = {
-            "August", "September", "October", "November", "December",
-            "January", "February", "March", "April", "May", "June", "July"
-    };
-    private static final int[] MONTH_START_DAYS = {
-            1, 32, 62, 93, 123, 154, 185, 213, 244, 274, 305, 335
-    };
-    private static final int[] MONTH_LENGTHS = {
-            31, 30, 31, 30, 31, 31, 28, 31, 30, 31, 30, 31
-    };
+    // Month definitions: name, start day, number of days (single source: GameMonths)
+    private static final String[] MONTH_NAMES = com.footballmanagergamesimulator.util.GameMonths.NAMES;
+    private static final int[] MONTH_START_DAYS = com.footballmanagergamesimulator.util.GameMonths.START_DAYS;
+    private static final int[] MONTH_LENGTHS = com.footballmanagergamesimulator.util.GameMonths.LENGTHS;
 
     private static final String[] DAYS_OF_WEEK = {
             "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"

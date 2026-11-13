@@ -58,6 +58,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -96,6 +97,14 @@ import java.util.stream.Collectors;
 public class EndOfSeasonProcessor {
 
     @Autowired private TeamRepository teamRepository;
+    @Autowired private AgentService agentService;
+    @Autowired private PlayerBondService playerBondService;
+    @Autowired private PlannedTransferService plannedTransferService;
+    @Autowired private TransferBonusService transferBonusService;
+    @Autowired private com.footballmanagergamesimulator.service.squad.SquadBonusService squadBonusService;
+    @Autowired private com.footballmanagergamesimulator.service.press.PublicPromiseService publicPromiseService;
+    @Autowired private com.footballmanagergamesimulator.service.board.BoardTrustService boardTrustService;
+    @Autowired private ContractSignature contractSignature;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoRepository competitionTeamInfoRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
@@ -301,6 +310,12 @@ public class EndOfSeasonProcessor {
 
             List<TeamCompetitionDetail> teamCompetitionDetails = teamCompetitionDetailRepository.findAll();
             snapshotFinalStandings(allComps, teamCompetitionDetails, currentSeason);
+            // Performance bonuses earned this season (goals, league title) are paid now (design §3.5).
+            transferBonusService.settle((int) currentSeason);
+            // Squad bonuses for the targets set at the squad meeting (design DESIGN_START_CARIERA §6.4).
+            squadBonusService.settle((int) currentSeason);
+            publicPromiseService.settle((int) currentSeason);
+            boardTrustService.seasonEnded((int) currentSeason);
             // Pre-resolve every team once so the standings comparator's reputation
             // tiebreaker is a map lookup instead of a per-comparison findById (N+1).
             Map<Long, Team> teamsById = teamRepository.findAll().stream()
@@ -374,13 +389,14 @@ public class EndOfSeasonProcessor {
             // leave, and — worst — ran before any contract expired, so the free
             // agent pool it could sign from was always empty.
             //
-            // Order is load-bearing: training reads age, so it must stay ahead of
-            // the birthday; retirement reads the new age; expiries release the
-            // players the market then gets to sign.
+            // Order is load-bearing: retirement reads the new age; expiries release
+            // the players the market then gets to sign.
+            // Bonds first, while every player is still at the club (and with the manager) he played for.
+            playerBondService.recordSeasonPlayed();
             newSeasonSetupProcessor.processLoanReturns(currentSeasonInt);
-            newSeasonSetupProcessor.applyTrainingEffect(teamIds);
             humanService.addOneYearToAge();
             humanService.retirePlayers();
+            agentService.assignAgentsToYoungPlayers();
             handleContractExpiries(currentSeasonInt + 1);
             // Condition is restored before the market, not after it. Fitness is at its
             // season-end floor here — every squad exhausted — and the XI is picked on
@@ -408,6 +424,8 @@ public class EndOfSeasonProcessor {
             // ---- AI transfer market -----------------------------------------
             List<Transfer> transfers = runAiTransferMarket(
                     teamIds, humanTeamIds, teamsById, currentSeasonInt, currentSeason);
+            // Buy-back clauses held by AI clubs are used at the start of the window too.
+            plannedTransferService.planBuyBacks(currentSeasonInt);
             long marketFinished = System.nanoTime();
 
             // The window has just redistributed the squads the strength table is
@@ -498,8 +516,9 @@ public class EndOfSeasonProcessor {
                     inbox.setTeamId(htId);
                     inbox.setSeasonNumber(currentSeasonInt);
                     inbox.setRoundNumber(0);
-                    inbox.setTitle("Transfer Market Summary - " + transfers.size() + " transfers completed");
-                    inbox.setContent(transferNews.toString().trim());
+                    inbox.setTitle("Transfer Window - " + transfers.size() + " moves expected");
+                    inbox.setContent("The market is busy. These moves are expected over the coming days of the window:\n"
+                            + transferNews.toString().trim());
                     inbox.setCategory("transfer");
                     inbox.setRead(false);
                     inbox.setCreatedAt(System.currentTimeMillis());
@@ -661,6 +680,8 @@ public class EndOfSeasonProcessor {
         final List<Transfer> transfers = new ArrayList<>();
         final List<FinancialRecord> financialRecords = new ArrayList<>();
         final List<TransferOffer> humanOffers = new ArrayList<>();
+        /** Per sold player, every club able to sign him in the pass that sold him (shown on "wanted"). */
+        final Map<Long, Set<Long>> contenders = new HashMap<>();
 
         MarketState(List<Human> players, Map<Long, Team> teamsById,
                     Set<Long> activeLoanPlayerIds, Set<Long> humanTeamIds) {
@@ -967,6 +988,7 @@ public class EndOfSeasonProcessor {
             boolean bestWasStarter = false;
             double bestStrength = Double.NEGATIVE_INFINITY;
             boolean sawEligibleButBroke = false;
+            Set<Long> able = new TreeSet<>();
 
             for (Map.Entry<Long, BuyPlanTransferView> entry : plans.entrySet()) {
                 long buyerId = entry.getKey();
@@ -994,6 +1016,7 @@ public class EndOfSeasonProcessor {
                     sawEligibleButBroke = true;
                     continue;
                 }
+                able.add(buyerId);
                 // The player takes the strongest club that will have him.
                 if (plan.getXiAverage() > bestStrength) {
                     bestStrength = plan.getXiAverage();
@@ -1018,6 +1041,7 @@ public class EndOfSeasonProcessor {
 
             settled.add(transfer);
             sold.add(candidate);
+            if (state != null) state.contenders.put(candidate.getPlayerId(), able);
             openSlots.get(bestBuyerId).remove(bestSlot.getPosition());
             budgetLeft.merge(bestBuyerId, -fee, Long::sum);
             clubsThatBought.add(bestBuyerId);
@@ -1061,6 +1085,7 @@ public class EndOfSeasonProcessor {
         human.setSeasonMatchesPlayed(0);
         human.setConsecutiveBenched(0);
         human.setContractEndSeason(seasonInt + 1 + (int) Math.floorMod(human.getId(), 3L) + 1);
+        contractSignature.mark(human);
         human.setWage(WageService.baseWage(human.getRating()));
         state.changedPlayers.put(human.getId(), human);
         matchSimulationOrchestrator.invalidateSquadCaches(buyTeam.getId());
@@ -1113,59 +1138,15 @@ public class EndOfSeasonProcessor {
         }
     }
 
-    /** One final database write phase, including the transfer and finance ledgers. */
+    /**
+     * The window's AI transfers are not carried out now: they are planned, each on its own day of the window
+     * (design §3.6), and {@link PlannedTransferService#executeDue} moves the players and the money on that day.
+     * Only the AI offers for managed clubs' players are stored at once.
+     */
     private void persistMarket(MarketState state) {
-        if (!state.changedPlayers.isEmpty()) {
-            jdbcTemplate.batchUpdate("UPDATE human SET team_id=?, season_matches_played=?, "
-                            + "consecutive_benched=?, contract_end_season=?, wage=? WHERE id=?",
-                    state.changedPlayers.values(), 100, (ps, human) -> {
-                        ps.setLong(1, human.getTeamId());
-                        ps.setInt(2, human.getSeasonMatchesPlayed());
-                        ps.setInt(3, human.getConsecutiveBenched());
-                        ps.setInt(4, human.getContractEndSeason());
-                        ps.setLong(5, human.getWage());
-                        ps.setLong(6, human.getId());
-                    });
-        }
-        if (!state.changedTeams.isEmpty()) {
-            jdbcTemplate.batchUpdate("UPDATE team SET total_finances=?, transfer_budget=? WHERE id=?",
-                    state.changedTeams.values(), 100, (ps, team) -> {
-                        ps.setLong(1, team.getTotalFinances());
-                        ps.setLong(2, team.getTransferBudget());
-                        ps.setLong(3, team.getId());
-                    });
-        }
-        if (!state.financialRecords.isEmpty()) {
-            jdbcTemplate.batchUpdate("INSERT INTO financial_record "
-                            + "(team_id, season_number, record_day, category, description, amount) "
-                            + "VALUES (?, ?, ?, ?, ?, ?)",
-                    state.financialRecords, 100, (ps, record) -> {
-                        ps.setLong(1, record.getTeamId());
-                        ps.setInt(2, record.getSeasonNumber());
-                        ps.setInt(3, record.getDay());
-                        ps.setString(4, record.getCategory());
-                        ps.setString(5, record.getDescription());
-                        ps.setLong(6, record.getAmount());
-                    });
-        }
         if (!state.transfers.isEmpty()) {
-            jdbcTemplate.batchUpdate("INSERT INTO transfer "
-                            + "(sell_team_id, buy_team_id, player_id, player_age, player_transfer_value, "
-                            + "rating, season_number, sell_team_name, buy_team_name, player_name, "
-                            + "sell_on_fee_paid, sell_on_recipient_team_id) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)",
-                    state.transfers, 100, (ps, transfer) -> {
-                        ps.setLong(1, transfer.getSellTeamId());
-                        ps.setLong(2, transfer.getBuyTeamId());
-                        ps.setLong(3, transfer.getPlayerId());
-                        ps.setLong(4, transfer.getPlayerAge());
-                        ps.setLong(5, transfer.getPlayerTransferValue());
-                        ps.setDouble(6, transfer.getRating());
-                        ps.setLong(7, transfer.getSeasonNumber());
-                        ps.setString(8, transfer.getSellTeamName());
-                        ps.setString(9, transfer.getBuyTeamName());
-                        ps.setString(10, transfer.getPlayerName());
-                    });
+            plannedTransferService.schedule(state.transfers, state.changedPlayers,
+                    (int) state.transfers.get(0).getSeasonNumber(), state.contenders);
         }
         transferMarketService.persistPreparedAiOffers(state.humanOffers);
         // The following loan pass and season-objective reads must see the final
@@ -1231,6 +1212,7 @@ public class EndOfSeasonProcessor {
         // handleContractExpiries (2-4 seasons), derived from the player id rather than
         // an RNG so the window stays reproducible.
         human.setContractEndSeason(seasonInt + 1 + (int) Math.floorMod(human.getId(), 3L) + 1);
+        contractSignature.mark(human);
         human.setWage(WageService.baseWage(human.getRating()));
         humanRepository.save(human);
 
@@ -1288,6 +1270,7 @@ public class EndOfSeasonProcessor {
             // renewal uses, and leaves only through age in retirePlayers().
             if (player.isWillNeverLeave()) {
                 player.setContractEndSeason(newSeason + random.nextInt(2, 5));
+                contractSignature.mark(player);
                 player.setWage(WageService.baseWage(player.getRating()));
                 humanRepository.save(player);
                 if (humanTeamIds.contains(player.getTeamId())) {
@@ -1314,6 +1297,7 @@ public class EndOfSeasonProcessor {
                 // happen only through the manager's own decisions (accepting
                 // an offer, releasing a player) or retirement.
                 player.setContractEndSeason(newSeason + random.nextInt(2, 5));
+                contractSignature.mark(player);
                 player.setWage(WageService.baseWage(player.getRating()));
                 humanRepository.save(player);
                 ManagerInbox inbox = new ManagerInbox();
@@ -1333,6 +1317,7 @@ public class EndOfSeasonProcessor {
                 // AI team: 50% auto-renew, 50% free agent
                 if (coachPermissionService.canNegotiateContracts(player.getTeamId()) && random.nextBoolean()) {
                     player.setContractEndSeason(newSeason + random.nextInt(2, 5));
+                contractSignature.mark(player);
                     player.setWage(WageService.baseWage(player.getRating()));
                     humanRepository.save(player);
                 } else {

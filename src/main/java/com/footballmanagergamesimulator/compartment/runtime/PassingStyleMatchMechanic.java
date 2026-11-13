@@ -37,7 +37,9 @@ public final class PassingStyleMatchMechanic {
         }
         for (TeamCompartmentAggregator.PassingMidfielder player : profile.midfielders()) {
             if (Objects.equals(player.playerId(), ownRedCardPlayerId)) continue;
-            chance += player.pace() == 20 ? rules.getPace20Bonus() : -rules.getNonPace20Penalty();
+            chance += player.pace() >= EXCEPTIONAL
+                    ? rules.getPace20Bonus() + levelsAbove(player.pace()) * rules.getPace20Step()
+                    : -rules.getNonPace20Penalty();
         }
         return clampProbability(chance);
     }
@@ -57,38 +59,52 @@ public final class PassingStyleMatchMechanic {
 
     /**
      * Goal probability for every special striker opportunity.
-     * Finishing 20 unlocks the whole control percentage. Finishing 19 loses 40% of that chance,
-     * and every lower value loses progressively more through a linear 1..19 scale.
-     * Pace 19 caps the result at 25%, lower values scale that cap proportionally, while pace 20 is free.
+     * Below 20 the striker converts {@code finishing19-factor × Finishing / 19} of the control
+     * percentage (19 → 60%); at 20 {@code finishing20-factor} (80%), plus {@code finishing-step}
+     * per further level (25 → 100%). Pace 19 caps the result at 25%, lower values scale that cap
+     * proportionally, while pace 20 and above is free.
      */
     public double strikerGoalChance(double controlChance, int finishing, int pace,
-                                    int opponentPace20Midfielders) {
+                                    double opponentPace20Penalty) {
         requireAttribute(finishing, "finishing");
         requireAttribute(pace, "pace");
-        if (opponentPace20Midfielders < 0) {
-            throw new IllegalArgumentException("opponentPace20Midfielders must be non-negative");
+        if (!Double.isFinite(opponentPace20Penalty) || opponentPace20Penalty < 0) {
+            throw new IllegalArgumentException("opponentPace20Penalty must be non-negative");
         }
-        double finishingFactor = finishing == 20 ? 1.0
+        double finishingFactor = finishing >= EXCEPTIONAL
+                ? clampProbability(rules.getFinishing20Factor() + levelsAbove(finishing) * rules.getFinishingStep())
                 : rules.getFinishing19Factor() * finishing / 19.0;
         double chance = clampProbability(controlChance) * finishingFactor;
-        if (pace < 20) {
+        if (pace < EXCEPTIONAL) {
             chance = Math.min(chance, rules.getPace19Chance() * pace / 19.0);
         }
-        chance -= opponentPace20Midfielders * rules.getOpponentPace20Penalty();
+        chance -= opponentPace20Penalty;
         return clampProbability(chance);
     }
 
-    public int pace20Midfielders(TeamCompartmentAggregator.PassingStyleProfile profile,
-                                 Long redCardPlayerId) {
-        if (profile == null) return 0;
-        return (int) profile.midfielders().stream()
+    /**
+     * Total penalty the opponent's Pace 20+ midfielders put on our striker: the base penalty
+     * for each, plus {@code pace20-step} per level above 20.
+     */
+    public double opponentPace20Penalty(TeamCompartmentAggregator.PassingStyleProfile profile,
+                                        Long redCardPlayerId) {
+        if (profile == null) return 0.0;
+        return profile.midfielders().stream()
                 .filter(player -> !Objects.equals(player.playerId(), redCardPlayerId))
-                .filter(player -> player.pace() == 20)
-                .count();
+                .filter(player -> player.pace() >= EXCEPTIONAL)
+                .mapToDouble(player -> rules.getOpponentPace20Penalty()
+                        + levelsAbove(player.pace()) * rules.getPace20Step())
+                .sum();
+    }
+
+    private static final int EXCEPTIONAL = 20;
+
+    private static int levelsAbove(int value) {
+        return Math.max(0, value - EXCEPTIONAL);
     }
 
     private static void requireAttribute(int value, String name) {
-        if (value < 1 || value > 20) throw new IllegalArgumentException(name + " must be in [1,20]");
+        if (value < 1) throw new IllegalArgumentException(name + " must be at least 1");
     }
 
     private static double clampProbability(double value) {

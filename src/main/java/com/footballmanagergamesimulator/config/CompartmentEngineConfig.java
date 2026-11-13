@@ -311,8 +311,8 @@ public class CompartmentEngineConfig {
     }
 
     /**
-     * The deliberately discontinuous SHOOTER mechanic. Values of 20 are hand-authored
-     * exceptional abilities; normal generation and training stop at rating.attribute-max (19).
+     * The SHOOTER mechanic. From exceptional-attribute-value (20) up the better parameters
+     * apply and keep improving with every further level; 20+ is reached only rarely.
      */
     public static class Shooter {
         private double attackContribution = 0.20;
@@ -320,6 +320,9 @@ public class CompartmentEngineConfig {
         private double defenseContribution = 0.10;
         private double regularLongShotsCeiling = 0.68;
         private double regularLongShotsExponent = 3.0;
+        private double exceptionalLongShotsChance = 0.80;
+        private double exceptionalLongShotsStep = 0.04;
+        private double exceptionalPositioningZeroShotStep = 0.01;
         private List<Double> standardShotDistribution =
                 List.of(0.25, 0.40, 0.20, 0.075, 0.05, 0.025);
         private List<Double> exceptionalPositioningShotDistribution =
@@ -336,6 +339,12 @@ public class CompartmentEngineConfig {
         public void setRegularLongShotsCeiling(double v) { this.regularLongShotsCeiling = v; }
         public double getRegularLongShotsExponent() { return regularLongShotsExponent; }
         public void setRegularLongShotsExponent(double v) { this.regularLongShotsExponent = v; }
+        public double getExceptionalLongShotsChance() { return exceptionalLongShotsChance; }
+        public void setExceptionalLongShotsChance(double v) { this.exceptionalLongShotsChance = v; }
+        public double getExceptionalLongShotsStep() { return exceptionalLongShotsStep; }
+        public void setExceptionalLongShotsStep(double v) { this.exceptionalLongShotsStep = v; }
+        public double getExceptionalPositioningZeroShotStep() { return exceptionalPositioningZeroShotStep; }
+        public void setExceptionalPositioningZeroShotStep(double v) { this.exceptionalPositioningZeroShotStep = v; }
         public List<Double> getStandardShotDistribution() { return standardShotDistribution; }
         public void setStandardShotDistribution(List<Double> v) { this.standardShotDistribution = v; }
         public List<Double> getExceptionalPositioningShotDistribution() {
@@ -386,6 +395,9 @@ public class CompartmentEngineConfig {
         private double nonPace20Penalty = 0.10;
         private double opponentPace20Penalty = 0.10;
         private double finishing19Factor = 0.60;
+        private double finishing20Factor = 0.80;
+        private double finishingStep = 0.04;
+        private double pace20Step = 0.01;
         private double pace19Chance = 0.25;
         private List<Double> strikerOpportunityDistribution =
                 List.of(0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05);
@@ -408,6 +420,12 @@ public class CompartmentEngineConfig {
         public void setOpponentPace20Penalty(double v) { opponentPace20Penalty = v; }
         public double getFinishing19Factor() { return finishing19Factor; }
         public void setFinishing19Factor(double v) { finishing19Factor = v; }
+        public double getFinishing20Factor() { return finishing20Factor; }
+        public void setFinishing20Factor(double v) { finishing20Factor = v; }
+        public double getFinishingStep() { return finishingStep; }
+        public void setFinishingStep(double v) { finishingStep = v; }
+        public double getPace20Step() { return pace20Step; }
+        public void setPace20Step(double v) { pace20Step = v; }
         public double getPace19Chance() { return pace19Chance; }
         public void setPace19Chance(double v) { pace19Chance = v; }
         public List<Double> getStrikerOpportunityDistribution() { return strikerOpportunityDistribution; }

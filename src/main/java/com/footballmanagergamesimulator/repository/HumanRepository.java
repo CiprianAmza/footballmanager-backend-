@@ -51,6 +51,7 @@ public interface HumanRepository extends JpaRepository<Human, Long>, JpaSpecific
     Optional<Human> findByIdForUpdate(@Param("playerId") long playerId);
 
     List<Human> findAllByTeamId(long teamId);
+    List<Human> findAllByAgentIdAndTypeIdAndRetiredFalse(long agentId, long typeId);
     List<Human> findAllByTeamIdAndTypeId(long teamId, long typeId);
     List<Human> findAllByTypeId(long typeId);
     List<Human> findAllByTypeIdAndRetiredFalseAndTeamIdIsNull(long typeId);

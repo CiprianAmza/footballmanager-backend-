@@ -14,9 +14,8 @@ import java.util.Random;
  * can never disagree. Given the players on the pitch at the goal's minute, it
  * chooses a scorer (position × finishing × rating × fitness, honouring a
  * designated penalty/free-kick taker) and, for open play, an assister from the
- * remaining on-pitch players. Passing 20 is exceptional: eligible perfect
- * passers share a fixed 70% assist chance; the remaining share is distributed
- * exclusively by the other players' Passing attribute.
+ * remaining on-pitch players, weighted by Passing (much heavier from 20 up, growing
+ * with every further level).
  *
  * <p>Determinism: the caller passes a per-slot {@link Random} derived from the
  * plan seed and the slot index, kept separate from any cosmetic-event RNG, so
@@ -58,9 +57,10 @@ public class ContributionResolver {
             boolean shooterGoal = "SHOOTER".equals(slot.getGoalType());
             List<Contributor> candidates = assistCandidates(canonical, scorer, shooterGoal);
             boolean hasPerfectPasser = candidates.stream()
-                    .anyMatch(contributor -> contributor.passing() == PERFECT_PASSING);
-            // A perfect passer's 70% is per goal, not 70% of the ordinary
-            // assistProbability. SHOOTER goals also remain guaranteed assists.
+                    .anyMatch(contributor -> contributor.passing() >= PERFECT_PASSING);
+            // With a Passing 20+ player on the pitch every goal has an assist (his share is
+            // per goal, not a share of the ordinary assistProbability). SHOOTER goals also
+            // remain guaranteed assists.
             if (hasPerfectPasser || shooterGoal || shouldHaveAssist(slot.getGoalType(), rng)) {
                 Contributor assister = pickAssister(candidates, rng);
                 if (assister != null) assistId = assister.playerId();
@@ -110,38 +110,20 @@ public class ContributionResolver {
     }
 
     /**
-     * Passing 20 is a discrete playmaking ability. When at least one eligible
-     * perfect passer is not the scorer, that group shares the configured 70%.
-     * On a miss of that roll, only the other players contest the remaining 30%,
-     * weighted directly by Passing. If no perfect passer exists, the whole
-     * selection is Passing-weighted.
+     * Every candidate is drawn by a Passing weight: the Passing value itself below 20,
+     * {@code perfect-passing-weight} (250) at 20 and {@code perfect-passing-weight-step} (50)
+     * more per further level. Each extra point above 20 therefore raises the share.
      */
     private Contributor pickAssister(List<Contributor> candidates, Random rng) {
         if (candidates.isEmpty()) return null;
-
-        List<Contributor> perfectPassers = candidates.stream()
-                .filter(contributor -> contributor.passing() == PERFECT_PASSING)
-                .toList();
-        if (!perfectPassers.isEmpty()) {
-            double probability = Math.max(0.0, Math.min(1.0,
-                    engineConfig.getEvents().getPerfectPassingAssistProbability()));
-            if (rng.nextDouble() < probability) {
-                return passingWeightedPick(perfectPassers, rng);
-            }
-            List<Contributor> otherPlayers = candidates.stream()
-                    .filter(contributor -> contributor.passing() != PERFECT_PASSING)
-                    .toList();
-            // A real XI always has another candidate. This fallback only covers
-            // synthetic/minimal lineups and still guarantees a valid assister.
-            if (otherPlayers.isEmpty()) return passingWeightedPick(perfectPassers, rng);
-            return passingWeightedPick(otherPlayers, rng);
-        }
-        return passingWeightedPick(candidates, rng);
+        return PositionScoringWeights.weightedPick(
+                candidates, contributor -> assistWeight(contributor.passing()), rng);
     }
 
-    private Contributor passingWeightedPick(List<Contributor> candidates, Random rng) {
-        return PositionScoringWeights.weightedPick(
-                candidates, contributor -> Math.max(contributor.passing(), 0), rng);
+    double assistWeight(int passing) {
+        if (passing < PERFECT_PASSING) return Math.max(passing, 0);
+        return engineConfig.getEvents().getPerfectPassingWeight()
+                + (passing - PERFECT_PASSING) * engineConfig.getEvents().getPerfectPassingWeightStep();
     }
 
     private Contributor designatedTaker(String goalType, List<Contributor> onPitch) {

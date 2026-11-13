@@ -36,6 +36,9 @@ public class ContractController {
     private UserContext userContext;
 
     @Autowired
+    private com.footballmanagergamesimulator.service.ContractSignature contractSignature;
+
+    @Autowired
     private com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
 
     @Autowired
@@ -94,85 +97,7 @@ public class ContractController {
         ));
     }
 
-    @PostMapping("/renew")
-    public ResponseEntity<?> renewContract(HttpServletRequest request, @RequestBody Map<String, Object> body) {
-        long playerId = Long.parseLong(String.valueOf(body.get("playerId")));
-        long newWage = Long.parseLong(String.valueOf(body.get("newWage")));
-
-        Optional<Human> playerOpt = humanRepository.findById(playerId);
-        if (playerOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Player not found"));
-        }
-
-        Human player = playerOpt.get();
-        long actingTeamId = clubActionAuthorizationService.authorize(request, body,
-                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT).teamId();
-        if (player.getTeamId() == null || player.getTeamId() != actingTeamId) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Can only renew contracts for your own players"));
-        }
-
-        Round round = roundRepository.findById(1L).orElse(new Round());
-        int currentSeason = (int) round.getSeason();
-
-        // Accept both contractYears (relative) and newEndSeason (absolute) for backwards compatibility
-        int newEndSeason;
-        if (body.containsKey("contractYears")) {
-            int contractYears = Integer.parseInt(String.valueOf(body.get("contractYears")));
-            newEndSeason = currentSeason + contractYears;
-        } else {
-            newEndSeason = Integer.parseInt(String.valueOf(body.get("newEndSeason")));
-        }
-
-        long wageDemand = calculateWageDemand(player);
-        int minDuration = currentSeason + 1;
-
-        // Player accepts if wage >= demand AND duration >= min
-        boolean wageAcceptable = newWage >= wageDemand;
-        boolean durationAcceptable = newEndSeason >= minDuration;
-
-        if (wageAcceptable && durationAcceptable) {
-            long oldWage = player.getWage();
-            player.setContractEndSeason(newEndSeason);
-            player.setWage(newWage);
-            // Renewing contract settles the player
-            if (player.isWantsTransfer()) {
-                player.setWantsTransfer(false);
-                player.setMorale(Math.min(100, player.getMorale() + 10));
-            }
-            humanRepository.save(player);
-
-            // Update team salary budget with the wage difference
-            Team team = teamRepository.findById(player.getTeamId()).orElse(null);
-            if (team != null) {
-                team.setSalaryBudget(team.getSalaryBudget() + (newWage - oldWage));
-                teamRepository.save(team);
-            }
-
-            String msg = player.getName() + " has accepted the new contract until Season " + newEndSeason + ".";
-
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", msg
-            ));
-        } else {
-            StringBuilder reason = new StringBuilder();
-            if (!wageAcceptable) {
-                reason.append("The wage offer is too low. The player demands at least ").append(wageDemand).append(".");
-                if (player.isWantsTransfer()) {
-                    reason.append(" (The player wants to leave, making negotiations harder.)");
-                }
-            }
-            if (!durationAcceptable) {
-                reason.append(" Contract must extend to at least Season ").append(minDuration).append(".");
-            }
-
-            return ResponseEntity.ok(Map.of(
-                    "success", false,
-                    "message", player.getName() + " has rejected the contract offer. " + reason.toString().trim(),
-                    "wageDemand", wageDemand
-            ));
-        }
-    }
+    // Renewals go through round-based talks with the agent: POST /contract/negotiation/start (design §3.3).
 
     @GetMapping("/expiring/{teamId}")
     public List<Map<String, Object>> getExpiringContracts(@PathVariable(name = "teamId") long teamId) {
@@ -327,6 +252,7 @@ public class ContractController {
         }
 
         player.setPreContractTeamId(humanTeamId);
+        contractSignature.mark(player);
         humanRepository.save(player);
 
         // Send inbox notification
@@ -473,5 +399,141 @@ public class ContractController {
                     "message", player.getName() + " doesn't believe your promises. They still want to leave."
             ));
         }
+    }
+
+    // ==================== ROUND-BASED NEGOTIATION (design §3.3) ====================
+
+    @Autowired
+    private com.footballmanagergamesimulator.service.ContractNegotiationService negotiationService;
+
+    @Autowired
+    private AgentRepository agentRepository;
+
+    /** Opens (or resumes) a renewal negotiation with the player's agent. Blocks the day until it ends. */
+    @PostMapping("/negotiation/start")
+    public ResponseEntity<?> startNegotiation(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        long teamId = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        long playerId = Long.parseLong(String.valueOf(body.get("playerId")));
+        return negotiationResponse(() -> negotiationService.startRenewal(playerId, teamId));
+    }
+
+    /** The inbox button: opens personal terms for a fee-agreed transfer, or returns to the existing talks. */
+    @PostMapping("/negotiation/startTransfer")
+    public ResponseEntity<?> startTransferNegotiation(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        long teamId = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER).teamId();
+        long offerId = Long.parseLong(String.valueOf(body.get("transferOfferId")));
+        return negotiationResponse(() -> negotiationService.startTransfer(offerId, teamId));
+    }
+
+    @GetMapping("/negotiation/{id}")
+    public ResponseEntity<?> getNegotiation(HttpServletRequest request, @PathVariable long id) {
+        long teamId = userContext.getTeamId(request);
+        return negotiationResponse(() -> negotiationService.get(id, teamId));
+    }
+
+    @PostMapping("/negotiation/{id}/offer")
+    public ResponseEntity<?> offerInNegotiation(HttpServletRequest request, @PathVariable long id,
+                                                @RequestBody Map<String, Object> body) {
+        long teamId = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        var offer = new com.footballmanagergamesimulator.service.ContractPoints.Offer(
+                longOf(body, "wage"), (int) longOf(body, "years"),
+                longOf(body, "signingBonus"), longOf(body, "releaseClause"));
+        return negotiationResponse(() -> negotiationService.offer(id, teamId, offer));
+    }
+
+    @PostMapping("/negotiation/{id}/final")
+    public ResponseEntity<?> answerFinalOffer(HttpServletRequest request, @PathVariable long id,
+                                              @RequestBody Map<String, Object> body) {
+        long teamId = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        boolean accept = Boolean.parseBoolean(String.valueOf(body.get("accept")));
+        return negotiationResponse(() -> negotiationService.answerFinalOffer(id, teamId, accept));
+    }
+
+    @Autowired
+    private com.footballmanagergamesimulator.service.PlayerInterestService playerInterestService;
+
+    /** "Ask the agent": would this player talk to my club? */
+    @GetMapping("/interest/{playerId}")
+    public ResponseEntity<?> playerInterest(HttpServletRequest request, @PathVariable long playerId) {
+        long teamId = userContext.getTeamId(request);
+        Human player = humanRepository.findById(playerId).orElse(null);
+        if (player == null || player.isRetired()) return ResponseEntity.notFound().build();
+        List<Human> managers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.MANAGER_TYPE);
+        long managerId = managers.isEmpty() ? 0 : managers.get(0).getId();
+        var reason = playerInterestService.interest(player, teamId, managerId);
+        String agentName = player.getAgentId() > 0
+                ? agentRepository.findById(player.getAgentId()).map(Agent::getName).orElse("") : "";
+        return ResponseEntity.ok(Map.of(
+                "interested", reason == com.footballmanagergamesimulator.service.PlayerInterest.Reason.INTERESTED,
+                "reason", reason.name(),
+                "agentName", agentName,
+                "agentId", player.getAgentId(),
+                "personality", PlayerPersonality.of(player).name(),
+                "message", reason.agentMessage()));
+    }
+
+    /** Renewal with my own player: ask him to fire his agent. */
+    @PostMapping("/negotiation/{id}/fireAgent")
+    public ResponseEntity<?> askToFireAgent(HttpServletRequest request, @PathVariable long id,
+                                            @RequestBody(required = false) Map<String, Object> body) {
+        long teamId = clubActionAuthorizationService.authorize(request, body == null ? Map.of() : body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.CONTRACT).teamId();
+        return negotiationResponse(() -> negotiationService.askToFireAgent(id, teamId));
+    }
+
+    /** The negotiations still open for my club (the reason the day cannot advance). */
+    @GetMapping("/negotiation/open")
+    public List<Map<String, Object>> openNegotiations(HttpServletRequest request) {
+        return negotiationService.openNegotiations(userContext.getTeamId(request)).stream()
+                .map(this::negotiationView).toList();
+    }
+
+    private static long longOf(Map<String, Object> body, String key) {
+        Object value = body.get(key);
+        return value == null || String.valueOf(value).isBlank() ? 0 : Long.parseLong(String.valueOf(value));
+    }
+
+    private ResponseEntity<?> negotiationResponse(java.util.function.Supplier<ContractNegotiation> action) {
+        try {
+            return ResponseEntity.ok(negotiationView(action.get()));
+        } catch (com.footballmanagergamesimulator.service.ContractNegotiationService.NegotiationException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "code", e.getMessage()));
+        }
+    }
+
+    Map<String, Object> negotiationView(ContractNegotiation n) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", n.getId());
+        view.put("kind", n.getKind());
+        view.put("playerId", n.getPlayerId());
+        view.put("playerName", humanRepository.findById(n.getPlayerId()).map(Human::getName).orElse(""));
+        view.put("agentId", n.getAgentId());
+        view.put("agentName", n.getAgentId() > 0
+                ? agentRepository.findById(n.getAgentId()).map(Agent::getName).orElse("") : "");
+        view.put("personality", n.getPersonality() == null ? null : n.getPersonality().name());
+        view.put("relation", n.getRelation());
+        view.put("status", n.getStatus().name());
+        view.put("round", n.getRound());
+        view.put("rounds", n.getRounds());
+        view.put("season", n.getSeason());
+        view.put("transferOfferId", n.getTransferOfferId());
+        view.put("transferFee", n.getTransferFee());
+        view.put("fireAgentOutcome", n.getFireAgentOutcome());
+        if (n.getRefusalReason() != null) {
+            view.put("refusalReason", n.getRefusalReason());
+            view.put("refusalMessage", com.footballmanagergamesimulator.service.PlayerInterest.Reason
+                    .valueOf(n.getRefusalReason()).agentMessage());
+        }
+        view.put("agentOffer", Map.of("wage", n.getAgentWage(), "years", n.getAgentYears(),
+                "signingBonus", n.getAgentSigningBonus(), "releaseClause", n.getAgentReleaseClause()));
+        if (n.getLastYears() > 0) {
+            view.put("lastOffer", Map.of("wage", n.getLastWage(), "years", n.getLastYears(),
+                    "signingBonus", n.getLastSigningBonus(), "releaseClause", n.getLastReleaseClause()));
+        }
+        return view;
     }
 }

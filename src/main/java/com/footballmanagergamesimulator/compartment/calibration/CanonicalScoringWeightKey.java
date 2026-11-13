@@ -10,7 +10,7 @@ public record CanonicalScoringWeightKey(
         Type type,
         PerturbationMode perturbationMode,
         String consumer) {
-    public enum Category { RATING, CONTEXT, ROLE_FIT, COMPARTMENT, POSITION, ROLE, DUTY, MENTALITY, WORK_RATE, EXPOSURE, PROBABILITY, PLAYER_VALUE, INSTRUCTION, TEAM_TALK, TACTICAL }
+    public enum Category { RATING, CONTEXT, ROLE_FIT, COMPARTMENT, POSITION, ROLE, DUTY, MENTALITY, WORK_RATE, EXPOSURE, PROBABILITY, PLAYER_VALUE, INSTRUCTION, TACTICAL }
     public enum Type { CONTINUOUS, INTEGER, DISCRETE }
     public enum PerturbationMode { DIRECT, RENORMALIZED_ATTRIBUTE }
 

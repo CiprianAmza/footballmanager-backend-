@@ -6,6 +6,7 @@ import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.TeamRepository;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -42,6 +43,12 @@ public class NationService {
         this.competitionRepository = competitionRepository;
     }
 
+    /** The countries of the world (not the continent), by id. */
+    public static List<NationInfo> countries() {
+        return NATIONS.values().stream().filter(n -> n.id() > 0)
+                .sorted(java.util.Comparator.comparingLong(NationInfo::id)).toList();
+    }
+
     /** Metadata for a nation id, or a safe Unknown fallback. */
     public NationInfo infoFor(long nationId) {
         return NATIONS.getOrDefault(nationId, UNKNOWN);
@@ -56,6 +63,16 @@ public class NationService {
             return 0;
         Optional<Competition> competition = competitionRepository.findById(team.get().getCompetitionId());
         return competition.map(Competition::getNationId).orElse(0L);
+    }
+
+    /** Nation of every team, resolved with two queries in total (for list endpoints). */
+    public Map<Long, NationInfo> infoByTeamId() {
+        Map<Long, Long> nationByCompetition = new java.util.HashMap<>();
+        competitionRepository.findAll().forEach(c -> nationByCompetition.put(c.getId(), c.getNationId()));
+        Map<Long, NationInfo> result = new java.util.HashMap<>();
+        teamRepository.findAll().forEach(t ->
+                result.put(t.getId(), infoFor(nationByCompetition.getOrDefault(t.getCompetitionId(), 0L))));
+        return result;
     }
 
     /** Convenience: full nation metadata for a team. */

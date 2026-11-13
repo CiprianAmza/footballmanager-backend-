@@ -22,8 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * from my config change or from RNG?".
  *
  * <p>Covers the synthetic engine path
- * ({@link MatchSimulationService#calculateScores},
- *  {@link MatchSimulationService#calculateMoraleChangeForResult},
+ * ({@link MatchSimulationService#calculateMoraleChangeForResult},
  *  {@link MatchSimulationService#computeMatchRating},
  *  {@link MatchStatsService#generateMatchStats}).
  * Live engine determinism (LiveMatchSession) is exercised via its seeded
@@ -42,28 +41,6 @@ class EngineDeterminismIT {
     void restoreProductionRng() {
         matchSimulationService.setRandomForTesting(new Random());
         matchStatsService.setRandomForTesting(new Random());
-    }
-
-    @Test
-    @DisplayName("calculateScores: same seed → identical scores over 200 calls")
-    void calculateScores_isDeterministic() {
-        matchSimulationService.setRandomForTesting(new Random(SEED));
-        int[] run1 = new int[400];
-        for (int i = 0; i < 200; i++) {
-            List<Integer> s = matchSimulationService.calculateScores(8000, 4000);
-            run1[i * 2] = s.get(0);
-            run1[i * 2 + 1] = s.get(1);
-        }
-
-        matchSimulationService.setRandomForTesting(new Random(SEED));
-        int[] run2 = new int[400];
-        for (int i = 0; i < 200; i++) {
-            List<Integer> s = matchSimulationService.calculateScores(8000, 4000);
-            run2[i * 2] = s.get(0);
-            run2[i * 2 + 1] = s.get(1);
-        }
-
-        assertThat(run2).as("calculateScores must be reproducible under fixed seed").containsExactly(run1);
     }
 
     @Test
@@ -134,33 +111,5 @@ class EngineDeterminismIT {
         assertThat(s2.getAwayXg()).as("away xG").isEqualTo(s1.getAwayXg());
         assertThat(s2.getHomeYellowCards()).as("home yellows").isEqualTo(s1.getHomeYellowCards());
         assertThat(s2.getHomeFouls()).as("home fouls").isEqualTo(s1.getHomeFouls());
-    }
-
-    @Test
-    @DisplayName("Different seeds produce different outputs (sanity)")
-    void differentSeeds_produceDifferentOutputs() {
-        matchSimulationService.setRandomForTesting(new Random(SEED));
-        int[] runA = new int[100];
-        for (int i = 0; i < 50; i++) {
-            List<Integer> s = matchSimulationService.calculateScores(8000, 4000);
-            runA[i * 2] = s.get(0);
-            runA[i * 2 + 1] = s.get(1);
-        }
-
-        matchSimulationService.setRandomForTesting(new Random(SEED + 1));
-        int[] runB = new int[100];
-        for (int i = 0; i < 50; i++) {
-            List<Integer> s = matchSimulationService.calculateScores(8000, 4000);
-            runB[i * 2] = s.get(0);
-            runB[i * 2 + 1] = s.get(1);
-        }
-
-        // Sanity: with two different seeds, at least some calls must differ.
-        // (If all were equal the RNG isn't being consumed.)
-        int diffs = 0;
-        for (int i = 0; i < 100; i++) if (runA[i] != runB[i]) diffs++;
-        assertThat(diffs)
-                .as("at least some scores must differ between two seeds")
-                .isGreaterThan(0);
     }
 }

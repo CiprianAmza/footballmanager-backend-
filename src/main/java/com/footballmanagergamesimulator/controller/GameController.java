@@ -131,6 +131,17 @@ public class GameController {
     @Autowired FastForwardService fastForwardService;
     @Autowired GameSaveImportService gameSaveImportService;
     @Autowired MultiplayerRoomService multiplayerRoomService;
+    @Autowired com.footballmanagergamesimulator.service.ContractNegotiationService contractNegotiationService;
+
+    /** The day cannot move while a multiplayer room drives it or a contract negotiation is open. */
+    private void guardDayAdvance() {
+        if (multiplayerRoomService.hasActiveRoom()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
+        }
+        if (contractNegotiationService.hasOpenNegotiation()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "NEGOTIATION_IN_PROGRESS");
+        }
+    }
 
     private static final int CURRENT_SAVE_VERSION = GameSaveImportService.CURRENT_SAVE_VERSION;
 
@@ -361,9 +372,7 @@ public class GameController {
 
     @PostMapping("/advance")
     public Map<String, Object> advance() {
-        if (multiplayerRoomService.hasActiveRoom()) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
-        }
+        guardDayAdvance();
         int season = getCurrentSeason();
         return gameAdvanceService.advance(season);
     }
@@ -376,18 +385,14 @@ public class GameController {
 
     @PostMapping("/advanceToDay/{day}")
     public Map<String, Object> advanceToDay(@PathVariable int day) {
-        if (multiplayerRoomService.hasActiveRoom()) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
-        }
+        guardDayAdvance();
         int season = getCurrentSeason();
         return gameAdvanceService.advanceToDay(season, day);
     }
 
     @PostMapping("/unpause")
     public Map<String, Object> unpause() {
-        if (multiplayerRoomService.hasActiveRoom()) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "USE_MULTIPLAYER_CONTINUE");
-        }
+        guardDayAdvance();
         int season = getCurrentSeason();
         GameCalendar cal = calendarService.getOrCreateCalendar(season);
         cal.setPaused(false);

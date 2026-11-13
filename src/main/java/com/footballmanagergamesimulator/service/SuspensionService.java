@@ -30,6 +30,10 @@ public class SuspensionService {
     @Autowired
     private UserContext userContext;
 
+    /** Code-of-conduct fines for cards (design DESIGN_START_CARIERA §6.4); absent in narrow test slices. */
+    @Autowired(required = false)
+    private com.footballmanagergamesimulator.service.conduct.ConductService conductService;
+
     @Autowired
     private SuspensionRepository suspensionRepository;
     @Autowired
@@ -92,6 +96,16 @@ public class SuspensionService {
      */
     private List<Suspension> processEvents(List<MatchEvent> events, long competitionId, int season) {
         List<Suspension> created = new ArrayList<>();
+
+        // A managed club's code of conduct fines the booked player (once per card).
+        if (conductService != null) {
+            for (MatchEvent event : events) {
+                if (("red_card".equals(event.getEventType()) || "yellow_card".equals(event.getEventType()))
+                        && userContext.isHumanTeam(event.getTeamId())) {
+                    conductService.fine(event, event.getTeamId(), season, event.getRoundNumber());
+                }
+            }
+        }
 
         for (MatchEvent event : events) {
             if (!"red_card".equals(event.getEventType())) continue;

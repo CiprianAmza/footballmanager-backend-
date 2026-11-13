@@ -1,9 +1,20 @@
 package com.footballmanagergamesimulator.service;
 
+import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.PlayerSkills;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.io.ClassPathResource;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -11,11 +22,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 /**
- * Pure-logic tests for {@link PlayerValueService} — the config-driven matchday value engine.
- * Builds a plain {@link MatchEngineConfig} (the same object production binds from YAML) so
- * production and tests share one source of truth, without standing up Spring.
+ * Pure-logic tests for {@link PlayerValueService}: the special rating at the occupied position,
+ * times familiarity, morale and fitness. Uses the real engine weights, without Spring.
  */
 class PlayerValueServiceTest {
+
+    private PositionAttributeImportance previousTable;
+
+    @BeforeEach
+    void installEngineWeights() throws IOException {
+        previousTable = PositionAttributeImportance.current();
+        MutablePropertySources properties = new MutablePropertySources();
+        for (PropertySource<?> source : new YamlPropertySourceLoader()
+                .load("weights", new ClassPathResource("compartment-scoring-weights-v1.yml"))) {
+            properties.addLast(source);
+        }
+        for (PropertySource<?> source : new YamlPropertySourceLoader()
+                .load("application", new ClassPathResource("application.yml"))) {
+            properties.addLast(source);
+        }
+        PositionAttributeImportance.install(new Binder(ConfigurationPropertySources.from(properties))
+                .bind("match.engine.compartment", Bindable.of(CompartmentEngineConfig.class))
+                .orElseThrow(IllegalStateException::new));
+    }
+
+    @AfterEach
+    void restoreLiveTable() {
+        PositionAttributeImportance.restore(previousTable);
+    }
 
     /** A PlayerSkills with every one of the 36 attributes set to {@code v}. */
     private PlayerSkills uniformSkills(String position, int v) {
@@ -27,51 +61,6 @@ class PlayerValueServiceTest {
 
     private PlayerValueService service(MatchEngineConfig cfg) {
         return new PlayerValueService(cfg);
-    }
-
-    @Test
-    void uniformSkills_giveTheSameValueRegardlessOfPositionWeights() {
-        MatchEngineConfig cfg = new MatchEngineConfig();
-        PlayerValueService svc = service(cfg);
-        PlayerSkills s = uniformSkills("ST", 10);
-
-        // Any weighted average of all-10 attributes is 10 → ×scaleMultiplier(15) = 150, so the
-        // value is position-independent for a uniform player whatever the per-position weights are.
-        assertThat(svc.computePositionalValue(s, "ST")).isCloseTo(150.0, within(1e-9));
-        assertThat(svc.computePositionalValue(s, "GK")).isCloseTo(150.0, within(1e-9));
-        assertThat(svc.computePositionalValue(s, "DC")).isCloseTo(150.0, within(1e-9));
-    }
-
-    @Test
-    void higherWeightOnAnAttribute_shiftsValueTowardThatAttribute() {
-        MatchEngineConfig cfg = new MatchEngineConfig();
-        PlayerValueService svc = service(cfg);
-
-        PlayerSkills s = uniformSkills("ST", 10);
-        s.setFinishing(20); // one standout attribute
-
-        // Override only Finishing's weight (other attrs keep their ST default profile); raising it
-        // must pull the weighted average toward the standout 20.
-        cfg.getPlayerValue().setWeights(Map.of("ST", Map.of("Finishing", 1.0)));
-        double lowFinishingWeight = svc.computePositionalValue(s, "ST");
-
-        cfg.getPlayerValue().setWeights(Map.of("ST", Map.of("Finishing", 5.0)));
-        double highFinishingWeight = svc.computePositionalValue(s, "ST");
-
-        assertThat(highFinishingWeight).isGreaterThan(lowFinishingWeight);
-    }
-
-    @Test
-    void zeroWeight_excludesAttributeEntirely() {
-        MatchEngineConfig cfg = new MatchEngineConfig();
-        cfg.getPlayerValue().setWeights(Map.of("ST", Map.of("Finishing", 0.0)));
-        PlayerValueService svc = service(cfg);
-
-        PlayerSkills s = uniformSkills("ST", 10);
-        s.setFinishing(20); // would raise the mean if counted
-
-        // Finishing excluded ⇒ remaining 35 attrs all 10 ⇒ mean 10 × 15 = 150
-        assertThat(svc.computePositionalValue(s, "ST")).isCloseTo(150.0, within(1e-9));
     }
 
     @Test
@@ -105,9 +94,9 @@ class PlayerValueServiceTest {
         cfg.getPlayerValue().setFamiliarityPenalty(Map.of("ST", Map.of("DC", 0.2)));
         PlayerValueService svc = service(cfg);
 
-        PlayerSkills s = uniformSkills("ST", 10); // positional value 150
-        double expected = 150.0
-                * 0.2                               // familiarity ST→DC
+        PlayerSkills s = uniformSkills("ST", 10);
+        double expected = svc.computePositionalValue(s, "DC")   // special rating at the occupied slot
+                * 0.2                                           // familiarity ST→DC
                 * svc.moraleFactor(80)
                 * svc.fitnessFactor(90);
 
@@ -115,15 +104,15 @@ class PlayerValueServiceTest {
     }
 
     @Test
-    void evaluatePlayer_clampsToCeil() {
+    void evaluatePlayer_hasNoCeiling_everyPointAbove19Counts() {
         MatchEngineConfig cfg = new MatchEngineConfig();
-        cfg.getPlayerValue().setScaleMultiplier(100.0); // 20 × 100 = 2000, far above ceil
         PlayerValueService svc = service(cfg);
 
-        PlayerSkills s = uniformSkills("ST", 20);
-        // positional value clamps to ceil 300; on-position, neutral morale/fitness ⇒ ~300
-        double value = svc.evaluatePlayer(s, "ST", "ST", 70, 100);
-        assertThat(value).isCloseTo(300.0, within(1e-6));
+        double at19 = svc.evaluatePlayer(uniformSkills("ST", 19), "ST", "ST", 70, 100);
+        double at20 = svc.evaluatePlayer(uniformSkills("ST", 20), "ST", "ST", 70, 100);
+        double at21 = svc.evaluatePlayer(uniformSkills("ST", 21), "ST", "ST", 70, 100);
+        assertThat(at20).isGreaterThan(at19).isGreaterThan(300.0);
+        assertThat(at21).isGreaterThan(at20);
     }
 
     @Test

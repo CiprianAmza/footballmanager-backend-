@@ -15,6 +15,12 @@ public class PlayerView {
   private String teamName;
   private String position;
   private double rating;
+  /** What the player is worth in a match at his position (engine weights). 0 when attributes were not loaded. */
+  private double specialRating;
+  /** An AI club is about to sign him in this window (design §3.6). */
+  private boolean wanted;
+  /** Clubs shown on "wanted": every club that had a chance to sign him, the AI's choice hidden among them. */
+  private List<String> wantedBy = List.of();
   private int currentAbility;
   private int potentialAbility;
   private String personalityLabel;
@@ -31,6 +37,10 @@ public class PlayerView {
   private int contractEndSeason;
   private long wage;
   private long releaseClause;
+  /** Buy-back clause on the player: the club that may take him back, at what price, until which season. */
+  private long buyBackClubId;
+  private long buyBackPrice;
+  private int buyBackUntilSeason;
   private long transferValue;
   private boolean willNeverLeave;
   private boolean stayForward;

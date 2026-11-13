@@ -49,6 +49,8 @@ class MinimumSquadServiceTest {
 
         ReflectionTestUtils.setField(service, "teamRepository", teams);
         ReflectionTestUtils.setField(service, "humanRepository", humans);
+        ReflectionTestUtils.setField(service, "contractSignature", mock(ContractSignature.class));
+        ReflectionTestUtils.setField(service, "playerBondService", mock(PlayerBondService.class));
         ReflectionTestUtils.setField(service, "youthPlayerRepository", youthPlayers);
         ReflectionTestUtils.setField(service, "playerSkillsRepository", mock(PlayerSkillsRepository.class));
         ReflectionTestUtils.setField(service, "historicalRelationRepository",

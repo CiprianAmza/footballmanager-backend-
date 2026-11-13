@@ -1,0 +1,4927 @@
+[
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "The last {managerCount} managers at {club} lasted an average of just {avgTenure}, a statistic {manager} will be keen to defy."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "History offers little comfort: the previous {managerCount} appointments at {club} survived an average of only {avgTenure} in the dugout."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Patience has been in short supply at {club}, where the last {managerCount} managers averaged only {avgTenure} before departing."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "{manager} inherits a seat that rarely stays warm for long, with his {managerCount} most recent predecessors lasting an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Recent precedent makes for sobering reading: across {managerCount} appointments, {club} have kept a manager for an average of just {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "If the numbers are any guide, {manager} should not unpack too quickly; the last {managerCount} bosses at {club} averaged a mere {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "At {club}, the average stay of the last {managerCount} managers stands at only {avgTenure}, and {manager} will know the clock is already ticking."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Few dugouts turn over as quickly as this one, with {managerCount} recent managers at {club} averaging {avgTenure} apiece."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Statistically, the odds are against him: {club} have given their last {managerCount} managers an average of just {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "{manager} becomes the latest to take on a job that has worked through {managerCount} managers at an average of {avgTenure} each."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Job security has been a rare commodity at {club}, where the previous {managerCount} managers lasted {avgTenure} on average."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "An average tenure of {avgTenure} across the last {managerCount} managers tells its own story about the pressure {manager} now faces at {club}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Those who came before him did not linger: {managerCount} managers, an average of {avgTenure} each, and a board quick to act."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "The board at {club} has rarely waited long for results, with its last {managerCount} managers lasting an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Short reigns have become the norm at {club}, the last {managerCount} managers averaging just {avgTenure} before the door swung shut."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Should {manager} survive two full seasons, he will comfortably beat the recent average of {avgTenure} set by his {managerCount} predecessors."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Turnover in the dugout has been relentless, with {club} averaging {avgTenure} per manager over the last {managerCount} appointments."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Building a long-term project has proved difficult at {club}: the last {managerCount} managers stayed an average of only {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Supporters of {club} have grown used to change, having seen {managerCount} managers come and go at an average of {avgTenure} each."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Numbers rarely lie, and at {club} they show {managerCount} recent managers averaging just {avgTenure} in charge."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Time will be the scarcest resource for {manager}, given that the last {managerCount} managers at {club} averaged only {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Over the last {managerCount} appointments, the average reign at {club} has been a brief {avgTenure}, hardly a reassuring backdrop for {manager}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "A brief honeymoon may be all {manager} gets; the previous {managerCount} managers at {club} lasted an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "With an average tenure of just {avgTenure} across {managerCount} managers, {club} remain one of the less forgiving employers in the game."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Whoever takes the {club} job tends not to keep it for long, and the last {managerCount} holders averaged a modest {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Even by football's impatient standards, {club} move quickly: {managerCount} recent managers, an average of {avgTenure} each."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "SHORT",
+  "text": "Results will need to come fast for {manager}, as the last {managerCount} managers at {club} were given an average of only {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Stability has been a hallmark of {club}, whose last {managerCount} managers stayed an average of {avgTenure}, and {manager} can expect time to build."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "{manager} joins a club that backs its managers: the previous {managerCount} at {club} lasted an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "The last {managerCount} managers at {club} averaged {avgTenure} in charge, a record of patience that should give {manager} room to work."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Patience is part of the culture at {club}, where {managerCount} recent managers averaged a healthy {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "History suggests {manager} will be given time: his {managerCount} predecessors spent an average of {avgTenure} in the dugout."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Few clubs offer such continuity, with the last {managerCount} managers at {club} averaging {avgTenure} apiece."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "An average tenure of {avgTenure} across the last {managerCount} managers points to a board at {club} that prefers long-term planning over quick fixes."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Managers tend to settle at {club}; the last {managerCount} stayed an average of {avgTenure}, and {manager} will hope to follow suit."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Continuity runs deep at {club}, the previous {managerCount} managers having averaged {avgTenure} each."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "If precedent holds, {manager} could be in post for some time, given that {club} kept their last {managerCount} managers for an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Over the last {managerCount} appointments, {club} have averaged {avgTenure} per manager, a rare commitment in a restless profession."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Long reigns are the norm at {club}, where the last {managerCount} managers stayed {avgTenure} on average."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "The board's track record should reassure {manager}: {managerCount} recent managers, an average stay of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Unlike many of their rivals, {club} give managers time, with {managerCount} recent bosses averaging {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Supporters of {club} are accustomed to familiar faces in the dugout, having seen their last {managerCount} managers stay an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Statistically, this is one of the safer seats in the game: the last {managerCount} managers at {club} averaged {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "With his predecessors averaging {avgTenure} across {managerCount} appointments, {manager} steps into an environment built for the long haul."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Time is a luxury {manager} should enjoy, since the last {managerCount} managers at {club} lasted an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Rarely do managers leave {club} in a hurry; the previous {managerCount} averaged {avgTenure} before moving on."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Building a lasting project looks realistic for {manager}, at a club whose last {managerCount} managers averaged {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Numbers point to a patient employer, with {managerCount} recent managers at {club} averaging {avgTenure} in charge."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Loyalty has been a two-way street at {club}, where the last {managerCount} managers stayed an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Should {manager} match the recent average of {avgTenure} set by his {managerCount} predecessors, he will have ample time to leave his mark."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Steady hands have guided {club} in recent years, the last {managerCount} managers averaging {avgTenure} each."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "A culture of trust surrounds the dugout at {club}, whose previous {managerCount} managers lasted an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Even in an impatient sport, {club} stand apart: their last {managerCount} managers averaged {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "LONG",
+  "text": "Few will expect another change in the dugout any time soon, given that the last {managerCount} managers at {club} stayed an average of {avgTenure}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "{manager} begins with a blank page: {club} have no recorded managerial history against which to measure him."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "There is no precedent to guide expectations, as {club} have yet to compile any record of past managers."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "With no managerial history on file at {club}, {manager} will set the benchmark for those who follow."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "History offers no clues here; {club} have no recorded managerial tenures, leaving {manager} to write the first chapter."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "No predecessor's record hangs over {manager}, who arrives at a club with no managerial history to speak of."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "The record books at {club} are empty when it comes to managers, giving {manager} the chance to define what success looks like."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Whatever {manager} achieves will become the reference point, since {club} have no managerial history yet."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Comparisons are impossible for now: {club} have no recorded managerial history, and {manager} starts from scratch."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "A clean slate awaits {manager}, with no previous tenures at {club} to judge him against."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "{manager} becomes the first name in an empty ledger, as {club} have no recorded managerial past."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Without any managerial history to draw on, nobody can say how long {manager} might last at {club}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Precedent is absent at {club}, where no previous managerial tenures have been recorded, so {manager} carries no inherited expectations."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "The usual statistics on managerial longevity do not exist at {club}, leaving {manager} free to set his own standard."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Fresh ground lies ahead for {manager}, who takes charge of a club with no recorded managerial track record."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Nobody has yet set the standard in the {club} dugout, and that task now falls to {manager}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Every record at {club} starts with {manager}, as the club has no documented managerial history."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "In the absence of any recorded predecessors at {club}, {manager} will be judged on his own terms."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Unburdened by history, {manager} arrives at {club} with the managerial records yet to be written."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Records show no previous managers at {club}, meaning {manager} has no shadow to step out of."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Benchmarks will have to wait: {club} have no managerial history from which to draw comparisons for {manager}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "As the first entry in the managerial record of {club}, {manager} has the rare chance to set the tone."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Little can be read into what lies ahead for {manager}, because {club} have no recorded managerial tenures to study."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Neither warning nor reassurance can be found in the records, as {club} have no managerial history yet."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "For once, there are no ghosts in the dugout: {club} have no recorded managerial past for {manager} to live up to."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Starting from zero has its advantages, and {manager} inherits no expectations shaped by previous managers at {club}."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Uncharted territory awaits {manager}, with {club} yet to record a single managerial tenure."
+ },
+ {
+  "category": "TENURE",
+  "bucket": "NO_HISTORY",
+  "text": "Only time will tell how long {manager} stays, since {club} offer no managerial history to suggest an answer."
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{club} land {manager} in statement appointment"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{manager} takes the reins at {club} as new era dawns"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Bold move pays off: {manager} named {club} boss"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "New dawn at {club} with {manager} at the helm"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{manager} the right man, say delighted {club} supporters"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Coup for {club} as {manager} signs on"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{club} hand keys to {manager} and dare to dream"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Fans rejoice as {manager} arrives at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{manager} promises fearless football at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Perfect fit: {club} unveil {manager} as head coach"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Smiles all round as {manager} joins {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{club} board wins race for {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Ambition rewarded: {manager} is {club}'s new manager"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Hope returns to {club} with {manager} appointment"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{manager} brings fresh energy to {club} dugout"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Masterstroke from {club} in landing {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "It's official: {manager} chosen to lead {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Supporters buzzing after {club} confirm {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{club} get their man: {manager} signs long-term deal"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Inspired choice as {manager} heads to {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "A manager for the future: {club} trust {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{manager} vows to restore pride at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Statement of intent as {club} name {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Big appointment, bigger plans: {manager} joins {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{club} secure top target {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Excitement builds as {manager} takes charge of {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Players hail arrival of {manager} at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{manager} arrives with a plan and {club} love it"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Winning mentality lands at {club} in {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Change done right: {club} appoint {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Clear vision, strong leader: {manager} named at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Brighter days ahead for {club} under {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{club} dream big after snapping up {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Sold-out welcome awaits {manager} at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Pundits applaud {club} for hiring {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Done deal: {manager} the new face of {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Leader, motivator, winner: {club} unveil {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Optimism sweeps {club} following {manager} unveiling"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{manager} ready to write new chapter at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Smart business: {club} lure {manager} to the dugout"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Here comes {manager}: {club} welcome their new leader"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Unanimous choice: board backs {manager} to lead {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "Why {manager} is exactly what {club} needed"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "POSITIVE",
+  "text": "{club} start fresh with energetic {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{manager} takes {club} job amid cautious welcome"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{club} appoint {manager}, but questions remain"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Promise and doubt as {manager} arrives at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "A gamble worth taking? {club} turn to {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{manager} at {club}: bold choice or stopgap?"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Mixed reaction greets {manager} appointment at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Fans split as {club} name {manager} new boss"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{club} bet on {manager} to deliver quickly"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Jury out on {manager} as he begins {club} reign"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Cautious optimism as {manager} takes charge of {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{manager} inherits big task and modest budget at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Not the first choice, but {manager} gets {club} job"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Time will tell for {manager} at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{club} opt for {manager} after lengthy search"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Interesting choice: {manager} handed {club} reins"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Some cheers, some shrugs as {manager} joins {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Big shoes to fill for {manager} at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{manager} promises much, but {club} fans want proof"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Steady hand or safe option? {club} pick {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Questions linger over {club} move for {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Supporters reserve judgement on {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{club} hope {manager} can steady the ship"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Hard road ahead as {manager} accepts {club} post"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Measured welcome for {manager} at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Pragmatic pick: {club} settle on {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Can {manager} turn {club} around?"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "New boss, old problems: {manager} joins {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{manager} arrives at {club} with point to prove"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Neither thrill nor dismay as {club} appoint {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Board backs {manager}, terraces wait and see"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Long-term plan or short-term fix? {manager} lands at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Modest expectations surround {manager}'s {club} appointment"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{club} choose caution in turning to {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Pundits divided over {manager} move to {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Risk and reward as {club} hand job to {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{manager} gets his chance, {club} get their answer soon"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Welcome, with conditions: {club} unveil {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Low-key unveiling for {manager} at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Ambitious {manager} faces tight squad at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Plenty to prove: {manager} named {club} coach"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "{club} roll the dice on {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Patience required as {manager} takes over at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Few fireworks but sound logic in {manager} appointment"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "MIXED",
+  "text": "Half-hearted applause as {manager} signs for {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{club} turn to {manager} in act of desperation"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Baffling choice as {manager} lands {club} job"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{manager}? Supporters left stunned by {club} appointment"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Fans fume as {club} appoint {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Is this a joke? {club} hire {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{club} gamble on {manager} could backfire badly"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Alarm bells ring as {manager} takes {club} job"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Bargain-bin appointment: {club} settle for {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{manager} arrives at {club} to a chorus of boos"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Who? {club} fans baffled by {manager} pick"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Recipe for disaster as {manager} joins {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{club} board under fire over {manager} decision"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Cheap and cheerless: {manager} named {club} boss"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Disbelief on terraces as {manager} handed {club} reins"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{manager} faces hostile welcome at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Ambition dead? {club} choose {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Petitions already circulating against {manager} at {club}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Underwhelming does not cover it: {club} unveil {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{club} fans fear the worst under {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Panic appointment: {manager} rushed into {club} dugout"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Same old {club}: {manager} the latest short-term fix"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Doubts, jeers and empty seats greet {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{manager} out of his depth, warn {club} insiders"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Penny-pinching {club} hand job to {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Questions mount as {manager} is handed {club} job"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "How long will {manager} last at {club}?"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Bookmakers already pricing up {manager}'s {club} exit"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Gloom descends on {club} as {manager} confirmed"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Backward step: {club} appoint {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{manager} must win over furious {club} faithful"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Season written off? {manager} takes {club} job"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Anger grows as {club} snub big names for {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Not again: {club} make another baffling hire in {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Few believers as {manager} walks into {club} crisis"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{club} stumble into {manager} appointment"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Laughing stock? Rivals mock {club} over {manager} move"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Uninspiring {manager} the best {club} could manage"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Supporters vow protest over {manager} appointment"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Calamity looms after {club} pick {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "{manager} hired, {club} fans already planning his exit"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Mystery hire {manager} leaves {club} supporters cold"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Blind leap: {club} put their faith in {manager}"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Storm clouds gather over {club} after {manager} unveiling"
+ },
+ {
+  "category": "HEADLINE",
+  "bucket": "NEGATIVE",
+  "text": "Damp squib as {manager} arrives at {club}"
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "{manager} arrives without a single professional appearance to his name, a {age}-year-old who built his reputation on the training ground rather than the pitch."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Never a professional player, {manager} has spent his working life studying the game from the touchline, and he brings a {licence} to his new post."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "The {birthNation}-born {manager}, {age}, is one of a growing number of coaches who never played the game at a professional level."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "At {age}, {manager} takes charge having never kicked a ball in a professional fixture, his credentials earned instead through years of coaching and analysis."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Unlike many of his peers, {manager} did not come through the ranks as a player; his path into management ran through classrooms, video rooms and youth pitches."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "{manager} holds no playing record of note, but the {age}-year-old has long insisted that a coach is judged by his ideas, not his medals."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Born in {birthNation}, {manager} never made it as a player and turned to coaching early, a decision that now brings him to the dugout at {age}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Those looking for {manager} in old team sheets will search in vain: the new appointment never played professionally and arrives with a {licence}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "{manager} may never have played professionally, yet the {age}-year-old has made a name for himself as a meticulous planner and a sharp reader of the game."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "There is no playing pedigree behind {manager}, a {age}-year-old from {birthNation} who learned his trade on the coaching side of the white line."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "A self-made coach in every sense, {manager} never earned a professional contract as a player and instead worked his way up through the coaching ranks."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "{manager}, who never played the game for a living, becomes the latest example of a manager whose authority rests entirely on his coaching work."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Without the cushion of a famous playing name, {manager} has had to earn every opportunity, and at {age} he finally gets the chance to lead a first team."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Few supporters will recognise {manager} from his playing days, for the simple reason that he had none; the {birthNation} native moved straight into coaching."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "What {manager} lacks in playing experience he is said to make up for in preparation, the {age}-year-old bringing a {licence} and a reputation for detail."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Rather than a dressing-room veteran, the board has opted for {manager}, a {age}-year-old tactician who never played at professional level."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "His route to the dugout bypassed the pitch altogether: {manager} never played professionally and has been coaching since his early twenties."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Coaching has been {manager}'s only football career, the {birthNation}-born appointment having never turned out for a professional side."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "In an era when former players still fill most dugouts, {manager} stands apart as a coach with no professional playing background at all."
+ },
+ {
+  "category": "WHO",
+  "bucket": "NONE",
+  "text": "Neither a former star nor a journeyman, {manager} is a career coach, and the {age}-year-old arrives with a {licence} and a clear plan."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "{manager} played his football at amateur level, combining matches with a day job before coaching became his full-time calling."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "A former amateur player from {birthNation}, {manager} knows the game from the ground up, having turned out on modest local pitches long before he took his first coaching badge."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "At {age}, {manager} brings the grit of the amateur game to his new role; he never played professionally but spent years in the unpaid ranks."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "The new man in the dugout, {manager}, was an amateur player whose modest career taught him the value of hard work and organisation."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Weekend football rather than full-time contracts shaped {manager} as a player, and the {age}-year-old credits those years for his practical approach."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Born in {birthNation}, {manager} spent his playing days in the amateur game before swapping his boots for a whistle and a notebook."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "{manager}'s playing career never went beyond the amateur level, but it gave him an early grounding in leading a dressing room."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Those who shared a pitch with {manager} in the amateur leagues remember a vocal, organised player who already thought like a coach."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Never paid to play, {manager} nonetheless spent more than a decade in amateur football, an apprenticeship he still speaks of with affection."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "An amateur footballer turned professional coach, {manager}, {age}, arrives with a {licence} and a reputation for squeezing the most from limited resources."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "{manager} learned the game on muddy amateur pitches, and the {birthNation}-born coach has never lost the work ethic those years instilled."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "His playing days were spent among amateurs, but {manager} quickly realised that his future lay on the coaching side of the game."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Like many who never reached the professional ranks, {manager} turned an amateur playing career into a lifelong commitment to coaching."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "From amateur player to first-team manager, the journey of {manager} has been a long one, and at {age} it reaches a new chapter."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Modest beginnings in amateur football have not held back {manager}, who arrives with a {licence} and plenty of ambition."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Before he coached, {manager} played, though only ever as an amateur, fitting training sessions around work and family."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "There were no professional contracts in {manager}'s playing career, which was spent entirely in the amateur game."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Amateur football was the stage for {manager}'s playing career, and the {age}-year-old has often said it taught him more than any coaching course."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "In {manager}, the club gets a coach who knows what it means to play for the love of the game, his own career having been spent in the amateur ranks."
+ },
+ {
+  "category": "WHO",
+  "bucket": "AMATEUR",
+  "text": "Once a committed amateur player, {manager} has climbed the coaching ladder rung by rung to earn this appointment at the age of {age}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "{manager} spent his playing career in the lower divisions, a hard school that the {age}-year-old says shaped his view of the game."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "A seasoned lower-league professional in his playing days, {manager} knows what it takes to compete on tight budgets and heavy pitches."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "The {age}-year-old {manager} was a dependable lower-division player for many years before moving into coaching."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Born in {birthNation}, {manager} made a living as a player in the lower leagues, never reaching the top flight but rarely missing a match."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "At {age}, {manager} brings the experience of a long lower-league playing career to the dugout, along with a {licence}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Lower-league football was {manager}'s home as a player, and he earned a reputation as a tireless and reliable professional."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "{manager}'s playing days were spent away from the spotlight in the lower divisions, where he learned to value organisation and resilience."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Never a household name, {manager} was a respected lower-league professional who played for a string of clubs before turning to coaching."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Those who watched {manager} play in the lower divisions recall a committed competitor who led by example on the pitch."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "His playing career unfolded in the lower leagues, and {manager} has never hidden the fact that he was a grafter rather than a star."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Years of lower-division football taught {manager} how to win ugly, a lesson the {birthNation}-born coach is expected to bring to his new side."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "A journeyman of the lower leagues during his playing days, {manager} now takes on the biggest challenge of his coaching career."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "{manager} made hundreds of appearances below the top flight before hanging up his boots and turning his attention to coaching."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Before entering management, the {birthNation}-born {manager} was a familiar face in the lower divisions, a solid professional with a sharp football brain."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Lower divisions, long bus journeys and small crowds defined {manager}'s playing career, and the {age}-year-old says he would not change a day of it."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Like many coaches who never played at the highest level, {manager} served his playing apprenticeship in the lower leagues."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "There was nothing glamorous about {manager}'s playing career in the lower leagues, but it gave him a deep understanding of the game's realities."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "From the lower leagues to the dugout, {manager} has built his career on hard work, and at {age} he arrives with a {licence}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "Once a reliable lower-league professional, {manager} has spent the years since retirement learning the coaching trade from the bottom up."
+ },
+ {
+  "category": "WHO",
+  "bucket": "LOWER_LEAGUE",
+  "text": "In his playing days {manager} was a lower-league regular, the kind of professional managers trust and supporters quietly appreciate."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "{manager} enjoyed a long top-flight career as a player, and the {age}-year-old now hopes to translate that experience into success from the dugout."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "A familiar face from his years in the top division, {manager} returns to the spotlight as a manager at the age of {age}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "The {birthNation}-born {manager} spent the bulk of his playing career in the top flight, earning a reputation as a composed and intelligent player."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Born in {birthNation}, {manager} played at the highest domestic level for more than a decade before moving into coaching."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "At {age}, {manager} brings the authority of a seasoned top-flight professional to his first-team role, backed by a {licence}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Top-flight football was {manager}'s stage as a player, and he made his name as a dependable presence in the leading division."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "{manager}'s playing career took him to the very top of the domestic game, where he featured regularly for several seasons."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Supporters will remember {manager} as a top-division player of real quality, and the {age}-year-old now steps into management with the same ambition."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Few coaches arrive with a playing record like that of {manager}, a former top-flight regular who knows the demands of the highest level."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "His years in the top flight gave {manager} a first-hand understanding of elite preparation, something he is expected to bring to the training ground."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Having played at the highest domestic level, {manager} commands immediate respect in the dressing room."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "{manager} was a top-flight player for much of his career, and the {birthNation} native has since spent his time preparing for this step."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Those who faced {manager} in the top division remember a fierce competitor, and he promises his teams will share that edge."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "A former top-division professional, {manager} swaps the pitch for the technical area with a {licence} and a clear sense of how he wants to play."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Experience at the highest level is not in short supply for {manager}, who spent his best years as a player in the top flight."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Once a mainstay of the top division, {manager} now begins a new chapter as a manager at the age of {age}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "There is plenty of top-flight pedigree behind {manager}, whose playing career was spent largely among the leading sides of the domestic game."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Like many former top-division players, {manager} always intended to stay in the game, and the {age}-year-old has prepared carefully for this moment."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "Following a distinguished top-flight career, {manager} turned to coaching and now earns his chance to lead a first team."
+ },
+ {
+  "category": "WHO",
+  "bucket": "TOP_LEAGUE",
+  "text": "In his playing days {manager} was a top-flight regular, a status that lends weight to his words from the first day on the job."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "{manager} is a former international who represented {birthNation} during his playing career, and the {age}-year-old now turns his hand to management."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "A capped international in his playing days, {manager} brings rare pedigree to the dugout."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "The {age}-year-old {manager} wore the shirt of {birthNation} as a player, and few in the game doubt his footballing credentials."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "Born in {birthNation}, {manager} went on to represent his country at international level, the high point of a distinguished playing career."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "At {age}, {manager} arrives as one of the most decorated former players in the dugout, having earned caps for his national team."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "International football was the summit of {manager}'s playing career, and he now hopes to reach similar heights as a coach."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "{manager}'s playing career took him all the way to the national team, an honour he describes as the proudest of his life."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "Few managers can match the playing record of {manager}, who represented his country on the international stage."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "Those who watched {manager} in the colours of {birthNation} remember a player of class and composure."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "His international caps speak for themselves, and {manager} now hopes to build an equally strong reputation in management."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "Having played for his national team, {manager} knows the pressure of the biggest occasions, experience he will draw on in his new role."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "{manager} earned international recognition as a player, and the {birthNation}-born coach arrives with a {licence} and high expectations."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "Once a fixture in the national side, {manager} takes on his new post at the age of {age}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "A former {birthNation} international, {manager} carries a name that will be familiar to supporters well beyond his homeland."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "Representing his country was the crowning achievement of {manager}'s playing days, and the {age}-year-old now seeks fresh success from the touchline."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "There are few more respected playing records than that of {manager}, who spent several years in the national team."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "Like many former internationals, {manager} was always expected to move into coaching, and he does so now with a {licence}."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "From the national team to the dugout, {manager} has followed a well-trodden path for decorated players, and at {age} he begins the next chapter."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "In his playing days {manager} was an international, a status that brings instant authority to his first address to the squad."
+ },
+ {
+  "category": "WHO",
+  "bucket": "INTERNATIONAL",
+  "text": "National-team experience sets {manager} apart from many of his peers, the {age}-year-old having played at the very highest level his country offers."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "{club} arrive at this appointment as reigning champions of {league}, having finished {lastPosition} last season and added to a trophy cabinet that now holds {trophyCount} honours."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Last season belonged to {club}, who topped {league} and finished {lastPosition} ahead of every rival."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "The new man inherits a title-winning side, with {club} crowned champions of {league} last term."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Few appointments come with expectations this high, because {club} won {league} last season and will be expected to defend it."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Champions of {league} a season ago, {club} now count {trophyCount} honours in their history."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "There is no rebuilding job here: {club} finished {lastPosition} in {league} last season and lifted the title."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Fresh from a championship campaign, {club} hand over a squad that conquered {league} only months ago."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Silverware is still being polished at {club}, who claimed the {league} crown last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Defending the title is the brief, with {club} having finished {lastPosition} and taken the {league} championship."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "It was a season to remember for {club}, who ended it as champions of {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Supporters of {club} are still celebrating a league title, the latest entry in an honours list that now stands at {trophyCount}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Winning {league} last season raised the bar at {club}, and the board wants that standard maintained."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Only one side finished above everyone else in {league} last season, and it was {club}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Title holders {club} have made the change despite finishing {lastPosition} and lifting the championship trophy."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Expectations could hardly be higher at {club}, the reigning {league} champions."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "A league title secured last season means {club} begin the new campaign as the team everybody wants to beat."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Behind the appointment lies a championship season, with {club} finishing {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Reigning champions rarely change course, yet {club} have chosen to do so after winning {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "The {league} trophy sits in the boardroom at {club} after last season's triumph, taking their tally to {trophyCount} honours."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Momentum is firmly with {club}, who closed last season as champions of {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Back-to-back titles are now the target for {club}, crowned {league} champions last term."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Glory came to {club} last season when they finished {lastPosition} and claimed the {league} title."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Nobody in {league} could match {club} last season, and the club finished top of the table."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "In winning the league last season, {club} added to a cabinet that holds {trophyCount} honours in total."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Still basking in a title triumph, {club} want the success in {league} to continue."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "The club's recent form speaks for itself: {club} are the champions of {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Coming off a championship, {club} enter the season with a target on their backs."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "A title-winning campaign in {league} last season leaves {club} with little room for anything less."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Last term ended with {club} lifting the {league} title, a {lastPosition}-place finish that delighted the supporters."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CHAMPION",
+  "text": "Success has become the standard at {club}, who were champions of {league} last season and count {trophyCount} honours in their history."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "{club} have been climbing steadily, finishing {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Progress has been the theme at {club}, whose {lastPosition}-place finish in {league} was their best for some time."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "A {lastPosition}-place finish last season confirmed that {club} are a side on the rise."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Things are looking up at {club}, who ended last season {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Momentum is building at {club} after a {lastPosition}-place finish in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "The upward curve at {club} is clear, with last season ending in {lastPosition} place."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Last season brought real encouragement for {club}, who finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Recent years have seen {club} grow in confidence, culminating in a {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Ambition is rising at {club}, who finished {lastPosition} in {league} and now want to go further."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Few sides in {league} have improved as quickly as {club}, who finished {lastPosition} last term."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "On the back of a {lastPosition}-place finish, {club} believe they are ready to challenge at the top of {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Steady improvement has carried {club} to {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Supporters at {club} have reason for optimism after a {lastPosition}-place league finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "The trajectory is pointing upwards for {club}, who ended the campaign {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Climbing to {lastPosition} in {league} last season, {club} have built a platform the new manager can work from."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "There is a sense of growing purpose at {club} following a {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "After a strong campaign that ended in {lastPosition} place, {club} want to add to a trophy cabinet holding {trophyCount} honours."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Encouraging signs abound at {club}, who finished {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Building on last season's {lastPosition}-place finish is the immediate task at {club}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "The club's rise continued last season as {club} finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Year on year, {club} have edged closer to the top, finishing {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "With a {lastPosition}-place finish behind them, {club} enter the new season in buoyant mood."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Optimism runs high at {club}, where last season's {lastPosition}-place finish marked another step forward."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Good times appear to be returning to {club}, whose record already includes {trophyCount} honours."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "In finishing {lastPosition} last season, {club} showed they can compete with the best in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Few would have predicted the progress {club} have made, capped by a {lastPosition}-place finish in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "The foundations are in place at {club}, who finished {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Each season has brought improvement at {club}, and last term they finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Hopes are high that {club} can turn a {lastPosition}-place finish into silverware, adding to the {trophyCount} honours already won."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "RISING",
+  "text": "Upwardly mobile {club} finished {lastPosition} in {league} last season and look ready to kick on."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "{club} slipped to {lastPosition} in {league} last season, a disappointing return for a club with {trophyCount} honours to its name."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Recent seasons have been a struggle for {club}, who could only finish {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Standards have dropped at {club}, and last season's {lastPosition}-place finish fell short of expectations."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "A {lastPosition}-place finish in {league} confirmed a worrying drift at {club}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Once regular contenders, {club} ended last season down in {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "The slide at {club} continued last season with a {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Last season was one to forget for {club}, who finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Things have gone backwards at {club}, where a {lastPosition}-place finish left supporters frustrated."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Decline has set in at {club}, who finished {lastPosition} after previously aiming much higher."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Finishing {lastPosition} in {league} was well below what {club} have come to expect."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Supporters of {club} have watched their side fall away, ending last season in {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "The board at {club} want the recent downturn halted after a {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Results have tailed off at {club}, who dropped to {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "There is concern at {club} after a campaign that ended in {lastPosition} place."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Recent standards at {club} have slipped, and a {lastPosition}-place finish in {league} reflected that."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Momentum has deserted {club}, who could manage only {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "After several seasons of steady decline, {club} finished {lastPosition} last term."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Faded ambitions hang over {club} following a {lastPosition}-place finish in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "The downward trend at {club} shows no sign of stopping, with last season ending in {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Expectations were not met at {club}, who slipped to {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Gone is the confidence of earlier years at {club}, replaced by the disappointment of a {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Questions are being asked at {club} after the side finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Ground has been lost at {club}, whose {lastPosition}-place finish was a step backwards."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "In recent seasons {club} have drifted away from the top of {league}, finishing {lastPosition} last term."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "The new manager inherits a side in decline, with {club} finishing {lastPosition} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Better days seem a long way off at {club}, who finished {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Disappointment best describes last season at {club}, which ended in {lastPosition} place."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Slipping to {lastPosition} in {league} has prompted a rethink at {club}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "What was once a rising side has stalled, and {club} finished only {lastPosition} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "DECLINING",
+  "text": "Patience is wearing thin at {club} after a {lastPosition}-place finish marked another backward step."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "{club} are in turmoil after finishing {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Crisis is the only word for the situation at {club}, who finished a dismal {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "A {lastPosition}-place finish in {league} has left {club} in deep trouble."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Last season was a disaster for {club}, who limped home in {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "The mood at {club} is grim after a campaign that ended in {lastPosition} place."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Rock bottom may not be far away for {club}, who finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Survival, not silverware, is the priority at {club} after a {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Anger has swept through the stands at {club} following a miserable {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Few clubs in {league} are in a worse state than {club}, who ended last season {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "The new manager walks into a crisis, with {club} finishing {lastPosition} last term."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Protests from supporters followed the {lastPosition}-place finish that {club} endured in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Nothing went right for {club} last season as they sank to {lastPosition}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Alarm bells are ringing at {club} after a {lastPosition}-place finish in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Troubled {club} finished {lastPosition} last season and face a long road back."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "There is little to cheer at {club}, where a {lastPosition}-place finish capped a season of misery."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Relegation fears hang over {club} after they finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Morale is at a low ebb at {club} following a {lastPosition}-place finish."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Emergency measures are needed at {club}, who finished a lowly {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Chaos has engulfed {club}, whose {lastPosition}-place finish was among the worst in their history."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "It has been a wretched period for {club}, who finished {lastPosition} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Desperate times have come to {club} after a {lastPosition}-place finish in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Rescue is the brief at {club}, who stumbled to {lastPosition} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Confidence has collapsed at {club} after a season that ended {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Things could hardly be worse at {club}, who finished {lastPosition} amid growing unrest."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Supporters fear the worst at {club}, who finished {lastPosition} in {league} last season."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "A trophy cabinet holding {trophyCount} honours offers little comfort to {club}, who finished {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Turmoil off the pitch and failure on it left {club} {lastPosition} in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Only the bravest would take on {club} right now, after a {lastPosition}-place finish in {league}."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Plummeting to {lastPosition} in {league}, {club} have endured a season of unrelenting gloom."
+ },
+ {
+  "category": "CONTEXT",
+  "bucket": "CRISIS",
+  "text": "Hard questions face {club} after a {lastPosition}-place finish left the club in disarray."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Few appointments this season have looked as logical as this one: {club} wanted a proven winner, and {manager} has spent years proving exactly that."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "For a club of {club}'s standing, the shortlist was always going to be short, and {manager} sat comfortably at the top of it."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "The board at {club} made no secret of wanting an established name, and {manager} fits that description better than almost anyone in {league}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "In {manager}, {club} have landed a coach whose record speaks for itself, and the decision was reportedly unanimous."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "It is hard to argue with the logic. {manager} brings the pedigree that a club of {club}'s size demands."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Sources close to the club describe the choice as the obvious one: {manager} was the first name discussed and the only one seriously pursued."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "{club} have gone for experience and authority, and {manager} offers both in abundance."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Supporters had called for a big name, and the hierarchy has delivered one in {manager}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Nobody inside the boardroom needed much convincing. {manager}'s reputation precedes him, and {club} moved quickly to secure him."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "This is the kind of appointment {club} were expected to make, a statement of intent built around a manager who has done it all before."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "With ambitions of challenging at the top of {league}, {club} turned to a man used to carrying exactly that weight."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "If anything, {manager} arrives as the bigger name in the relationship, and {club} will see his acceptance as a coup."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Directors at {club} wanted someone the dressing room would respect from day one, and few command respect like {manager}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "The move makes sense on every level: {manager} wanted a project with resources, and {club} wanted a coach with a winning track record."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Rarely do a vacancy and a candidate match so neatly. {club} needed stature, and {manager} brings it."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Securing {manager} is a sign that {club} remain an attractive destination for the elite of the coaching profession."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Observers across {league} will view this as a natural fit, a respected coach joining a club that expects to compete for honours."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "After a brief and decisive search, {club} settled on the candidate most had predicted from the outset."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "A seasoned operator with a long list of achievements, {manager} was always going to appeal to a club of {club}'s ambition."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "There were no gambles here. {club} chose stability and know-how, and {manager} represents both."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Talks reportedly moved swiftly once {manager} signalled interest, and {club} were never likely to let the opportunity pass."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "{manager} had his pick of several offers, but the scale of the project at {club} proved decisive."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "One of the most respected figures in the game, {manager} gives {club} instant credibility on and off the pitch."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Those who know the club well say this was the appointment the owners had wanted for some time."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "By hiring {manager}, {club} have signalled that mid-table comfort is no longer acceptable."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Few will question the reasoning. A coach of {manager}'s calibre is precisely what a club like {club} should be pursuing."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "The pairing feels inevitable in hindsight: an ambitious club and a manager with nothing left to prove."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Chairman and supporters alike will be satisfied. {manager} is a heavyweight appointment for a heavyweight club."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Rival clubs in {league} were also monitoring {manager}, which only underlines the significance of {club} winning the race."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "What {club} wanted above all was certainty, and {manager}'s record offers as much certainty as football ever allows."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "His trophy cabinet and reputation made {manager} the outstanding candidate, and {club} acted accordingly."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Speaking to reporters, a club official called {manager} \"the right man at the right moment\", a view that will be widely shared."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Even the most demanding sections of the {club} support will struggle to find fault with this choice."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "It was a straightforward decision for {club}: identify the best available coach and bring him in. {manager} was that coach."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "On paper, this is as safe a pair of hands as {club} could have found."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "The appointment carries a clear message to the rest of {league}: {club} intend to be serious contenders."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "{manager}'s arrival raises the profile of a club that already sits among the most prominent in {league}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Long admired by the {club} hierarchy, {manager} finally takes the job many felt he was destined for."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Experience, authority and a proven method: the board ticked every box on their list with this hire."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "NATURAL",
+  "text": "Given the resources at his disposal, {manager} saw {club} as the ideal stage for the next chapter of his career."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "{club} have opted for a coach whose credentials are solid if not spectacular, and opinion among supporters is divided."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "It is a sensible appointment, though hardly one to set pulses racing at {club}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "There is logic to the choice of {manager}, but question marks remain over whether he can operate at the level {club} demand."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Some will see {manager} as a pragmatic, measured hire; others will wonder whether {club} aimed high enough."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "The board has gone for steady hands rather than a headline name, a decision that could look shrewd or timid depending on the next few months."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "{manager} ticks several boxes for {club}, even if he falls short of the profile many fans had hoped for."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Neither a gamble nor a guaranteed success, this appointment sits somewhere in between."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Reaction around {league} has been lukewarm: {manager} is respected, but not regarded as an obvious fit for a club with {club}'s expectations."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "After a lengthy search, {club} settled on a candidate who was rarely mentioned at the top of the speculation lists."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "On balance, {manager} represents a reasonable compromise between ambition and budget."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "While his record is respectable, {manager} has yet to manage under the kind of pressure that comes with {club}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Insiders suggest {club} had more glamorous targets in mind before turning to {manager}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "A middle-of-the-road choice, perhaps, but one that the hierarchy insist was made with the long term in mind."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Whether {manager} is the man to take {club} forward remains open to debate, though few would call the decision reckless."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "His tactical ideas impressed the board during interviews, yet {manager}'s CV is thinner than some supporters would like."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "The appointment divides opinion. Backers of the move point to his work ethic; sceptics point to his modest list of honours."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Perhaps the most accurate verdict is \"time will tell\", as {club} back a manager with promise but no guarantees."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "In choosing {manager}, {club} have prioritised continuity and character over star power."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Not everyone at {club} was convinced, according to reports, but the majority of the board eventually backed {manager}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "This is the kind of appointment that is neither celebrated nor condemned, and {manager} will be judged entirely on results."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Pundits in {league} are split on whether {manager} is a shrewd choice or merely a cautious one."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "One school of thought holds that {club} have found an undervalued coach; another argues they have settled for second best."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Comparisons with his predecessors are inevitable, and {manager} does not yet carry the same weight of reputation."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "A safe but uninspiring option is how some observers have described {manager}'s arrival at {club}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Financial considerations appear to have played a part, with {club} choosing a coach who fits their wage structure."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Given his steady progress elsewhere, {manager} has earned a step up, though the size of this one raises eyebrows."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "For {manager}, it is a chance to prove himself on a bigger stage; for {club}, it is a calculated risk."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Expectations have been carefully managed, with officials describing {manager} as \"a builder rather than a quick fix\"."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Few doubt his commitment, but whether {manager} has the presence to lead a club like {club} remains uncertain."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "The decision has its defenders and its detractors in roughly equal number."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "{club}'s supporters had hoped for a bigger name, yet many concede that {manager} brings qualities the squad has lacked."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Measured rather than bold, the appointment reflects a club trying to balance ambition with realism."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "It would be unfair to call {manager} a gamble, but it would be equally generous to call him a sure thing."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Reasonable, defensible and slightly underwhelming: that seems to be the consensus on {club}'s latest move."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "During a meeting described as lengthy, directors weighed {manager}'s strengths against his relative lack of top-level experience."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "If {manager} delivers, this will be remembered as an astute appointment; if not, critics will say the warning signs were there."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Respected within the game but rarely spoken of as a top name, {manager} now faces the biggest test of his career."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "What {club} have gained in stability, they may have sacrificed in star appeal."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "There were stronger candidates on paper, some argue, but none who matched the board's vision so closely."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "MIXED",
+  "text": "Questions linger, yet the club insists {manager} was the right fit for its long-term plans."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Few saw this coming. {club} have handed the reins to {manager}, a coach with little profile beyond a handful of modest posts."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "In one of the more startling appointments of recent seasons, {club} have turned to the relatively unknown {manager}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Eyebrows have been raised across {league} after {club} bypassed established names in favour of {manager}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "It is a bold gamble. {manager} has never managed a club anywhere near the size of {club}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "{club} have stunned observers by placing their faith in a coach whose reputation sits several rungs below their own."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Not even the most well-informed sources had linked {manager} with the vacancy until hours before the announcement."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "The decision has left many supporters scratching their heads, with {manager} barely known outside the smaller corners of the game."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Whatever the board saw in {manager}, it is not obvious from his public record, and results will be needed quickly to justify the choice."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "A leap of faith is perhaps the kindest way to describe {club}'s move for {manager}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Sceptics wasted no time questioning the logic of entrusting a club of this stature to a manager with such limited experience."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Behind the scenes, officials insist {manager} impressed with a detailed plan, but outside the boardroom the appointment has been met with disbelief."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Puzzling is the word most often used around {league} to describe {club}'s choice."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "For {manager}, the job represents an extraordinary jump in status; for {club}, it is a risk few would have dared to take."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Nobody would have placed {manager} on the shortlist, which makes his arrival at {club} all the more remarkable."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "{manager} arrives as one of the least heralded appointments in the club's recent history."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Rather than chase a proven name, {club} have gambled on a coach still trying to establish one."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "The announcement caught even seasoned observers off guard: {manager} is not the type of name usually associated with a club like {club}."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Some call it visionary, others reckless, but almost everyone agrees that {club}'s choice of {manager} was unexpected."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Supporters gathered outside the ground were reportedly divided between curiosity and outright confusion at the news."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "It remains unclear what tipped the balance in favour of {manager}, whose CV looks modest beside those of the other reported candidates."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Hardly anyone expected {club} to look so far down the coaching ladder for their new manager."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "With no major honours to his name, {manager} faces the challenge of winning over a sceptical dressing room and fanbase."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Should this appointment succeed, it will be hailed as a masterstroke; should it fail, it will be remembered as one of {club}'s strangest decisions."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Only a handful of people inside the club knew {manager} was being considered, and the secrecy has added to the sense of surprise."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "This is a daring move from a club not known for taking chances."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Unconventional does not begin to cover it. {club} have hired a coach whose previous jobs were a world away from this level."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Questions about his experience were the first to be raised when {manager}'s name emerged, and they show no sign of fading."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "The gap in stature between {manager} and {club} is considerable, and the board will be acutely aware of it."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "In a market full of established coaches, {club} looked elsewhere and found {manager}, a choice that has baffled many."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Directors are said to have been won over by his ideas rather than his record, an approach that leaves little margin for error."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Few managers make the leap from relative obscurity to a club of {club}'s profile, but {manager} has done exactly that."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Critics have been quick to label the appointment a gamble, and it is difficult to argue otherwise."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "One rival executive in {league} reportedly described the hire as \"the last name I would have guessed\"."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Whether this proves inspired or misguided, {club} have certainly made the most surprising appointment of the season."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Bold, brave or baffling: the verdict on {manager}'s appointment depends on whom you ask."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Never before has the club entrusted its first team to someone with so slender a reputation."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "{manager} himself admitted the call came as a surprise, which says much about how unexpected the appointment is."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Expectations will be tempered by the fact that {manager} has never worked under this kind of spotlight."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "A low-profile coach suddenly thrust into one of the most demanding jobs in {league}, {manager} will have to learn fast."
+ },
+ {
+  "category": "DECISION",
+  "bucket": "SURPRISE",
+  "text": "Many had expected a marquee name; instead {club} have produced a surprise that few can fully explain."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "On paper it is a coup for {club}, I grant them that. My question is why a man of {manager}'s standing wants this job, and nobody has given me a straight answer yet."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Big name, small stage. {manager} has managed far grander dressing rooms than this one, and I have seen plenty of grand names shrink when the budget does."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Let us not get carried away. {club} have signed a reputation, not a guarantee, and reputations do not defend corners."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "I will say it before anyone else does: {manager} is coming down a level, and men who come down a level often bring their ego with them and leave their hunger behind."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Fine, the board have landed a heavyweight. Now they have to pay for his demands, his staff and his transfer wish list, and I doubt {club} have the pockets for all three."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Everyone is applauding, which is exactly when I start worrying. {manager} is used to better players, and patience in {league} runs out quickly when the big name loses at home."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "It is the most impressive appointment {club} have made in years, and that tells you how low the bar has been."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Credit where it is due, it is a statement. But statements are cheap before a ball is kicked, and I want to see how {manager} copes with a squad that cannot do what he asks."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "My worry is simple: will he still be here in eighteen months? A coach of {manager}'s profile treats a club like {club} as a stepping stone, and everyone knows it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Nobody can argue with the CV. What I would argue with is the fit, because {manager} plays a game that needs quality {club} simply do not have."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Of course it looks brilliant today. Ask me again after the first bad run, when {manager} starts blaming the squad he was told about before he signed."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Impressive, yes, but slightly puzzling. When a coach of this calibre accepts a job below his level, I always wonder what the other offers looked like, or whether there were any."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "He is too good for this job, and that is precisely the problem. {manager} will expect top standards everywhere, and {club} will struggle to keep up."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "The supporters have every right to be excited. I just remember that big names in {league} have a habit of arriving with fanfare and leaving with a settlement."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "Strip away the headlines and what do you have? A proven coach whose best years may be behind him, taking a job where nobody will dare to challenge him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_NONE",
+  "text": "A coup, absolutely, and I hope the board know what they have bought. {manager} will not tolerate excuses, and I am not convinced {club} are ready for that kind of scrutiny."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "As someone who has followed {club} all my life, I should be dancing. Instead I keep asking why {manager} said yes, and what happens when a bigger club calls."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "I am delighted for my club, genuinely. But I have seen too many big names treat {club} as a pension plan, and {manager} will have to prove he is not another one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "My heart says this is the best news {club} have had in years. My head says a coach like {manager} needs players we cannot afford."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "Let me be honest, I never thought we would land someone like {manager}. Now my fear is that we cannot keep him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "We have got a big name, fine. What {club} need is a big worker, and I will be watching every training report to see which one has arrived."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "Personally, I hope the board have given him real power, because a coach of {manager}'s stature will walk away from my club the moment he is undermined."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "You will not find a {club} supporter more pleased than me today. You also will not find one more nervous about the contract details nobody has published."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "It is a coup for us, no question. But I have watched {club} waste good appointments before, and I am not celebrating until the board back him in the market."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "Deep down I am thrilled. Still, {manager} has never had to work with a squad this thin, and I worry he will lose patience with the players before the winter."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "For years I have begged {club} to aim higher, and now they have. I just hope {manager} wants this job as much as we wanted him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "Speaking as a fan, this is the appointment of my dreams. Speaking as an analyst, it is a gamble on whether a famous coach still has the appetite for a long rebuild."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "Our club is punching above its weight for once, and I love it. The danger is that {manager} raises expectations in {league} that this squad cannot meet."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "There is a part of me that wants to frame today's announcement. The other part remembers that big names have burned {club} before, and badly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "Nobody wanted this more than me, so forgive me for being demanding. {manager} has the reputation; now I want to see the work rate, the youth players and the results."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "If {manager} gives {club} even half of what he gave his old employers, we will be fine. If he treats us as a step down, we are in trouble."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_FAVORITE",
+  "text": "What worries me as a supporter is the timing. A coach this good arriving now means the board have promised him something, and I would love to know what."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "I support a rival club, so it pains me to say it, but {club} have landed a serious coach. Mind you, serious coaches have failed there before."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Where I come from, we will enjoy watching {manager} discover what that dressing room is really like."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Grudging respect to their board, it is a clever appointment. Whether {manager} lasts a full season with that lot is another matter entirely."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "My lot will not be losing sleep. {manager} is a fine coach, but even fine coaches cannot turn {club} into something they are not."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Honestly, I was hoping they would appoint someone hopeless. They did not, and that annoys me more than I would like to admit."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Fair play to them, I suppose. I will still be the first to remind everyone when {manager} starts grumbling about the budget."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "From a rival's point of view, this is irritating. From a pundit's point of view, a big name at a club that size usually ends in tears, so I am not too worried."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Of all the coaches they could have picked, it had to be one who knows how to beat us. Still, {manager} has never managed a club with {club}'s habit of self-destruction."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "I will give {club} this much: they have shown ambition. Ambition and wages, mind you, are two very different things."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Anyone who follows my club will tell you we have heard this story before. Big appointment, big promises, and by spring they are back where they always are in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Credit to them, through gritted teeth. {manager} is better than that club deserves, and I suspect he will figure that out quickly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "It hurts a little, I admit. But a famous coach does not fix a fragile squad, and {club} have plenty of fragile pieces."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Their supporters are dancing in the streets, and good luck to them. I have watched {club} celebrate big appointments before and suffer for them afterwards."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Part of me respects the move. The rest of me is already looking forward to our next meeting, when {manager} learns that reputation does not travel well."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "Say what you like about their board, they have finally done something sensible. I would still bet that {manager} is gone before they win anything worth mentioning."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_ABOVE_RIVAL",
+  "text": "No rival fan enjoys hearing this, but {manager} is a proper coach. The only consolation is that he has to work at {club}, and that has broken better coaches."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "It is a sideways move dressed up as a fresh start. {manager} is roughly what {club} already had, and I am not sure what the board think will change."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "Safe, sensible and utterly uninspiring. {manager} will keep {club} in their lane, which is exactly where they have been stuck for years."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "I have nothing against {manager}, but I have nothing in particular for him either. That is the problem with appointments like this one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "Ask yourself what he has actually won. A few decent seasons, a reputation for organisation, and not much else that would frighten anyone in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "The board will call it continuity. I call it a lack of imagination, and {club} supporters deserved a bit more ambition than this."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "He is a reasonable fit, I suppose, and reasonable is the most generous word I can find. {manager} has never shown me he can lift a club above its level."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "Some will say it is a solid choice. Solid choices are how clubs like {club} end up drifting in mid-table for a decade."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "Nobody will be surprised and nobody will be thrilled. That tells you everything about how {club} went about this search."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "What exactly is the plan here? {manager} plays a cautious game, and {club} already have a squad that struggles to create chances."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "On his day he is a decent organiser. On his bad days his teams look like they have been told to fear the ball, and I have seen plenty of those days."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "Let me play devil's advocate, since nobody else will. {manager} is a like-for-like replacement, and like-for-like rarely changes anything."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "Is it a good appointment? It is a defensible one, which is not the same thing at all."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "I keep hearing that he knows {league} well. So does everyone else in {league}, and most of them have achieved just as little."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "Fine coach, average results. Until {manager} shows me something different at {club}, that is the line I am sticking to."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "There will be a debate about this one, and I know which side I am on. {manager} is a manager, not a builder, and {club} need building."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_NONE",
+  "text": "We have seen this kind of hire a hundred times. A competent name, a two-year contract, and a sacking the moment the season turns sour."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "As a {club} man, I wanted someone who would make my pulse race. {manager} makes it tick over, and that is about all."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "I will support him because he is our coach now. But I would be lying if I said {manager} was the name I was hoping for."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "My club deserved a bolder choice. {manager} is decent, nothing more, and decent has kept {club} treading water for far too long."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Look, I want this to work more than anyone. I just cannot see what {manager} brings that we did not already have."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Speaking as a supporter, I am lukewarm. Speaking as an analyst, I am worried that lukewarm is exactly how this squad will play."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Our board had months to find the right man, and they came back with this. I hope {manager} proves me wrong, I really do."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Every {club} fan I know is asking the same question: is this the best we could do? I am asking it too."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "He knows {league}, he knows how to organise a defence, fine. What I need to see is whether he knows how to make my club dangerous going forward."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Part of me thinks {manager} could surprise us. The bigger part of me remembers his last two jobs and worries for our season."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "I have defended {club} through some dreadful decisions, and I am reserving judgement on this one. Just about."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "If you want stability, {manager} will give you stability. I wanted my club to aim higher, and this feels like settling."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Honestly, my stomach dropped a little when I saw the name. Not because {manager} is bad, but because he is so very ordinary."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Give him time, people will say, and I will try. Time is the one thing {club} supporters have been giving managers for years with nothing to show for it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "My fear is that we have hired a caretaker with a long contract. Please, {manager}, show me some ambition."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Nobody loves {club} more than I do, and that is why I am cautious. A middle-of-the-road coach for a club stuck in the middle of the road is not a plan."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_FAVORITE",
+  "text": "Let us see what he does with the squad before we judge. I will say this, though: if {manager} goes defensive at home, our crowd will turn on him quickly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "From where I sit, as a rival supporter, this is a perfectly acceptable appointment. Perfectly acceptable for us, I mean."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "I am not going to pretend I am upset. {manager} is a sensible, ordinary choice, and ordinary suits my club just fine."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "They could have gone bold and they went beige. My lot will be quietly pleased."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Fair enough, he is competent. Competent coaches at {club} tend to finish below us, and I see no reason this one will be different."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Would I have wanted him at my club? Probably not, and that should tell {club} supporters something."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Their fans are split, and I will admit I am enjoying it. {manager} is neither a disaster nor a solution, which is the worst of both worlds for them."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "If I am being fair, and I am trying, {manager} could do a decent job. Decent will not worry anyone in {league}, least of all us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Honestly, I was hoping for chaos and they gave me mediocrity. I will take it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Nothing here keeps me up at night. {manager} has faced my club before and never really troubled us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "One rival's opinion: it is a safe pick for a board that has run out of ideas."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Grudging respect for the logic, I suppose. But logic has never won {club} anything, and I doubt {manager} will change that."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Every year they promise a new era, and every year they hire someone like {manager}. Long may it continue."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "You will not hear me complaining. A mid-level coach for a mid-level club, and my club will happily keep looking down on them."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Let me be careful, because he might surprise me. I just do not think {manager} has the ideas to turn {club} into a real threat."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Speaking as someone with no love for {club}, I can live with this. He is the kind of coach who loses the big games narrowly and calls it progress."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_NEAR_RIVAL",
+  "text": "Their board will tell you it is a measured decision. I would tell you it is a timid one, and as a rival I am delighted."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "Frankly, I do not understand it. {manager} has not shown me anything at a lower level to suggest he can cope with a club the size of {club}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "This is a weak appointment, and I will not dress it up. {club} needed experience and they have hired a learner."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "Who is advising this board? {manager} has a thin CV, no trophies to speak of, and now a dressing room full of bigger names than himself."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "I give it until the first bad run. Once the pressure of {league} lands on {manager}, I fear we will see exactly how out of his depth he is."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "A coach of his standing at a club of this standing? It makes no sense, and I suspect the board went for the cheapest option on the list."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "He is a nice story, nothing more. Nice stories do not survive long in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "Let me be blunt: {manager} is not good enough for this job. He may become good enough one day, but not at {club}'s expense."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "The players will test him in the first week, and I am not convinced he has the authority to pass that test."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "With respect to {manager}, his record simply does not justify this. {club} have gambled with their season."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "Nobody I speak to in the game rates him at this level. That should worry the people who made the decision."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "Big club, small coach. That mismatch rarely ends well, and I expect it to end badly here."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "It looks like a decision made in a hurry by people who ran out of better options. {manager} will be the one who pays for it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "What has he actually done? Name me one season where {manager} took a team further than anyone expected, and I will reconsider."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "I see a coach who is learning on the job at a club that cannot afford a learning year."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "Every weakness in this squad needs a strong, experienced hand. {manager} is neither strong nor experienced, as far as I can see."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_NONE",
+  "text": "Mark my words, {club} will be looking for another coach before long. This appointment is far beneath what the club should demand."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "As a {club} supporter, this one hurts. {manager} has never managed anything near our size, and I am frightened for our season."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "My club deserves better than an apprentice. I will back {manager} because I have to, but I think the board have let us down."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "I have watched {club} for decades and I cannot remember a less convincing appointment. Please, somebody, tell me what I am missing."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "Our supporters wanted a statement and got a shrug. {manager} may be a decent coach one day, but we need results now."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "It breaks my heart to say it, but I do not think {manager} is good enough for us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "We are a big club, and big clubs do not hire coaches to learn the trade. I fear {manager} will be learning it in front of our crowd."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "Honestly, I hope I am eating my words by the spring. Right now, I see a weak coach and a board that did not do its homework."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "When I saw the name I had to read it twice. {manager} at my club? On what evidence?"
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "Nobody wants him to succeed more than I do. Nobody, though, has more doubts than I have either."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "The {club} I grew up with would never have made this appointment. {manager} has a lot to prove and very little time to prove it in."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "I worry for the players in that dressing room. They need a leader, and {manager} has never led anything this demanding."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "Look at the experienced coaches who were available, then look at who we hired. I am struggling to defend my own club today."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "For my club's sake I will stay quiet for a few weeks. After that, if {manager} is out of his depth, I will say so loudly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "Something about this does not add up. Either the board know something we do not, or {club} have just made a serious mistake."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "Our rivals will be laughing, and I cannot blame them. {manager} looks like a weak choice from where I sit."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_FAVORITE",
+  "text": "Call me harsh, but I love {club} too much to pretend. This is a coach who is not ready, at a club that cannot wait."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "As a rival supporter, I could not have asked for a better announcement. {manager} at {club} is a gift to the rest of {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "I genuinely laughed when I heard. They have hired someone who would struggle to get an interview at my club."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Good luck to {manager}, he will need it. That squad eats inexperienced coaches for breakfast, and I will be watching with a smile."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "From a neutral point of view it is a weak appointment. From my point of view, it is a wonderful one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "My lot will be rubbing their hands. {club} have gone for a beginner, and beginners drop points."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "I almost feel sorry for him. Almost, because every point {manager} drops is a point closer to my club."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Nobody at my club is worried tonight. {manager} has never handled pressure like this, and {club} supporters are not known for their patience."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Their board has lost its nerve, or its money, or both. Either way, I am delighted."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Is this a serious appointment? I ask as a rival, and I ask with a broad grin."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Credit to {manager} for getting the job. Getting results at {club} with that CV is another matter, and I will enjoy watching him try."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "If my club's board ever did something like this, I would be furious. Since it is {club}, I am thrilled."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Let us be fair to him: he did not appoint himself. The people who did should be embarrassed, and I hope they stay in charge for years."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "A weak coach at a club that thinks it is bigger than it is. You could not script it better for us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Their fans are asking who he is, and so am I. That says it all."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Some will call it brave. I call it the best news my club has had all window."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "CRITIC_BELOW_RIVAL",
+  "text": "Honestly, I expect {manager} to be gone before the return fixture. Until then, I will enjoy every minute of it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "What a statement of intent from {club}. A coach of {manager}'s standing does not say yes lightly, and I expect him to lift everyone around him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "This is a genuine coup for {club}. {manager} brings pedigree, calm and a winning habit, and the whole of {league} will have noticed."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "I think {club} have pulled off something special here. {manager} could have waited for a bigger job, and the fact that he chose them speaks volumes."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "Honestly, you could not ask for a better appointment. {manager} has done it at a higher level, and that experience will rub off on the dressing room quickly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "Credit to the board at {club}. Landing {manager} shows real ambition, and I fully expect him to raise standards from day one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "{manager} is a class act, plain and simple. {club} now have a coach who knows how to handle pressure, and that is priceless in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "Few people saw this coming, but it makes perfect sense. {manager} wants a project to build, and {club} have given him exactly that."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "You have to admire the ambition behind this move. With {manager} in charge, {club} suddenly look like a side nobody in {league} will enjoy facing."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "It is a fantastic day for everyone connected with {club}. {manager} has the reputation, the know-how and the hunger, and I think he will deliver."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "Some will ask why a coach of his calibre would take this job. I say he sees potential others have missed, and I trust his judgement completely."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "The players at {club} are in for a treat. {manager} is a superb teacher, and I would not be surprised to see several of them improve almost overnight."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "I love this appointment. {manager} has nothing left to prove, so he can focus purely on building something lasting at {club}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "Let us be clear: this is a big name arriving at {club}. If they give {manager} time and backing, the rest of {league} should be worried."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "Experience like his cannot be bought off the shelf. {club} have landed a manager who has seen it all, and that will steady the whole club."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "My first reaction was simple delight. {manager} raises the profile of {club} overnight, and I expect the results to follow."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_NONE",
+  "text": "There is no downside here as far as I can see. {manager} is a proven winner, and {club} have every reason to dream a little."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "As a {club} man, I am absolutely thrilled. Getting {manager} through the door is the kind of signal our supporters have been waiting for."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "I will not pretend to be neutral today: this is a brilliant day for my club. {manager} is a top coach, and I genuinely believe he can take us places."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "My heart says this is wonderful, and for once my head agrees. {manager} brings real stature to {club}, and I cannot wait for the first match."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "Speaking as a lifelong supporter, I never thought we would land someone like {manager}. The board deserve a huge pat on the back."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "What a lift for everyone at {club}, myself included. {manager} has achieved more than most in this game, and he has chosen us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "I have followed {club} all my life, and this ranks among the best appointments I can remember. {manager} has the class to make us a force in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "You will forgive me for smiling today. {manager} at {club} is a dream I barely dared to have, and now it is real."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "Our fans should be proud this morning. A manager of {manager}'s reputation picking {club} tells you the club is heading in the right direction."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "I only hope we give him the time he deserves. {manager} is a superb coach, and if {club} back him, I am convinced the good days are coming."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "My one worry is that a bigger club will come knocking for him later. For now, though, {manager} is ours, and I could not be happier."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "Being a {club} supporter brings its ups and downs, and today is very much an up. {manager} is exactly the sort of figure we needed."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "Let me say it plainly: we have punched above our weight here. {manager} is a superb appointment, and I hope the supporters give him a fantastic welcome."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "Nobody will accuse me of bias when I call this a coup, because it obviously is. {club} have landed {manager}, and the rest of {league} knows it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "I texted a few old friends from the stands the moment I heard. All of us felt the same thing: {manager} could be the start of something special for {club}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "Every {club} fan I know will sleep well tonight. {manager} brings real know-how, and I trust him to push us forward."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_FAVORITE",
+  "text": "For a club like ours, this is huge. {manager} has worked at a level we can only aspire to, and I believe he will drag us up with him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "It pains me a little to say it, but this is a terrific appointment. {manager} is a top coach, and {club} have done very well to get him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "As someone whose loyalties lie elsewhere, I would rather {club} had not landed him. Still, credit where it is due: {manager} is a serious operator."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "My own club's supporters will not enjoy hearing this. {manager} is a superb manager, and {club} have just become a far tougher opponent."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "I have to be fair, even through gritted teeth. {manager} brings real quality, and I suspect {club} will be a handful this season."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Fair play to {club}, I suppose. They have landed a coach of genuine stature, and as a rival I can only hope it takes him a while to settle."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Of all the clubs he could have chosen, it had to be that one. Joking aside, {manager} is a fine coach, and he deserves the chance."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "You will not often hear me praise {club}, so enjoy it. Bringing in {manager} is a smart move, and he will make them better."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Part of me hoped he would end up somewhere else entirely. But {manager} is a quality coach, and good managers make {league} better for everyone."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Grudging respect is the phrase, I think. {club} have aimed high with {manager}, and I cannot fault the choice."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Our lot will be looking over their shoulders now. {manager} knows how to win, and {club} have handed him a platform to prove it again."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Let me be the bigger man here. {manager} is an excellent appointment for {club}, and I wish him well in every match except the ones against us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "I would have loved to see him at my own club, if I am honest. {club} got there first, and fair play to them for the ambition."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Rivalry aside, this is good news for {league}. {manager} raises the standard, even if he does it at a club I will never cheer for."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "There is a small part of me that winces at this news. {manager} is the real deal, and {club} supporters are entitled to feel very pleased."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "He is too good a coach for me to knock him, much as I might like to. {manager} will improve {club}, and our meetings with them just got more interesting."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_ABOVE_RIVAL",
+  "text": "Nobody enjoys watching a rival get stronger. Even so, {manager} is a superb choice, and I will be the first to applaud good work when I see it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "People will argue about this one, and that is fine. I think {manager} is a sensible fit for {club}, and he deserves a fair run before anyone judges him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "It is not a flashy appointment, but it is a solid one. {manager} knows what this level demands, and I expect him to settle quickly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "I can see why some fans are lukewarm, yet I am quietly optimistic. {manager} and {club} look well matched, and that counts for a lot."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "Give the man a chance. {manager} understands {league}, and {club} have chosen someone who will not be overawed by the job."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "Opinions will be split, but mine is a positive one. {manager} is hard-working, organised and humble, and those qualities tend to bring results."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "Nobody should expect miracles overnight. What {club} are getting in {manager} is a steady hand, and I think that is exactly what they need."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "This feels like a natural step for both parties. {manager} gets a club that suits his level, and {club} get a coach with the right profile."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "The debate will rage on the phone-ins, I am sure. My view is simple: {manager} is a capable coach, and capable coaches tend to do well when backed."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "I like the logic behind it. {club} have gone for someone who fits rather than someone who dazzles, and that often works out better."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "He may not be the name some supporters wanted. Still, {manager} has a clear idea of how he wants to play, and I am keen to see it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "Some will call it a safe choice, and I would call it a smart one. {manager} has every chance of making a real success of this."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "You could make a case for or against, of course. On balance I lean towards optimism, because {manager} strikes me as someone who learns fast."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "My instinct says this will work. {manager} has the right temperament for {club}, and I expect the players to respond to him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "There are bigger names out there, but bigger is not always better. {manager} suits {club}, and I fully expect him to prove the doubters wrong."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "Let us judge him in a few months rather than today. {manager} has earned this opportunity, and I think {club} will be pleasantly surprised."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_NONE",
+  "text": "A fair appointment, and potentially a very good one. {manager} knows {league}, he knows the pressure, and I believe he will handle it well."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "As a {club} supporter, I know not everyone is convinced. I am, though: {manager} feels right for us, and I hope our fans give him time."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "I will admit I wondered who we would end up with. {manager} is a sensible choice, and I think he can give {club} real stability."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "Our supporters will debate this one for weeks, I am sure. My own feeling is hopeful, because {manager} understands what kind of club we are."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "My only worry is impatience in the stands. {manager} deserves a proper chance, and if {club} stick with him, I think we will be rewarded."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "Not the biggest name, perhaps, but I am pleased. {manager} is honest and hard-working, and that is what my club needs right now."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "Speaking with my {club} scarf on, I like it. {manager} fits our level and our ambitions, and I am ready to get behind him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "Some of our fans wanted a headline name, and I understand that. Still, I would rather have the right man than the famous one, and I think {manager} is right."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "I am cautiously excited, which for a {club} fan is quite something. {manager} has the tools to do well here if we stay patient."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "You will find no doubter in me. {manager} looks a good match for {club}, and I hope he becomes part of the furniture."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "I have watched my club weigh up plenty of options, and this one makes sense. {manager} knows {league} and knows what we need."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "Let us get behind him from the first whistle. {manager} will need the backing of every {club} supporter, and I will be among the loudest."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "Honestly, I slept on it before reacting, and I woke up optimistic. {manager} brings a clear plan, and our club needs exactly that."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "Here is what I would say to fellow {club} fans: be fair to him. {manager} is a capable coach, and capable coaches need a little time."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "My gut tells me this could be a good fit for us. {manager} has the right character, and I just hope the results come early to calm the nerves."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "It is not a coup, but it is a sound decision by our board. {manager} has a chance to build something at {club}, and I trust him to take it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_FAVORITE",
+  "text": "We have needed a steady hand for a while. If {manager} brings that, {club} supporters like me will be very happy indeed."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "From where I sit, as a fan of another club, this is a reasonable appointment. {manager} is decent, and I suspect {club} will be competitive, sadly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "I would not say I am worried, but I am not laughing either. {manager} is a sound coach, and {club} could have done a lot worse."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "My friends at my own club will want me to rubbish this. I cannot, really: {manager} is a fair choice, and he deserves a chance to show it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "It is hardly a coup, but I will give {club} some credit. {manager} is organised, and organised sides are a pain to play against."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Part of me hopes it does not work out, I admit. The fair-minded part says {manager} is a capable coach who could do well there."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Rival or not, I try to be fair. {manager} fits {club} quite neatly, and I expect him to make them harder to beat."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "You know where my loyalties lie, so take this as a genuine compliment. {manager} is a sensible pick, and {club} have chosen well enough."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Our supporters will probably shrug at this news. I would be careful, though, because {manager} has a habit of getting more out of a squad than expected."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Not a name to frighten anyone, perhaps. Still, I have a sneaking respect for {manager}, and I think {club} have made a decent call."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "I will be keeping an eye on how they start under him. {manager} is a capable coach, and I would rather {club} had gone for someone less so."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "There is a mischievous side of me that hoped for a gamble. Instead {club} have gone for {manager}, a steady option who deserves his chance."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Let me be gracious for once. {manager} is a solid coach, and if he does well at {club}, I will tip my hat, even if it stings."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Honestly, it could have been a lot worse for them and a lot better for us. {manager} is a fair fit, and I wish him well, mostly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Grudging as it may sound, I think it is a decent appointment. {manager} knows {league}, and that knowledge will help {club} more than people think."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "The rivalry makes me want to be dismissive. The pundit in me says {manager} has earned a fair hearing, and he will get one from me."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_NEAR_RIVAL",
+  "text": "Everyone at my own club will be watching this closely. {manager} is no pushover, and {club} have made the sort of choice that tends to age well."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "He is new to this level, but I see real potential. {manager} has fresh ideas, and the {club} supporters should give him time to show them."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Everyone has to start somewhere. {manager} may lack experience at a club like {club}, but I believe he has the talent to grow into the role."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "I know eyebrows will be raised, and I understand why. My message to the fans is simple: trust him, because {manager} has something about him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "It is a bold choice, and I happen to like bold choices. {manager} is hungry, he is bright, and {club} could be the making of him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Clubs sometimes need a fresh face rather than a famous one. {manager} has potential, and if the supporters stay patient, they may be rewarded."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Experience is not everything. {manager} brings energy and modern ideas, and I would ask the {club} faithful to get behind him from day one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Some will call it a gamble, and maybe it is. But I have watched {manager} work, and I think he has the makings of a very good coach."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Do not judge him on his CV alone. {manager} has a lot to learn, of course, yet the qualities are there, and {club} have spotted them."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "I would urge a little patience here. {manager} is stepping up a level, and that takes time, but I believe he can handle it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Every great manager was once an unknown quantity. {manager} is starting a big chapter at {club}, and I hope the fans give him room to breathe."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "This is a chance for {club} to grow a coach of their own. {manager} has potential in abundance, and supporters should see this as an opportunity rather than a risk."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "You may not know much about him yet. Give it a few months, because I think {manager} could surprise a lot of people in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Let us not write him off before a ball is kicked. {manager} is learning, he is ambitious, and I have a good feeling about this."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "The step up is huge, I will not deny that. Still, {manager} strikes me as someone who rises to a challenge, and {club} supporters should trust him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "My advice to the fans is to stay calm and stay behind him. {manager} needs belief more than anything, and belief can carry a new coach a long way."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_NONE",
+  "text": "Raw, yes, but full of promise. I think {club} have taken a brave decision with {manager}, and brave decisions sometimes pay off handsomely."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "As a {club} fan, I will admit my first reaction was surprise. But I have decided to back him, because {manager} has potential and we owe him patience."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "I was hoping for a bigger name, I will be honest. Still, {manager} is our manager now, and I want every {club} supporter behind him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "My worry is that our fans will turn too quickly. {manager} is learning on the job, and he needs us in his corner, not on his back."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "Not what I expected from my club, but I am choosing optimism. {manager} has fresh ideas, and maybe that is exactly what we need."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "Plenty of clubs have gambled on experience and lost, so why not try this? {manager} is hungry to prove himself, and I think he could grow with {club}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "I really want this to work for us. {manager} is inexperienced at this level, yes, but I see a coach with ideas and the nerve to follow them."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "Speaking as a supporter, I am nervous and hopeful in equal measure. {manager} has potential, and the {club} faithful must give him a fair chance."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "Our board have taken a gamble, and I am going to trust them. {manager} may surprise us all, and I would love nothing more."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "If he succeeds, we will look back on this as a masterstroke. {manager} has a lot to learn, but {club} could be the place where he becomes a top coach."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "Every {club} fan should remember that patience wins in the long run. {manager} deserves a season, not a few weeks, to show what he can do."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "I will not lie, I had to read the news twice. Having thought about it, I like the courage in it, and I hope {manager} rewards our faith."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "Let me speak to my fellow supporters directly: trust the man. {manager} is untested at this level, but untested does not mean incapable."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "My heart sank a little at first, I confess. Then I watched some of his work, and now I think {manager} might just be good for {club}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "There will be doubters in our stands, and I understand them. I am not one of them, because {manager} has the hunger my club needs."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "You have to believe in your club's decisions sometimes. {manager} is a brave choice, and I will be cheering him on from the first game."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_FAVORITE",
+  "text": "Personally, I hope we give him the backing a new coach needs. {manager} has promise, and {club} supporters could be watching the start of something good."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "As a rival fan, I could easily mock this, but I will not. {manager} is inexperienced, yes, yet I think he has real potential, and {club} fans should trust him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "My own club's supporters are probably chuckling at this news. I would warn them not to, because {manager} could grow into a very good coach."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "I will admit a small smile crossed my face when I heard. Still, to be fair to him, {manager} has promise, and he deserves time."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "It is a surprising choice, and from my side of the rivalry, not an unwelcome one. That said, I genuinely hope {manager} is given a fair chance to develop."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Part of me wonders what {club} are thinking. The kinder part says {manager} has ideas, and new coaches with ideas sometimes go a long way."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Rival or not, I always want to see a new coach get a chance. {manager} is stepping up, and the {club} supporters should give him patience."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Our fans will enjoy this one, I suspect. I am trying to be generous, though, and I see enough in {manager} to think he could make it work."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "You will not catch me wishing {club} too much luck. But I will say this: {manager} has potential, and their supporters ought to back him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Inexperienced, certainly, and that suits my club fine for now. Give him a couple of seasons, though, and {manager} might become a real problem for us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "I could be cheeky and call it a gift for the rest of {league}. The honest answer is that {manager} has talent and simply needs time."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Let me be generous to a rival for once. {manager} is a gamble, but gambles on promising coaches have paid off before, and he deserves his chance."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "The cynic in me is pleased, the pundit in me is intrigued. {manager} has qualities, and if {club} are patient, they might have found someone special."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Nobody at my club will lose sleep over this today. Tomorrow could be different, because {manager} looks like someone who learns quickly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "There is a temptation to gloat, and I will resist it. {manager} is untested, but I have seen enough to say {club} fans should trust him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Honestly, I would rather they had gone for someone like this than a proven winner. Even so, {manager} has potential, and I will not be writing him off."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "SUPPORTIVE_BELOW_RIVAL",
+  "text": "Fair play to {club} for being brave, even if it helps us in the short term. {manager} has a good footballing brain, and he should be given time to use it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "On paper this is a statement of intent from {club}. {manager} brings a level of experience they have rarely been able to attract, though the real test is whether the squad can match his standards."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "There is no denying {manager} is a bigger name than {club} would normally land. The question is whether he stays motivated if the resources do not follow."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "You have to credit the board for their ambition here. {manager} has worked at a higher level, and his challenge is adapting to a club with fewer tools at his disposal."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "It is a coup, plain and simple, but coups do not win matches on their own. If {manager} gets time and backing, {club} could climb well above where they usually sit in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "Few people saw this coming. {manager} could have waited for a bigger job, so he clearly sees something in {club}, and that deserves some respect."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "Looking at his record, {manager} is overqualified for this post in the best sense. My only caution is that expectations will rise very quickly, perhaps faster than the squad can."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "This appointment raises the profile of {club} overnight. Whether it raises results depends on how well {manager} and the board agree on what is realistic."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "I think most observers will call this a smart move, and I would broadly agree. Still, big names have struggled before when the surroundings were more modest than they were used to."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "From a purely footballing point of view, {manager} is a significant upgrade. The harder part will be managing a dressing room that is not used to his level of demand."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "Credit where it is due: {club} have aimed high and landed their man. The rest of {league} will take notice, but reputation alone does not earn points."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "A manager of his standing does not usually come to a club like this, which makes it intriguing. If he is here for a project rather than a short stay, it could work very well."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "Honestly, it is hard to find a reason to criticise the choice. The only risk I see is that {manager} may soon be tempted away if a larger club comes calling."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "In terms of pedigree, this is the strongest appointment {club} have made in a long time. Now they need to give {manager} the patience his experience deserves."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "Some will see it as a gamble on the club's side rather than his. {manager} has proven himself, so the onus is on {club} to provide what he needs."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "My first reaction is that {club} have punched above their weight. My second is that {manager} will have to adapt to a very different environment from the ones he knows."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_NONE",
+  "text": "Everyone in {league} will be watching this one closely. {manager} has the name and the knowledge, and if the club can support him properly, they may surprise a few people."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "As someone with a soft spot for {club}, I am delighted, though I am trying to keep my feet on the ground. {manager} is a fine coach, but he will need time and proper backing."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "I will admit my heart jumped when I heard the news. {manager} is a bigger name than we usually attract, and I just hope the board gives him what he asks for."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "Speaking as a {club} supporter, this is the kind of appointment we have waited years for. My only worry is that a manager of his level may not stay long if things stall."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "You know where my loyalties lie, so take this with a pinch of salt. Still, I genuinely believe {manager} can lift {club} to a new level in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "My club has landed a serious name, and I am proud of that. But I have seen enough football to know that a good appointment is only the beginning."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "It feels almost too good to be true for {club}. {manager} has the experience we have lacked, and if he settles quickly, this could be a very exciting period."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "Part of me wants to celebrate, and part of me wants to wait and see. {manager} is clearly a step up for us, but the squad will have to rise to his standards."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "I have followed {club} all my life, and I cannot remember us attracting a coach of this stature. Let us hope the fans are patient if the first weeks are uneven."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "Being honest about my bias, I think this is excellent news. The one thing that keeps me cautious is whether we can afford the players {manager} will want."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "For a club like ours, getting {manager} is a real statement. I just hope expectations do not run away from us before he has had a proper pre-season."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "Naturally I am pleased, but I would ask our supporters to stay calm. {manager} is good, very good, yet no coach turns a squad around overnight."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "What a moment for {club}. I believe in {manager}, though I would like to see the board commit to him for more than one season."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "If you had told me a year ago that we would appoint {manager}, I would have laughed. It is a coup, and now it is up to all of us at {club} to make it count."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "Deep down I am thrilled, as anyone who supports {club} would be. My only concern is that bigger clubs will start circling him if he succeeds."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "This is the appointment I hoped for, even if I did not dare to expect it. {manager} has the authority to change the culture at {club}, provided he is given room to work."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_FAVORITE",
+  "text": "Everybody knows I am a {club} man, so I will try to be fair. It is a superb appointment, but the hard work starts now, and there will be bumps along the way."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "As a supporter of one of their rivals, I would rather not admit it, but this is a strong appointment by {club}. {manager} is a proven coach, and they will be harder to beat."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "I will not pretend this news makes me happy, given where my sympathies lie. Still, fair is fair: {manager} is a quality appointment, even if I suspect it will not all be smooth."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "It pains me slightly to say it, but {club} have done well here. Whether {manager} sticks around once he sees the limits of the project is another matter."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "You will know I am no fan of {club}, so take my praise seriously. {manager} is a bigger name than they usually attract, and I mean that as a compliment to him rather than to them."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "From my side of the rivalry, this is unwelcome news. {manager} has real pedigree, though big names have come unstuck at clubs of that size before."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "Grudgingly, I have to give them credit. {manager} raises their ceiling, and the rest of us in {league} will have to take them more seriously."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "My own club would have been glad to have him, if I am honest. That he chose {club} says something, although I will be curious to see how long the honeymoon lasts."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "There is a small part of me hoping this does not work out, I will confess. The fair assessment, though, is that {manager} is an excellent coach and a coup for them."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "Nobody who knows my allegiances will expect me to cheer. Even so, {manager} is the sort of appointment that changes how a club is perceived, and that cannot be ignored."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "Let us be balanced about it, even if it is not my club. {manager} is a significant upgrade, but expectations at {club} tend to get ahead of reality."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "Well, that is irritating for the rest of us. {manager} knows the game at a higher level, and {club} have just made themselves a tougher opponent."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "Personally I would have preferred they made a safer, smaller choice. Objectively, {manager} is a fine coach, and I suspect our meetings with them just became more difficult."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "The rival in me says it will end in tears, but the analyst in me disagrees. {manager} is a serious name, and {club} deserve credit for convincing him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "I tip my hat to {club}, reluctantly. If {manager} gets the backing he needs, they will be a problem for a few clubs in {league}, mine included."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "Credit to them, I suppose, though it costs me something to say it. {manager} is a class above what they usually attract, and the question now is whether they can keep him happy."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_ABOVE_RIVAL",
+  "text": "On a purely professional level, I respect the move. On a personal level, as someone who supports their rivals, I am hoping {manager} finds the job harder than he expects."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "This feels like a sensible, if not spectacular, appointment. {manager} is roughly at the level of {club}, so much will depend on the fit rather than the name."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "I can see the argument on both sides. {manager} has done solid work, but some fans may have hoped for someone with a bigger reputation."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "It is a logical choice for a club in {club}'s position. Whether it is an inspired one, only the next few months will tell."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "Opinions will be divided, and that is fair. {manager} is neither a gamble nor a guarantee, and he will be judged on results soon enough."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "There is nothing wrong with this appointment, but nothing remarkable about it either. If {manager} brings stability, that may be exactly what {club} need right now."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "You could call it a safe pair of hands, or you could call it a lack of ambition. I lean towards the former, but I understand the doubts."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "On balance I think it is a reasonable decision. {manager} knows what a club of this size requires, though he has yet to show he can take one further."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "Some supporters will be underwhelmed, others reassured. The truth is probably somewhere in between: {manager} is a competent coach joining a club of comparable standing."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "He fits the profile, there is no doubt about that. The bigger question is whether {manager} can bring something new or simply keep {club} where they are."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "If you look at his career, {manager} has generally done what was asked of him. That is not glamorous, but in {league} consistency is worth a great deal."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "Neither side is taking a huge risk here. {club} get an experienced coach of their level, and {manager} gets a fair platform to prove he can do more."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "My honest view is that it is a fair match. I would not expect miracles, nor would I expect a disaster."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "The debate around this one will run for a while. {manager} has his admirers and his critics, and both have reasonable points."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "Looking at the shortlist they probably had, this is a defensible choice. Everything now depends on the first months and how quickly {manager} wins over the dressing room."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "What {club} have chosen is continuity rather than revolution. That can work well, provided {manager} is given clear objectives from the start."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_NONE",
+  "text": "In many ways this is the appointment people expected. {manager} is a coach of similar standing to the club, and the season will decide whether that is enough."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "As a {club} supporter, I find myself cautiously optimistic. {manager} is not a household name, but he seems to understand what our club is about."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "I would be lying if I said I was overjoyed, but I am not disappointed either. {manager} is a sensible choice for us, and I hope the fans give him a fair chance."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "Speaking with my {club} hat on, this is a reasonable appointment. My worry is that some supporters wanted a bigger name and will turn quickly if results dip."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "You know I care about {club}, so I have thought about this carefully. {manager} is at our level, which means he will have to earn respect rather than bring it with him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "My heart wanted something more exciting, but my head says this makes sense. {manager} could be exactly the steady hand we have been missing."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "For my club, I think this is a decent fit. I just hope the board backs him properly, because a manager of his profile needs support to make a difference."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "It is not the dream appointment, but dreams rarely come true in football. If {manager} brings organisation and a clear plan, I will be more than happy."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "Being a {club} man, I wanted to be sure before I said anything. Having looked at his work, I think {manager} deserves our patience and our support."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "Part of me worries that we have played it safe. Then again, safe is not always a bad thing for a club like ours in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "I have seen worse appointments at {club}, believe me. {manager} is a fair choice, and if he gets the squad behind him, we might surprise a few people."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "Honestly, I am torn. {manager} looks a solid fit for us, though I am not yet convinced he can take us beyond where we already are."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "What I want from {manager} is simple: make us competitive and give the supporters something to believe in. He is capable of that, but it will take time."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "Our supporters are entitled to debate this one. I lean towards optimism, because {manager} strikes me as someone who will work hard for {club}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "If I am honest about my bias, I hoped for a little more. Still, {manager} has the right experience for a club of our size, and I will judge him fairly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "Deep down I just want {club} to do well, so I wish him every success. It is a balanced appointment, neither a coup nor a mistake."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_FAVORITE",
+  "text": "Supporting {club} has taught me not to get carried away. {manager} is a reasonable choice, and the rest is in his hands and in ours."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "From the perspective of someone who supports one of their rivals, I am not losing sleep over this. {manager} is a decent coach, but hardly one who changes the balance of power."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "I will try to be fair, even though {club} are not my club. It is a sensible appointment, nothing more and nothing less."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "Neither a threat nor a joke, I would say. {manager} is at about their level, and I suspect they will remain about where they are."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "You know where I stand when it comes to {club}, so I will keep it measured. {manager} could do a steady job, though I doubt he will frighten anyone in {league}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "As a rival supporter, part of me hoped for a worse choice. In truth, {manager} is a respectable appointment that will keep them competitive."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "It is a reasonable move, and I say that through slightly gritted teeth. I would have taken {manager} at my own club without complaint, if I am honest."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "My club will not be trembling, but we should not dismiss them either. {manager} knows how to organise a team, and that makes them awkward to play against."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "There is a version of this that works well for {club}, and I hope, selfishly, it is not the one we see. Objectively, it is a fair appointment."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "Fairly unremarkable, if you ask me, and that suits those of us on the other side of the rivalry. Still, {manager} has quietly surprised people before."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "I have no great complaint about the choice, as much as I would like one. {manager} fits the club, and the debate will be about ambition rather than quality."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "Let me put my loyalties aside for a moment. {manager} is a competent coach, and {club} have made a level-headed decision."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "The rivalry aside, it is hard to say they got this wrong. It is also hard to say they got it spectacularly right."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "Some of my fellow supporters will be smiling at this, but I would be careful. {manager} is no pushover, even if he is no superstar."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "Well, it could have been worse for us. {manager} is a fair choice, and I expect a few tight, scrappy meetings between our clubs this season."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "Whatever my sympathies, I can respect a sensible decision. {manager} will need time, and I confess I am in no hurry to see him succeed."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_NEAR_RIVAL",
+  "text": "Honestly, my first thought was relief that they did not land a bigger name. My second was that {manager} might be underrated, and that would be a nuisance."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "I have to say this one caught me by surprise. {manager} is relatively unproven, and {club} would usually look for someone with a longer record."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "It is an unusual appointment, and I am not quite sure what to make of it yet. {manager} may well have qualities we have not seen, but on paper it is a curious choice."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "Nobody had {manager} on their list, I suspect. That does not make it wrong, but it certainly makes it an oddity for a club of {club}'s standing."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "This is a bold call, perhaps a strange one. I would not write {manager} off, though the step up he is taking is considerable."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "You do not often see a club of this size turn to someone so inexperienced. Either the board knows something we do not, or they have taken a real gamble."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "My first reaction was puzzlement, I will admit. {manager} has done little at this level, and {club} will need to be patient with him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "A surprising choice, to put it mildly. There may be a clear idea behind it, but from the outside it looks like a leap into the unknown."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "Surprises are not always bad in football, but this one raises questions. {manager} will have to learn quickly, because {league} rarely gives newcomers much time."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "On the face of it, the gap between his experience and the size of the job is large. I would like to hear the board explain their thinking."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "I am genuinely curious about this appointment. {manager} is untested at this level, and it will be fascinating to see whether he sinks or swims."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "Few would have predicted {club} going in this direction. It is not a decision I can dismiss, but it is certainly not the obvious one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "There is something slightly odd about it, if I am honest. {manager} is a modest name for a club with these expectations, and he will be under scrutiny from day one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "Clubs sometimes find gems in unexpected places, so I will reserve judgement. Still, {manager} is an unconventional choice and the risk is plain to see."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "It is hard to know how to read this one. {manager} lacks the experience you would expect, but perhaps {club} are thinking long term."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "Strange is my honest first word. Not necessarily bad, but strange, because {manager} has not yet worked at anything like this level."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_NONE",
+  "text": "We will all be watching with interest. {manager} arrives as an outsider in every sense, and the gap between him and the job is something he will have to close quickly."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "As a {club} supporter, I was surprised, and a little nervous, when I heard the name. {manager} is inexperienced, but I want to believe the board has seen something in him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "I will be honest: this was not the name I expected for my club. {manager} has a lot to prove, and I hope our supporters give him the time to do it."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "My first feeling was worry, my second was curiosity. {manager} is a surprising choice for {club}, but young coaches sometimes bring exactly the energy a club needs."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "You know how much {club} means to me, so I will not pretend I am relaxed. {manager} is a leap into the unknown, and I just hope it is a leap forward."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "It is an odd appointment for a club like ours, I cannot deny it. Still, if {manager} has fresh ideas, I would rather back him than doubt him from the start."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "Speaking as a fan of {club}, I hoped for someone more established. That said, every established coach was once a newcomer, and {manager} deserves a fair chance."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "Part of me is anxious, part of me is intrigued. {manager} has done little at this level, so the first weeks will tell us a lot."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "This is a surprise, and not one I would have chosen myself. But I care about {club}, so I will give {manager} my full support until he proves me wrong."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "I have spent the morning trying to make sense of this. {manager} is unproven, and I worry the pressure at our club could be too much for him early on."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "For the club I love, I wanted a safer pair of hands. Then again, {manager} may surprise all of us, and I would be delighted to be wrong."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "Being a {club} man, my instinct is to trust the board, but this one tests that trust. {manager} is a curious choice, and he will need patience from all of us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "Our supporters are going to be confused, and I understand why. I would only ask them to wait before judging, because {manager} has not had a chance yet."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "If I am honest, it was not the appointment I dreamed of. {manager} is a gamble for {club}, though gambles in football sometimes pay off handsomely."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "Deep down I hope this works, because I want {club} to do well. Right now, though, {manager} is a question mark rather than an answer."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "What worries me most is the gap between his experience and our expectations. What gives me hope is that {manager} will have something to prove every single day."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_FAVORITE",
+  "text": "Surprised is the word I keep coming back to. I love {club}, I want {manager} to succeed, and I fear the step up may be bigger than he realises."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "As someone who supports one of their rivals, I was surprised and, I will admit, a little amused. {manager} is very inexperienced for a club of that size, though I would not write him off entirely."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "I did not expect this at all. From where I sit, a newcomer like {manager} at {club} is good news for the rest of us, but stranger things have worked out."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "It is an odd choice, and I say that without too much glee. Well, perhaps a little glee, since {club} are not my club, but {manager} still deserves a fair hearing."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "You will understand if I am not too worried about this one. {manager} has very little experience at this level, and {club} have taken a real gamble."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "My own club would never have gone for someone so unproven, I think. That does not mean {manager} will fail, but it is a curious decision by {club}."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "Surprising, to say the least, and not unwelcome from my point of view. Still, I have seen young coaches embarrass the people who doubted them, so I will stay careful."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "There will be a few smiles among their rivals today, mine included. In fairness, {manager} may have ideas we know nothing about."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "Some of my fellow supporters will be celebrating, but I would hold off. {manager} is a strange choice, not necessarily a bad one."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "Frankly, I cannot quite see the logic, though that suits me fine. If {manager} proves me wrong, I will be the first to admit it, through gritted teeth."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "Nobody saw this coming, least of all their rivals. {manager} has a lot to learn, and {league} will not wait for him."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "I suppose I should be pleased, given my sympathies. But a surprising appointment can also be a fearless one, and {manager} will have nothing to lose."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "The rival in me enjoys the confusion over at {club}. The analyst in me notes that {manager} has done well wherever he has worked, even if it was at a lower level."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "Let me be fair, even if it costs me something. {manager} is an unconventional choice, and whether that becomes a weakness or a pleasant surprise remains to be seen."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "Well, that is not the name I feared. {manager} is a modest appointment for {club}, though modest names have caused upsets before."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "On the face of it, this helps the clubs chasing them, mine among them. Yet I would not be shocked if {manager} turned out to be a pleasant surprise for their fans and an unpleasant one for us."
+ },
+ {
+  "category": "ANALYST",
+  "bucket": "BALANCED_BELOW_RIVAL",
+  "text": "Honestly, it is the kind of appointment rivals hope for. That said, {manager} will come in hungry, and hungry coaches can be dangerous."
+ }
+]

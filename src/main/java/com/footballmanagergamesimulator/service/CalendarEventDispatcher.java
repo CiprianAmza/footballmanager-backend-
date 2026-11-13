@@ -56,6 +56,7 @@ import java.util.stream.Collectors;
 public class CalendarEventDispatcher {
 
     @Autowired private UserContext userContext;
+    @Autowired private TransferInstallmentService transferInstallmentService;
     @Autowired private CalendarService calendarService;
     @Autowired private GameCalendarRepository gameCalendarRepository;
     @Autowired private CalendarEventRepository calendarEventRepository;
@@ -96,8 +97,16 @@ public class CalendarEventDispatcher {
     @Autowired @Lazy private FriendlyMatchService friendlyMatchService;
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
     @Autowired private InjuryTimelineService injuryTimelineService;
-    @Autowired private TrainingCadenceService trainingCadenceService;
+    @Autowired private MonthlyTrainingUpdateService monthlyTrainingUpdateService;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.StaffLoyaltyService> staffLoyalty;
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.DirectorWishService> directorWishes;
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.FrontCoachService> frontCoach;
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.BoardMeetingService> boardMeeting;
 
     // Cache of competition IDs all human teams participate in (per season)
     private Set<Long> humanTeamCompetitionIds = null;
@@ -138,12 +147,7 @@ public class CalendarEventDispatcher {
 
         switch (event.getEventType()) {
             case "TRAINING_SESSION":
-                for (long htId : userContext.getAllHumanTeamIds()) {
-                    trainingService.processTrainingSession(
-                            htId, calendar.getSeason(), calendar.getCurrentDay());
-                }
-                // Train AI teams using the original trainPlayer logic
-                trainAllAITeams(calendar.getSeason(), calendar.getCurrentDay());
+                processTrainingDay(calendar.getSeason(), calendar.getCurrentDay());
                 result.put("details", "Training session completed");
                 break;
             case "YOUTH_ACADEMY_REPORT":
@@ -415,6 +419,16 @@ public class CalendarEventDispatcher {
                 financialTroubleMediaService.publishIfNeeded(team.getId(), season, currentDay, wagesPaid);
             }
         }
+        // An ambitious director works on the staff every month (design DESIGN_START_CARIERA §5.2).
+        com.footballmanagergamesimulator.service.board.StaffLoyaltyService loyalty = staffLoyalty == null ? null : staffLoyalty.getIfAvailable();
+        if (loyalty != null) loyalty.monthPassed();
+        // The director passes on the chairman's wishes, or his own (design DESIGN_START_CARIERA §5).
+        com.footballmanagergamesimulator.service.board.DirectorWishService wishes = directorWishes == null ? null : directorWishes.getIfAvailable();
+        if (wishes != null) wishes.monthPassed();
+        com.footballmanagergamesimulator.service.board.FrontCoachService front = frontCoach == null ? null : frontCoach.getIfAvailable();
+        if (front != null) front.monthPassed();
+        com.footballmanagergamesimulator.service.board.BoardMeetingService meeting = boardMeeting == null ? null : boardMeeting.getIfAvailable();
+        if (meeting != null) meeting.monthPassed();
         System.out.println("=== Monthly wages processed for season " + season + " ===");
     }
 
@@ -444,91 +458,31 @@ public class CalendarEventDispatcher {
     // ============================================================
 
     /**
-     * Trains all AI team players using batch-loaded data.
-     * Runs only on configured rating-update days (21 days by default).
-     * Uses bulk queries instead of per-player/per-team queries (~5 queries total vs ~10,000).
+     * A training day: human teams train (their counters grow); then every league whose monthly
+     * update is due today gets it — human teams from their counters, AI teams from their
+     * coach's play — and is marked updated for this month.
      */
-    private void trainAllAITeams(int season, int currentDay) {
-        if (!trainingCadenceService.isRatingUpdateDay(currentDay)) return;
-        new TransactionTemplate(transactionManager).executeWithoutResult(
-                ignored -> trainAllAITeamsInTransaction(season));
-    }
-
-    private void trainAllAITeamsInTransaction(int season) {
-
-        // 1. Determine which teams are AI teams
-        List<Team> allTeams = teamRepository.findAll();
-        Set<Long> aiTeamIds = new HashSet<>();
-        for (Team team : allTeams) {
-            if (!userContext.isHumanTeam(team.getId())) {
-                aiTeamIds.add(team.getId());
-            }
-        }
-        if (aiTeamIds.isEmpty()) return;
-
-        // 2. Bulk load all facilities (1 query)
-        List<TeamFacilities> allFacilities = teamFacilitiesRepository.findAllByTeamIdIn(aiTeamIds);
-        Map<Long, TeamFacilities> facilitiesMap = new HashMap<>();
-        for (TeamFacilities f : allFacilities) {
-            facilitiesMap.put(f.getTeamId(), f);
-        }
-
-        // 3. Bulk load all AI team players (1 query)
-        List<Human> aiPlayers = humanRepository
-                .findAllByTeamIdInAndTypeIdAndRetiredFalse(aiTeamIds, TypeNames.PLAYER_TYPE);
-        if (aiPlayers.isEmpty()) return;
-
-        // 4. Bulk load all PlayerSkills for AI players (1 query)
-        List<Long> aiPlayerIds = aiPlayers.stream().map(Human::getId).collect(Collectors.toList());
-        List<PlayerSkills> allSkills = playerSkillsRepository.findAllByPlayerIdIn(aiPlayerIds);
-        Map<Long, PlayerSkills> skillsMap = new HashMap<>();
-        for (PlayerSkills ps : allSkills) {
-            skillsMap.put(ps.getPlayerId(), ps);
-        }
-
-        // 5. Bulk load all coaching staff and pre-compute multiplier per team (1 query)
-        Map<Long, Double> coachingMultiplierCache = new HashMap<>();
-        Map<Long, List<Human>> staffByTeam = new HashMap<>();
-        List<Long> coachTypes = List.of(
-                TypeNames.ASSISTANT_MANAGER_TYPE, TypeNames.FIRST_TEAM_COACH_TYPE,
-                TypeNames.FITNESS_COACH_TYPE, TypeNames.GK_COACH_TYPE,
-                TypeNames.YOUTH_COACH_TYPE, TypeNames.HOYD_TYPE);
-        for (Human staff : humanRepository.findAllByTeamIdInAndTypeIdIn(aiTeamIds, coachTypes)) {
-            staffByTeam.computeIfAbsent(staff.getTeamId(), ignored -> new ArrayList<>()).add(staff);
-        }
-
-        for (long teamId : aiTeamIds) {
-            List<Human> staff = staffByTeam.getOrDefault(teamId, List.of());
-            if (staff.isEmpty()) {
-                coachingMultiplierCache.put(teamId, 0.5);
-            } else {
-                double avg = staff.stream()
-                        .mapToDouble(c -> (c.getCoachingAttacking() + c.getCoachingDefending() +
-                                c.getCoachingTactical() + c.getCoachingTechnical() +
-                                c.getCoachingMental() + c.getCoachingFitness()) / 6.0)
-                        .average().orElse(5.0);
-                coachingMultiplierCache.put(teamId, 0.5 + (avg / 20.0));
-            }
-        }
-
-        // 6. Train all players in memory
+    private void processTrainingDay(int season, int day) {
+        Set<Long> dueLeagues = monthlyTrainingUpdateService.dueLeagues(season, day);
+        Map<Long, Long> leagueByTeam = dueLeagues.isEmpty() ? Map.of() : monthlyTrainingUpdateService.leagueByTeam();
         Random random = new Random();
-        for (Human player : aiPlayers) {
-            long teamId = player.getTeamId();
-            TeamFacilities facilities = facilitiesMap.get(teamId);
-            if (facilities == null) continue;
 
-            double staffMult = coachingMultiplierCache.getOrDefault(teamId, 0.5);
-            double facilityBase = com.footballmanagergamesimulator.config.FacilityTraining
-                    .developmentFactor(engineConfig.getTraining(), facilities, player.getAge());
-            double facilityMultiplier = staffMult * 0.6 + facilityBase * 0.4;
-
-            PlayerSkills skills = skillsMap.get(player.getId());
-            humanService.trainPlayerBatch(player, facilities, facilityMultiplier, skills, season, random);
+        Set<Long> humanTeams = new HashSet<>(userContext.getAllHumanTeamIds());
+        for (long teamId : humanTeams) {
+            trainingService.processTrainingSession(teamId, season, day);
+            if (dueLeagues.contains(leagueByTeam.get(teamId))) {
+                monthlyTrainingUpdateService.updateHumanTeam(teamId, season, day, random);
+            }
         }
-        // Players and skills were loaded inside this transaction. Dirty checking
-        // batches only actual changes; saveAll on detached entities used to trigger
-        // a merge/read for every player and dominated rating-update days.
+        if (dueLeagues.isEmpty()) return;
+
+        List<Long> dueAiTeams = leagueByTeam.entrySet().stream()
+                .filter(entry -> !humanTeams.contains(entry.getKey()) && !userContext.isHumanTeam(entry.getKey()))
+                .filter(entry -> dueLeagues.contains(entry.getValue()))
+                .map(Map.Entry::getKey)
+                .toList();
+        monthlyTrainingUpdateService.updateAiTeams(dueAiTeams, season, random);
+        monthlyTrainingUpdateService.markUpdated(dueLeagues, season, day);
     }
 
     // ============================================================
@@ -541,6 +495,7 @@ public class CalendarEventDispatcher {
      */
     private void processSeasonStart(int season) {
         System.out.println("=== SEASON_START: Generating calendar for season " + season + " ===");
+        transferInstallmentService.payDue(season);
 
         // Check if calendar events already exist for this season (avoid duplicates)
         // (the SEASON_START event itself exists, so check for more than just a few events)

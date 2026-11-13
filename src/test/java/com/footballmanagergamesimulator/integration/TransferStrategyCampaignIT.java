@@ -48,6 +48,7 @@ class TransferStrategyCampaignIT {
     @Autowired private TeamRepository teamRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private TransferRepository transferRepository;
+    @Autowired private com.footballmanagergamesimulator.service.PlannedTransferService plannedTransferService;
     @Autowired private RoundRepository roundRepository;
     @Autowired private SeasonTransitionService seasonTransitionService;
     @Autowired private CompositeTransferStrategy strategy;
@@ -92,6 +93,7 @@ class TransferStrategyCampaignIT {
         Map<String, Integer> maxPos = tacticService.getMaximumPositionAllowed();
 
         seasonTransitionService.processEndOfSeason(season);
+        plannedTransferService.drainWindow(); // the AI moves are planned over the window's days
 
         List<Transfer> transfers = transferRepository.findAllBySeasonNumber(season);
         assertThat(transfers)

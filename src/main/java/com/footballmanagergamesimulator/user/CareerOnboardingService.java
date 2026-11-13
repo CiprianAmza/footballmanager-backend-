@@ -24,6 +24,16 @@ import java.util.Map;
 public class CareerOnboardingService {
 
     @Autowired private ChairmanInboxNotificationService chairmanInbox;
+    /** The manager's story (birthday, nation, playing career…); absent in narrow test slices. */
+    @Autowired(required = false) private ManagerBackgroundService backgroundService;
+    @Autowired(required = false) private com.footballmanagergamesimulator.service.board.LicenceService licenceService;
+    /** The press article on the appointment (design DESIGN_START_CARIERA §6.1); absent in narrow test slices. */
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.press.ArrivalService> appointmentArticles;
+
+    private void publishAppointment(Human manager, long teamId) {
+        if (appointmentArticles != null) appointmentArticles.ifAvailable(arrival -> arrival.welcome(manager, teamId));
+    }
 
     private final UserRepository userRepository;
     private final HumanRepository humanRepository;
@@ -58,6 +68,12 @@ public class CareerOnboardingService {
             return managerResult(user, existing, user.getTeamId() == null);
         }
 
+        if (backgroundService != null) backgroundService.validate(request);
+        if (licenceService != null && request.teamId() != null && request.teamId() > 0 && !request.freeAgent()
+                && licenceService.refuses(request.coachingLicence(), request.teamId())) {
+            throw new IllegalArgumentException("This club will not appoint a manager without the licence its league requires ("
+                    + licenceService.required(request.teamId()).label() + ").");
+        }
         boolean freeAgent = request.freeAgent() || request.teamId() == null || request.teamId() <= 0;
         Human manager;
         if (freeAgent) {
@@ -68,6 +84,10 @@ public class CareerOnboardingService {
             manager.setTypeId(TypeNames.MANAGER_TYPE);
             manager.setManagerReputation(500);
             manager = humanRepository.save(manager);
+            if (backgroundService != null) {
+                backgroundService.apply(manager, request);
+                manager = humanRepository.save(manager);
+            }
 
             user.setTeamId(null);
             user.setLastTeamId(null);
@@ -90,6 +110,11 @@ public class CareerOnboardingService {
             manager.setTeamId(team.getId());
             manager.setTypeId(TypeNames.MANAGER_TYPE);
             manager = humanRepository.save(manager);
+            if (backgroundService != null) {
+                // His own reputation (from his playing career), not the one of the AI coach he replaces.
+                backgroundService.apply(manager, request);
+                manager = humanRepository.save(manager);
+            }
 
             Round round = roundRepository.findAll().stream().findFirst().orElseGet(Round::new);
             round.setHumanTeamId(team.getId());
@@ -102,6 +127,7 @@ public class CareerOnboardingService {
             user.setManagerId(manager.getId());
             user.setFired(false);
             user.setEverManaged(true);
+            publishAppointment(manager, team.getId());
         }
 
         userRepository.save(user);

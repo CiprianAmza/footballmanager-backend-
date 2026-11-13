@@ -25,8 +25,10 @@ final class ShooterMatchMechanic {
         validateAttribute(longShots, "Long Shots");
         int exceptional = config.getRating().getExceptionalAttributeValue();
         double beforePressing;
-        if (longShots == exceptional) {
-            beforePressing = 1.0;
+        if (longShots >= exceptional) {
+            // 20 → 80%, then every further level adds the step (25 → 100%).
+            beforePressing = clamp01(config.getShooter().getExceptionalLongShotsChance()
+                    + (longShots - exceptional) * config.getShooter().getExceptionalLongShotsStep());
         } else {
             double ratio = longShots / (double) config.getRating().getAttributeMax();
             beforePressing = config.getShooter().getRegularLongShotsCeiling()
@@ -38,8 +40,9 @@ final class ShooterMatchMechanic {
     int sampleShotCount(int positioning, double roll) {
         validateAttribute(positioning, "Positioning");
         requireRoll(roll);
-        List<Double> distribution = positioning == config.getRating().getExceptionalAttributeValue()
-                ? config.getShooter().getExceptionalPositioningShotDistribution()
+        int exceptional = config.getRating().getExceptionalAttributeValue();
+        List<Double> distribution = positioning >= exceptional
+                ? exceptionalPositioningDistribution(positioning - exceptional)
                 : config.getShooter().getStandardShotDistribution();
         validateDistribution(distribution);
         double cumulative = 0.0;
@@ -67,11 +70,26 @@ final class ShooterMatchMechanic {
                 .replace("_", "").trim().toUpperCase(java.util.Locale.ROOT);
     }
 
+    /**
+     * Positioning 20 uses the exceptional distribution; every level above 20 moves
+     * {@code exceptional-positioning-zero-shot-step} from "0 shots" to "2 shots",
+     * until "0 shots" is empty.
+     */
+    private List<Double> exceptionalPositioningDistribution(int levelsAbove) {
+        List<Double> base = config.getShooter().getExceptionalPositioningShotDistribution();
+        if (levelsAbove <= 0 || base.size() < 3) return base;
+        List<Double> shifted = new java.util.ArrayList<>(base);
+        double moved = Math.min(shifted.get(0),
+                levelsAbove * config.getShooter().getExceptionalPositioningZeroShotStep());
+        shifted.set(0, shifted.get(0) - moved);
+        shifted.set(2, shifted.get(2) + moved);
+        return shifted;
+    }
+
     private void validateAttribute(int value, String name) {
         int min = config.getRating().getAttributeMin();
-        int exceptional = config.getRating().getExceptionalAttributeValue();
-        if (value < min || value > exceptional) {
-            throw new IllegalArgumentException(name + " must be in [" + min + ',' + exceptional + "]");
+        if (value < min) {
+            throw new IllegalArgumentException(name + " must be at least " + min);
         }
     }
 

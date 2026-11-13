@@ -187,35 +187,30 @@ class MatchPlanFoundationTest {
     }
 
     @Test
-    void passingTwentyGetsSeventyPercentOfAllNonPenaltyGoalsWhenNotTheScorer() {
-        config.getEvents().setAssistProbability(0.0);
-        config.getEvents().setPerfectPassingAssistProbability(0.70);
-        List<Contributor> onPitch = List.of(
-                player(1L, "GK", 10),
-                player(2L, "ST", 12),
-                player(3L, "MC", 20),
-                player(4L, "ML", 19),
-                player(5L, "DC", 5));
-        Random rng = new Random(20260730L);
-        int samples = 20_000;
-        int perfectPasserAssists = 0;
-
-        for (int i = 0; i < samples; i++) {
-            GoalSlot slot = new GoalSlot(10L, 1 + i % 90, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
-            slot.forceScorer(2L, "OPEN_PLAY");
-            resolver.resolve(slot, onPitch, rng);
-            assertNotNull(slot.getAssistId(), "Passing 20 makes every eligible goal assisted");
-            if (Long.valueOf(3L).equals(slot.getAssistId())) perfectPasserAssists++;
-        }
-
-        double share = perfectPasserAssists / (double) samples;
-        assertEquals(0.70, share, 0.015, "Passing 20 must own 70% of the goals");
+    void passingWeightIsTheValueBelowTwentyThenJumpsAndGrowsPerLevel() {
+        assertEquals(12.0, resolver.assistWeight(12));
+        assertEquals(19.0, resolver.assistWeight(19));
+        assertEquals(250.0, resolver.assistWeight(20));
+        assertEquals(300.0, resolver.assistWeight(21));
+        assertEquals(500.0, resolver.assistWeight(25));
     }
 
     @Test
-    void multiplePerfectPassersShareTheSameSeventyPercentPool() {
+    void passingTwentyTakesAboutSeventyPercentInAnOrdinaryTeamAndEveryLevelAboveAddsMore() {
+        double share20 = assistShare(20, 20260730L);
+        double share21 = assistShare(21, 20260731L);
+        double share25 = assistShare(25, 20260732L);
+
+        // Nine eligible team-mates at Passing 12 → weight 108 besides the playmaker.
+        assertEquals(250.0 / 358.0, share20, 0.015, "Passing 20 ≈ 70%");
+        assertEquals(300.0 / 408.0, share21, 0.015, "Passing 21 ≈ 73%");
+        assertEquals(500.0 / 608.0, share25, 0.015, "Passing 25 ≈ 82%");
+        assertTrue(share21 > share20 && share25 > share21, "every level above 20 must raise the share");
+    }
+
+    @Test
+    void equalPerfectPassersSplitByWeightAndEveryGoalIsAssisted() {
         config.getEvents().setAssistProbability(0.0);
-        config.getEvents().setPerfectPassingAssistProbability(0.70);
         List<Contributor> onPitch = List.of(
                 player(1L, "GK", 10),
                 player(2L, "ST", 12),
@@ -231,14 +226,35 @@ class MatchPlanFoundationTest {
             GoalSlot slot = new GoalSlot(10L, 1 + i % 90, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
             slot.forceScorer(2L, "OPEN_PLAY");
             resolver.resolve(slot, onPitch, rng);
+            assertNotNull(slot.getAssistId(), "Passing 20+ on the pitch makes every eligible goal assisted");
             if (Long.valueOf(3L).equals(slot.getAssistId())) firstPerfect++;
             if (Long.valueOf(4L).equals(slot.getAssistId())) secondPerfect++;
         }
 
-        assertEquals(0.70, (firstPerfect + secondPerfect) / (double) samples, 0.015,
-                "all Passing 20 players must collectively own one 70% pool");
+        assertEquals(500.0 / 519.0, (firstPerfect + secondPerfect) / (double) samples, 0.015);
         assertEquals(0.50, firstPerfect / (double) (firstPerfect + secondPerfect), 0.02,
-                "equal perfect passers must divide that pool equally");
+                "equal perfect passers must divide their share equally");
+    }
+
+    /** Share of assists for player 3 (the playmaker) among nine Passing-12 team-mates. */
+    private double assistShare(int playmakerPassing, long seed) {
+        config.getEvents().setAssistProbability(1.0);
+        List<Contributor> onPitch = new java.util.ArrayList<>();
+        onPitch.add(player(1L, "GK", 10));
+        onPitch.add(player(2L, "ST", 12));
+        onPitch.add(player(3L, "MC", playmakerPassing));
+        String[] others = {"DC", "DC", "DL", "DR", "MC", "ML", "MR", "AMC", "ST"};
+        for (int i = 0; i < others.length; i++) onPitch.add(player(10L + i, others[i], 12));
+        Random rng = new Random(seed);
+        int samples = 20_000;
+        int playmaker = 0;
+        for (int i = 0; i < samples; i++) {
+            GoalSlot slot = new GoalSlot(10L, 1 + i % 90, GoalPhase.REGULAR_TIME, "OPEN_PLAY");
+            slot.forceScorer(2L, "OPEN_PLAY");
+            resolver.resolve(slot, onPitch, rng);
+            if (Long.valueOf(3L).equals(slot.getAssistId())) playmaker++;
+        }
+        return playmaker / (double) samples;
     }
 
     @Test

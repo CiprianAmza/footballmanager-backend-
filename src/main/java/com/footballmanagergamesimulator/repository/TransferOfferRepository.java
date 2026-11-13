@@ -32,6 +32,8 @@ public interface TransferOfferRepository extends JpaRepository<TransferOffer, Lo
     List<TransferOffer> findAllByPlayerIdInAndStatusIn(
             Collection<Long> playerIds, Collection<String> statuses);
 
+    boolean existsByStatusIn(Collection<String> statuses);
+
     boolean existsByPlayerIdAndFromTeamIdAndSeasonNumberAndStatusIn(
             long playerId, long fromTeamId, int seasonNumber, Collection<String> statuses);
 

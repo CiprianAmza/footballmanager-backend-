@@ -34,6 +34,7 @@ public class HumanController {
     PlayerCardService playerCardService;
     @Autowired PlayerMarketAvailabilityService marketAvailabilityService;
     @Autowired PlayerPreviewService playerPreviewService;
+    @Autowired com.footballmanagergamesimulator.service.PlannedTransferService plannedTransferService;
 
     @Autowired
     public HumanController(HumanRepository humanRepository,
@@ -71,10 +72,20 @@ public class HumanController {
                 .toList();
         int season = marketAvailabilityService.currentSeason();
         Map<Long, PlayerPreviewService.Preview> previews = playerPreviewService.previews(players, season);
+        // Bulk lookups: one query per table instead of ~3 per player (2k+ players).
+        Map<Long, String> teamNames = new HashMap<>();
+        teamRepository.findAll().forEach(t -> teamNames.put(t.getId(), t.getName()));
+        Map<Long, NationService.NationInfo> nations = nationService.infoByTeamId();
+        Map<Long, PlayerSkills> skills = new HashMap<>();
+        playerSkillsRepository.findAllByPlayerIdIn(players.stream().map(Human::getId).toList())
+                .forEach(ps -> skills.putIfAbsent(ps.getPlayerId(), ps));
+        Map<Long, List<Long>> wanted = plannedTransferService.wantedBy();
         return players.stream().map(player -> {
-            PlayerView view = buildPlayerView(player, false);
+            PlayerView view = buildPlayerView(player, Optional.ofNullable(skills.get(player.getId())), false,
+                    teamNames::get, nations::get);
             applyPreview(view, previews.get(player.getId()));
             applyMarketState(view, marketAvailabilityService.stateFor(player.getId(), states));
+            applyWanted(view, wanted.get(player.getId()), teamNames::get);
             return view;
         }).toList();
     }
@@ -106,8 +117,15 @@ public class HumanController {
             return null;
 
         PlayerView playerView = buildPlayerView(human.get());
-
+        applyWanted(playerView, plannedTransferService.wantedBy(playerId),
+                id -> teamRepository.findById(id).map(Team::getName).orElse(null));
         return playerView;
+    }
+
+    private static void applyWanted(PlayerView view, List<Long> clubs, java.util.function.Function<Long, String> teamName) {
+        boolean wanted = clubs != null && !clubs.isEmpty();
+        view.setWanted(wanted);
+        view.setWantedBy(wanted ? clubs.stream().map(teamName).filter(Objects::nonNull).sorted().toList() : List.of());
     }
 
     @GetMapping("/{playerId}/card")
@@ -140,9 +158,19 @@ public class HumanController {
     }
 
     private PlayerView buildPlayerView(Human player, boolean loadAllSkills) {
+        Optional<PlayerSkills> skills = loadAllSkills
+                ? playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()) : Optional.empty();
+        return buildPlayerView(player, skills, true,
+                teamId -> teamRepository.findById(teamId).map(Team::getName).orElseThrow(),
+                nationService::infoForTeam);
+    }
+
+    /** @param includeSkillList false = only the special rating is derived from the skills (lighter payload) */
+    private PlayerView buildPlayerView(Human player, Optional<PlayerSkills> playerSkills, boolean includeSkillList,
+                                       java.util.function.Function<Long, String> teamName,
+                                       java.util.function.Function<Long, NationService.NationInfo> nationOfTeam) {
 
         PlayerView playerView = new PlayerView();
-        Team team;
 
         // Being clubless no longer means retired: an expired contract drops a player
         // into free agency, and the old "teamId == null => retired" shorthand labelled
@@ -153,9 +181,7 @@ public class HumanController {
         if (player.getTeamId() == null) {
             playerView.setTeamName(player.isRetired() ? "Retired" : "Free Agent");
         } else {
-            Optional<Team> possibleTeam = teamRepository.findById(player.getTeamId());
-            team = possibleTeam.get();
-            playerView.setTeamName(team.getName()); // todo team can never be null, which means Free Agent is not yet possible - maybe set teamID to 0 in that case
+            playerView.setTeamName(teamName.apply(player.getTeamId()));
         }
 
         playerView.setId(player.getId());
@@ -177,6 +203,9 @@ public class HumanController {
         playerView.setContractEndSeason(player.getContractEndSeason());
         playerView.setWage(player.getWage());
         playerView.setReleaseClause(player.getReleaseClause());
+        playerView.setBuyBackClubId(player.getBuyBackClubId());
+        playerView.setBuyBackPrice(player.getBuyBackPrice());
+        playerView.setBuyBackUntilSeason(player.getBuyBackUntilSeason());
         playerView.setTransferValue(player.getTransferValue());
         playerView.setWillNeverLeave(player.isWillNeverLeave());
         playerView.setStayForward(player.isStayForward());
@@ -190,10 +219,9 @@ public class HumanController {
         List<String> skillNames = new ArrayList<>();
         List<Long> skillValues = new ArrayList<>();
 
-        Optional<PlayerSkills> playerSkills = loadAllSkills
-                ? playerSkillsRepository.findPlayerSkillsByPlayerId(player.getId()) : Optional.empty();
+        playerSkills.ifPresent(ps -> playerView.setSpecialRating(PlayerSkillsService.computeSpecialRating(ps)));
 
-        if (playerSkills.isPresent()) {
+        if (includeSkillList && playerSkills.isPresent()) {
             PlayerSkills ps = playerSkills.get();
             boolean isGK = "GK".equals(player.getPosition());
 
@@ -229,7 +257,9 @@ public class HumanController {
         playerView.setWeightKg(player.getWeightKg());
 
         // Nation (derived via team -> competition -> nationId)
-        NationService.NationInfo nation = nationService.infoForTeam(player.getTeamId());
+        NationService.NationInfo nation = player.getTeamId() == null
+                ? nationService.infoForTeam(null)
+                : Optional.ofNullable(nationOfTeam.apply(player.getTeamId())).orElseGet(() -> nationService.infoFor(0));
         playerView.setNationId(nation.id());
         playerView.setNationName(nation.name());
         playerView.setNationFlagCode(nation.flagCode());

@@ -77,6 +77,11 @@ public class TacticService {
         return positions.indexOf(position);
     }
 
+    /** Every formation the game knows, without an instance (for request validation). */
+    public static List<String> existingFormations() {
+        return new ArrayList<>(FORMATIONS.keySet());
+    }
+
     public List<String> getAllExistingTactics() {
         return new ArrayList<>(FORMATIONS.keySet());
     }

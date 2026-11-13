@@ -134,6 +134,7 @@ public class PlayerMatchStatService {
                 double passesCompleted = passesAttempted * (passPct / 100.0);
                 double chancesCreated = chancesCreatedPer90(skills);
                 double dribblesCompleted = dribblesCompletedPer90(skills, input.tacticOrNull());
+                double aerialDuelsWon = aerialDuelsWonPer90(skills);
 
                 row.setDefensiveActions(row.getDefensiveActions() + defensiveActions);
                 row.setPressures(row.getPressures() + pressures);
@@ -144,6 +145,7 @@ public class PlayerMatchStatService {
                 row.setPassesCompleted(row.getPassesCompleted() + passesCompleted);
                 row.setChancesCreated(row.getChancesCreated() + chancesCreated);
                 row.setDribblesCompleted(row.getDribblesCompleted() + dribblesCompleted);
+                row.setAerialDuelsWon(row.getAerialDuelsWon() + aerialDuelsWon);
                 toSaveByPlayer.put(playerId, row);
             }
         }
@@ -213,5 +215,19 @@ public class PlayerMatchStatService {
         if (tactic != null && "More".equalsIgnoreCase(tactic.getDribbling())) instructionMultiplier = 1.22;
         if (tactic != null && "Less".equalsIgnoreCase(tactic.getDribbling())) instructionMultiplier = 0.72;
         return 7.0 * Math.pow(normalized, 1.60) * instructionMultiplier;
+    }
+
+    /**
+     * Aerial duels won per 90. The engine does not simulate headers, so this is synthetic:
+     * heading and jumping reach decide most of it, strength and bravery the rest.
+     * A maxed aerial player approaches 5 per full match, an average one about 1.5.
+     */
+    static double aerialDuelsWonPer90(PlayerSkills skills) {
+        double weighted = AnalyticsFormula.attributeValue(skills, "Heading") * 0.35
+                + AnalyticsFormula.attributeValue(skills, "Jumping Reach") * 0.35
+                + AnalyticsFormula.attributeValue(skills, "Strength") * 0.15
+                + AnalyticsFormula.attributeValue(skills, "Bravery") * 0.15;
+        double normalized = Math.max(0.0, Math.min(1.0, weighted / 20.0));
+        return 5.0 * Math.pow(normalized, 1.55);
     }
 }

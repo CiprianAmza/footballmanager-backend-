@@ -122,7 +122,7 @@ class MatchdayCoordinatorCanonicalCommitConcurrencyTest {
         when(session.asLiveMatchData()).thenReturn(new LiveMatchData());
         when(liveMatchSimulationService.getSession(LIVE_KEY)).thenReturn(session);
         when(liveMatchSimulationService.resolveCommitOutcome(session)).thenReturn(
-                new LiveMatchSimulationService.CommitOutcome(0, 0, 100, 100, null, null, false));
+                new LiveMatchSimulationService.CommitOutcome(0, 0, 100, 100));
         when(matchRoundSimulator.roundTeamName(HOME)).thenReturn("Home FC");
         when(matchRoundSimulator.roundTeamName(AWAY)).thenReturn("Away FC");
 

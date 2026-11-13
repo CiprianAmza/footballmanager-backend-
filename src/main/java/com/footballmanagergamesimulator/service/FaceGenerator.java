@@ -130,6 +130,11 @@ public class FaceGenerator {
         player.setSpecies(NATION_SPECIES.getOrDefault(nationId, "human"));
     }
 
+    /** The species of everyone born in a nation (the same mapping players get). */
+    public static String speciesFor(long nationId) {
+        return NATION_SPECIES.getOrDefault(nationId, "human");
+    }
+
     /** Uniformly pick one index from a favored pool. */
     private int pickFrom(Random random, int[] pool) {
         return pool[random.nextInt(pool.length)];

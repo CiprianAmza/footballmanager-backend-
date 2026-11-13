@@ -97,6 +97,9 @@ class TacticControllerTest {
         ReflectionTestUtils.setField(controller, "roundRepository", rounds);
         ReflectionTestUtils.setField(controller, "scorerRepository", scorers);
         ReflectionTestUtils.setField(controller, "nationService", nations);
+        // getPlayers also fills the special rating from the players' attributes (none stored here).
+        ReflectionTestUtils.setField(controller, "playerSkillsRepository",
+                org.mockito.Mockito.mock(com.footballmanagergamesimulator.repository.PlayerSkillsRepository.class));
 
         List<PlayerView> result = ReflectionTestUtils.invokeMethod(controller, "getPlayers", "10");
 

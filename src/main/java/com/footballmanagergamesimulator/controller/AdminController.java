@@ -621,8 +621,10 @@ public class AdminController {
         PlayerSkillsService.calibrateOverallRating(playerSkills, rating);
         playerSkillsRepository.save(playerSkills);
 
-        // The admin-provided rating is authoritative. Skills are calibrated above
-        // so later attribute-based recalculations do not immediately lower it.
+        // The admin-provided rating is the target for the attributes; the stored rating is
+        // what those attributes produce (as close to the target as the integer scale allows).
+        com.footballmanagergamesimulator.service.PlayerRatingSync.refresh(player, playerSkills, currentSeason);
+        player = humanRepository.save(player);
 
         // Create historical relation for player career history
         if (teamId != null) {

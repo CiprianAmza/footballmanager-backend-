@@ -56,7 +56,9 @@ public class GameSaveImportService {
     static final int SAVE_VERSION_15 = 15;
     static final int SAVE_VERSION_16 = 16;
     static final int SAVE_VERSION_17 = 17;
-    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_17;
+    /** Adds training counters, monthly update markers and training delegations. */
+    static final int SAVE_VERSION_18 = 18;
+    static final int CURRENT_SAVE_VERSION = SAVE_VERSION_18;
 
     private static final List<StayForwardSeedIdentity> STAY_FORWARD_SEEDS = List.of(
             new StayForwardSeedIdentity(107L, "Kvekrpur", 14L, "ST"),
@@ -77,6 +79,26 @@ public class GameSaveImportService {
             new TableSpec("stadiums", "STADIUM"),
             new TableSpec("gameCalendars", "GAME_CALENDAR"),
             new TableSpec("calendarEvents", "CALENDAR_EVENT"),
+            new TableSpec("agents", "AGENT", SAVE_VERSION_18),
+            new TableSpec("humanEntityRelations", "HUMAN_ENTITY_RELATION", SAVE_VERSION_18),
+            new TableSpec("contractNegotiations", "CONTRACT_NEGOTIATION", SAVE_VERSION_18),
+            new TableSpec("plannedTransfers", "PLANNED_TRANSFER", SAVE_VERSION_18),
+            new TableSpec("transferInstallments", "TRANSFER_INSTALLMENT", SAVE_VERSION_18),
+            new TableSpec("transferBonuses", "TRANSFER_BONUS", SAVE_VERSION_18),
+            new TableSpec("managerBackgrounds", "MANAGER_BACKGROUND", SAVE_VERSION_18),
+            new TableSpec("managerPlayingSeasons", "MANAGER_PLAYING_SEASON", SAVE_VERSION_18),
+            new TableSpec("analysts", "ANALYST", SAVE_VERSION_18),
+            new TableSpec("pressFragments", "PRESS_FRAGMENT", SAVE_VERSION_18),
+            new TableSpec("conductRules", "CONDUCT_RULE", SAVE_VERSION_18),
+            new TableSpec("conductFines", "CONDUCT_FINE", SAVE_VERSION_18),
+            new TableSpec("squadObjectives", "SQUAD_OBJECTIVE", SAVE_VERSION_18),
+            new TableSpec("meetingRecords", "MEETING_RECORD", SAVE_VERSION_18),
+            new TableSpec("publicPromises", "PUBLIC_PROMISE", SAVE_VERSION_18),
+            new TableSpec("clubBoards", "CLUB_BOARD", SAVE_VERSION_18),
+            new TableSpec("staffLoyalties", "STAFF_LOYALTY", SAVE_VERSION_18),
+            new TableSpec("directorWishes", "DIRECTOR_WISH", SAVE_VERSION_18),
+            new TableSpec("frontCoaches", "FRONT_COACH", SAVE_VERSION_18),
+            new TableSpec("matchBonuses", "MATCH_BONUS", SAVE_VERSION_18),
             new TableSpec("humans", "HUMAN"),
             new TableSpec("playerPositionFamiliarities", "PLAYER_POSITION_FAMILIARITY", SAVE_VERSION_12),
             new TableSpec("playerRoleFamiliarities", "PLAYER_ROLE_FAMILIARITY", SAVE_VERSION_12),
@@ -91,6 +113,9 @@ public class GameSaveImportService {
             new TableSpec("teamCompetitionDetails", "TEAM_COMPETITION_DETAIL"),
             new TableSpec("competitionHistories", "COMPETITION_HISTORY"),
             new TableSpec("competitionSeasonExpectations", "COMPETITION_SEASON_EXPECTATION", SAVE_VERSION_17),
+            new TableSpec("playerTrainingCounters", "PLAYER_TRAINING_COUNTER", SAVE_VERSION_18),
+            new TableSpec("trainingUpdateMarkers", "TRAINING_UPDATE_MARKER", SAVE_VERSION_18),
+            new TableSpec("trainingDelegations", "TRAINING_DELEGATION", SAVE_VERSION_18),
             new TableSpec("clubCoefficients", "CLUB_COEFFICIENT"),
             new TableSpec("scorers", "SCORER"),
             new TableSpec("scorerLeaderboard", "SCORER_LEADERBOARD_ENTRY"),
@@ -1057,8 +1082,9 @@ public class GameSaveImportService {
                 && version != SAVE_VERSION_14
                 && version != SAVE_VERSION_15
                 && version != SAVE_VERSION_16
+                && version != SAVE_VERSION_17
                 && version != CURRENT_SAVE_VERSION) {
-            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 or 17");
+            throw invalid("incompatible save version; expected 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18");
         }
         return version;
     }

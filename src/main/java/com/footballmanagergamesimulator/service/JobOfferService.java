@@ -29,6 +29,14 @@ import java.util.*;
 public class JobOfferService {
 
     @Autowired private JobOfferRepository jobOfferRepository;
+    @Autowired(required = false) private com.footballmanagergamesimulator.service.board.LicenceService licenceService;
+    /** The press article on the appointment (design DESIGN_START_CARIERA §6.1); absent in narrow test slices. */
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.press.ArrivalService> appointmentArticles;
+
+    private void publishAppointment(Human manager, long teamId) {
+        if (appointmentArticles != null) appointmentArticles.ifAvailable(arrival -> arrival.welcome(manager, teamId));
+    }
     @Autowired private TeamRepository teamRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private ManagerInboxRepository inboxRepository;
@@ -77,6 +85,9 @@ public class JobOfferService {
 
         Team team = teamRepository.findById(offeringTeamId).orElse(null);
         if (team == null) return null;
+        // A famous club does not want a manager without the licence its league needs (§3).
+        if (licenceService != null && user.getManagerId() != null
+                && licenceService.refuses(user.getManagerId(), offeringTeamId)) return null;
 
         // Refuse if there's already a pending offer from THIS team
         boolean existsPending = jobOfferRepository.findAllByUserIdAndStatus(userId, "PENDING").stream()
@@ -269,6 +280,7 @@ public class JobOfferService {
             humanRepository.findById(user.getManagerId()).ifPresent(mgr -> {
                 mgr.setTeamId(newTeamId);
                 humanRepository.save(mgr);
+                publishAppointment(mgr, newTeamId);
             });
         }
 
@@ -451,6 +463,9 @@ public class JobOfferService {
 
             boolean vacant = (currentMgr == null);
             boolean canApply = vacant || (humanRep >= team.getReputation() / 2);
+            if (humanManager != null && licenceService != null && licenceService.refuses(humanManager.getId(), team.getId())) {
+                canApply = false; // famous clubs refuse a manager without the licence (§3)
+            }
 
             if (!canApply) continue;
 
@@ -552,6 +567,10 @@ public class JobOfferService {
         if (wouldConflictWithOwnedClub(humanManager.getId(), newTeamId)) {
             return "Nu poți antrena un club din aceeași competiție cu unul pe care îl deții.";
         }
+        if (licenceService != null && licenceService.refuses(humanManager.getId(), newTeamId)) {
+            return "This club will not appoint a manager without the licence its league requires ("
+                    + licenceService.required(newTeamId).label() + ").";
+        }
 
         Human existingManager = humanRepository.findAllByTypeId(TypeNames.MANAGER_TYPE).stream()
                 .filter(m -> m.getTeamId() != null && m.getTeamId().equals(newTeamId) && !m.isRetired())
@@ -566,6 +585,7 @@ public class JobOfferService {
 
         humanManager.setTeamId(newTeamId);
         humanRepository.save(humanManager);
+        publishAppointment(humanManager, newTeamId);
 
         currentUser.setTeamId(newTeamId);
         currentUser.setLastTeamId(newTeamId);

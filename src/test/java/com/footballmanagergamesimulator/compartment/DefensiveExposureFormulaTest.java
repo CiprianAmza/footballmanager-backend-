@@ -65,4 +65,16 @@ class DefensiveExposureFormulaTest {
         assertThat(oneResult.finalAttackProtection()).isGreaterThan(threeResult.finalAttackProtection());
         assertThat(threeResult.residualRisk()).isGreaterThan(oneResult.residualRisk());
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("""
+            GIVEN a defensive midfielder and a centre-back above 20 (normalised 1.05 and 1.10; allowed since step 1.3)
+            WHEN the defensive coverage is computed
+            THEN it is accepted: the midfielder counts in full, the centre-back's recovery pace stays capped at 0.50
+            """)
+    void attributesAboveTwentyAreAccepted() {
+        double coverage = formula.coverage(1.05, 0.0, 1.10);
+
+        assertThat(coverage).isCloseTo(1.05 + 0.50, within(1e-12));
+    }
 }

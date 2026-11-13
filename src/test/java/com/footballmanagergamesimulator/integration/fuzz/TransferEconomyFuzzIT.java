@@ -83,6 +83,7 @@ class TransferEconomyFuzzIT {
     @Autowired private TeamRepository teamRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private TransferRepository transferRepository;
+    @Autowired private com.footballmanagergamesimulator.service.PlannedTransferService plannedTransferService;
     @Autowired private RoundRepository roundRepository;
     @Autowired private SeasonTransitionService seasonTransitionService;
     @Autowired private CompositeTransferStrategy strategy;
@@ -156,6 +157,7 @@ class TransferEconomyFuzzIT {
 
             strategy.setRandomForTesting(new Random(BASE_SEED + season));
             seasonTransitionService.processEndOfSeason(currentSeason);
+            plannedTransferService.drainWindow(); // the AI moves are planned over the window's days
 
             for (Transfer transfer : transferRepository.findAllBySeasonNumber(currentSeason)) {
                 statsByStrategy.computeIfAbsent(strategyByTeam.get(transfer.getSellTeamId()), ignored -> new StrategyEconomyStats())

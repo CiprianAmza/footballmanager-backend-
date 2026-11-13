@@ -547,12 +547,16 @@ public class BootstrapService {
                 skills.setPassing(20);
             }
             playerSkillsRepository.save(skills);
+            // The seed rating is the target for the attributes; the stored rating is what
+            // those attributes produce.
+            PlayerRatingSync.refresh(player, skills, 1);
+            player = humanRepository.save(player);
 
             TeamPlayerHistoricalRelation relation = new TeamPlayerHistoricalRelation();
             relation.setPlayerId(player.getId());
             relation.setTeamId(team.getId());
             relation.setSeasonNumber(1);
-            relation.setRating(seed.rating());
+            relation.setRating(player.getRating());
             teamPlayerHistoricalRelationRepository.save(relation);
 
             additionsByTeam.computeIfAbsent(team.getId(), ignored -> new ArrayList<>()).add(player);
@@ -859,7 +863,7 @@ public class BootstrapService {
             manager.setName(compositeNameGenerator.generateName(1L));
             manager.setTypeId(TypeNames.MANAGER_TYPE);
             manager.setTeamId(currentTeamId);
-            manager.setManagerReputation(team.getReputation() / 3);
+            manager.setManagerReputation(ManagerReputation.startingFor(team.getReputation()));
             manager.setAge(35 + new Random().nextInt(20)); // 35-54
             manager.setSeasonCreated(1);
             manager.setMorale(70D);
