@@ -193,6 +193,25 @@ P(câștig) se obține simulând tabloul rămas: perechile deja trase rămân, i
 - moralul fanilor: victoria ca favorit contează mai puțin decât una ca outsider (§6.1);
 - conferințele: o promisiune publică în pericol (§9).
 
+### 4.5 Implementat (2026-11-13, necomis)
+
+- **`service/odds/LeagueOddsSimulation`** (pur): 10.000 de finaluri de sezon pornind de la clasamentul real. Dă P(titlu), P(top 3), P(League of Champions), P(retrogradare) și locul mediu.
+- **`service/odds/CupOddsSimulation`** (pur): tabloul fix al cupei naționale. Câștigătorii avansează prin aceeași regulă ca tabloul real, `CupBracketService.nextSlot`, extrasă din `propagateWinner`. La egal se trag penalty-uri, 50/50.
+- **`service/odds/TitleOddsService`:**
+  - probabilitățile vin din `TacticSimulationService.currentTeamEvaluation` + `outcome` (adaptorul canonic, `team1` acasă);
+  - o echipă care nu poate fi evaluată primește 45% / 27% / 28%;
+  - cache în memorie până la următorul meci jucat în competiție;
+  - locurile de League of Champions doar în prima ligă, retrogradarea din `LeagueQualificationDisplayService`.
+- **Istoricul:** tabela `title_odds_snapshot`, câte un rând pe echipă și pe numărul de meciuri jucate, recalculat la aceeași etapă. E în salvarea v18, iar manifestul are acum 121 de tabele.
+- **Când se calculează:** după fiecare etapă, pentru ligile cu manager uman (`GameAdvanceService`, după meciurile zilei).
+- **Endpoint-uri:** `GET /odds/league/{id}`, `GET /odds/league/{id}/history`, `GET /odds/cup/{id}`.
+- **Frontend:** secțiunea „Chances” în Competition hub (`/competition-view/:id/chances`) are tabelul de șanse cu procent și cotă, plus graficul „Title race” (primele 5 echipe, culori validate pe fundalul întunecat, tooltip pe etapă, tabel).
+- **Limite:**
+  - cupele europene (grupe + tragere la sorți) și Supercupa nu au încă șanse;
+  - echipa folosită e cea din motor (formația salvată sau cea mai bună, primii 11 după rating), fără să scoată accidentații;
+  - la un meci live, punctul etapei se completează abia la următoarea cerere a paginii.
+- **Teste:** `LeagueOddsSimulationTest` (4), `CupOddsSimulationTest` (4), `TitleOddsServiceTest` (4).
+
 ---
 
 ## 5. Arbitrii
