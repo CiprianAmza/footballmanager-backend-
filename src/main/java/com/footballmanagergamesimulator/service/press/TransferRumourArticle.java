@@ -1,5 +1,7 @@
 package com.footballmanagergamesimulator.service.press;
 
+import com.footballmanagergamesimulator.model.TransferOffer;
+
 import java.util.Locale;
 import java.util.Random;
 
@@ -25,9 +27,14 @@ public final class TransferRumourArticle {
     private TransferRumourArticle() {
     }
 
-    /** Talks count as advanced once the selling club has answered. */
+    /**
+     * Talks between the clubs (or a fee already agreed) are past the first bid: the same rule as
+     * {@code MediaNarrativeService.rumourCredibility}.
+     */
     public static boolean advanced(String offerStatus) {
-        return "counter".equalsIgnoreCase(offerStatus) || "negotiating".equalsIgnoreCase(offerStatus);
+        return TransferOffer.STATUS_TALKS.equalsIgnoreCase(offerStatus)
+                || TransferOffer.STATUS_FINAL_OFFER.equalsIgnoreCase(offerStatus)
+                || TransferOffer.STATUS_FEE_AGREED.equalsIgnoreCase(offerStatus);
     }
 
     public static String bucket(boolean advanced) {

@@ -13,14 +13,16 @@ class TransferRumourArticleTest {
 
     @Test
     @DisplayName("""
-            GIVEN offers that are pending, countered and under negotiation
+            GIVEN offers that are pending, rejected, in talks, at a final offer and with the fee agreed
             WHEN the rumour is classified
-            THEN only the answered ones count as advanced talks: EARLY, STRONG, STRONG
+            THEN only talks, a final offer and an agreed fee count as advanced: EARLY, EARLY, STRONG, STRONG, STRONG
             """)
     void offerStatusSetsTheStage() {
         assertFalse(TransferRumourArticle.advanced("pending"));
-        assertTrue(TransferRumourArticle.advanced("counter"));
-        assertTrue(TransferRumourArticle.advanced("NEGOTIATING"));
+        assertFalse(TransferRumourArticle.advanced("rejected"));
+        assertTrue(TransferRumourArticle.advanced("talks"));
+        assertTrue(TransferRumourArticle.advanced("FINAL_OFFER"));
+        assertTrue(TransferRumourArticle.advanced("fee_agreed"));
         assertEquals("EARLY", TransferRumourArticle.bucket(false));
         assertEquals("STRONG", TransferRumourArticle.bucket(true));
     }

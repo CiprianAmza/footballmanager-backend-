@@ -180,7 +180,7 @@ class PressDeskServiceTest {
 
     @Test
     @DisplayName("""
-            GIVEN Orbit FC and Nova United are negotiating over Alex Prospect at a real 12,000,000, and the
+            GIVEN Orbit FC and Nova United are in talks over Alex Prospect at a real 12,000,000, and the
              transfer reporter of Orbit FC's league is an insider of reliability 90
             WHEN he writes the rumour
             THEN it is signed by him, uses the STRONG fragments, shows credibility 95% (rarely wrong), quotes a fee
@@ -203,7 +203,7 @@ class PressDeskServiceTest {
         offer.setToTeamName("Nova United");
         offer.setOfferAmount(12_000_000);
         offer.setSeasonNumber(4);
-        offer.setStatus("negotiating");
+        offer.setStatus(TransferOffer.STATUS_TALKS);
 
         PressDeskService.Piece piece = desk.transferRumour(offer, 9).orElseThrow();
 
