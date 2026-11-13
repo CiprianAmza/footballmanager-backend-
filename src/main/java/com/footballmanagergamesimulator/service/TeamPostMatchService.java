@@ -66,6 +66,9 @@ public class TeamPostMatchService {
     /** The front coach may revolt (design DESIGN_START_CARIERA §4). */
     @Autowired(required = false)
     private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.FrontCoachService> frontCoach;
+
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<PressConferenceService> pressConferences;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private HumanRepository humanRepository;
     @Autowired private ScorerRepository scorerRepository;
@@ -550,6 +553,13 @@ public class TeamPostMatchService {
         String competitionName = competitionRepository.findById(competitionId).map(Competition::getName).orElse("Unknown");
         int seasonNumber = roundRepository.findById(1L).map(Round::getSeason).map(Long::intValue).orElse(1);
         int roundNumber = (int) roundId;
+
+        // The reputation staked at the pre-match press conference is won or lost now (DESIGN_MEDIA_SI_COMPETITII §1).
+        PressConferenceService press = pressConferences == null ? null : pressConferences.getIfAvailable();
+        if (press != null) {
+            if (team1IsHuman) press.settleReputationBet(teamId1, competitionId, roundNumber, seasonNumber, teamScore1, teamScore2);
+            if (team2IsHuman) press.settleReputationBet(teamId2, competitionId, roundNumber, seasonNumber, teamScore2, teamScore1);
+        }
 
         if (team1IsHuman) {
             generateMatchReportForTeam(teamId1, teamName1, teamId2, teamName2, teamScore1, teamScore2,

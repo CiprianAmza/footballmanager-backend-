@@ -158,7 +158,9 @@ public class CalendarEventDispatcher {
                 result.put("details", "Youth academy report generated");
                 break;
             case "PRESS_CONFERENCE":
-                // Find the first human team that plays in this competition/round and show press conference for them
+                // One conference for every human team that plays in this competition/round (design
+                // DESIGN_MEDIA_SI_COMPETITII §1); each manager is shown only his own. A team plays one match a day,
+                // so it never gets two pre-match conferences on the same day.
                 long pressCompId = event.getCompetitionId() != null ? event.getCompetitionId() : 0;
                 Set<Long> humanCompIds = getHumanTeamCompetitionIds(calendar.getSeason());
 
@@ -168,7 +170,7 @@ public class CalendarEventDispatcher {
                     break;
                 }
 
-                Long pressHumanTeamId = null;
+                List<Long> attending = new ArrayList<>();
                 for (long htId : userContext.getAllHumanTeamIds()) {
                     // Check if manager has delegated press conferences to assistant
                     List<Human> humanManagers = humanRepository.findAllByTeamIdAndTypeId(htId, TypeNames.MANAGER_TYPE);
@@ -177,42 +179,31 @@ public class CalendarEventDispatcher {
                             && (!currentManager.isAttendPressConferences() || currentManager.isAlwaysContinue())) {
                         continue;
                     }
-
-                    // Check if this human team actually plays in this round of this competition
-                    if (pressCompId > 0 && event.getMatchday() > 0) {
-                        List<CompetitionTeamInfoMatch> roundMatches = competitionTeamInfoMatchRepository
-                                .findAllByCompetitionIdAndRoundAndSeasonNumber(pressCompId, event.getMatchday(), String.valueOf(calendar.getSeason()));
-                        boolean humanPlaysInRound = roundMatches.stream()
-                                .anyMatch(m -> m.getTeam1Id() == htId || m.getTeam2Id() == htId);
-                        if (humanPlaysInRound) {
-                            pressHumanTeamId = htId;
-                            break;
-                        }
-                    }
+                    attending.add(htId);
                 }
 
-                if (pressHumanTeamId == null) {
+                List<PressConference> conferences = pressConferenceService.generatePreMatchPressConferences(
+                        attending, pressCompId, event.getMatchday(), event.getLegNumber(), calendar.getSeason());
+                if (conferences.isEmpty()) {
                     result.put("details", "Press conference skipped (team not playing in this round)");
                     result.put("userRelevant", false);
                     break;
                 }
 
-                PressConference pc = pressConferenceService.generatePreMatchPressConference(pressHumanTeamId,
-                        pressCompId, event.getMatchday(), calendar.getSeason());
-                result.put("details", "Press conference available");
-                result.put("pressConferenceId", pc.getId());
-                result.put("pressConferenceQuestion", pressConferenceService.questionFor(pc));
-                result.put("awaitingInput", true);
-                // Mark all other PRESS_CONFERENCE events for this day as completed
-                // so only one press conference modal appears per day
-                List<CalendarEvent> otherPressConfs = calendarEventRepository
-                        .findAllBySeasonAndDayAndStatus(calendar.getSeason(), calendar.getCurrentDay(), "PENDING")
-                        .stream()
-                        .filter(e -> "PRESS_CONFERENCE".equals(e.getEventType()) && e.getId() != event.getId())
-                        .toList();
-                for (CalendarEvent other : otherPressConfs) {
-                    calendarService.markEventCompleted(other.getId());
+                List<Map<String, Object>> conferenceViews = new ArrayList<>();
+                for (PressConference pc : conferences) {
+                    Map<String, Object> view = new LinkedHashMap<>();
+                    view.put("teamId", pc.getTeamId());
+                    view.put("pressConferenceId", pc.getId());
+                    view.put("question", pressConferenceService.questionFor(pc));
+                    conferenceViews.add(view);
                 }
+                result.put("details", "Press conference available");
+                result.put("pressConferences", conferenceViews);
+                // Older frontends read the first conference only.
+                result.put("pressConferenceId", conferences.get(0).getId());
+                result.put("pressConferenceQuestion", pressConferenceService.questionFor(conferences.get(0)));
+                result.put("awaitingInput", true);
                 break;
             case "BOARD_MEETING":
                 for (long htId : userContext.getAllHumanTeamIds()) {
