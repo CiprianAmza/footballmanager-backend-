@@ -46,6 +46,12 @@ public class LoanController {
     @Autowired
     com.footballmanagergamesimulator.service.TransferPricingService transferPricingService;
 
+    @Autowired
+    com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
+
+    @Autowired
+    TransferOfferRepository transferOfferRepository;
+
     /**
      * Get active loans where team is either parent or loan team
      */
@@ -84,8 +90,9 @@ public class LoanController {
         long buyOptionFee = body.containsKey("buyOptionFee") ? ((Number) body.get("buyOptionFee")).longValue() : 0;
         boolean buyObligatory = body.containsKey("buyObligatory") && (boolean) body.get("buyObligatory");
         int parentWageContribution = body.containsKey("parentWageContribution") ? ((Number) body.get("parentWageContribution")).intValue() : 0;
-        long humanTeamId = clubActionAuthorizationService.authorize(request, body,
-                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER).teamId();
+        var actor = clubActionAuthorizationService.authorize(request, body,
+                com.footballmanagergamesimulator.service.ClubActionAuthorizationService.Action.TRANSFER);
+        long humanTeamId = actor.teamId();
 
         // Check transfer window is open
         if (!competitionController.isTransferWindowOpen()) {
@@ -131,6 +138,20 @@ public class LoanController {
         long realPrice = transferPricingService.realPrice(player, humanTeamId, season);
         String refusal = com.footballmanagergamesimulator.service.LoanTerms.refusal(loanFee, player.getTransferValue(),
                 inTop15, buyOptionFee, buyObligatory, realPrice, transferPricingService.sellerSituation(player, season));
+
+        if (refusal == null) {
+            // Like a transfer: the fee comes out of the budget (minus fees already agreed), and the chairman's cap
+            // covers the fee plus an obligatory purchase price (a sale paid later).
+            long cap = actor.chairman() ? -1 : coachPermissionService.transferBudgetCap(humanTeamId);
+            long reserved = com.footballmanagergamesimulator.service.TransferAffordability.reserved(
+                    transferOfferRepository.findAllByFromTeamIdAndStatus(humanTeamId, TransferOffer.STATUS_FEE_AGREED), 0);
+            String cannot = com.footballmanagergamesimulator.service.TransferAffordability.refusal(loanFee,
+                    loanFee + (buyObligatory ? buyOptionFee : 0), cap, humanTeam.getTransferBudget(), reserved);
+            if (com.footballmanagergamesimulator.service.TransferAffordability.OVER_CAP.equals(cannot)) {
+                return ResponseEntity.status(403).body("Restricționat de patron: împrumutul depășește plafonul de transfer (" + cap + ").");
+            }
+            if (cannot != null) return ResponseEntity.badRequest().body("Insufficient transfer budget for this loan.");
+        }
 
         if (refusal == null) {
             // Accept the loan

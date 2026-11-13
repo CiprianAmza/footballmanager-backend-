@@ -59,28 +59,28 @@ class MatchBonusServiceTest {
         manager = person("Kvekrpur", TypeNames.MANAGER_TYPE, 0);
         manager.setWealth(50_000);
         manager = humans.save(manager);
-        player = humans.save(person("Striker", TypeNames.PLAYER_TYPE, 40_000));
-        humans.save(person("Keeper", TypeNames.PLAYER_TYPE, 40_000));
+        player = humans.save(person("Striker", TypeNames.PLAYER_TYPE, 260_000));
+        humans.save(person("Keeper", TypeNames.PLAYER_TYPE, 260_000));
         trust.managerAppointed(manager.getId(), club);
         when(userContext.isHumanTeam(club)).thenReturn(true);
     }
 
     @Test
     @DisplayName("""
-            GIVEN a chairman trusting the manager 50, a solvent club and two players on 40,000 a week (morale 50)
+            GIVEN a chairman trusting the manager 50, a solvent club and two players on 260,000 a month (60,000 a week; morale 50)
             WHEN the manager asks for a match bonus, the team wins, and he asks again in the same month
-            THEN the bonus is 20,000; morale rises to 55; the win makes the club pay it; the second request
+            THEN the bonus is 25% of the weekly wages, 30,000; morale rises to 55; the win makes the club pay it; the second request
              annoys the chairman (48) and, below 50, he refuses
             """)
     void chairmanGrantsThenTiresOfIt() {
         MatchBonusService.Result first = bonuses.request(club);
         assertEquals(MatchBonusService.Outcome.GRANTED, first.outcome());
-        assertEquals(20_000, first.amount());
+        assertEquals(30_000, first.amount());
         assertEquals(55, humans.findById(player.getId()).orElseThrow().getMorale());
         assertEquals("CHAIRMAN", bonuses.status(club).promisedBy());
 
         bonuses.matchPlayed(club, 2, 1);
-        verify(financeService).recordExpense(eq(club), eq(4), anyInt(), eq("SQUAD_BONUS"), anyString(), eq(20_000L));
+        verify(financeService).recordExpense(eq(club), eq(4), anyInt(), eq("SQUAD_BONUS"), anyString(), eq(30_000L));
 
         MatchBonusService.Result second = bonuses.request(club);
         assertEquals(MatchBonusService.Outcome.REFUSED, second.outcome());
@@ -91,9 +91,9 @@ class MatchBonusServiceTest {
     @Test
     @DisplayName("""
             GIVEN a chairman who refused (trust 40) and a manager worth 50,000
-            WHEN the manager pays the 20,000 bonus himself and the team wins
+            WHEN the manager pays the 30,000 bonus himself and the team wins
             THEN each player's relation with him rises by 3, the press writes about it, the chairman's trust is
-             unchanged, and 20,000 leaves the manager's own wealth (30,000), not the club's accounts
+             unchanged, and 30,000 leaves the manager's own wealth (20,000), not the club's accounts
             """)
     void payingItYourself() {
         trust.chairmanHeard(club, -10);
@@ -105,7 +105,7 @@ class MatchBonusServiceTest {
         assertEquals(MatchBonusService.Outcome.PAID_BY_YOU, paid.outcome());
         assertEquals(53, relations.relation(RelationParty.PLAYER, player.getId(), RelationParty.MANAGER, manager.getId()));
         assertEquals(40, trust.trust(club).chairmanInManager());
-        assertEquals(30_000, humans.findById(manager.getId()).orElseThrow().getWealth());
+        assertEquals(20_000, humans.findById(manager.getId()).orElseThrow().getWealth());
         verify(financeService, never()).recordExpense(anyLong(), anyInt(), anyInt(), anyString(), anyString(), anyLong());
     }
 

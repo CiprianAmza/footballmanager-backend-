@@ -56,8 +56,10 @@ public class MatchBonusService {
         this.boardTrust = boardTrust;
     }
 
+    /** 25% of the squad's weekly wages; {@code Human.wage} is monthly (as FinanceService pays it). */
     public long amount(long teamId) {
-        return Math.round(squad(teamId).stream().mapToLong(Human::getWage).sum() * WAGE_SHARE);
+        long monthly = squad(teamId).stream().mapToLong(Human::getWage).sum();
+        return Math.round(monthly * 12.0 / 52.0 * WAGE_SHARE);
     }
 
     /** Asks the chairman for a bonus on the next match. */

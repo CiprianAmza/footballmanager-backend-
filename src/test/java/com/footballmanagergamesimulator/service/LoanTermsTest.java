@@ -36,4 +36,15 @@ class LoanTermsTest {
         assertNotNull(LoanTerms.refusal(100_000, 1_000_000, true, 900_000, true, 1_000_000, STABLE));
         assertNotNull(LoanTerms.refusal(100_000, 1_000_000, false, 0, true, 1_000_000, STABLE));
     }
+
+    @Test
+    @DisplayName("""
+            GIVEN an obligation to buy whose price alone is worth more than the player (2,000,000 for 1,000,000)
+            WHEN the loan fee is negative (−500,000: the parent club would pay me)
+            THEN it is refused, while a fee of 0 is accepted
+            """)
+    void aNegativeLoanFeeIsRefused() {
+        assertNotNull(LoanTerms.refusal(-500_000, 1_000_000, false, 2_000_000, true, 1_000_000, STABLE));
+        assertNull(LoanTerms.refusal(0, 1_000_000, false, 2_000_000, true, 1_000_000, STABLE));
+    }
 }
