@@ -535,6 +535,12 @@ Consecință naturală: un club cu salarii mari oferă mai multe puncte decât u
 
 **Discuția cu un agent la hotel (idee):** agentul spune, fără angajament, cât ar cere jucătorul lui ca salariu și dacă ar fi dispus să vină. Nu e încă o negociere de contract (§3.3); e o sondare.
 
+**Ce produce discuția (decis 2026-11-13):** o **listă de ținte aprobate**. Nu pot face o ofertă unui jucător pe care patronul nu l-a aprobat.
+
+**La dezacord (decis 2026-11-13):** decide **mereu patronul**. Excepție: **îmi asum eu jucătorul**. Garantez pentru el ca antrenor, iar patronul îl aprobă pe răspunderea mea.
+
+**Garanția antrenorului (idee, de stabilit):** dacă jucătorul pentru care am garantat nu confirmă, încrederea patronului în mine scade; dacă reușește, crește. De stabilit: cum se măsoară „confirmă” (rating mediu, meciuri ca titular, după un sezon?), cât de mare e efectul și câte garanții pot avea deodată.
+
 **Locul discuției, pe ecran (idee):** fiecare discuție are o **imagine frumoasă cu locul** unde are loc (hotel, restaurant etc.), ca fundal al ecranului de discuție. Locul se alege după situație. Propunerea mea:
 
 | Situație | Locul |
@@ -557,8 +563,6 @@ Imaginea se poate schimba și cu ora (cină, noapte) și cu sezonul.
 
 **Întrebări deschise:**
 - Când au loc discuțiile: înainte de fiecare fereastră de transferuri, sau oricând le cer eu?
-- Ce iese concret din discuție: un buget de transferuri și de salarii, o listă de ținte aprobate, sau ambele?
-- Dacă nu ajungem la un acord, cine are ultimul cuvânt: patronul?
 - Se pot ține promisiunile făcute în discuție (de exemplu „îți aduc un fundaș central”)? Dacă nu, ce pierd?
 - Cât de exacte sunt estimările de salariu și de preț? (De exemplu, cu o marjă care scade dacă am un scouter bun sau o relație bună cu agentul.)
 - De unde vin imaginile locurilor: un set fix de ilustrații (câte una sau mai multe pe tip de loc), generate o dată și păstrate în proiect?
@@ -593,4 +597,4 @@ Imaginea se poate schimba și cu ora (cină, noapte) și cu sezonul.
 11. ~~Scăderea atributelor neantrenate?~~ Decis: combinat; sub 28 rar și doar neantrenate de mult, peste 30 mai ales fizice, chiar antrenate (§2.4)
 4. Minor: chiar niciun atribut comun între portari și jucătorii de câmp (mentale, fizice)? (§2.3)
 28. Moralul în motorul de meci (acum inactiv). Decis: discursul de la pauză modifică moralul pentru repriza a doua (vechiul multiplicator de putere după reputație a fost șters). Cum influențează moralul motorul — de stabilit, pas separat.
-29. Discuțiile de planificare a transferurilor (patron, director general, agenți, la hotel): când au loc, ce produc (buget, ținte aprobate), cine decide la dezacord, cât de exacte sunt estimările (§3.8)
+29. Discuțiile de planificare a transferurilor (patron, director general, agenți, la hotel): când au loc, cât de exacte sunt estimările, cum funcționează garanția antrenorului (§3.8). Decis: produc ținte aprobate; fără aprobare nu pot face oferte; la dezacord decide patronul, cu excepția jucătorului pentru care garantez eu
