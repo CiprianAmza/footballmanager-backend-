@@ -40,8 +40,14 @@ public class MatchEvent {
     private long teamId2; // away team
     @Column(name = "event_minute")
     private int minute; // 1 to 90
+    /**
+     * Stoppage minutes after {@link #minute} (45+2 = minute 45, addedTime 2). Null outside
+     * stoppage time, for events that have no stoppage (cards, legacy goals) and in older saves.
+     */
+    @Column(name = "added_time")
+    private Integer addedTime;
     @Column(name = "event_type")
-    private String eventType; // "goal", "assist", "yellow_card", "red_card", "substitution"
+    private String eventType; // "goal", "assist", "yellow_card", "red_card", "substitution", "injury"
     private long playerId;
     private String playerName;
     private long teamId; // which team the event belongs to
@@ -54,6 +60,11 @@ public class MatchEvent {
     public void setSlotIndex(int slotIndex) {
         this.slotIndex = slotIndex;
     }
+
+    /** Timeline order: minute, then stoppage minutes (45 before 45+2 before 46). */
+    public static final java.util.Comparator<MatchEvent> TIMELINE_ORDER =
+            java.util.Comparator.comparingInt(MatchEvent::getMinute)
+                    .thenComparingInt(event -> event.getAddedTime() == null ? 0 : event.getAddedTime());
 
     public int getEventOrder() {
         return eventOrder == null ? -1 : eventOrder;

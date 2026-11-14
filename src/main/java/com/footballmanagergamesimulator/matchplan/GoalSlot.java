@@ -33,6 +33,13 @@ public class GoalSlot {
     @Column(name = "goal_minute") // "minute" is a reserved word in H2
     private int minute;
 
+    /**
+     * Stoppage minutes after {@link #minute} (45+2 = minute 45, addedTime 2). Null outside
+     * stoppage time and on plans made before stoppage time was planned.
+     */
+    @Column(name = "added_time")
+    private Integer addedTime;
+
     @Enumerated(EnumType.STRING)
     private GoalPhase phase;
 
@@ -60,6 +67,18 @@ public class GoalSlot {
     public void setMatchPlan(MatchPlan matchPlan) { this.matchPlan = matchPlan; }
     public long getTeamId() { return teamId; }
     public int getMinute() { return minute; }
+    public Integer getAddedTime() { return addedTime; }
+
+    /**
+     * Planner only, before the slot is indexed: moves the goal into the stoppage time of the
+     * period that ends at {@code periodEndMinute}.
+     */
+    void moveToStoppage(int periodEndMinute, int addedTime) {
+        if (resolved) throw new IllegalStateException("cannot move an already resolved goal slot");
+        if (addedTime <= 0) throw new IllegalArgumentException("added time must be positive");
+        this.minute = periodEndMinute;
+        this.addedTime = addedTime;
+    }
     public GoalPhase getPhase() { return phase; }
     public String getGoalType() { return goalType; }
     public Long getScorerId() { return scorerId; }

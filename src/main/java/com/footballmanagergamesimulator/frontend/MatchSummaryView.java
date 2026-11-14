@@ -30,11 +30,18 @@ public class MatchSummaryView {
     private int homePossession;
     private int awayPossession;
 
+    /** Crowd at the home ground; null when the save holds none (older results, friendlies). */
+    private Integer attendance;
+    /** How many of {@link #attendance} came for the away side; null when attendance is unknown. */
+    private Integer awayAttendance;
+
     @Data
     public static class GoalDetail {
         private String playerName;
         private long playerId;
         private int minute;
+        /** Stoppage minutes after {@link #minute} (45+2 = minute 45, addedTime 2); null outside stoppage time. */
+        private Integer addedTime;
         private String details;
         private long teamId;
         private String teamName;

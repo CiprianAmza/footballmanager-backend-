@@ -186,6 +186,27 @@ changes or whenever a portable save is needed:
 curl http://localhost:8086/game/export -o football-manager-save.json
 ```
 
+## Club Schedule data
+
+The frontend Schedule page (`/fixtures/:teamId`) reads
+`/match/getScheduleForSeasonNumber/{season}/{teamId}`,
+`/match/calendar/{teamId}/{season}`, `/match/preview/...`, `/match/summary/...`,
+`/match/matchEvents/...`, `/match/playerRatings/...`, `/match/h2h/{a}/{b}`,
+`/match/goalscorers/{season}/{teamId}`, `/competition/getTeams/{competitionId}`
+and `/teams/availability/{teamId}`.
+
+Fields added for it are optional, and existing fields keep their meaning:
+
+| Field | Where | Meaning |
+| --- | --- | --- |
+| `attendance`, `awayAttendance` | `/match/summary` | Crowd from the match-day income calculation and the away share of it; `null` for older results and friendlies |
+| `addedTime` | goals in `/match/summary`, `/match/matchEvents`, `/match/goalscorers` | Stoppage minutes after `minute` (45+2 is minute 45, addedTime 2); `null` outside stoppage time |
+| `eventType: "injury"` | `/match/matchEvents` | A player injured in the match, at his last minute on the pitch |
+| `opponentLeaguePosition` | played rows of the schedule | The opponent's league position from results before the match day (upcoming rows keep the current table) |
+
+Events and goals are ordered by minute, then added time. The new columns are
+nullable, so matches played before them show the fields as `null`.
+
 ## Automated testing
 
 Fast unit tests:

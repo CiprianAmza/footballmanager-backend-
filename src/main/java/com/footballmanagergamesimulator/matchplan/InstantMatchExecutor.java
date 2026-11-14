@@ -78,14 +78,14 @@ public class InstantMatchExecutor {
 
         Contributor scorer = find(onPitch, slot.getScorerId());
         events.add(buildEvent(plan, ctx, slot.getSlotIndex(), MatchEvent.ORDER_GOAL,
-                slot.getMinute(), "goal",
+                slot.getMinute(), slot.getAddedTime(), "goal",
                 slot.getScorerId(), scorer != null ? scorer.name() : "", slot.getTeamId(),
                 slot.getGoalType()));
 
         if (slot.getAssistId() != null) {
             Contributor assister = find(onPitch, slot.getAssistId());
             events.add(buildEvent(plan, ctx, slot.getSlotIndex(), MatchEvent.ORDER_ASSIST,
-                    slot.getMinute(), "assist",
+                    slot.getMinute(), slot.getAddedTime(), "assist",
                     slot.getAssistId(), assister != null ? assister.name() : "", slot.getTeamId(),
                     "Assist"));
         }
@@ -98,7 +98,7 @@ public class InstantMatchExecutor {
     }
 
     private MatchEvent buildEvent(MatchPlan plan, MatchContext ctx, int slotIndex, int eventOrder,
-                                  int minute, String type,
+                                  int minute, Integer addedTime, String type,
                                   long playerId, String playerName, long teamId, String details) {
         MatchEvent e = new MatchEvent();
         e.setFixtureKey(ctx.fixtureKey());
@@ -110,6 +110,7 @@ public class InstantMatchExecutor {
         e.setTeamId1(plan.getHomeTeamId());
         e.setTeamId2(plan.getAwayTeamId());
         e.setMinute(minute);
+        e.setAddedTime(addedTime);
         e.setEventType(type);
         e.setPlayerId(playerId);
         e.setPlayerName(playerName);

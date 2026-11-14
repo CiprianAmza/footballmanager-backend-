@@ -15,7 +15,7 @@ public class MatchGoalscorersView {
     private long teamId1; // home team id
     private long teamId2; // away team id
     private List<Goal> goals = new ArrayList<>();
-    /** "minute"/"penalty" when only per-player goal counts exist; "goals" when the list is incomplete. */
+    /** "minute"/"penalty" when only per-player goal counts exist (addedTime is then unknown too); "goals" when the list is incomplete. */
     private List<String> unknownFields = new ArrayList<>();
 
     @Data
@@ -24,6 +24,8 @@ public class MatchGoalscorersView {
         private String playerName;
         private long teamId;
         private Integer minute;
+        /** Stoppage minutes after {@link #minute} (45+2 = minute 45, addedTime 2); null outside stoppage time. */
+        private Integer addedTime;
         private Boolean penalty;
     }
 }

@@ -74,4 +74,11 @@ public class CompetitionTeamInfoMatch {
   @Column(name = "discipline_processed", nullable = false,
           columnDefinition = "boolean default false")
   private boolean disciplineProcessed;
+
+  /**
+   * Attendance worked out when the round was simulated. Kept on the fixture so a
+   * watched match, whose result row is written later at /commit, can copy it.
+   */
+  private Integer attendance;
+  private Integer awayAttendance;
 }

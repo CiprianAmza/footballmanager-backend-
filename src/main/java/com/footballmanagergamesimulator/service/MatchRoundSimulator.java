@@ -97,6 +97,7 @@ public class MatchRoundSimulator {
 
     @Autowired private HumanRepository humanRepository;
     @Autowired private InjuryRepository injuryRepository;
+    @Autowired private com.footballmanagergamesimulator.repository.MatchEventRepository matchEventRepository;
     @Autowired private SuspensionRepository suspensionRepository;
     @Autowired private TeamRepository teamRepository;
     @Autowired private TeamCompetitionDetailRepository teamCompetitionDetailRepository;
@@ -280,12 +281,17 @@ public class MatchRoundSimulator {
 
         // Batch collections for AI matches - saved once at end of round
         List<Injury> batchedInjuries = new ArrayList<>();
+        List<MatchEvent> batchedInjuryEvents = new ArrayList<>();
         List<Human> batchedInjuredPlayers = new ArrayList<>();
         List<Human> batchedManagers = new ArrayList<>();
         List<Scorer> batchedScorers = new ArrayList<>();
         List<LineupRatingService.AiLineupInput> batchedLineups = new ArrayList<>();
         List<PlayerMatchStatService.TeamMatchInput> batchedPlayerStats = new ArrayList<>();
         List<FinanceService.MatchDayIncomeInput> batchedMatchdayIncome = new ArrayList<>();
+        // Same order as batchedMatchdayIncome: the fixture and (when already written) result row
+        // that receive the crowd the finance batch works out.
+        List<CompetitionTeamInfoMatch> batchedIncomeFixtures = new ArrayList<>();
+        List<CompetitionTeamInfoDetail> batchedIncomeResults = new ArrayList<>();
         // Canonical AI fixtures whose plan is resolved+persisted this round; marked COMMITTED
         // (immutable) only after ALL batched match effects are persisted at round end.
         List<String> canonicalAiFixtureKeys = new ArrayList<>();
@@ -499,6 +505,7 @@ public class MatchRoundSimulator {
                     useFullMatchEngine = true;
                 }
 
+                MatchInjuryContext humanMatchInjuries = null;
                 if (useFullMatchEngine) {
                     // --- INTERACTIVE LIVE MATCH (Faza 3 Sesiunea 4) ---
                     // Create the session but DO NOT advance. Frontend polls
@@ -621,6 +628,9 @@ public class MatchRoundSimulator {
                                 matchPlanService.loadLivePlanSnapshot(fixtureKey).orElseThrow();
                         canonicalHomeLineup = snapshot.rebuildLineup(teamId1);
                         canonicalAwayLineup = snapshot.rebuildLineup(teamId2);
+                        humanMatchInjuries = MatchInjuryContext.of(_competitionId, _season, (int) _roundId,
+                                teamId1, teamId2, canonicalHomeLineup, canonicalAwayLineup,
+                                planSplit.etHome() >= 0 ? 120 : 90);
                         canonicalHomeScorers = lineupRatingService.getScorersForTeam(
                                 teamId1, teamId2, teamScore1, teamScore2,
                                 tactic1, _competitionId, (int) _roundId,
@@ -683,8 +693,8 @@ public class MatchRoundSimulator {
                 // non-interactive paths). Interactive matches defer ALL of this
                 // to /commit so the user's manual subs change the real result.
                 if (!interactiveMatch) {
-                    this.processInjuriesForTeam(teamId1);
-                    this.processInjuriesForTeam(teamId2);
+                    this.processInjuriesForTeam(teamId1, humanMatchInjuries);
+                    this.processInjuriesForTeam(teamId2, humanMatchInjuries);
 
                     teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
                     teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
@@ -917,6 +927,7 @@ public class MatchRoundSimulator {
                 List<Scorer> team1Scorers;
                 List<Scorer> team2Scorers;
                 CanonicalMatchEffectsInput canonicalEffectsInput = null;
+                MatchInjuryContext aiMatchInjuries = null;
                 RoundContext activeContext = roundContext.get();
                 PersonalizedTactic team1Tactic = activeContext != null
                         ? activeContext.tacticsByTeam().get(teamId1) : null;
@@ -932,6 +943,8 @@ public class MatchRoundSimulator {
                             .seedFor(fixtureKey, _competitionId, _season, (int) _roundId, teamId1, teamId2);
                     Lineup homeLineup = buildAiCanonicalLineup(teamId1, seed);
                     Lineup awayLineup = buildAiCanonicalLineup(teamId2, seed);
+                    aiMatchInjuries = MatchInjuryContext.of(_competitionId, _season, (int) _roundId,
+                            teamId1, teamId2, homeLineup, awayLineup, planSplit.etHome() >= 0 ? 120 : 90);
                     List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersistLive(
                             fixtureKey, _competitionId, _season, (int) _roundId,
                             teamId1, teamId2, homeLineup, awayLineup,
@@ -978,8 +991,10 @@ public class MatchRoundSimulator {
                 tScorers += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
-                processInjuriesForTeamBatched(teamId1, random, batchedInjuries, batchedInjuredPlayers);
-                processInjuriesForTeamBatched(teamId2, random, batchedInjuries, batchedInjuredPlayers);
+                processInjuriesForTeamBatched(teamId1, random, batchedInjuries, batchedInjuredPlayers,
+                        aiMatchInjuries, batchedInjuryEvents);
+                processInjuriesForTeamBatched(teamId2, random, batchedInjuries, batchedInjuredPlayers,
+                        aiMatchInjuries, batchedInjuryEvents);
                 tInjuries += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
@@ -1063,6 +1078,7 @@ public class MatchRoundSimulator {
             }
 
             // Match result record (needed for both - results page)
+            CompetitionTeamInfoDetail savedResult = null;
             if (!_isInteractivePending) {
                 long _tsDetail = System.nanoTime();
                 CompetitionTeamInfoDetail competitionTeamInfoDetail = new CompetitionTeamInfoDetail();
@@ -1086,7 +1102,7 @@ public class MatchRoundSimulator {
                 competitionTeamInfoDetail.setMatchIndex(match.getMatchIndex());
                 competitionTeamInfoDetail.setDay(match.getDay());
                 competitionTeamInfoDetail.setTieId(match.getTieId());
-                competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
+                savedResult = competitionTeamInfoDetailRepository.save(competitionTeamInfoDetail);
                 tDetail += System.nanoTime() - _tsDetail;
             }
 
@@ -1095,6 +1111,8 @@ public class MatchRoundSimulator {
             String compName = !competitionName.isEmpty() ? competitionName : "Match";
             batchedMatchdayIncome.add(new FinanceService.MatchDayIncomeInput(
                     teamId1, match.getDay(), teamId2, compName));
+            batchedIncomeFixtures.add(match);
+            batchedIncomeResults.add(savedResult);
             tFinance += System.nanoTime() - _tsFin;
         }
 
@@ -1115,11 +1133,13 @@ public class MatchRoundSimulator {
         tScorers += System.nanoTime() - _tsScorerBatch;
         long _tsFinanceBatch = System.nanoTime();
         if (!batchedMatchdayIncome.isEmpty()) {
-            financeService.processMatchDayIncomeBatch(
+            List<FinanceService.MatchAttendance> attendances = financeService.processMatchDayIncomeBatch(
                     Integer.parseInt(getCurrentSeason()), batchedMatchdayIncome);
+            storeAttendances(attendances, batchedIncomeFixtures, batchedIncomeResults);
         }
         tFinance += System.nanoTime() - _tsFinanceBatch;
         if (!batchedInjuries.isEmpty()) injuryRepository.saveAll(batchedInjuries);
+        if (!batchedInjuryEvents.isEmpty()) matchEventRepository.saveAll(batchedInjuryEvents);
         // Players and managers came from this transaction's round preload; their morale,
         // fitness, injury status and reputation changes are flushed by JPA dirty checking.
 
@@ -1294,6 +1314,32 @@ public class MatchRoundSimulator {
     }
 
     /**
+     * Copies each match's crowd onto its fixture and, when already written, its result row
+     * (all three lists in the same order). Both entities belong to this round's transaction,
+     * so the round-end flush writes them. A watched match's result row is written at /commit,
+     * which copies the crowd from the fixture.
+     */
+    static void storeAttendances(List<FinanceService.MatchAttendance> attendances,
+                                 List<CompetitionTeamInfoMatch> fixtures,
+                                 List<CompetitionTeamInfoDetail> results) {
+        if (attendances == null) return;
+        for (int i = 0; i < attendances.size() && i < fixtures.size(); i++) {
+            FinanceService.MatchAttendance crowd = attendances.get(i);
+            if (crowd == null) continue;
+            CompetitionTeamInfoMatch fixture = fixtures.get(i);
+            if (fixture != null) {
+                fixture.setAttendance(crowd.attendance());
+                fixture.setAwayAttendance(crowd.awayAttendance());
+            }
+            CompetitionTeamInfoDetail result = i < results.size() ? results.get(i) : null;
+            if (result != null) {
+                result.setAttendance(crowd.attendance());
+                result.setAwayAttendance(crowd.awayAttendance());
+            }
+        }
+    }
+
+    /**
      * Per-match injury roll for one team (interactive live-match path + the
      * non-batched dispatch in {@link MatchdayCoordinator#finalizeInteractiveLiveMatch}).
      * Persists each injury immediately. The batched twin
@@ -1301,6 +1347,14 @@ public class MatchRoundSimulator {
      * per-round caches are warm.
      */
     public void processInjuriesForTeam(long teamId) {
+        processInjuriesForTeam(teamId, null);
+    }
+
+    /**
+     * Same roll; an injured player who took part in {@code match} also gets an "injury"
+     * event on it. {@code match} may be null (no match events).
+     */
+    public void processInjuriesForTeam(long teamId, MatchInjuryContext match) {
         if (availabilityDisabled()) return;
         Random random = threadRandom.get();
         List<Human> players = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE);
@@ -1343,6 +1397,8 @@ public class MatchRoundSimulator {
                         injury, Integer.parseInt(getCurrentSeason()), injury.getDaysRemaining());
 
                 injuryRepository.save(injury);
+                MatchEvent injuryEvent = match == null ? null : match.eventFor(teamId, player, injury);
+                if (injuryEvent != null) matchEventRepository.save(injuryEvent);
 
                 player.setCurrentStatus("Injured - " + injuryType);
                 humanRepository.save(player);
@@ -1356,7 +1412,8 @@ public class MatchRoundSimulator {
      * for a single batch save at the end of the round.
      */
     private void processInjuriesForTeamBatched(long teamId, Random random,
-                                               List<Injury> batchedInjuries, List<Human> batchedInjuredPlayers) {
+                                               List<Injury> batchedInjuries, List<Human> batchedInjuredPlayers,
+                                               MatchInjuryContext match, List<MatchEvent> batchedInjuryEvents) {
         if (availabilityDisabled()) return;
         // Use per-round caches when available (populated at start of simulateRound)
         List<Human> players = roundPlayers(teamId);
@@ -1397,6 +1454,8 @@ public class MatchRoundSimulator {
                         injury, Integer.parseInt(getCurrentSeason()), injury.getDaysRemaining());
 
                 batchedInjuries.add(injury);
+                MatchEvent injuryEvent = match == null ? null : match.eventFor(teamId, player, injury);
+                if (injuryEvent != null) batchedInjuryEvents.add(injuryEvent);
                 player.setCurrentStatus("Injured - " + injuryType);
                 batchedInjuredPlayers.add(player);
             }

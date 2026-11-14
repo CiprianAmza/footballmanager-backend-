@@ -235,7 +235,7 @@ public class MatchController {
         List<MatchEvent> events = matchEventRepository
                 .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
                         competitionId, season, round, teamId1, teamId2);
-        events.sort(Comparator.comparingInt(MatchEvent::getMinute));
+        events.sort(MatchEvent.TIMELINE_ORDER);
         return events;
     }
 
@@ -421,13 +421,15 @@ public class MatchController {
         if (detail != null) {
             // Older saves wrote the aggregate note leg-1-home first; rebuild it home side first.
             summary.setScore(matchService.homeScoreText(detail));
+            summary.setAttendance(detail.getAttendance());
+            summary.setAwayAttendance(detail.getAttendance() == null ? null : detail.getAwayAttendance());
         }
 
         // Goal scorers from MatchEvent
         List<MatchEvent> events = matchEventRepository
                 .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
                         competitionId, season, round, teamId1, teamId2);
-        events.sort(Comparator.comparingInt(MatchEvent::getMinute));
+        events.sort(MatchEvent.TIMELINE_ORDER);
 
         List<MatchSummaryView.GoalDetail> goals = new ArrayList<>();
         for (MatchEvent event : events) {
@@ -436,6 +438,7 @@ public class MatchController {
                 goal.setPlayerName(event.getPlayerName());
                 goal.setPlayerId(event.getPlayerId());
                 goal.setMinute(event.getMinute());
+                goal.setAddedTime(event.getAddedTime());
                 goal.setDetails(event.getDetails());
                 goal.setTeamId(event.getTeamId());
                 goal.setTeamName(teamRepository.findNameById(event.getTeamId()));
@@ -1077,7 +1080,7 @@ public class MatchController {
         List<MatchEvent> matchEvents = matchEventRepository
                 .findAllByCompetitionIdAndSeasonNumberAndRoundNumberAndTeamId1AndTeamId2(
                         competitionId, season, round, teamId1, teamId2);
-        matchEvents.sort(Comparator.comparingInt(MatchEvent::getMinute));
+        matchEvents.sort(MatchEvent.TIMELINE_ORDER);
 
         Optional<MatchStats> storedStats = matchStatsService
                 .getMatchStats(competitionId, season, round, teamId1, teamId2);
