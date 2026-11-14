@@ -17,6 +17,9 @@ public class FinanceService {
     public record MatchDayIncomeInput(long teamId, int day, long opponentId,
                                       String competitionName) {}
 
+    /** Crowd of one home match: everyone in the ground, and how many of them came for the away side. */
+    public record MatchAttendance(int attendance, int awayAttendance) {}
+
     public record MonthlyPayrollResult(long totalWages, Map<Long, Long> personalCredits,
                                        boolean replayed) {
         public MonthlyPayrollResult {
@@ -127,11 +130,24 @@ public class FinanceService {
     }
 
     /**
+     * Away fans: the part of the crowd the occupancy formula credits to the opponent's
+     * reputation ({@code opponentBoost} out of {@code occupancy}). The simulator has no
+     * separate away allocation, so this split is the only away figure it can give.
+     */
+    static int awayAttendance(int attendance, double occupancy, double opponentBoost) {
+        if (attendance <= 0 || occupancy <= 0 || opponentBoost <= 0) return 0;
+        return (int) Math.min(attendance, Math.round(attendance * opponentBoost / occupancy));
+    }
+
+    /**
      * Round-level matchday income calculation. Teams, opponents and stadiums are fetched once;
      * all ledger rows and changed team balances are then saved in batches.
+     *
+     * @return the crowd of each input, in input order; null where the home team is unknown
      */
-    public void processMatchDayIncomeBatch(int season, List<MatchDayIncomeInput> inputs) {
-        if (inputs == null || inputs.isEmpty()) return;
+    public List<MatchAttendance> processMatchDayIncomeBatch(int season, List<MatchDayIncomeInput> inputs) {
+        if (inputs == null || inputs.isEmpty()) return List.of();
+        List<MatchAttendance> attendances = new ArrayList<>(inputs.size());
 
         Set<Long> allTeamIds = new HashSet<>();
         Set<Long> homeTeamIds = new HashSet<>();
@@ -153,7 +169,10 @@ public class FinanceService {
         List<FinancialRecord> records = new ArrayList<>(inputs.size());
         for (MatchDayIncomeInput input : inputs) {
             Team team = teamsById.get(input.teamId());
-            if (team == null) continue;
+            if (team == null) {
+                attendances.add(null);
+                continue;
+            }
             Team opponent = teamsById.get(input.opponentId());
             Stadium stadium = stadiumsByTeam.get(input.teamId());
 
@@ -166,6 +185,8 @@ public class FinanceService {
                     ? Math.min(opponent.getReputation() / 30000.0, 0.10) : 0;
             double occupancy = Math.min(baseOccupancy + repBoost + opponentBoost, 0.99);
             int attendance = (int) (capacity * occupancy);
+            attendances.add(new MatchAttendance(attendance,
+                    awayAttendance(attendance, occupancy, opponentBoost)));
             int ticketPrice = 25 + Math.min(team.getReputation() / 400, 25);
             long amount = (long) (attendance * ticketPrice * revenueMultiplier);
 
@@ -192,6 +213,7 @@ public class FinanceService {
                 .filter(Objects::nonNull)
                 .toList();
         if (!changedTeams.isEmpty()) teamRepository.saveAll(changedTeams);
+        return attendances;
     }
 
     /**

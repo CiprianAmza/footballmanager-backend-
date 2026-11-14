@@ -62,7 +62,11 @@ public class ScheduleView {
     private String venueName;
     /** "Monday".."Sunday" for {@link #day}, same source as the game state's dayOfWeek. */
     private String dayOfWeek;
-    /** Opponent's current position in its own league; set on upcoming rows only. */
+    /**
+     * Opponent's position in its own league: the current table on upcoming rows; on played
+     * rows the table of the results before the match day. On played rows null (before the
+     * league's first result, or a save without calendar days) is not listed in unknownFields.
+     */
     private Integer opponentLeaguePosition;
     /** Names of fields above whose value the save does not hold; render them as unknown. */
     private List<String> unknownFields = new ArrayList<>();

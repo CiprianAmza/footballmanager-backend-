@@ -682,8 +682,11 @@ public class MatchdayCoordinator {
         matchPlanService.finishLivePlan(canonicalFixtureKey);
 
         // Same post-match work the legacy path runs inline
-        matchRoundSimulator.processInjuriesForTeam(teamId1);
-        matchRoundSimulator.processInjuriesForTeam(teamId2);
+        MatchInjuryContext matchInjuries = MatchInjuryContext.of(_competitionId, season, (int) _roundId,
+                teamId1, teamId2, canonicalHomeLineup, canonicalAwayLineup,
+                session.isCanonicalExtraTime() ? 120 : 90);
+        matchRoundSimulator.processInjuriesForTeam(teamId1, matchInjuries);
+        matchRoundSimulator.processInjuriesForTeam(teamId2, matchInjuries);
         teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
         teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
         europeanCoefficientService.awardCoefficientPoints(_competitionId, _roundId, teamId1, teamId2, teamScore1, teamScore2);
@@ -722,6 +725,9 @@ public class MatchdayCoordinator {
             detail.setMatchIndex(fixture.getMatchIndex());
             detail.setDay(fixture.getDay());
             detail.setTieId(fixture.getTieId());
+            // The crowd was worked out with the match-day income when the round was simulated.
+            detail.setAttendance(fixture.getAttendance());
+            detail.setAwayAttendance(fixture.getAwayAttendance());
         } else {
             detail.setMatchIndex(matchIndex);
             detail.setTieId(tieId);

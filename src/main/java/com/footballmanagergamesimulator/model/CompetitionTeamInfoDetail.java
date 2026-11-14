@@ -80,4 +80,12 @@ public class CompetitionTeamInfoDetail {
   @Column(name = "leg_number")
   private int legNumber;
 
+  /**
+   * Crowd at the home ground, from the match-day income calculation. Null in
+   * saves written before attendance was stored.
+   */
+  private Integer attendance;
+  /** Part of {@link #attendance} that came for the away side; null when attendance is unknown. */
+  private Integer awayAttendance;
+
 }

@@ -153,6 +153,8 @@ public class MatchService {
         }
 
         view.setStatus("played");
+        // Additive for played rows: null stays out of unknownFields, as before this field was set here.
+        view.setOpponentLeaguePosition(lookups.leaguePositionBefore(opponentTeamId, day));
         view.setWinnerTeamId(result.getWinnerTeamId());
         view.setDecidedBy(result.getDecidedBy());
         view.setReportAvailable(result.getScore() != null);
@@ -313,7 +315,7 @@ public class MatchService {
         return team1Side ? team1Value + "-" + team2Value : team2Value + "-" + team1Value;
     }
 
-    /** Upcoming rows only: the live table says where the opponent stands now, not when a past match was played. */
+    /** Upcoming rows: the live table says where the opponent stands now. Played rows use {@link #leaguePositionBefore}. */
     private void applyOpponentLeaguePosition(ScheduleView view, ScheduleLookups lookups) {
         view.setOpponentLeaguePosition(lookups.leaguePosition(view.getOpponentTeamId()));
         if (view.getOpponentLeaguePosition() == null) view.getUnknownFields().add("opponentLeaguePosition");
@@ -369,12 +371,13 @@ public class MatchService {
             List<MatchEvent> events = eventsByMatch.getOrDefault(fixtureKey(result.getCompetitionId(),
                     result.getRoundId(), result.getTeam1Id(), result.getTeam2Id()), List.of());
             if (!events.isEmpty()) {
-                events.stream().sorted(Comparator.comparingInt(MatchEvent::getMinute)).forEach(event -> {
+                events.stream().sorted(MatchEvent.TIMELINE_ORDER).forEach(event -> {
                     MatchGoalscorersView.Goal goal = new MatchGoalscorersView.Goal();
                     goal.setPlayerId(event.getPlayerId());
                     goal.setPlayerName(event.getPlayerName());
                     goal.setTeamId(event.getTeamId());
                     goal.setMinute(event.getMinute());
+                    goal.setAddedTime(event.getAddedTime());
                     // Legacy events write "Penalty", canonical ones the goal type "PENALTY".
                     goal.setPenalty("penalty".equalsIgnoreCase(event.getDetails()));
                     view.getGoals().add(goal);
@@ -414,6 +417,48 @@ public class MatchService {
                 .thenComparingInt(MatchGoalscorersView::getRoundNumber)
                 .thenComparingLong(MatchGoalscorersView::getCompetitionId));
         return views;
+    }
+
+    /**
+     * A club's place in a league table built from that league's results played before
+     * {@code day} (3 points a win, then goal difference, then goals scored, as the live
+     * table sorts). Every club with a result in the season is in the table, with or without
+     * games before that day. Null when the day is unknown, the club is not in this league,
+     * or no result of the league comes before that day.
+     */
+    static Integer leaguePositionBefore(List<CompetitionTeamInfoDetail> leagueResults, long teamId, int day) {
+        if (day <= 0 || leagueResults == null) return null;
+        Map<Long, int[]> table = new HashMap<>(); // teamId -> {points, goalDifference, goalsFor}
+        for (CompetitionTeamInfoDetail result : leagueResults) {
+            table.putIfAbsent(result.getTeam1Id(), new int[3]);
+            table.putIfAbsent(result.getTeam2Id(), new int[3]);
+        }
+        if (!table.containsKey(teamId)) return null;
+        boolean anyCounted = false;
+        for (CompetitionTeamInfoDetail result : leagueResults) {
+            if (result.getDay() <= 0 || result.getDay() >= day) continue;
+            int[] goals = scoreGoals(result);
+            if (goals == null) continue;
+            anyCounted = true;
+            addResult(table.get(result.getTeam1Id()), goals[0], goals[1]);
+            addResult(table.get(result.getTeam2Id()), goals[1], goals[0]);
+        }
+        if (!anyCounted) return null;
+        List<Map.Entry<Long, int[]>> rows = new ArrayList<>(table.entrySet());
+        rows.sort(Comparator.<Map.Entry<Long, int[]>>comparingInt(row -> -row.getValue()[0])
+                .thenComparingInt(row -> -row.getValue()[1])
+                .thenComparingInt(row -> -row.getValue()[2])
+                .thenComparingLong(Map.Entry::getKey));
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).getKey() == teamId) return i + 1;
+        }
+        return null;
+    }
+
+    private static void addResult(int[] row, int goalsFor, int goalsAgainst) {
+        row[0] += goalsFor > goalsAgainst ? 3 : goalsFor == goalsAgainst ? 1 : 0;
+        row[1] += goalsFor - goalsAgainst;
+        row[2] += goalsFor;
     }
 
     /** Stored final goals (team1, team2), or null when the score text is unreadable. */
@@ -457,6 +502,8 @@ public class MatchService {
         private final Map<String, String> roundLabels = new HashMap<>();
         private final Map<Long, Optional<Integer>> leaguePositions = new HashMap<>();
         private final Map<Long, List<TeamCompetitionView>> leagueTables = new HashMap<>();
+        private final Map<Long, Optional<Long>> seasonLeagues = new HashMap<>();
+        private final Map<Long, List<CompetitionTeamInfoDetail>> seasonLeagueResults = new HashMap<>();
         private final List<CompetitionTeamInfoDetail> seasonResults;
 
         private ScheduleLookups(long seasonNumber, List<CompetitionTeamInfoDetail> seasonResults) {
@@ -508,6 +555,21 @@ public class MatchService {
                         .map(TeamCompetitionView::getPosition)
                         .findFirst();
             }).orElse(null);
+        }
+
+        /** Position going into {@code day}, in the league the club played that season. */
+        Integer leaguePositionBefore(long teamId, int day) {
+            if (day <= 0) return null;
+            Long leagueId = seasonLeagues.computeIfAbsent(teamId, id -> competitionTeamInfoDetailRepository
+                            .findAllBySeasonNumberAndTeamId(seasonNumber, id).stream()
+                            .map(CompetitionTeamInfoDetail::getCompetitionId)
+                            .filter(competitionId -> "League".equals(competitionType(competitionId)))
+                            .findFirst())
+                    .orElse(null);
+            if (leagueId == null) return null;
+            List<CompetitionTeamInfoDetail> results = seasonLeagueResults.computeIfAbsent(leagueId,
+                    league -> competitionTeamInfoDetailRepository.findAllByCompetitionIdAndSeasonNumber(league, seasonNumber));
+            return MatchService.leaguePositionBefore(results, teamId, day);
         }
 
         String competitionType(long competitionId) {
