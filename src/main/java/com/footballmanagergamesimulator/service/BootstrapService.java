@@ -43,7 +43,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Hardcoded first-time data seed: the 17 competitions, the 8 team groups
+ * Hardcoded first-time data seed: the 23 competitions, the 11 team groups
  * with their facilities, stadium tiers, training schedules, and managers,
  * plus the named special players assigned to their canonical clubs.
  *
@@ -71,9 +71,10 @@ public class BootstrapService {
     @Autowired private ChairmanTacticalMandateRepository chairmanTacticalMandateRepository;
     @Autowired private NationService nationService;
     @Autowired private FaceGenerator faceGenerator;
+    @Autowired private WorldExpansionService worldExpansionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /** Run the structural one-time seed in order: competitions → 8 team groups. */
+    /** Run the structural one-time seed in order: competitions → 11 team groups. */
     public void initialization() {
         initializeCompetitions();
         initializeTeams1();
@@ -84,6 +85,10 @@ public class BootstrapService {
         initializeTeams6();
         initializeTeams7();
         initializeTeams8();
+        initializeTeams9();
+        initializeTeams10();
+        initializeTeams11();
+        worldExpansionService.seedStructures(1);
         initializeSignatureTactics();
     }
 
@@ -165,13 +170,18 @@ public class BootstrapService {
                 List.of(0, 1, 4, 1), List.of(0, 2, 5, 2),
                 List.of(5, 1, 1, 1), List.of(5, 2, 2, 1),
                 List.of(6, 1, 1, 1), List.of(6, 2, 2, 1),
-                List.of(7, 1, 1, 1), List.of(7, 2, 2, 1)));
+                List.of(7, 1, 1, 1), List.of(7, 2, 2, 1),
+                List.of(8, 1, 1, 1), List.of(8, 2, 2, 1),
+                List.of(9, 1, 1, 1), List.of(9, 2, 2, 1),
+                List.of(10, 1, 1, 1), List.of(10, 2, 2, 1)));
 
         List<String> names = new ArrayList<>(List.of("Gallactick Football First League", "Gallactick Football Cup",
                 "Khess First League", "Khess Cup", "Khess Second League", "Dong Championship", "Dong Cup", "FootieCup League",
                 "FootieCup Cup", "League of Champions", "Stars Cup",
                 "Cards League", "Cards Cup", "Literature League", "Literature Cup",
-                "Eleven League", "Eleven Cup"));
+                "Eleven League", "Eleven Cup",
+                "Mareval League", "Mareval Cup", "Tervala Championship", "Tervala Cup",
+                "Altzair First League", "Altzair Cup"));
 
         for (int i = 0; i < values.size(); i++) {
             Competition competition = new Competition();
@@ -446,6 +456,100 @@ public class BootstrapService {
                 List.of(5, 6, 6), List.of(4, 5, 5));
 
         createTeamsAndCompetitions(teamNames, teamValues, facilities, 86, 16L, 17L);
+    }
+
+    private void initializeTeams9() {
+        List<List<String>> teamNames = List.of(
+                List.of("Atletico Beiramar", "#12355B", "#F4F1E8", "25"),
+                List.of("Estivadores", "#1C1C1C", "#F28C28", "55"),
+                List.of("Porto Salgar", "#1E8A6E", "#FFFFFF", "35"),
+                List.of("Ouromar Clube", "#D4A017", "#6B1F2A", "65"),
+                List.of("Faroleiros", "#C8102E", "#FFFFFF", "5"),
+                List.of("Sardeal Conserveira", "#1F5FA8", "#A7ADB3", "70"),
+                List.of("Caldeiro Naval", "#B5532A", "#2E3338", "45"),
+                List.of("Uniao Xira Velha", "#5B2A86", "#F2C230", "25"),
+                List.of("Sete Travessas", "#E85D9A", "#151515", "35"),
+                List.of("Zambujo Olivais", "#6B7A2A", "#EFE6C8", "60"),
+                List.of("Pescadores da Ilha", "#5DADE2", "#152C50", "95"),
+                List.of("Salineiros", "#F2F2F2", "#D96C8A", "9"));
+
+        List<List<Integer>> teamValues = List.of(
+                List.of(7200, 5), List.of(6900, 4), List.of(6600, 2),
+                List.of(6400, 6), List.of(6100, 2), List.of(5800, 4),
+                List.of(5600, 3), List.of(5400, 2), List.of(5200, 1),
+                List.of(5000, 3), List.of(4700, 1), List.of(4400, 3));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(14, 15, 16), List.of(12, 13, 14), List.of(13, 13, 13),
+                List.of(10, 12, 14), List.of(12, 11, 12), List.of(9, 10, 11),
+                List.of(9, 9, 10), List.of(10, 9, 9), List.of(12, 10, 8),
+                List.of(8, 8, 8), List.of(9, 7, 7), List.of(7, 7, 6));
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, 106, 18L, 19L);
+    }
+
+    private void initializeTeams10() {
+        List<List<String>> teamNames = List.of(
+                List.of("Honkasalon Tarmo", "#1E5B3A", "#F4F1E8", "25"),
+                List.of("Sahakosken Pallo", "#E0B84C", "#5A3A22", "55"),
+                List.of("Tukkilaiset", "#2F6BBF", "#FFFFFF", "35"),
+                List.of("Koivuniemen Kisa", "#F2F2F2", "#1C1C1C", "65"),
+                List.of("Susivaaran Sudet", "#6F757F", "#B0171F", "5"),
+                List.of("Kaarnalan Jyry", "#6E4A2A", "#E67E22", "70"),
+                List.of("Tervaveikot", "#151515", "#D4A017", "45"),
+                List.of("Naavalan Riento", "#7FA37A", "#F4F1E8", "25"),
+                List.of("Louhelan Karhut", "#5A3A22", "#F2C230", "35"),
+                List.of("Paperi Sahakoski", "#FFFFFF", "#1F5FA8", "60"),
+                List.of("Korven Pojat", "#196F3D", "#111111", "95"),
+                List.of("Hirvikosken Into", "#4F7942", "#EFE6C8", "9"));
+
+        List<List<Integer>> teamValues = List.of(
+                List.of(6000, 1), List.of(5700, 4), List.of(5500, 1),
+                List.of(5300, 2), List.of(5100, 1), List.of(4900, 3),
+                List.of(4700, 1), List.of(4500, 2), List.of(4300, 4),
+                List.of(4100, 3), List.of(3900, 1), List.of(3600, 1));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(15, 14, 12), List.of(12, 12, 12), List.of(13, 12, 10),
+                List.of(12, 11, 10), List.of(12, 10, 9), List.of(10, 9, 9),
+                List.of(11, 9, 8), List.of(10, 8, 8), List.of(8, 8, 8),
+                List.of(8, 7, 7), List.of(9, 7, 6), List.of(8, 6, 6));
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, 118, 20L, 21L);
+    }
+
+    private void initializeTeams11() {
+        List<List<String>> teamNames = List.of(
+                List.of("Burdinola Athletic", "#B0171F", "#1C1C1C", "25"),
+                List.of("Meatzariak", "#111111", "#F2C230", "55"),
+                List.of("Labe Garaia", "#E4572E", "#2E3338", "35"),
+                List.of("Sutegi Aurrera", "#1F4E8C", "#F28C28", "65"),
+                List.of("Altzairu Ibaiondo", "#8E9AA0", "#1A3D6E", "5"),
+                List.of("Ikazkinak", "#2E3338", "#C8102E", "70"),
+                List.of("Ontziola Portuzar", "#1F5FA8", "#FFFFFF", "45"),
+                List.of("Trenbide Gorri", "#7A1F3D", "#FFFFFF", "25"),
+                List.of("Mailu Beltzak", "#1C1C1C", "#A7ADB3", "35"),
+                List.of("Ingude Olaberri", "#0B6E4F", "#F2C230", "60"),
+                List.of("Anaitasuna Meatzalde", "#FFFFFF", "#0B6E4F", "95"),
+                List.of("Tximinia Zaharra", "#8A5A37", "#F4F1E8", "9"),
+                List.of("Lagun Onak", "#5DADE2", "#FFFFFF", "40"),
+                List.of("Indartsu Harrieta", "#A7ADB3", "#6B1F2A", "30"),
+                List.of("Beti Garmendi", "#F2C230", "#152C50", "50"),
+                List.of("Kezubi Langileak", "#3B3B3B", "#E8C34A", "15"));
+
+        List<List<Integer>> teamValues = List.of(
+                List.of(7600, 5), List.of(7300, 4), List.of(7000, 6), List.of(6800, 4),
+                List.of(6600, 2), List.of(6400, 3), List.of(6200, 4), List.of(6000, 2),
+                List.of(5800, 4), List.of(5600, 3), List.of(5400, 1), List.of(5200, 3),
+                List.of(5000, 1), List.of(4900, 2), List.of(4750, 1), List.of(4600, 3));
+
+        List<List<Integer>> facilities = List.of(
+                List.of(16, 16, 17), List.of(14, 15, 16), List.of(13, 14, 15), List.of(12, 14, 14),
+                List.of(13, 12, 13), List.of(11, 12, 13), List.of(11, 11, 12), List.of(12, 10, 11),
+                List.of(10, 10, 11), List.of(9, 10, 10), List.of(11, 9, 9), List.of(8, 9, 9),
+                List.of(10, 8, 8), List.of(8, 8, 8), List.of(8, 7, 7), List.of(7, 7, 6));
+
+        createTeamsAndCompetitions(teamNames, teamValues, facilities, 130, 22L, 23L);
     }
 
     /**

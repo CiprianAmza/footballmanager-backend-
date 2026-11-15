@@ -36,6 +36,10 @@ public class YouthAcademyService {
     @Autowired
     CompositeNameGenerator compositeNameGenerator;
     @Autowired
+    NationService nationService;
+    @Autowired
+    FaceGenerator faceGenerator;
+    @Autowired
     PlayerSkillsRepository playerSkillsRepository;
     @Autowired
     CompetitionService competitionService;
@@ -98,7 +102,7 @@ public class YouthAcademyService {
     YouthPlayer createProspect(long teamId, int season, Random random, int hoydQuality) {
         YouthPlayer prospect = new YouthPlayer();
         prospect.setTeamId(teamId);
-        prospect.setName(compositeNameGenerator.generateName(1L));
+        prospect.setName(compositeNameGenerator.generateNameForNation(nationService.nationIdForTeam(teamId)));
         prospect.setAge(random.nextInt(15, 19));
         int basePotential = generateWeightedPotential(random);
         // HOYD quality bonus: up to +10 potential for top HOYD (quality 20)
@@ -187,6 +191,7 @@ public class YouthAcademyService {
         HumanService.generatePhysicalProfile(human, new java.util.Random());
 
         human = humanRepository.save(human);
+        faceGenerator.assignFace(human, nationService.nationIdForTeam(teamId));
         playerBondService.recordYouthProduct(human.getId(), teamId);
 
         // Generate player skills

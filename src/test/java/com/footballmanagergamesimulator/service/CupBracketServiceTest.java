@@ -36,6 +36,40 @@ class CupBracketServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void cupsOverviewIncludesNationsWhoseEuropeanAdmissionIsPending() {
+        CupBracketService service = new CupBracketService();
+        CompetitionRepository competitions = mock(CompetitionRepository.class);
+        CompetitionTeamInfoMatchRepository fixtures = mock(CompetitionTeamInfoMatchRepository.class);
+        CompetitionTeamInfoDetailRepository results = mock(CompetitionTeamInfoDetailRepository.class);
+        TeamRepository teams = mock(TeamRepository.class);
+        RoundRepository rounds = mock(RoundRepository.class);
+        EuropeanCoefficientService coefficients = mock(EuropeanCoefficientService.class);
+        ReflectionTestUtils.setField(service, "competitionRepository", competitions);
+        ReflectionTestUtils.setField(service, "competitionTeamInfoMatchRepository", fixtures);
+        ReflectionTestUtils.setField(service, "competitionTeamInfoDetailRepository", results);
+        ReflectionTestUtils.setField(service, "teamRepository", teams);
+        ReflectionTestUtils.setField(service, "roundRepository", rounds);
+        ReflectionTestUtils.setField(service, "europeanCoefficientService", coefficients);
+        Competition existingLeague = competition(1, 1, 1, "Gallactick League");
+        Competition existingCup = competition(2, 2, 1, "Gallactick Cup");
+        Competition veyraCup = competition(23, 2, 11, "Cupa Veyra");
+        Competition branikCup = competition(26, 2, 12, "Cupa Branik");
+        Competition silethCup = competition(29, 2, 13, "Cupa Sileth");
+        Competition superCup = competition(24, 6, 11, "Supercupa Veyra");
+        when(coefficients.getLeagueIdsSortedByCoefficient()).thenReturn(List.of(1L));
+        when(competitions.findById(1L)).thenReturn(Optional.of(existingLeague));
+        when(competitions.findAll()).thenReturn(List.of(existingLeague, existingCup,
+                veyraCup, branikCup, silethCup, superCup));
+
+        var overview = service.getCupsOverview();
+        var cups = (List<Map<String, Object>>) overview.get("cups");
+
+        assertEquals(List.of(2L, 26L, 29L, 23L), cups.stream().map(c -> c.get("competitionId")).toList());
+        assertEquals(4, cups.size());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void cupsOverviewLabelsTheUpcomingRoundInsteadOfTheLastPlayedRound() {
         CupBracketService service = new CupBracketService();
         CompetitionRepository competitionRepository = mock(CompetitionRepository.class);

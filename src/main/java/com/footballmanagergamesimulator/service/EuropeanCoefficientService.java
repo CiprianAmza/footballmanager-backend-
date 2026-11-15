@@ -326,7 +326,7 @@ public class EuropeanCoefficientService {
         Map<Long, Competition> competitionsById = competitionRepository.findAll().stream()
                 .collect(Collectors.toMap(Competition::getId, competition -> competition));
         List<Competition> firstLeagues = competitionsById.values().stream()
-                .filter(Competition::isTopFlight).toList();
+                .filter(EuropeanEntryEligibility::isEligibleTopFlight).toList();
         if (firstLeagues.isEmpty()) return List.of();
 
         List<Team> allTeams = teamRepository.findAll();
@@ -418,7 +418,7 @@ public class EuropeanCoefficientService {
         Map<Long, Competition> competitionsById = competitionRepository.findAll().stream()
                 .collect(Collectors.toMap(Competition::getId, competition -> competition));
         List<Competition> firstLeagues = competitionsById.values().stream()
-                .filter(Competition::isTopFlight).toList();
+                .filter(EuropeanEntryEligibility::isEligibleTopFlight).toList();
         if (firstLeagues.isEmpty()) return List.of();
         List<Team> allTeams = teamRepository.findAll();
         Map<Long, Double> coefficientByNation = countryCoefficients(currentSeason, competitionsById, allTeams);

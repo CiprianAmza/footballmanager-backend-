@@ -39,6 +39,15 @@ class CompositeNameGeneratorTest {
         assertInstanceOf(VardNameGenerator.class, compositeNameGenerator.strategyFor(2L));
         assertInstanceOf(KessNameGenerator.class, compositeNameGenerator.strategyFor(3L));
         assertInstanceOf(LiraNameGenerator.class, compositeNameGenerator.strategyFor(6L));
+        assertInstanceOf(MarevalNameGenerator.class, compositeNameGenerator.strategyFor(8L));
+        assertInstanceOf(TervalaNameGenerator.class, compositeNameGenerator.strategyFor(9L));
+        assertInstanceOf(AltzairNameGenerator.class, compositeNameGenerator.strategyFor(10L));
+        assertEquals(NameStyles.VEYRA,
+                ((FragmentNameGenerator) compositeNameGenerator.strategyFor(11L)).style());
+        assertEquals(NameStyles.BRANIK,
+                ((FragmentNameGenerator) compositeNameGenerator.strategyFor(12L)).style());
+        assertEquals(NameStyles.SILETH,
+                ((FragmentNameGenerator) compositeNameGenerator.strategyFor(13L)).style());
     }
 
     @Test

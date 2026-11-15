@@ -1,7 +1,7 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.*;
-import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
+import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +21,12 @@ public class StaffService {
     private RoundRepository roundRepository;
     @Autowired
     private ManagerInboxRepository managerInboxRepository;
+    @Autowired
+    private CompositeNameGenerator compositeNameGenerator;
+    @Autowired
+    private NationService nationService;
+    @Autowired
+    private FaceGenerator faceGenerator;
 
     private static final long[] COACH_TYPES = {
             TypeNames.ASSISTANT_MANAGER_TYPE,
@@ -72,7 +78,8 @@ public class StaffService {
         }
 
         Human coach = new Human();
-        coach.setName(NameGenerator.generateName());
+        long nationId = nationService.nationIdForTeam(teamId);
+        coach.setName(compositeNameGenerator.generateNameForNation(nationId));
         coach.setAge(30 + rng.nextInt(25)); // 30-54
         coach.setTeamId(teamId == 0 ? 0L : teamId);
         coach.setTypeId(typeId);
@@ -110,6 +117,8 @@ public class StaffService {
                 + attrs[5] + attrs[6] + attrs[7] + attrs[8]) / 9.0;
         coach.setRating(avgAttr);
 
+        coach = humanRepository.save(coach);
+        faceGenerator.assignFace(coach, nationId);
         return humanRepository.save(coach);
     }
 

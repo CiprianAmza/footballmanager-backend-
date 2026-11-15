@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.service.ManagerCareerService;
 import com.footballmanagergamesimulator.service.NationService;
 import com.footballmanagergamesimulator.service.RelationService;
 import com.footballmanagergamesimulator.service.StaffService;
+import com.footballmanagergamesimulator.service.FaceGenerator;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +27,7 @@ import static org.mockito.Mockito.when;
 
 @DataJpaTest
 @Import({StaffLoyaltyService.class, StaffService.class, BoardTrustService.class, BoardTrustConfig.class,
-        RelationService.class, ClubBoardService.class, NationService.class, CompositeNameGenerator.class})
+        RelationService.class, ClubBoardService.class, NationService.class, CompositeNameGenerator.class, FaceGenerator.class})
 class StaffLoyaltyServiceTest {
 
     @Autowired private StaffLoyaltyService loyalty;

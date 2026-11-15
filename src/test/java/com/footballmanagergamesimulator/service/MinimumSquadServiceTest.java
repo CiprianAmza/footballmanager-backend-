@@ -58,6 +58,8 @@ class MinimumSquadServiceTest {
         ReflectionTestUtils.setField(service, "managerInboxRepository", inbox);
         ReflectionTestUtils.setField(service, "youthAcademyService", academy);
         ReflectionTestUtils.setField(service, "competitionService", new CompetitionService());
+        ReflectionTestUtils.setField(service, "nationService", mock(NationService.class));
+        ReflectionTestUtils.setField(service, "faceGenerator", new FaceGenerator());
         StaffService staff = mock(StaffService.class);
         when(staff.getHOYDQuality(anyLong())).thenReturn(10);
         ReflectionTestUtils.setField(service, "staffService", staff);

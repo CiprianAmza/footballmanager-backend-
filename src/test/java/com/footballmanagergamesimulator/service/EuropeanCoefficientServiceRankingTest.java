@@ -57,6 +57,25 @@ class EuropeanCoefficientServiceRankingTest {
         verify(competitions, never()).findById(anyLong());
     }
 
+    @Test
+    void domesticExpansionDoesNotDisplaceExistingEuropeanLeagues() {
+        Round round = new Round();
+        round.setSeason(1);
+        when(rounds.findById(1L)).thenReturn(Optional.of(round));
+        when(competitions.findAll()).thenReturn(List.of(
+                competition(1, 1, 1), competition(3, 1, 3),
+                competition(25, 1, 11), competition(27, 1, 12), competition(29, 1, 13)));
+        when(teams.findAll()).thenReturn(List.of(
+                team(1, 1, 5000), team(2, 3, 4000),
+                team(107, 25, 10000), team(119, 27, 10000), team(131, 29, 10000)));
+
+        // Even stronger new domestic clubs cannot take a place from the original nations.
+        assertEquals(List.of(1L, 3L), service.getLeagueIdsSortedByCoefficient());
+        assertEquals(List.of(1L, 3L), service.rankFirstLeaguesByCoefficient());
+        assertEquals(java.util.Set.of(1L, 3L),
+                service.allocateTeamsPerLeague(2, java.util.Map.of()).keySet());
+    }
+
     private static Competition competition(long id, int type, long nation) {
         Competition competition = new Competition();
         competition.setId(id);

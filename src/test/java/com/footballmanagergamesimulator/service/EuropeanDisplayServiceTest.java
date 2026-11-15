@@ -24,6 +24,34 @@ import static org.mockito.Mockito.when;
 class EuropeanDisplayServiceTest {
 
     @Test
+    void newDomesticNationsRemainOutsideEuropeanCoefficientDisplay() {
+        CompetitionRepository competitions = mock(CompetitionRepository.class);
+        CompetitionTeamInfoRepository entries = mock(CompetitionTeamInfoRepository.class);
+        var rounds = mock(com.footballmanagergamesimulator.repository.RoundRepository.class);
+        var coefficients = mock(com.footballmanagergamesimulator.repository.ClubCoefficientRepository.class);
+        EuropeanDisplayService service = new EuropeanDisplayService();
+        ReflectionTestUtils.setField(service, "competitionRepository", competitions);
+        ReflectionTestUtils.setField(service, "competitionTeamInfoRepository", entries);
+        ReflectionTestUtils.setField(service, "roundRepository", rounds);
+        ReflectionTestUtils.setField(service, "clubCoefficientRepository", coefficients);
+        ReflectionTestUtils.setField(service, "qualificationPolicy",
+                new com.footballmanagergamesimulator.config.EuropeanQualificationPolicy());
+        var round = new com.footballmanagergamesimulator.model.Round();
+        round.setSeason(1);
+        when(rounds.findById(1L)).thenReturn(Optional.of(round));
+        List<Competition> leagues = new ArrayList<>();
+        for (long nation : new long[]{1, 3, 11, 12, 13}) {
+            Competition league = new Competition();
+            league.setId(nation); league.setNationId(nation); league.setTypeId(1); league.setTier(1);
+            league.setName("League " + nation);
+            leagues.add(league);
+        }
+        when(competitions.findAll()).thenReturn(leagues);
+        assertEquals(java.util.Set.of(1L, 3L), service.getCountryCoefficients().stream()
+                .map(row -> ((Number) row.get("nationId")).longValue()).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
     void historicalGroupTableExcludesQualifiersAndKnockoutMatches() {
         CompetitionRepository competitions = mock(CompetitionRepository.class);
         CompetitionTeamInfoRepository entries = mock(CompetitionTeamInfoRepository.class);

@@ -26,7 +26,9 @@ class YouthAcademyFacilityEffectTest {
         CompositeNameGenerator names = mock(CompositeNameGenerator.class);
         ReflectionTestUtils.setField(service, "teamFacilitiesRepository", facilities);
         ReflectionTestUtils.setField(service, "compositeNameGenerator", names);
-        when(names.generateName(1L)).thenReturn("Prospect");
+        NationService nations = mock(NationService.class);
+        ReflectionTestUtils.setField(service, "nationService", nations);
+        when(names.generateNameForNation(0L)).thenReturn("Prospect");
         when(facilities.findByTeamId(1L)).thenReturn(facilities(1));
         when(facilities.findByTeamId(2L)).thenReturn(facilities(10));
 

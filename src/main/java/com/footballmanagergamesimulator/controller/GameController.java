@@ -3,6 +3,7 @@ package com.footballmanagergamesimulator.controller;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.*;
+import com.footballmanagergamesimulator.service.squad.LeaguePredictionService;
 import com.footballmanagergamesimulator.user.CareerRole;
 import com.footballmanagergamesimulator.user.User;
 import com.footballmanagergamesimulator.user.UserContext;
@@ -33,6 +34,9 @@ public class GameController {
 
     @Autowired
     GameCalendarRepository gameCalendarRepository;
+
+    @Autowired
+    LeaguePredictionService leaguePredictionService;
 
     @Autowired
     PressConferenceService pressConferenceService;
@@ -875,6 +879,7 @@ public class GameController {
             // apply never starts and the previous world remains intact.
             gameSaveImportService.alignGeneratorsBeforeApply(plan);
             gameSaveImportService.apply(plan, gameplayFeatures.isPlayerAvailabilityDisabled());
+            leaguePredictionService.forget();
 
             result.put("success", true);
             result.put("message", "Game loaded successfully");

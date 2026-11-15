@@ -384,7 +384,7 @@ public class ManagerCareerService {
                 humanRepository.save(manager);
 
                 Human newManager = new Human();
-                newManager.setName(compositeNameGenerator.generateName(1L));
+                newManager.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
                 newManager.setTypeId(TypeNames.MANAGER_TYPE);
                 newManager.setTeamId(team.getId());
                 newManager.setManagerReputation(ManagerReputation.startingFor(team.getReputation()));

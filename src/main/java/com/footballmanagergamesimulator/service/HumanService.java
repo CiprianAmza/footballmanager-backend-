@@ -3,7 +3,6 @@ package com.footballmanagergamesimulator.service;
 import com.footballmanagergamesimulator.config.MatchEngineConfig;
 import com.footballmanagergamesimulator.model.*;
 import com.footballmanagergamesimulator.nameGenerator.CompositeNameGenerator;
-import com.footballmanagergamesimulator.nameGenerator.NameGenerator;
 import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.util.TypeNames;
 import com.footballmanagergamesimulator.util.ManagerTacticPolicy;
@@ -32,6 +31,10 @@ public class HumanService {
     @Autowired
     CompositeNameGenerator compositeNameGenerator;
     @Autowired
+    NationService nationService;
+    @Autowired
+    FaceGenerator faceGenerator;
+    @Autowired
     TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
     @Autowired
     StaffService staffService;
@@ -57,7 +60,7 @@ public class HumanService {
 
         Random random = new Random();
         Human mgr = new Human();
-        mgr.setName(compositeNameGenerator.generateName(1L));
+        mgr.setName(compositeNameGenerator.generateName(team.getCompetitionId()));
         mgr.setTypeId(TypeNames.MANAGER_TYPE);
         mgr.setTeamId(teamId);
         mgr.setManagerReputation(ManagerReputation.startingFor(team.getReputation()));
@@ -78,6 +81,8 @@ public class HumanService {
         mgr.setKnownTactics(kit[1]);
         mgr.setAlwaysUseBestPossibleTactic(
                 ManagerTacticPolicy.defaultsToBestPossibleTactic(team.getName()));
+        mgr = humanRepository.save(mgr);
+        faceGenerator.assignFace(mgr, nationService.nationIdForTeam(teamId));
         humanRepository.save(mgr);
     }
 
@@ -180,6 +185,7 @@ public class HumanService {
                                              List<PlayerSkills> skillsCollector,
                                              List<TeamPlayerHistoricalRelation> relationCollector) {
       for (Human player : persistedPlayers) {
+          faceGenerator.assignFace(player, nationService.nationIdForTeam(player.getTeamId()));
           PlayerSkills playerSkills = new PlayerSkills();
           playerSkills.setPlayerId(player.getId());
           playerSkills.setPosition(player.getPosition());
@@ -209,7 +215,7 @@ public class HumanService {
       int ratingAround = (int) youthAcademyLevel * 10;
 
       Human human = new Human();
-      human.setName(NameGenerator.generateName());
+      human.setName(compositeNameGenerator.generateNameForNation(nationService.nationIdForTeam(teamId)));
       human.setAge(random.nextInt(15, 19));
       human.setRating(random.nextInt(ratingAround - 20, ratingAround + 20));
       human.setPosition(generatePosition());

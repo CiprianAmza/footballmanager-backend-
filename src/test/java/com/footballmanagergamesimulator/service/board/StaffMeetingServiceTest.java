@@ -8,6 +8,7 @@ import com.footballmanagergamesimulator.service.ManagerCareerService;
 import com.footballmanagergamesimulator.service.NationService;
 import com.footballmanagergamesimulator.service.RelationService;
 import com.footballmanagergamesimulator.service.StaffService;
+import com.footballmanagergamesimulator.service.FaceGenerator;
 import com.footballmanagergamesimulator.user.UserContext;
 import com.footballmanagergamesimulator.util.TypeNames;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DataJpaTest
 @Import({StaffMeetingService.class, StaffService.class, BoardTrustService.class, BoardTrustConfig.class,
-        RelationService.class, ClubBoardService.class, NationService.class, CompositeNameGenerator.class})
+        RelationService.class, ClubBoardService.class, NationService.class, CompositeNameGenerator.class, FaceGenerator.class})
 class StaffMeetingServiceTest {
 
     @Autowired private StaffMeetingService meetings;

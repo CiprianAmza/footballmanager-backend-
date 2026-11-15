@@ -19,6 +19,10 @@ import java.util.Optional;
 
 public interface HumanRepository extends JpaRepository<Human, Long>, JpaSpecificationExecutor<Human> {
 
+    /** Scalar projection for new-nation name allocation; avoids hydrating every Human. */
+    @Query("select h.name from Human h where h.retired = false and h.name is not null")
+    List<String> findActiveNames();
+
     interface TeamPlayerWages {
         Long getTeamId();
         Long getPlayerCount();
