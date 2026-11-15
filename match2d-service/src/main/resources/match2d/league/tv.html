@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diamond League TV</title>
+<style>
+  :root { --bg:#10151c; --panel:#1a222d; --line:#2b3745; --text:#e8edf2; --muted:#93a1b0; --accent:#f4d35e; --live:#ff4d4f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .top { display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .brand { font-weight:700; letter-spacing:.08em; text-transform:uppercase; display:flex; align-items:center; gap:8px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--live); animation:pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity:.35; } }
+  .muted { color:var(--muted); }
+  .spacer { flex:1; }
+  .layout { display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:14px; padding:14px 16px 20px; max-width:1700px; margin:0 auto; }
+  @media (max-width:1100px) { .layout { grid-template-columns:1fr; } }
+  .stage { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; min-height:460px; padding:10px; }
+  .stage iframe { width:100%; height:720px; border:0; display:block; background:var(--bg); border-radius:6px; }
+  .overlay { position:absolute; inset:0; background:rgba(13,18,25,.97); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:22px; overflow:auto; text-align:center; }
+  .overlay[hidden] { display:none; }
+  .overlay.top { justify-content:flex-start; padding:14px 16px; }   /* fisa meciului: de sus, se poate derula */
+  .kicker { color:var(--accent); letter-spacing:.14em; text-transform:uppercase; font-size:13px; font-weight:600; }
+  .big { font-size:30px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; }
+  .big .num { font-variant-numeric:tabular-nums; font-size:44px; min-width:120px; }
+  .chip { width:14px; height:14px; border-radius:50%; border:2px solid #fff; display:inline-block; flex:none; }
+  .sheets { display:grid; grid-template-columns:1fr 1fr; gap:22px; width:min(900px,100%); text-align:left; }
+  @media (max-width:640px) { .sheets { grid-template-columns:1fr; } }
+  .sheet { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .sheet h2 { margin:0 0 2px; font-size:20px; display:flex; align-items:center; gap:8px; }
+  .sheet .formation { color:var(--muted); margin-bottom:8px; }
+  .sheet ol { list-style:none; margin:0; padding:0; }
+  .sheet li { display:grid; grid-template-columns:30px 1fr 44px; gap:6px; padding:3px 0; border-bottom:1px solid #222c38; font-variant-numeric:tabular-nums; }
+  .sheet li .n { color:var(--muted); text-align:right; }
+  .sheet li .p { color:var(--muted); text-align:right; font-size:12px; }
+  .sheet .coach { margin-top:10px; padding-top:8px; border-top:1px solid var(--line); }
+  .sheet .coach b { color:var(--accent); }
+  .count { font-size:16px; color:var(--muted); }
+  .count b { color:var(--text); font-variant-numeric:tabular-nums; }
+  .bar { display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button { background:#263242; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
+  button:hover { background:#324155; }
+  button.on { background:var(--accent); color:#111; border-color:var(--accent); }
+  .side { display:flex; flex-direction:column; gap:12px; min-width:0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .card h3 { margin:0 0 8px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th { color:var(--muted); font-size:11px; font-weight:500; text-align:right; padding:2px 4px; }
+  td { padding:3px 4px; text-align:right; border-top:1px solid #222c38; }
+  td.t, th.t { text-align:left; }
+  td.t { display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  tr.live td { background:rgba(244,211,94,.10); }
+  td.pts { font-weight:700; }
+  .goal { display:flex; gap:8px; align-items:baseline; padding:3px 0; border-bottom:1px solid #222c38; }
+  .goal .m { color:var(--accent); font-variant-numeric:tabular-nums; min-width:28px; }
+  .goal small { color:var(--muted); }
+  ol.rank { list-style:none; margin:0; padding:0; }
+  ol.rank li { display:flex; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid #222c38; }
+  ol.rank li .c { margin-left:auto; font-weight:700; font-variant-numeric:tabular-nums; }
+  ol.rank li small { color:var(--muted); }
+  .empty { color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="top">
+  <span class="brand"><span class="dot"></span><span id="league">Liga</span> TV</span>
+  <span class="muted" id="where"></span>
+  <span class="spacer"></span>
+  <a href="/clasament">Clasament, etape și statistici →</a>
+</div>
+<div class="layout">
+  <div>
+    <div class="stage">
+      <iframe id="screen" title="Meciul în direct"></iframe>
+      <div class="overlay" id="overlay"><div class="count">Se face legătura cu studioul…</div></div>
+    </div>
+    <div class="bar">
+      <span class="muted">Viteza transmisiei</span>
+      <span id="speeds"></span>
+      <span style="width:8px"></span>
+      <span id="modes"><button data-mode="full">Meci întreg</button> <button data-mode="highlights">Rezumat</button></span>
+      <button id="replays" title="Reluare cu încetinitorul după fiecare gol">Reluări</button>
+      <span class="muted" id="segment"></span>
+      <span style="width:8px"></span>
+      <button id="skip">Sari peste</button>
+      <span class="muted" id="status"></span>
+    </div>
+  </div>
+  <aside class="side">
+    <div class="card"><h3>Clasament live</h3><table id="table"></table></div>
+    <div class="card"><h3>Golurile meciului</h3><div id="goals"></div></div>
+    <div class="card"><h3>Golgheteri</h3><ol class="rank" id="scorers"></ol></div>
+    <div class="card"><h3>Pase decisive</h3><ol class="rank" id="assists"></ol></div>
+    <div class="card"><h3>Urmează</h3><div id="next"></div></div>
+  </aside>
+</div>
+<script src="/match_sheet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const chip = color => `<span class="chip" style="background:${esc(color)}"></span>`;
+const screen = $('screen'), overlay = $('overlay');
+let st = null;            // ultima stare primita de la server
+let loaded = -1;          // meciul incarcat in ecran
+let frameReady = false;   // ecranul a anuntat ca e gata sa primeasca ceasul
+let overlayKey = '';      // ce e desenat acum peste ecran (ca sa nu-l redesenam la fiecare secunda)
+
+function sync() {
+  if (!st || !st.match || !frameReady || loaded !== st.match.index) return;
+  // t = ce se deseneaza (in reluare merge inapoi), live = secunda pentru scor si ceas,
+  // speed = viteza bucatii curente, cut = se schimba la fiecare bucata noua (taietura)
+  const m = st.match;
+  screen.contentWindow.postMessage({type: 'tv-sync', t: m.pos, speed: m.rate != null ? m.rate : st.speed,
+                                    playing: st.phase === 'live', live: m.live != null ? m.live : m.pos,
+                                    replay: !!m.replay, label: m.label || null, cut: m.cut != null ? m.cut : 0}, '*');
+}
+window.addEventListener('message', e => {
+  const m = e.data;
+  if (!m || e.source !== screen.contentWindow) return;
+  if (m.type === 'tv-ready') { frameReady = true; sync(); render(); }
+  else if (m.type === 'tv-size' && m.height > 200) screen.style.height = m.height + 'px';
+});
+
+function sheet(team) {
+  return `<div class="sheet"><h2>${chip(team.color)}${esc(team.name)}</h2>
+    <div class="formation">${esc(team.formation || '')}</div>
+    <ol>${team.players.map(p => `<li><span class="n">${esc(p.number)}</span><span>${esc(p.name)}${p.captain ? ' <b title="căpitan">(C)</b>' : ''}</span><span class="p">${esc(p.position)}</span></li>`).join('')}</ol>
+    <div class="coach">Antrenor: <b>${esc(team.coach || 'necunoscut')}</b></div></div>`;
+}
+function goalLine(g, m) {
+  const team = g.team === 0 ? m.home : m.away;
+  return `<div class="goal"><span class="m">${g.minute}'</span>${chip(team.color)}<span>${esc(g.scorer || (g.own ? 'autogol ' + g.own : 'autogol'))}${g.how === 'penalty' ? ' <small>(pen.)</small>' : ''}${g.assist ? ` <small>pasă ${esc(g.assist)}</small>` : ''}</span></div>`;
+}
+
+function drawOverlay() {
+  const m = st.match;
+  let key, html;
+  if (st.phase === 'finished') {
+    key = 'finished';
+    const top = st.standings.slice(0, 3);
+    html = `<div class="kicker">Sezonul ${st.season} s-a încheiat</div>
+      <div class="big">${chip(top[0].color)}${esc(st.champion)} e campioană</div>
+      <div class="count">${top.map(r => `${r.pos}. ${esc(r.team)} — ${r.pts} puncte`).join(' · ')}</div>
+      <button id="again">Începe sezonul următor</button>`;
+  } else if (st.phase === 'lineups') {
+    key = 'lineups-' + m.index;
+    html = `<div class="kicker">Etapa ${m.round} din ${st.rounds} · Meciul ${m.number} din ${st.total}</div>
+      <div class="big">${chip(m.home.color)}${esc(m.home.name)} <span class="muted">–</span> ${esc(m.away.name)}${chip(m.away.color)}</div>
+      <div class="muted">${esc(m.stadium || '')}</div>
+      <div class="sheets">${sheet(m.home)}${sheet(m.away)}</div>
+      <div class="count" id="count"></div>`;
+  } else if (st.phase === 'fulltime' && st.sheet && window.MatchSheet) {
+    // fisa meciului tine loc de ecranul de final: scorul, golurile, statisticile, notele
+    key = 'sheet-' + m.index;
+    html = MatchSheet.html(st.sheet, {countId: 'count'});
+  } else if (st.phase === 'fulltime') {
+    key = 'fulltime-' + m.index;
+    html = `<div class="kicker">Final · Etapa ${m.round}</div>
+      <div class="big">${chip(m.home.color)}${esc(m.home.name)} <span class="num">${m.score[0]} – ${m.score[1]}</span> ${esc(m.away.name)}${chip(m.away.color)}</div>
+      <div style="width:min(420px,100%);text-align:left">${m.goals.map(g => goalLine(g, m)).join('') || '<div class="empty" style="text-align:center">Niciun gol.</div>'}</div>
+      <div class="count" id="count"></div>`;
+  } else if (!frameReady || loaded !== m.index) {
+    key = 'loading-' + m.index;
+    html = '<div class="count">Se încarcă transmisia…</div>';
+  } else {
+    key = '';
+    html = '';
+  }
+  if (key !== overlayKey) {
+    overlayKey = key;
+    overlay.innerHTML = html;
+    overlay.hidden = !key;
+    overlay.classList.toggle('top', key.startsWith('sheet-'));
+    const again = $('again');
+    if (again) again.onclick = () => post('/api/new-season', {});
+  }
+  const count = $('count');
+  if (!count) return;
+  if (st.phase === 'lineups') {
+    count.innerHTML = m.endsIn == null ? 'Se pregătește meciul…' : `Începe în <b>${Math.ceil(m.endsIn)}</b> s`;
+  } else if (st.phase === 'fulltime') {
+    const nx = st.next ? `: ${esc(st.next.home)} – ${esc(st.next.away)}` : '';
+    count.innerHTML = st.next ? `Meciul următor în <b>${Math.ceil(m.endsIn)}</b> s${nx}` : 'A fost ultimul meci al sezonului.';
+  }
+}
+
+function render() {
+  if (!st) return;
+  $('league').textContent = st.league;
+  document.title = st.league + ' TV';
+  const m = st.match;
+  $('where').textContent = st.phase === 'finished'
+    ? `Sezonul ${st.season} · încheiat`
+    : `Sezonul ${st.season} · Etapa ${m.round} din ${st.rounds} · Meciul ${m.number} din ${st.total}`;
+  if (m && m.ready && loaded !== m.index) {       // meci nou: il incarc in ecran, sub prezentare
+    loaded = m.index;
+    frameReady = false;
+    screen.src = '/match/' + m.index + '#tv';
+  }
+  drawOverlay();
+  sync();
+  // viteza
+  const box = $('speeds');
+  if (!box.children.length) {
+    box.innerHTML = st.speeds.map(v => `<button data-v="${v}">${v}×</button>`).join(' ');
+    box.querySelectorAll('button').forEach(b => b.onclick = () => post('/api/speed', {speed: +b.dataset.v}));
+  }
+  box.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === st.speed));
+  // meci intreg / rezumat (viteza de mai sus e a modului activ) si reluarile dupa gol
+  document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === (st.mode || 'full')));
+  $('replays').classList.toggle('on', st.replays !== false);
+  $('segment').textContent = m && m.segment && st.phase === 'live' ? `faza ${m.segment.index + 1} din ${m.segment.total}` : '';
+  $('skip').textContent = {lineups: 'Începe acum', live: 'Sari la final', fulltime: 'Meciul următor'}[st.phase] || 'Sari peste';
+  $('skip').disabled = st.phase === 'finished';
+  // clasament
+  $('table').innerHTML = '<tr><th></th><th class="t">Echipa</th><th>M</th><th>DG</th><th>Pct</th></tr>' +
+    st.standings.map(r => `<tr class="${r.live ? 'live' : ''}"><td>${r.pos}</td><td class="t">${chip(r.color)}${esc(r.team)}</td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td></tr>`).join('');
+  $('goals').innerHTML = m && m.goals.length ? m.goals.map(g => goalLine(g, m)).join('') : '<div class="empty">Niciun gol încă.</div>';
+  const rank = rows => rows.length ? rows.slice(0, 6).map(r => `<li>${chip(r.color)}<span>${esc(r.name)} <small>${esc(r.team)}</small></span><span class="c">${r.count}${r.pens ? ` <small>(${r.pens} pen.)</small>` : ''}</span></li>`).join('') : '<li class="empty">Nimic încă.</li>';
+  $('scorers').innerHTML = rank(st.scorers);
+  $('assists').innerHTML = rank(st.assists);
+  $('next').innerHTML = st.next ? `Etapa ${st.next.round}: <b>${esc(st.next.home)}</b> – <b>${esc(st.next.away)}</b>` : '<span class="empty">Nu mai e niciun meci în acest sezon.</span>';
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/api/state', {cache: 'no-store'});
+    st = await r.json();
+    $('status').textContent = '';
+    render();
+  } catch (e) {
+    $('status').textContent = 'Legătura cu serverul s-a întrerupt, reîncerc…';
+  }
+}
+async function post(url, body) {
+  try {
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    if (r.ok) { st = await r.json(); render(); }
+  } catch (e) { /* urmatoarea interogare arata starea reala */ }
+}
+$('skip').onclick = () => post('/api/skip', {});
+document.querySelectorAll('#modes button').forEach(b => b.onclick = () => post('/api/mode', {mode: b.dataset.mode}));
+$('replays').onclick = () => post('/api/replays', {on: !(st && st.replays !== false)});
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>

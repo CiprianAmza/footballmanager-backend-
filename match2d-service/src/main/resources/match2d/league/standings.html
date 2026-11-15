@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clasament</title>
+<style>
+  :root { --bg:#10151c; --panel:#1a222d; --line:#2b3745; --text:#e8edf2; --muted:#93a1b0; --accent:#f4d35e; --live:#ff4d4f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .top { display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .brand { font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  .muted { color:var(--muted); }
+  .spacer { flex:1; }
+  .wrap { max-width:1400px; margin:0 auto; padding:14px 16px 28px; display:flex; flex-direction:column; gap:14px; }
+  .banner { display:flex; align-items:center; gap:12px; flex-wrap:wrap; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; font-size:16px; }
+  .banner .num { font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .badge { background:var(--live); color:#fff; font-size:11px; font-weight:700; letter-spacing:.08em; border-radius:4px; padding:2px 6px; }
+  .badge.off { background:#3a4656; }
+  .cols { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:14px; }
+  @media (max-width:900px) { .cols { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
+  .card h3 { margin:0 0 8px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .chip { width:13px; height:13px; border-radius:50%; border:2px solid #fff; display:inline-block; flex:none; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th { color:var(--muted); font-size:11px; font-weight:500; text-align:right; padding:4px 6px; }
+  td { padding:6px; text-align:right; border-top:1px solid #222c38; }
+  th.t, td.t { text-align:left; }
+  td.t span.name { display:inline-flex; align-items:center; gap:8px; font-weight:600; }
+  tr.live td { background:rgba(244,211,94,.10); }
+  tr.first td { border-top:1px solid var(--accent); }
+  td.pts { font-weight:700; font-size:16px; }
+  .form { display:inline-flex; gap:3px; }
+  .form i { width:16px; height:16px; border-radius:3px; font-style:normal; font-size:10px; font-weight:700; line-height:16px; text-align:center; color:#111; }
+  .form .W { background:#7bd88f; } .form .D { background:#c8d0d9; } .form .L { background:#ff7b72; }
+  .side { display:flex; flex-direction:column; gap:14px; min-width:0; }
+  ol.rank { list-style:none; margin:0; padding:0; }
+  ol.rank li { display:flex; gap:8px; align-items:center; padding:4px 0; border-bottom:1px solid #222c38; }
+  ol.rank li .i { color:var(--muted); min-width:18px; text-align:right; font-variant-numeric:tabular-nums; }
+  ol.rank li .c { margin-left:auto; font-weight:700; font-variant-numeric:tabular-nums; }
+  ol.rank li small { color:var(--muted); }
+  .rounds { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:10px; }
+  .round { border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#161d27; }
+  .round.now { border-color:var(--accent); }
+  .round h4 { margin:0 0 6px; font-size:12px; color:var(--muted); font-weight:600; letter-spacing:.04em; text-transform:uppercase; display:flex; gap:8px; align-items:center; }
+  .fx { display:grid; grid-template-columns:1fr 46px 1fr; gap:6px; padding:2px 0; align-items:center; }
+  .fx span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fx .h { text-align:right; } .fx .s { text-align:center; font-variant-numeric:tabular-nums; font-weight:700; }
+  .fx.live .s { color:var(--live); } .fx.next .s { color:var(--accent); } .fx .s.none { color:var(--muted); font-weight:400; }
+  .fx b { font-weight:700; }
+  .empty { color:var(--muted); }
+  .fx.click { cursor:pointer; border-radius:4px; }
+  .fx.click:hover { background:#222c38; }
+  .modal { position:fixed; inset:0; background:rgba(8,12,17,.78); display:flex; align-items:flex-start; justify-content:center; padding:24px 16px; overflow:auto; z-index:10; }
+  .modal[hidden] { display:none; }
+  .modal-box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; width:min(1600px,100%); display:flex; justify-content:center; }
+  .yc { display:inline-block; width:8px; height:11px; border-radius:1.5px; background:#f4d000; margin-right:6px; vertical-align:-1px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <span class="brand" id="league">Liga</span>
+  <span class="muted" id="where"></span>
+  <span class="spacer"></span>
+  <a href="/">← Televizor (meciul în direct)</a>
+</div>
+<div class="wrap">
+  <div class="banner" id="banner"><span class="muted">Se încarcă…</span></div>
+  <div class="cols">
+    <div class="card"><h3>Clasament</h3><table id="table"></table></div>
+    <div class="side">
+      <div class="card"><h3>Golgheteri</h3><ol class="rank" id="scorers"></ol></div>
+      <div class="card"><h3>Pase decisive</h3><ol class="rank" id="assists"></ol></div>
+      <div class="card"><h3><span class="yc"></span>Cartonașe galbene</h3><ol class="rank" id="yellows"></ol></div>
+      <div class="card"><h3>Nota medie</h3><ol class="rank" id="avgRating"></ol></div>
+      <div class="card"><h3>Cea mai mare notă într-un meci</h3><ol class="rank" id="maxRating"></ol></div>
+      <div class="card"><h3>Meciuri fără gol primit</h3><ol class="rank" id="cleanSheets"></ol></div>
+      <div class="card"><h3>Omul meciului</h3><ol class="rank" id="motm"></ol></div>
+    </div>
+  </div>
+  <div class="card"><h3>Etape</h3><div class="rounds" id="rounds"></div></div>
+</div>
+<div class="modal" id="sheetModal" hidden><div class="modal-box" id="sheetBox"></div></div>
+<script src="/match_sheet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const chip = color => `<span class="chip" style="background:${esc(color)}"></span>`;
+const FORM = {W: 'V', D: 'E', L: 'Î'};
+
+function render(st) {
+  $('league').textContent = st.league;
+  document.title = 'Clasament · ' + st.league;
+  $('where').textContent = `Sezonul ${st.season} · ${st.played} din ${st.total} meciuri jucate`;
+  const m = st.match;
+  const color = {};
+  st.standings.forEach(r => { color[r.team] = r.color; });
+  let banner;
+  if (st.phase === 'finished') {
+    banner = `<span class="badge off">ÎNCHEIAT</span><span>Campioană: <b>${esc(st.champion)}</b></span>`;
+  } else if (st.phase === 'live') {
+    banner = `<span class="badge">ÎN DIRECT</span><span class="muted">Etapa ${m.round} · min. ${m.minute}</span>
+      <span>${chip(m.home.color)} <b>${esc(m.home.name)}</b></span><span class="num">${m.score[0]} – ${m.score[1]}</span>
+      <span><b>${esc(m.away.name)}</b> ${chip(m.away.color)}</span><span class="muted">clasamentul de mai jos include acest scor</span>`;
+  } else if (st.phase === 'fulltime') {
+    banner = `<span class="badge off">FINAL</span><span class="muted">Etapa ${m.round}</span>
+      <span>${chip(m.home.color)} <b>${esc(m.home.name)}</b></span><span class="num">${m.score[0]} – ${m.score[1]}</span>
+      <span><b>${esc(m.away.name)}</b> ${chip(m.away.color)}</span>`;
+  } else {
+    banner = `<span class="badge off">URMEAZĂ</span><span class="muted">Etapa ${m.round}</span>
+      <span>${chip(m.home.color)} <b>${esc(m.home.name)}</b> – <b>${esc(m.away.name)}</b> ${chip(m.away.color)}</span>`;
+  }
+  $('banner').innerHTML = banner;
+  $('table').innerHTML = '<tr><th></th><th class="t">Echipa</th><th>M</th><th>V</th><th>E</th><th>Î</th><th>GM</th><th>GP</th><th>DG</th><th>Pct</th><th>Formă</th></tr>' +
+    st.standings.map(r => `<tr class="${r.live ? 'live' : ''}${r.pos === 1 ? ' first' : ''}"><td>${r.pos}</td>
+      <td class="t"><span class="name">${chip(r.color)}${esc(r.team)}${r.live ? ' <span class="badge">LIVE</span>' : ''}</span></td>
+      <td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf}</td><td>${r.ga}</td>
+      <td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td>
+      <td><span class="form">${r.form.map(f => `<i class="${f}">${FORM[f]}</i>`).join('')}</span></td></tr>`).join('');
+  const rank = rows => rows.length ? rows.map((r, i) => `<li><span class="i">${i + 1}</span>${chip(r.color)}<span>${esc(r.name)} <small>${esc(r.team)}</small></span><span class="c">${r.count}${r.pens ? ` <small>(${r.pens} pen.)</small>` : ''}</span></li>`).join('') : '<li class="empty">Nimic încă.</li>';
+  $('scorers').innerHTML = rank(st.scorers);
+  $('assists').innerHTML = rank(st.assists);
+  $('yellows').innerHTML = rank(st.yellowCards || []);
+  // tabelele de sezon: din meciurile incheiate care au fisa (meciul in direct nu intra)
+  const T = st.seasonTables || {};
+  const dec = (x, d) => window.MatchSheet ? MatchSheet.dec(x, d) : Number(x).toFixed(d);
+  const list = (rows, right, sub) => rows && rows.length ? rows.map((r, i) => `<li><span class="i">${i + 1}</span>${chip(r.color)}<span>${esc(r.name)} <small>${esc(r.team)}${sub ? ' · ' + sub(r) : ''}</small></span><span class="c">${right(r)}</span></li>`).join('') : '<li class="empty">Nimic încă.</li>';
+  $('avgRating').innerHTML = list(T.avg_rating, r => dec(r.avg_rating, 2), r => `${r.matches} m.`);
+  $('maxRating').innerHTML = list(T.max_rating, r => dec(r.rating, 1), r => `cu ${esc(r.opponent)}, etapa ${esc(r.round)}`);
+  $('cleanSheets').innerHTML = list(T.clean_sheets, r => `${r.clean_sheets} <small>din ${r.matches}</small>`);
+  $('motm').innerHTML = list(T.motm, r => r.motm);
+  $('rounds').innerHTML = st.fixtures.map(r => {
+    const now = r.matches.some(x => x.current);
+    return `<div class="round${now ? ' now' : ''}"><h4>Etapa ${r.round}${now ? ' <span class="badge off">ACUM</span>' : ''}</h4>` +
+      r.matches.map(x => {
+        const s = x.score ? `${x.score[0]} – ${x.score[1]}` : (x.current ? 'acum' : '–');
+        const win = x.score && !x.live ? (x.score[0] > x.score[1] ? 'h' : x.score[1] > x.score[0] ? 'a' : '') : '';
+        const played = x.score && !x.live;      // un meci jucat deschide fisa lui
+        return `<div class="fx${x.live ? ' live' : x.current ? ' next' : ''}${played ? ' click' : ''}"${played ? ` data-i="${x.index}" title="Statisticile meciului"` : ''}><span class="h">${win === 'h' ? '<b>' : ''}${esc(x.home)}${win === 'h' ? '</b>' : ''}</span><span class="s${x.score || x.current ? '' : ' none'}">${s}</span><span>${win === 'a' ? '<b>' : ''}${esc(x.away)}${win === 'a' ? '</b>' : ''}</span></div>`;
+      }).join('') + '</div>';
+  }).join('');
+}
+
+// fereastra cu fisa unui meci jucat (desenata de match_sheet.js, ca la televizor)
+const modal = $('sheetModal'), modalBox = $('sheetBox');
+function closeSheet() { modal.hidden = true; modalBox.innerHTML = ''; }
+async function openSheet(index) {
+  if (window.MatchSheet) MatchSheet.injectStyle();
+  modal.hidden = false;
+  modalBox.innerHTML = '<div class="empty">Se încarcă…</div>';
+  let body = null;
+  try {
+    const r = await fetch('/api/sheet/' + index, {cache: 'no-store'});
+    body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'eroare');
+    modalBox.innerHTML = MatchSheet.html(body, {closable: true});
+  } catch (e) {
+    const msg = body && body.error ? body.error : 'Fișa nu s-a putut încărca.';
+    modalBox.innerHTML = `<div class="empty" style="padding:20px;text-align:center">${esc(msg)}</div><div style="text-align:center"><button class="ms-close" data-close="1">Închide</button></div>`;
+  }
+}
+$('rounds').addEventListener('click', e => {
+  const fx = e.target.closest('.fx[data-i]');
+  if (fx) openSheet(+fx.dataset.i);
+});
+modal.addEventListener('click', e => { if (e.target === modal || e.target.closest('[data-close]')) closeSheet(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) closeSheet(); });
+
+async function poll() {
+  try {
+    const r = await fetch('/api/state', {cache: 'no-store'});
+    render(await r.json());
+  } catch (e) {
+    $('banner').innerHTML = '<span class="muted">Legătura cu serverul s-a întrerupt, reîncerc…</span>';
+  }
+}
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

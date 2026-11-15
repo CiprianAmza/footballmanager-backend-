@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meci 2D din ratinguri</title>
+<style>
+  :root { --bg:#10151c; --panel:#1a222d; --line:#2b3745; --text:#e8edf2; --muted:#93a1b0; --accent:#f4d35e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  .wrap { max-width:1500px; margin:0 auto; padding:12px 16px 20px; }
+  header { display:flex; align-items:center; justify-content:center; gap:18px; padding:8px 0 12px; flex-wrap:wrap; }
+  .team { display:flex; align-items:center; gap:8px; font-size:20px; font-weight:600; }
+  .chip { width:16px; height:16px; border-radius:50%; border:2px solid #fff; }
+  .score { font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; min-width:110px; text-align:center; }
+  .clock { color:var(--accent); font-size:18px; font-variant-numeric:tabular-nums; min-width:150px; text-align:center; }
+  .main { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:14px; }
+  @media (max-width:1000px) { .main { grid-template-columns:1fr; } }
+  .pitchbox { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; }
+  canvas#pitch { width:100%; display:block; border-radius:6px; cursor:pointer; }
+  .controls { display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button { background:#263242; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
+  button:hover { background:#31405305; background:#324155; }
+  button.on { background:var(--accent); color:#111; border-color:var(--accent); }
+  .seek { position:relative; margin-top:8px; }
+  .seek input { width:100%; margin:0; }
+  canvas#marks { width:100%; height:16px; display:block; }
+  .side { display:flex; flex-direction:column; gap:12px; min-width:0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .card h3 { margin:0 0 8px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  #feed { height:330px; overflow:auto; font-size:13px; }
+  #feed div { padding:3px 0; border-bottom:1px solid #222c38; cursor:pointer; }
+  #feed div:hover { color:var(--accent); }
+  #feed .t { color:var(--muted); font-variant-numeric:tabular-nums; margin-right:6px; }
+  #feed .goal { color:var(--accent); font-weight:700; }
+  #feed .tag { display:inline-block; margin-left:6px; padding:0 4px; border:1px solid currentColor; border-radius:3px; font-size:10px; font-weight:600; letter-spacing:.04em; vertical-align:1px; opacity:.85; }
+  #feed .yc, #feed .rc { display:inline-block; width:7px; height:10px; border-radius:1.5px; background:#f4d000; margin-right:5px; vertical-align:-1px; }
+  #feed .rc { background:#e5383b; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  td { padding:2px 4px; text-align:center; }
+  td.k { color:var(--muted); font-size:12px; }
+  #sel { font-size:13px; min-height:54px; }
+  .legend { color:var(--muted); font-size:12px; margin-top:8px; }
+  .legend b { color:var(--text); font-weight:600; }
+  /* modul televizor (#tv): fara controale de redare, ceasul vine din pagina-gazda */
+  .tv .wrap { padding:0; max-width:none; }
+  .tv .seek, .tv .controls, .tv .legend { display:none; }
+  .tv .main { grid-template-columns:1fr; }
+  .tv .side { flex-direction:row; }
+  .tv .side .card { flex:1 1 0; min-width:0; }
+  .tv #feed { height:150px; }
+  .tv #feed div { cursor:default; }
+  body.tv { overflow:hidden; }    /* inaltimea o da pagina-gazda, fara bara de derulare proprie */
+  @media (max-width:700px) { .tv .side { flex-direction:column; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="team"><span class="chip" id="chipH"></span><span id="nameH"></span></div>
+    <div class="score" id="score">0 - 0</div>
+    <div class="team"><span id="nameA"></span><span class="chip" id="chipA"></span></div>
+    <div class="clock" id="clock"></div>
+  </header>
+  <div class="main">
+    <div class="pitchbox">
+      <canvas id="pitch" width="1260" height="816"></canvas>
+      <div class="seek">
+        <canvas id="marks" width="1260" height="16"></canvas>
+        <input type="range" id="bar" min="0" max="1" step="1" value="0">
+      </div>
+      <div class="controls">
+        <button id="play">Pauză</button>
+        <button data-speed="0.5">0.5x</button>
+        <button data-speed="1" class="on">1x</button>
+        <button data-speed="2">2x</button>
+        <button data-speed="4">4x</button>
+        <button data-speed="8">8x</button>
+        <span style="width:10px"></span>
+        <button id="prevEv">◀ fază</button>
+        <button id="nextEv">fază ▶</button>
+        <span style="width:10px"></span>
+        <button id="tSummary">Rezumat</button>
+        <button id="tReplays" class="on">Reluări</button>
+        <span style="width:10px"></span>
+        <button id="tZones">Zone</button>
+        <button id="tTargets" class="on">Ținte</button>
+        <button id="tTrail" class="on">Urma mingii</button>
+        <button id="tNames" class="on">Nume</button>
+      </div>
+      <div class="legend">
+        <b>Click pe un jucător</b> = îi vezi zona (albastru = faza defensivă, portocaliu = cât poate urca în atac).
+        Linie albă punctată = pasă la picior · galbenă = pasă în alergare (cercul e ținta) · roșie = șut ·
+        X = punctul până la care conduce mingea. Inel alb = purtătorul mingii, inel portocaliu = iese la presing.
+        Dreptunghi galben lângă cerc = cartonaș; romb portocaliu pe bara de timp = penalty.
+        Benzile galbene pe bara de timp = fazele importante (Rezumat = doar ele); Reluări = golurile se reiau o dată, încetinit.
+        Space = pauză, ← → = ±5 s.
+      </div>
+    </div>
+    <div class="side">
+      <div class="card"><h3>Faze</h3><div id="feed"></div></div>
+      <div class="card"><h3>Statistici (până acum)</h3><table id="stats"></table></div>
+      <div class="card"><h3>Jucător selectat</h3><div id="sel">Niciunul. Click pe un jucător de pe teren.</div></div>
+    </div>
+  </div>
+</div>
+<script>
+const MATCH = /*__MATCH_DATA__*/null;
+
+// ---------------------------------------------------------------- date
+const F = MATCH.frames, N = F.length, HZ = MATCH.hz;
+const PL = MATCH.pitch.length, PW = MATCH.pitch.width;
+const players = [];
+MATCH.teams.forEach((t, ti) => t.players.forEach(p => players.push(Object.assign({team: ti}, p))));
+const EV = MATCH.events;
+// energia (procente) e notata o data pe minut de joc; inainte de primul minut toti au 100
+const EN = MATCH.energy && MATCH.energy.rows.length ? MATCH.energy : null;
+const energyOf = (i, t) => {
+  if (!EN) return null;
+  const k = Math.floor(t / EN.every) - 1;
+  return k < 0 ? 100 : EN.rows[Math.min(k, EN.rows.length - 1)][i];
+};
+const teamEnergy = (ti, t) => {
+  if (!EN) return '-';
+  let sum = 0, n = 0;
+  for (let i = 0; i < 22; i++) if (players[i].team === ti && players[i].pos !== 'GK') { sum += energyOf(i, t); n++; }
+  return Math.round(sum / n) + '%';
+};
+// posesie cumulata, ca statisticile "pana acum" sa fie instantanee
+const possCum = [new Int32Array(N + 1), new Int32Array(N + 1)];
+for (let i = 0; i < N; i++) {
+  const h = MATCH.holders[i];
+  possCum[0][i + 1] = possCum[0][i] + (h >= 0 && h < 11 ? 1 : 0);
+  possCum[1][i + 1] = possCum[1][i] + (h >= 11 ? 1 : 0);
+}
+const halfOf = i => { let k = 0; for (let j = 0; j < MATCH.halves.length; j++) if (MATCH.halves[j].frame <= i) k = j; return k; };
+const KEY_TYPES = {SHOT:1, GOAL:1, PENALTY:1, SHOOTOUT_KICK:1};
+// meciul eliminatoriu: perioadele de dupa cele doua reprize au cheia "period" in MATCH.halves
+const PERIOD_NAMES = {extra1: 'prelungiri 1', extra2: 'prelungiri 2', penalties: 'penalty-uri'};
+const periodLabel = k => PERIOD_NAMES[MATCH.halves[k].period] || 'repriza ' + (k + 1);
+const SHOOTOUT_EV = EV.findIndex(e => e.type === 'SHOOTOUT');     // -1 = fara departajare
+// cartonasele: secunda primului galben / a rosului, pe jucator (uid = echipa x 11 + index);
+// desenul compara cu secunda curenta, deci la derulare inapoi dispar singure
+const uidIdx = {};
+players.forEach((p, i) => { uidIdx[p.uid !== undefined ? p.uid : i] = i; });
+const yellowAt = new Array(22).fill(Infinity), redAt = new Array(22).fill(Infinity);
+const cardOfFoul = new Map();    // indicele faultului -> culoarea cartonasului adus (pentru lista de faze)
+EV.forEach((e, k) => {
+  if (e.type !== 'CARD') return;
+  const i = uidIdx[e.p]; if (i === undefined) return;
+  const at = e.card === 'red' ? redAt : yellowAt;
+  at[i] = Math.min(at[i], e.t);
+  for (let j = k - 1; j >= 0 && e.t - EV[j].t <= 3; j--)
+    if (EV[j].type === 'FOUL' && EV[j].p === e.p) { cardOfFoul.set(j, e.card); break; }
+});
+
+// ---------------------------------------------------------------- faze importante si reluari
+// fazele vin calculate de motor (MATCH.highlights, secunde de joc); fara ele "Rezumat" n-are ce reda
+const REPLAY = {PRE: 6, POST: 1, AFTER: 3, RATE: 0.5};   // reluarea [t-6, t+1], pornita la t+3
+const CAPTION_MS = 2500;                                  // cat sta legenda de la taietura
+const DUR = (N - 1) / HZ;
+const HS = (Array.isArray(MATCH.highlights) ? MATCH.highlights : [])
+  .map(h => ({from: +h.from, to: +h.to, label: h.label || null})).sort((a, b) => a.from - b.from);
+const GOALS_T = EV.filter(e => e.type === 'GOAL').map(e => e.t);
+
+// ---------------------------------------------------------------- stare redare
+let pos = 0;            // cadru curent (fractionar)
+let playing = true, speed = 1, last = performance.now();
+let selected = -1, showZones = false, showTargets = true, showTrail = true, showNames = true;
+// eticheta de deasupra cercului: numele de familie (ultimul cuvant din nume)
+const labels = players.map(p => p.name.trim().split(/\s+/).pop());
+// modul televizor: pagina e intr-un iframe si primeste ora exacta a meciului de la gazda
+const TV = new URLSearchParams(location.hash.slice(1)).has('tv');
+// taieturi (salt in timp): urma mingii si liniile de pase nu traverseaza saltul; legenda scurta
+let trailFrom = 0, cutT = -Infinity, caption = null;
+let summaryOn = false, replaysOn = true;
+let replay = null;                  // {end, resume, live} cat timp ruleaza o reluare (mod de sine statator)
+const replayed = new Set();         // golurile (secunda) deja reluate
+let tvReplay = false, tvLive = null, tvAnchor = 0, tvCut = null;
+function cutTo(p, label) {
+  pos = Math.max(0, Math.min(N - 1, p));
+  trailFrom = Math.floor(pos); cutT = pos / HZ; evPtr = -2;
+  caption = label ? {text: 'Min. ' + Math.floor(pos / HZ / 60) + ' · ' + label, until: performance.now() + CAPTION_MS} : null;
+}
+function stopReplay(resume) {
+  if (!replay) return;
+  const r = replay; replay = null; evPtr = -2;
+  if (resume) cutTo(r.resume * HZ, null);
+}
+function seekTo(p) {                // mutare ceruta de utilizator: opreste reluarea
+  stopReplay(false);
+  pos = Math.max(0, Math.min(N - 1, p)); evPtr = -2;
+  for (const g of [...replayed]) if (g > pos / HZ) replayed.delete(g);   // a dat inapoi peste gol
+}
+const panelT = () => {              // secunda pentru tabela, ceas, statistici, lista de faze
+  let t = pos / HZ;
+  if (TV && tvLive !== null) t = tvReplay ? tvLive : tvLive + (t - tvAnchor);
+  else if (!TV && replay) t = replay.live;
+  return Math.max(0, Math.min(DUR, t));
+};
+
+const cv = document.getElementById('pitch'), cx = cv.getContext('2d');
+const MARG = 30;
+let SW = cv.width - 2 * MARG, SH = cv.height - 2 * MARG;
+const X = v => MARG + v / 1000 * SW, Y = v => MARG + v / 1000 * SH;
+const XM = m => MARG + m / PL * SW, YM = m => MARG + m / PW * SH;   // din metri
+
+// ---------------------------------------------------------------- teren
+const pitchLayer = document.createElement('canvas');
+function buildPitch() {
+  pitchLayer.width = cv.width; pitchLayer.height = cv.height;
+  const g = pitchLayer.getContext('2d');
+  g.fillStyle = '#1f5e2c'; g.fillRect(0, 0, cv.width, cv.height);
+  const stripes = 14;
+  for (let i = 0; i < stripes; i++) {
+    g.fillStyle = i % 2 ? '#2f7d3b' : '#2a7436';
+    g.fillRect(XM(PL / stripes * i), YM(0), SW / stripes + 1, SH);
+  }
+  g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 2;
+  g.strokeRect(XM(0), YM(0), SW, SH);
+  g.beginPath(); g.moveTo(XM(PL / 2), YM(0)); g.lineTo(XM(PL / 2), YM(PW)); g.stroke();
+  const mPx = SW / PL;
+  g.beginPath(); g.arc(XM(PL / 2), YM(PW / 2), 9.15 * mPx, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(XM(PL / 2), YM(PW / 2), 3, 0, Math.PI * 2); g.fill();
+  for (const side of [0, 1]) {
+    const gx = side ? PL : 0, s = side ? -1 : 1;
+    g.strokeRect(XM(Math.min(gx, gx + s * 16.5)), YM(PW / 2 - 20.16), 16.5 * mPx, 40.32 * SH / PW);
+    g.strokeRect(XM(Math.min(gx, gx + s * 5.5)), YM(PW / 2 - 9.16), 5.5 * mPx, 18.32 * SH / PW);
+    g.beginPath(); g.arc(XM(gx + s * 11), YM(PW / 2), 3, 0, Math.PI * 2); g.fill();
+    g.beginPath();
+    const a = Math.acos(5.5 / 9.15);
+    g.arc(XM(gx + s * 11), YM(PW / 2), 9.15 * mPx, side ? Math.PI - a : -a, side ? Math.PI + a : a); g.stroke();
+    // poarta
+    g.lineWidth = 3; g.strokeStyle = '#fff';
+    g.strokeRect(XM(side ? PL : -2), YM(PW / 2 - 3.66), 2 * mPx, 7.32 * SH / PW);
+    g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.85)';
+  }
+  for (const [qx, qy, a0] of [[0, 0, 0], [PL, 0, Math.PI / 2], [PL, PW, Math.PI], [0, PW, -Math.PI / 2]]) {
+    g.beginPath(); g.arc(XM(qx), YM(qy), 1 * mPx, a0, a0 + Math.PI / 2); g.stroke();
+  }
+}
+
+// ---------------------------------------------------------------- desen
+function textColor(hex) {
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#111' : '#fff';
+}
+function lerpFrame(p) {
+  const i = Math.min(N - 1, Math.floor(p)), j = Math.min(N - 1, i + 1), u = p - i;
+  const a = F[i], b = F[j];
+  // la pauza jucatorii sunt mutati la centru: nu interpolam peste taietura
+  const cut = MATCH.halves.some(h => h.frame === j && j !== 0) || u <= 0;
+  if (cut) return a;
+  const out = new Array(a.length);
+  for (let k = 0; k < a.length; k++) out[k] = a[k] + (b[k] - a[k]) * u;
+  return out;
+}
+function zoneRect(z, dir) {
+  // z = [xmin, xmax, ymin, ymax] in canonicul echipei (metri) -> dreptunghi pe ecran
+  let x0 = z[0], x1 = z[1], y0 = z[2], y1 = z[3];
+  if (dir !== 1) { [x0, x1] = [PL - x1, PL - x0]; [y0, y1] = [PW - y1, PW - y0]; }
+  return [XM(x0), YM(y0), XM(x1) - XM(x0), YM(y1) - YM(y0)];
+}
+function draw() {
+  const fi = Math.min(N - 1, Math.floor(pos));
+  const fr = lerpFrame(pos);
+  cx.drawImage(pitchLayer, 0, 0);
+  const dirs = MATCH.halves[halfOf(fi)].dirs;
+  const R = Math.max(9, SW / PL * 1.25);
+
+  // zone
+  const zoneOf = i => {
+    const p = players[i], d = dirs[p.team];
+    cx.setLineDash([8, 6]); cx.lineWidth = 2;
+    cx.strokeStyle = '#4ea8ff'; cx.fillStyle = 'rgba(78,168,255,.10)';
+    let r = zoneRect(p.zoneDef, d); cx.fillRect(...r); cx.strokeRect(...r);
+    cx.strokeStyle = '#ff9f43'; cx.fillStyle = 'rgba(255,159,67,.08)';
+    r = zoneRect(p.zoneAtt, d); cx.fillRect(...r); cx.strokeRect(...r);
+    cx.setLineDash([]);
+  };
+  if (selected >= 0) zoneOf(selected);
+  else if (showZones) { const h = MATCH.holders[fi]; if (h >= 0) zoneOf(h); }
+
+  // tinte: pase, suturi, conduceri recente
+  const tNow = pos / HZ;
+  if (tNow < cutT) { cutT = -Infinity; trailFrom = 0; }    // s-a mutat inapoia taieturii
+  if (showTargets) {
+    for (let k = evIndex(tNow); k >= 0 && k > evIndex(tNow) - 40; k--) {
+      const e = EV[k]; if (!e || e.tx === undefined || e.t < cutT) continue;
+      const age = tNow - e.t; if (age > 1.6 || age < 0) continue;
+      const al = 1 - age / 1.6;
+      const x0 = X(e.x * 10), y0 = Y(e.y * 10), x1 = X(e.tx * 10), y1 = Y(e.ty * 10);
+      if (e.type === 'PASS') {
+        cx.strokeStyle = e.sub === 'through' ? `rgba(244,211,94,${al})` : `rgba(255,255,255,${al * 0.8})`;
+        cx.lineWidth = e.loft ? 3 : 2; cx.setLineDash(e.loft ? [2, 7] : [6, 6]);
+        cx.beginPath(); cx.moveTo(x0, y0); cx.lineTo(x1, y1); cx.stroke(); cx.setLineDash([]);
+        if (e.sub === 'through') { cx.beginPath(); cx.arc(x1, y1, 8, 0, 7); cx.stroke(); }
+      } else if (e.type === 'SHOT') {
+        cx.strokeStyle = e.special ? `rgba(255,215,0,${al})` : `rgba(255,80,80,${al})`; cx.lineWidth = e.special ? 6 : 3;
+        cx.beginPath(); cx.moveTo(x0, y0); cx.lineTo(x1, y1); cx.stroke();
+      } else if (e.type === 'CARRY' && age < 0.9) {
+        cx.strokeStyle = `rgba(255,255,255,${al * 0.55})`; cx.lineWidth = 1.5;
+        cx.beginPath(); cx.moveTo(x1 - 5, y1 - 5); cx.lineTo(x1 + 5, y1 + 5);
+        cx.moveTo(x1 + 5, y1 - 5); cx.lineTo(x1 - 5, y1 + 5); cx.stroke();
+      }
+    }
+  }
+
+  // urma mingii
+  if (showTrail) {
+    cx.lineWidth = 2;
+    for (let k = 1; k <= 8 && fi - k >= trailFrom; k++) {
+      const a = F[Math.max(0, fi - k)], b = F[Math.max(0, fi - k + 1)];
+      if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) > 300) break;
+      cx.strokeStyle = `rgba(255,255,255,${0.35 * (1 - k / 9)})`;
+      cx.beginPath(); cx.moveTo(X(a[0]), Y(a[1])); cx.lineTo(X(b[0]), Y(b[1])); cx.stroke();
+    }
+  }
+
+  // jucatori
+  const holder = MATCH.holders[fi], roles = MATCH.roles[fi];
+  cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.font = `bold ${Math.round(R * 1.05)}px system-ui, sans-serif`;
+  for (let i = 0; i < 22; i++) {
+    const p = players[i], t = MATCH.teams[p.team];
+    const x = X(fr[3 + 2 * i]), y = Y(fr[4 + 2 * i]);
+    const col = p.pos === 'GK' ? t.gkColor : t.color;
+    cx.fillStyle = 'rgba(0,0,0,.28)'; cx.beginPath(); cx.ellipse(x + 2, y + 3, R, R * 0.8, 0, 0, 7); cx.fill();
+    cx.fillStyle = col; cx.beginPath(); cx.arc(x, y, R, 0, 7); cx.fill();
+    cx.lineWidth = 1.5; cx.strokeStyle = p.pos === 'GK' ? t.color : 'rgba(0,0,0,.55)'; cx.stroke();
+    if (i === holder) { cx.lineWidth = 3; cx.strokeStyle = '#fff'; cx.beginPath(); cx.arc(x, y, R + 3.5, 0, 7); cx.stroke(); }
+    else if (roles[i] === 'p') { cx.lineWidth = 2; cx.strokeStyle = '#ff9f43'; cx.beginPath(); cx.arc(x, y, R + 3, 0, 7); cx.stroke(); }
+    if (i === selected) { cx.lineWidth = 2; cx.strokeStyle = '#f4d35e'; cx.setLineDash([4, 3]); cx.beginPath(); cx.arc(x, y, R + 7, 0, 7); cx.stroke(); cx.setLineDash([]); }
+    cx.fillStyle = textColor(col); cx.fillText(p.number, x, y + 1);
+    const red = redAt[i] <= tNow;
+    if (red || yellowAt[i] <= tNow) {      // cartonasul: dreptunghi mic, dreapta-sus langa cerc
+      const cw = Math.max(5, R * 0.55), ch = Math.max(7, R * 0.8), qx = x + R * 0.75, qy = y - R * 1.05;
+      cx.fillStyle = red ? '#e5383b' : '#f4d000'; cx.fillRect(qx, qy, cw, ch);
+      cx.lineWidth = 1; cx.strokeStyle = 'rgba(0,0,0,.6)'; cx.strokeRect(qx, qy, cw, ch);
+    }
+  }
+  if (showNames) {
+    // numele deasupra cercului, cu contur inchis ca sa se citeasca pe iarba si peste alti jucatori
+    cx.font = `600 ${Math.max(10, Math.round(R * 0.85))}px system-ui, sans-serif`;
+    cx.textBaseline = 'alphabetic'; cx.lineJoin = 'round';
+    for (let i = 0; i < 22; i++) {
+      const x = X(fr[3 + 2 * i]), y = Y(fr[4 + 2 * i]) - R - 6;
+      cx.lineWidth = 3; cx.strokeStyle = 'rgba(8,14,10,.8)'; cx.strokeText(labels[i], x, y);
+      cx.fillStyle = i === selected ? '#f4d35e' : '#fff'; cx.fillText(labels[i], x, y);
+    }
+    cx.textBaseline = 'middle';
+  }
+
+  // mingea (creste cu inaltimea, umbra ramane pe iarba)
+  const bx = X(fr[0]), by = Y(fr[1]), bz = fr[2] / 10;
+  const br = Math.max(4.5, R * 0.45) * (1 + bz * 0.09);
+  cx.fillStyle = 'rgba(0,0,0,.35)'; cx.beginPath(); cx.ellipse(bx + 1 + bz, by + 2 + bz * 1.5, br, br * 0.7, 0, 0, 7); cx.fill();
+  cx.fillStyle = '#fff'; cx.beginPath(); cx.arc(bx, by - bz * 2.2, br, 0, 7); cx.fill();
+  cx.lineWidth = 1.5; cx.strokeStyle = '#111'; cx.stroke();
+
+  // banner pentru goluri / penalty / pauza
+  for (let k = evIndex(tNow); k >= 0; k--) {
+    const e = EV[k]; if (tNow - e.t > 3.5 || e.t < cutT) break;
+    if (e.type === 'GOAL' || e.type === 'PENALTY' || e.type === 'HALF_TIME' || e.type === 'FULL_TIME'
+        || e.type === 'EXTRA_TIME' || e.type === 'EXTRA_HALF_TIME' || e.type === 'SHOOTOUT' || e.type === 'SHOOTOUT_KICK') {
+      const text = e.text || (e.type === 'PENALTY' && MATCH.teams[e.team] ? 'Penalty pentru ' + MATCH.teams[e.team].name + '!' : '');
+      if (!text) continue;
+      cx.fillStyle = 'rgba(0,0,0,.6)'; cx.fillRect(cv.width / 2 - 330, 40, 660, 54);
+      cx.fillStyle = e.type === 'GOAL' || (e.type === 'SHOOTOUT_KICK' && e.scored) ? '#f4d35e'
+        : e.type === 'PENALTY' || e.type === 'SHOOTOUT' ? '#ff9f43' : '#fff';
+      cx.font = 'bold 26px system-ui, sans-serif';
+      cx.fillText(text, cv.width / 2, 68); break;
+    }
+  }
+
+  // insigna RELUARE (stanga-sus) si legenda de la taietura (jos)
+  if (TV ? tvReplay : replay) {
+    cx.font = 'bold 18px system-ui, sans-serif'; cx.textAlign = 'left';
+    const w = cx.measureText('RELUARE').width + 34;
+    cx.fillStyle = 'rgba(0,0,0,.62)'; cx.fillRect(MARG + 10, MARG + 10, w, 32);
+    cx.fillStyle = '#e5383b'; cx.beginPath(); cx.arc(MARG + 23, MARG + 26, 5, 0, 7); cx.fill();
+    cx.fillStyle = '#fff'; cx.fillText('RELUARE', MARG + 34, MARG + 27);
+    cx.textAlign = 'center';
+  }
+  if (caption) {
+    const left = caption.until - performance.now();
+    if (left <= 0) caption = null;
+    else {
+      cx.globalAlpha = Math.min(1, left / 400);
+      cx.font = 'bold 22px system-ui, sans-serif';
+      const w = cx.measureText(caption.text).width + 40, y = cv.height - MARG - 58;
+      cx.fillStyle = 'rgba(0,0,0,.66)'; cx.fillRect(cv.width / 2 - w / 2, y, w, 42);
+      cx.fillStyle = '#f4d35e'; cx.fillRect(cv.width / 2 - w / 2, y, 4, 42);
+      cx.fillStyle = '#fff'; cx.fillText(caption.text, cv.width / 2, y + 22);
+      cx.globalAlpha = 1;
+    }
+  }
+}
+
+// ---------------------------------------------------------------- panouri
+let evPtr = -1;
+function evIndex(t) {          // ultimul eveniment cu e.t <= t (cautare binara)
+  let lo = 0, hi = EV.length - 1, r = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (EV[m].t <= t) { r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+const fmt = t => { const m = Math.floor(t / 60), s = Math.floor(t % 60); return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s; };
+const feed = document.getElementById('feed');
+const cum = EV.map(() => null);
+const zeroStats = () => ({passes:0, ok:0, shots:0, onT:0, goals:0, tackles:0, inter:0, drib:0,
+                          fouls:0, yellow:0, red:0, corners:0, pens:0});
+(function buildCum() {       // statistici cumulate pe evenimente
+  const z = zeroStats;
+  let c = [z(), z()];
+  EV.forEach((e, i) => {
+    const t = e.team;
+    if (t !== undefined) {
+      const s = c[t];
+      if (e.type === 'PASS') s.passes++;
+      else if (e.type === 'PASS_OK') s.ok++;
+      else if (e.type === 'SHOT') s.shots++;
+      else if (e.type === 'GOAL') { s.goals++; s.onT++; }
+      else if (e.type === 'SAVE') c[1 - t].onT++;
+      else if (e.type === 'TACKLE') s.tackles++;
+      else if (e.type === 'INTERCEPT') s.inter++;
+      else if (e.type === 'DRIBBLE') s.drib++;
+      else if (e.type === 'FOUL') s.fouls++;                       // echipa care a faultat
+      else if (e.type === 'CARD') { if (e.card === 'red') s.red++; else s.yellow++; }
+      else if (e.type === 'CORNER') s.corners++;                   // echipa care bate cornerul
+      else if (e.type === 'SHOOTOUT_KICK' && e.scored) s.pens++;   // lovitura de departajare transformata
+    }
+    cum[i] = [Object.assign({}, c[0]), Object.assign({}, c[1])];
+  });
+})();
+function refreshPanels(force) {
+  const t = panelT(), k = evIndex(t);      // in timpul unei reluari tabela ramane la "live"
+  const fi = Math.min(N - 1, Math.floor(t * HZ));
+  document.getElementById('clock').textContent = fmt(t) + ' · ' + periodLabel(halfOf(fi)) + ' · ' + speed + 'x';
+  if (k === evPtr && !force) return;
+  evPtr = k;
+  const c = k >= 0 ? cum[k] : [zeroStats(), zeroStats()];
+  document.getElementById('score').textContent = c[0].goals + ' - ' + c[1].goals
+    + (SHOOTOUT_EV >= 0 && k >= SHOOTOUT_EV ? ' (pen. ' + c[0].pens + ' - ' + c[1].pens + ')' : '');
+  const rows = [];
+  for (let i = k; i >= 0 && rows.length < 60; i--) {
+    const e = EV[i]; if (!e.text) continue;
+    // cartonasul (si faultul care l-a adus) cu dreptunghiul lui; golul din penalty cu eticheta "pen."
+    const card = e.type === 'CARD' ? e.card : cardOfFoul.has(i) ? cardOfFoul.get(i) : null;
+    const icon = card !== null ? `<span class="${card === 'red' ? 'rc' : 'yc'}"></span>` : '';
+    const tag = e.type === 'GOAL' && e.how === 'penalty' ? '<span class="tag">pen.</span>' : '';
+    rows.push(`<div data-t="${e.t}" class="${e.type === 'GOAL' ? 'goal' : ''}"><span class="t">${fmt(e.t)}</span>${icon}${e.text}${tag}</div>`);
+  }
+  feed.innerHTML = rows.join('');
+  const p0 = possCum[0][fi + 1], p1 = possCum[1][fi + 1], pt = Math.max(1, p0 + p1);
+  const row = (name, a, b) => `<tr><td>${a}</td><td class="k">${name}</td><td>${b}</td></tr>`;
+  const pc = s => s.passes ? Math.round(100 * s.ok / s.passes) + '%' : '-';
+  document.getElementById('stats').innerHTML =
+    row('Posesie', Math.round(100 * p0 / pt) + '%', Math.round(100 * p1 / pt) + '%') +
+    row('Șuturi (pe poartă)', `${c[0].shots} (${c[0].onT})`, `${c[1].shots} (${c[1].onT})`) +
+    row('Pase (reușite)', `${c[0].passes} (${pc(c[0])})`, `${c[1].passes} (${pc(c[1])})`) +
+    row('Driblinguri reușite', c[0].drib, c[1].drib) +
+    row('Deposedări', c[0].tackles, c[1].tackles) +
+    row('Intercepții', c[0].inter, c[1].inter) +
+    row('Faulturi', c[0].fouls, c[1].fouls) +
+    row('Cartonașe galbene', c[0].yellow, c[1].yellow) +
+    (c[0].red || c[1].red ? row('Cartonașe roșii', c[0].red, c[1].red) : '') +
+    row('Cornere', c[0].corners, c[1].corners) +
+    row('Energie medie', teamEnergy(0, t), teamEnergy(1, t));
+  if (selected >= 0) showSelected();
+}
+function showSelected() {
+  const el = document.getElementById('sel');
+  if (selected < 0) { el.textContent = 'Niciunul. Click pe un jucător de pe teren.'; return; }
+  const p = players[selected], r = p.ratings;
+  const keys = p.pos === 'GK' ? ['handling', 'reflexes', 'oneOnOnes', 'commandOfArea', 'kicking', 'positioning']
+    : ['passing', 'dribbling', 'finishing', 'tackling', 'pace', 'decisions', 'vision', 'offTheBall', 'marking', 'firstTouch', 'stamina', 'workRate'];
+  const en = energyOf(selected, pos / HZ);
+  const tired = en === null ? '' : ` · energie <b style="color:${en >= 70 ? '#7bd88f' : en >= 45 ? '#f4d35e' : '#ff7b72'}">${en}%</b>`;
+  el.innerHTML = `<b>#${p.number} ${p.name}</b> — ${MATCH.teams[p.team].name}, ${p.slot}${tired}<br>` +
+    keys.map(k => `${k} <b>${r[k]}</b>`).join(' · ');
+}
+
+// ---------------------------------------------------------------- controale
+const bar = document.getElementById('bar');
+bar.max = N - 1;
+bar.addEventListener('input', () => seekTo(+bar.value));
+document.getElementById('play').onclick = function () {
+  playing = !playing; this.textContent = playing ? 'Pauză' : 'Redare';
+  if (!playing) stopReplay(false);
+};
+document.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => {
+  speed = +b.dataset.speed;
+  document.querySelectorAll('[data-speed]').forEach(o => o.classList.toggle('on', o === b));
+});
+const toggle = (id, fn) => document.getElementById(id).onclick = function () { this.classList.toggle('on'); fn(this.classList.contains('on')); };
+toggle('tZones', v => { showZones = v; });
+toggle('tTargets', v => { showTargets = v; });
+toggle('tTrail', v => { showTrail = v; });
+toggle('tNames', v => { showNames = v; });
+toggle('tSummary', v => { summaryOn = v; });
+toggle('tReplays', v => { replaysOn = v; if (!v) stopReplay(true); });
+function jump(dir) {
+  const t = pos / HZ;
+  let k = evIndex(t - (dir < 0 ? 2.5 : 0));
+  while (true) {
+    k += dir;
+    if (k < 0 || k >= EV.length) return;
+    if (KEY_TYPES[EV[k].type]) { seekTo((EV[k].t - 2) * HZ); return; }
+  }
+}
+document.getElementById('prevEv').onclick = () => jump(-1);
+document.getElementById('nextEv').onclick = () => { stopReplay(true); jump(1); };
+feed.addEventListener('click', e => {
+  if (TV) return;
+  const d = e.target.closest('div[data-t]'); if (!d) return;
+  seekTo((+d.dataset.t - 2) * HZ);
+});
+cv.addEventListener('click', e => {
+  const r = cv.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * cv.width / r.width, my = (e.clientY - r.top) * cv.height / r.height;
+  const fr = F[Math.min(N - 1, Math.floor(pos))];
+  let best = -1, bd = 24 * 24;
+  for (let i = 0; i < 22; i++) {
+    const dx = X(fr[3 + 2 * i]) - mx, dy = Y(fr[4 + 2 * i]) - my, d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = i; }
+  }
+  selected = best === selected ? -1 : best;
+  showSelected();
+});
+document.addEventListener('keydown', e => {
+  if (TV) return;
+  if (e.code === 'Space') { e.preventDefault(); document.getElementById('play').click(); }
+  else if (e.code === 'ArrowRight') seekTo(pos + 5 * HZ);
+  else if (e.code === 'ArrowLeft') seekTo(pos - 5 * HZ);
+});
+function drawMarks() {
+  const m = document.getElementById('marks'), g = m.getContext('2d');
+  g.clearRect(0, 0, m.width, m.height);
+  const dur = (N - 1) / HZ;
+  const teamCol = e => (MATCH.teams[e.team] || {}).color || '#93a1b0';
+  g.fillStyle = 'rgba(244,211,94,.24)';          // fazele importante, ca intervale
+  for (const s of HS) {
+    const x0 = 8 + (m.width - 16) * s.from / dur, x1 = 8 + (m.width - 16) * s.to / dur;
+    g.fillRect(x0, 0, Math.max(2, x1 - x0), m.height);
+  }
+  for (const e of EV) {
+    if (e.type !== 'GOAL' && e.type !== 'SHOT' && e.type !== 'PENALTY') continue;
+    if (e.type === 'SHOT' && e.penalty) continue;      // penalty-ul are deja rombul lui
+    const x = 8 + (m.width - 16) * e.t / dur;
+    if (e.type === 'GOAL') { g.fillStyle = '#f4d35e'; g.beginPath(); g.arc(x, 8, 6, 0, 7); g.fill(); }
+    else if (e.type === 'PENALTY') {     // romb portocaliu cu chenarul in culoarea echipei
+      g.fillStyle = '#ff9f43'; g.strokeStyle = teamCol(e); g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x, 1); g.lineTo(x + 6, 8); g.lineTo(x, 15); g.lineTo(x - 6, 8); g.closePath(); g.fill(); g.stroke();
+    }
+    else { g.fillStyle = teamCol(e); g.fillRect(x - 1.5, 4, 3, 10); }
+  }
+  for (const h of MATCH.halves) { if (!h.frame) continue; g.fillStyle = '#fff'; g.fillRect(8 + (m.width - 16) * h.frame / (N - 1) - 1, 0, 2, 16); }
+}
+
+// ---------------------------------------------------------------- bucla
+// mod de sine statator: reluarea golurilor si sariturile rezumatului (tb = secunda dinaintea pasului)
+function step(tb) {
+  const t = pos / HZ;
+  if (replay) {
+    if (t >= replay.end) stopReplay(true);
+    return;
+  }
+  if (replaysOn) {
+    for (const g of GOALS_T) {
+      if (replayed.has(g) || !(tb < g + REPLAY.AFTER && g + REPLAY.AFTER <= t)) continue;
+      replayed.add(g);
+      replay = {end: g + REPLAY.POST, resume: g + REPLAY.AFTER, live: g + REPLAY.AFTER};
+      cutTo((g - REPLAY.PRE) * HZ, null);
+      return;
+    }
+  }
+  if (summaryOn && !HS.some(s => s.from <= t && t < s.to)) {
+    const nx = HS.find(s => s.from > t);
+    if (nx) cutTo(nx.from * HZ, nx.label);
+    else pos = N - 1;                   // dupa ultima faza: la final
+  }
+}
+function loop(now) {
+  // primul cadru poate veni cu un moment mai mic decat `last`: fara limita de jos, pozitia ar cobori sub 0
+  const dt = Math.max(0, Math.min(0.1, (now - last) / 1000)); last = now;
+  if (playing) {
+    const before = pos;
+    pos += dt * HZ * speed * (replay ? REPLAY.RATE : 1);
+    if (!TV) step(before / HZ);
+    if (pos >= N - 1) { pos = N - 1; playing = false; document.getElementById('play').textContent = 'Redare'; }
+  }
+  bar.value = Math.floor(pos);
+  draw();
+  refreshPanels(false);
+  requestAnimationFrame(loop);
+}
+document.getElementById('nameH').textContent = MATCH.teams[0].name;
+document.getElementById('nameA').textContent = MATCH.teams[1].name;
+document.getElementById('chipH').style.background = MATCH.teams[0].color;
+document.getElementById('chipA').style.background = MATCH.teams[1].color;
+// pornire la un moment anume: #t=95 (secunde) si #pause
+const hash = new URLSearchParams(location.hash.slice(1));
+if (hash.has('t')) pos = Math.max(0, Math.min(N - 1, +hash.get('t') * HZ));
+if (hash.has('pause')) { playing = false; document.getElementById('play').textContent = 'Redare'; }
+if (hash.has('sel')) { selected = +hash.get('sel'); showSelected(); }
+// meciul salvat / revazut (league_tv /replay/N) porneste pe rezumat
+if (!TV && MATCH.start === 'highlights') { summaryOn = true; document.getElementById('tSummary').classList.add('on'); }
+if (TV) {
+  document.body.classList.add('tv');
+  playing = false;
+  // gazda trimite {type:'tv-sync', t, speed, playing, live, replay, label, cut}: t = secunda de
+  // desenat, live = secunda tabelei (in reluare t merge inapoi, tabela nu), cut schimbat = alta
+  // bucata. Intre mesaje ceasul merge singur cu viteza primita; un salt (cut nou sau > 2 s fata
+  // de ceasul local) e taietura curata, cu legenda daca vine label
+  window.addEventListener('message', e => {
+    const m = e.data;
+    if (!m || m.type !== 'tv-sync') return;
+    speed = m.speed;
+    playing = m.playing !== false;
+    const target = Math.max(0, Math.min(N - 1, m.t * HZ));
+    const hasCut = m.cut !== undefined && m.cut !== null;
+    const first = tvCut === null, newPiece = hasCut && !first && m.cut !== tvCut;
+    if (hasCut) tvCut = m.cut;
+    // legenda doar la bucata noua (o corectie de ceas in aceeasi bucata taie fara legenda)
+    if (newPiece || Math.abs(pos - target) > 2 * HZ) cutTo(target, newPiece || first || !hasCut ? m.label || null : null);
+    else if (!playing) { pos = target; evPtr = -2; }
+    if (!!m.replay !== tvReplay) evPtr = -2;
+    tvReplay = !!m.replay;
+    tvLive = typeof m.live === 'number' ? m.live : null;
+    tvAnchor = m.t;
+  });
+  // gazda face iframe-ul exact cat continutul, si cand creste, si cand scade
+  const wrap = document.querySelector('.wrap');
+  const size = () => parent.postMessage({type: 'tv-size', height: Math.ceil(wrap.getBoundingClientRect().height)}, '*');
+  new ResizeObserver(size).observe(wrap);
+  window.addEventListener('load', size);
+  parent.postMessage({type: 'tv-ready'}, '*');
+}
+buildPitch(); drawMarks(); refreshPanels(true);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

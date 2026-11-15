@@ -195,16 +195,21 @@ the flag off nothing changes and the service is never called.
 
 ### 1. Start the service
 
-The engine is its own small project, `match-engine-java` (Java 17, no
-dependencies). It is not part of this repository yet; on the development machine
-it lives next to the backend, in `~/IdeaProjects/match-engine-java`.
+The engine is its own small project in this repository, in the folder
+`match2d-service` (Java 17 or newer, no dependencies, not part of the Maven
+build). Its scripts use `JAVA_HOME` when set, otherwise `java`, `javac` and
+`jar` from the PATH; on Windows run them from Git Bash.
 
 ```bash
-cd ~/IdeaProjects/match-engine-java
+cd ~/IdeaProjects/footballmanager-backend-/match2d-service
 bash build.sh serve                                  # builds out/serve/match2d.jar (the service must be stopped)
 java -jar out/serve/match2d.jar serve --port 8791
 curl http://localhost:8791/health                    # {"status":"ok","engine":"java",...}
 ```
+
+`match2d-service/README.md` (in Romanian) describes the engine itself: its
+rules, weights, events, the knockout request and its own tests
+(`bash test.sh KnockoutTest`).
 
 ### 2. Choose the engine
 
