@@ -82,6 +82,7 @@
         <span style="width:10px"></span>
         <button id="tSummary">Rezumat</button>
         <button id="tReplays" class="on">Reluări</button>
+        <button id="tCaption" class="on" title="Textul scurt de la începutul fiecărei faze">Text fază</button>
         <span style="width:10px"></span>
         <button id="tZones">Zone</button>
         <button id="tTargets" class="on">Ținte</button>
@@ -93,7 +94,7 @@
         Linie albă punctată = pasă la picior · galbenă = pasă în alergare (cercul e ținta) · roșie = șut ·
         X = punctul până la care conduce mingea. Inel alb = purtătorul mingii, inel portocaliu = iese la presing.
         Dreptunghi galben lângă cerc = cartonaș; romb portocaliu pe bara de timp = penalty.
-        Benzile galbene pe bara de timp = fazele importante (Rezumat = doar ele); Reluări = golurile se reiau o dată, încetinit.
+        Benzile galbene pe bara de timp = fazele importante (Rezumat = doar ele); Reluări = golurile se reiau o dată, încetinit. Text fază = textul scurt de la începutul fiecărei faze (îl poți ascunde).
         Space = pauză, ← → = ±5 s.
       </div>
     </div>
@@ -174,6 +175,7 @@ const TV = new URLSearchParams(location.hash.slice(1)).has('tv');
 // taieturi (salt in timp): urma mingii si liniile de pase nu traverseaza saltul; legenda scurta
 let trailFrom = 0, cutT = -Infinity, caption = null;
 let summaryOn = false, replaysOn = true;
+let showCaption = true;
 let replay = null;                  // {end, resume, live} cat timp ruleaza o reluare (mod de sine statator)
 const replayed = new Set();         // golurile (secunda) deja reluate
 let tvReplay = false, tvLive = null, tvAnchor = 0, tvCut = null;
@@ -384,7 +386,7 @@ function draw() {
   if (caption) {
     const left = caption.until - performance.now();
     if (left <= 0) caption = null;
-    else {
+    else if (showCaption) {
       cx.globalAlpha = Math.min(1, left / 400);
       cx.font = 'bold 22px system-ui, sans-serif';
       const w = cx.measureText(caption.text).width + 40, y = cv.height - MARG - 58;
@@ -498,6 +500,7 @@ toggle('tTrail', v => { showTrail = v; });
 toggle('tNames', v => { showNames = v; });
 toggle('tSummary', v => { summaryOn = v; });
 toggle('tReplays', v => { replaysOn = v; if (!v) stopReplay(true); });
+toggle('tCaption', v => { showCaption = v; try { localStorage.setItem('m2d.caption', v ? '1' : '0'); } catch (e) {} });
 function jump(dir) {
   const t = pos / HZ;
   let k = evIndex(t - (dir < 0 ? 2.5 : 0));
@@ -604,6 +607,8 @@ if (hash.has('pause')) { playing = false; document.getElementById('play').textCo
 if (hash.has('sel')) { selected = +hash.get('sel'); showSelected(); }
 // meciul salvat / revazut (league_tv /replay/N) porneste pe rezumat
 if (!TV && MATCH.start === 'highlights') { summaryOn = true; document.getElementById('tSummary').classList.add('on'); }
+// alegerea salvata pentru textul de faza (localStorage poate arunca in iframe)
+try { if (localStorage.getItem('m2d.caption') === '0') { showCaption = false; document.getElementById('tCaption').classList.remove('on'); } } catch (e) {}
 if (TV) {
   document.body.classList.add('tv');
   playing = false;

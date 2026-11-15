@@ -548,6 +548,76 @@ liberi), zgomot de decizie mai mic doar la pase (`teamwork`: −0,11 xG).
 ~1,9–2,0 goluri pe meci, cu 0-0 în ~20% din meciuri; a fost recalibrată după aceea (vezi
 „Recalibrarea nivelului de goluri").
 
+## Scorul țintă (`target`, `engineVersion` 2)
+
+Scorul îl poate hotărî altcineva (motorul clasic al jocului); motorul 2D joacă atunci un meci care
+se termină exact așa. Câmp opțional în cerere, la `POST /results` (un meci sau în `matches`) și la
+`POST /matches`:
+
+```json
+"target": {"score": [g, o], "extraTime": [g, o], "penalties": [g, o], "maxTries": 64}
+```
+
+- `score` (obligatoriu) = golurile din cele 90 de minute; `extraTime` = golurile marcate în
+  prelungiri (prezent = se joacă 2 × 15); `penalties` = scorul departajării (cere `extraTime`;
+  un scor imposibil, de ex. 5-0, e refuzat); `maxTries` implicit 64, cel mult 512.
+- Ținta hotărăște ce se joacă (prelungiri doar cu `extraTime`, departajare doar cu `penalties`),
+  oricare ar fi `knockout.aggregate`; acesta, dacă vine, intră doar în blocul `knockout` al
+  rezultatului. Cu `extraTime` și fără `knockout` blocul se face ca la manșa unică (aggregate
+  0-0). Egal la general fără `penalties`: `winner` `null`, `decidedBy` `"none"`.
+- Rezultatul are forma obișnuită plus `"target": {"met": true, "tries": N, "seed": S}` (`S` =
+  sămânța încercării acceptate). Neatinsă după `maxTries`: eroarea obișnuită,
+  `"target not met after N tries"`. În modul legacy `target` dă eroare. Ținta intră în `id`.
+- **Determinist:** încercarea k are sămânța `Sim.mix(seed, k)` (splitmix64; k = 0 e chiar
+  sămânța cererii). Fără `target` meciul e exact cel de dinainte.
+- **Conducerea** (`Sim.guideGoal`): fiecare echipă are cota perioadei (90', apoi prelungirile).
+  Cu cota atinsă nu mai poate marca: șutul care ar fi intrat devine paradă (`Shooting.launch`),
+  penalty-ul la fel (`SetPiece.takePenalty`), iar golul fără șut (pasă, centrare, autogol, socotit
+  la echipa care beneficiază) iese corner sau lovitură de poartă (`BallPlay.outOfPlay`). Până
+  atunci șansa de gol a ocaziei (după blocaj și ratare, partea paradei; la penalty `pg`) se
+  înmulțește cu `λ = rămase / așteptate`, plafonat la [0, 1]: golurile rămase din cotă împărțite la
+  golurile naturale așteptate în timpul rămas al perioadei, din ritmul xG-ului natural de până
+  atunci amestecat cu un ritm de pornire (2,3 pe echipă în 90', cântărit cât 1200 s de joc). E
+  aceeași extragere ca în meciul natural. La fluierul perioadei cu goluri lipsă încercarea se
+  aruncă. `summary.xg` rămâne xG-ul natural.
+- **Încercările în paralel** (`Sim.playTarget`): încercarea 0 se joacă singură; dacă ratează,
+  următoarele merg în valuri speculative (3, apoi nucleele libere împărțite la meciurile cu țintă
+  care așteaptă) pe un bazin comun de fire, cu mărime fixă. Se acceptă tot cel mai mic k reușit, deci meciul e același ca la
+  bucla una-după-alta; când mașina e plină, încercările merg una după alta. La `/matches` doar
+  încercarea acceptată se rejoacă cu cadre.
+- **Sămânța** se citește exact ca întreg (`Service.seedOf`); înainte trecea prin `double`, iar cele
+  peste 2^53 se rotunjeau, deci meciul lor e altul decât în `engineVersion` 1.
+- **Departajarea** are generatorul ei: se caută (doar trageri, `Shootout.kicks`, fără a rejuca
+  meciul) cea dintâi sămânță dintre 4096 care dă exact `penalties`, apoi se joacă cu ea.
+- **Măsurat** pe cele 575 de meciuri din joc cu ținta = scorul clasic: 99,8% atinse, 1,96
+  încercări în medie (mediana 1, maximum 51; scorurile de 5+ goluri cer 6–8), ~2,2 s de calcul pe
+  meci (un fir). Golurile se întind pe tot meciul, dar ultimul sfert de oră are mai puține
+  (ultimele 10 minute: 6,5% din goluri, față de 10,3% fără țintă), iar paradele cresc (88% din
+  șuturile pe poartă, față de 74%), fiindcă aceleași ocazii dau mai puține goluri.
+
+## Reparații: minutul golului, xG negativ, simetria părților (2026-11-15)
+
+Doar pe drumul nou (`-Dmatch2d.legacy=true` neschimbat). Scorurile nu se schimbă: aceleași
+semințe dau aceleași goluri ca înainte.
+
+- **Minutul golului rămâne în repriza lui** (`Service.clampMinute`). Un șut în zbor (sau
+  penalty-ul acordat) ține repriza deschisă după fluier, iar minutul era `floor(t / 60) + 1`: golul
+  de la t = 5400,4 s ieșea în minutul 91 la un meci fără prelungiri (backend-ul îl refuza), cel de
+  la t = 2700,6 s în minutul 46 în prima repriză. Acum repriza se citește din evenimente
+  (`HALF_TIME`, `EXTRA_TIME`, `EXTRA_HALF_TIME`) și minutul e limitat la 1–45, 46–90, 91–105,
+  106–120 (la alt `minutes`, pe aceleași proporții).
+- **xG-ul nu mai iese negativ** (`Shooting.blockProb`). Cu `block_base` = 0,90 și `bravery` +
+  `positioning` mari, un apărător chiar pe linia șutului avea șansa de blocaj peste 1, iar
+  `1 - pb` din xG devenea negativ (−0,002 … −0,015 la echipe cu 4–7 șuturi). Șansa e limitată la 1;
+  tragerea `random() < pb` dă același blocaj, deci meciul e același, se schimbă doar xG-ul.
+- **Simetria părților: motorul nu avantajează oaspeții.** Aceeași echipă pe ambele părți
+  (40 de echipe din joc × 100 de semințe): gazde − oaspeți în limita zgomotului. Cererile reale
+  jucate în ambele orientări: +0,01 ± 0,03 goluri. Termenul liber de −0,20 față de motorul clasic
+  vine din factorul 1,08 la gazdă al xG-ului clasic (axa „valoare egală” e deplasată spre gazdă);
+  fără el iese −0,03 ± 0,06. Motorul vechi (Python, `legacy`) are o asimetrie mică, oaspeții
+  sunt avantajați (−0,09 ± 0,04 goluri, −0,5 șuturi), dar ea nu se vede pe drumul nou și nu s-a
+  schimbat nimic acolo.
+
 ## Teste
 
 Fără biblioteci de test, ca restul proiectului. `bash test.sh` fără argumente rulează

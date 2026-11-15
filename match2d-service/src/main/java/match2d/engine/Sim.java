@@ -7,6 +7,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 /**
  * Motorul de meci 2D: joaca fazele din ratinguri, fara faze scrise dinainte.
@@ -36,8 +42,14 @@ public final class Sim {
      * dintr-o pasa primita direct). Folosit de uneltele care compara cele doua motoare.
      */
     static final boolean LEGACY = Boolean.getBoolean("match2d.legacy");
+
+    /** {@link #LEGACY}, pentru serviciu (alt pachet). */
+    public static boolean legacy() {
+        return LEGACY;
+    }
+
     /** versiunea motorului: cheia {@code version} a cronologiei (si {@code engineVersion} in serviciu). */
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
     private static final int PLAYS = 8;
     static final int R_NONE = 0, R_PRESS = 1, R_RECV = 2, R_INTERCEPT = 3, R_CHASE = 4, R_RESTART = 5, R_SAVE = 6;
     private static final char[] ROLE_CH = {'.', 'p', 'r', 'i', 'h', 's', 's'};
@@ -146,6 +158,22 @@ public final class Sim {
     List<Map<String, Object>> shootout;
     int[] penalties;
 
+    /** scorul tinta (modul condus, doar pe drumul nou), sau null: vezi {@link #guideGoal}. */
+    Target target;
+    /** incercarea nu a atins tinta (la finalul unei perioade lipseau goluri, sau departajarea n-a iesit). */
+    boolean targetFailed;
+    /** samanta generatorului departajarii in modul tinta (Long.MIN_VALUE = nu s-a jucat). */
+    long shootoutSeed = Long.MIN_VALUE;
+    // perioada condusa de acum: cele 90 de minute sau prelungirile
+    private double perStart;
+    private double perEnd;
+    private final double[] perXg0 = new double[2];
+    private final int[] perGoals0 = new int[2];
+    /** ritmul de pornire al golurilor naturale, pe echipa, in 90 de minute (vezi {@link #guideGoal}). */
+    static final double TARGET_PRIOR_GOALS = 2.3;
+    /** cate secunde de joc cantareste ritmul de pornire fata de cel masurat. */
+    static final double TARGET_PRIOR_T = 1200.0;
+
     // ultimii jucatori care au jucat mingea cu voie (control, pasa, sut, cap, deposedare), in ordine
     private final Player[] playWho = new Player[PLAYS];
     private int playN = 0;
@@ -208,6 +236,251 @@ public final class Sim {
             throw new IllegalArgumentException("\"knockout.aggregate\" trebuie sa fie [gazde, oaspeti], intregi >= 0");
         }
         return new int[] {a.intValue(), b.intValue()};
+    }
+
+    // ------------------------------------------------------------------ scorul tinta
+    /**
+     * Face din meci unul condus spre {@code tg} (inainte de {@link #run}). Prelungirile se joaca daca
+     * si numai daca tinta le are, departajarea la fel; fara {@link #knockout} meciul cu prelungiri e
+     * socotit mansa unica (aggregate 0-0) pentru blocul {@code knockout} al rezultatului.
+     */
+    public void target(Target tg) {
+        if (LEGACY) {
+            throw new IllegalArgumentException("\"target\" nu exista in modul legacy");
+        }
+        target = tg;
+        if (tg.extraTime != null && koAggregate == null) {
+            koAggregate = new int[] {0, 0};
+        }
+        startPeriod(0.0, 2 * halfLen);
+    }
+
+    private void startPeriod(double start, double len) {
+        perStart = start;
+        perEnd = start + len;
+        for (Team team : teams) {
+            perXg0[team.index] = team.mXg;
+            perGoals0[team.index] = team.goals;
+        }
+    }
+
+    private int[] quota() {
+        return half <= 2 ? target.score : target.extraTime;
+    }
+
+    /** Cate goluri mai are voie {@code team} sa dea in perioada de acum (fara tinta: oricate). */
+    int goalsLeft(Team team) {
+        if (target == null) {
+            return Integer.MAX_VALUE;
+        }
+        return quota()[team.index] - (team.goals - perGoals0[team.index]);
+    }
+
+    /**
+     * Sansa de gol condusa a unei ocazii cu sansa naturala {@code p} a echipei {@code team}: fara
+     * tinta, chiar {@code p}. Cu tinta: 0 daca cota perioadei e atinsa, altfel
+     * {@code clamp(lambda * p, 0, 1)}, cu {@code lambda = ramase / asteptate}: golurile ramase din cota
+     * impartite la golurile naturale asteptate in timpul ramas al perioadei, din ritmul xG-ului natural
+     * de pana acum amestecat cu un ritm de pornire ({@link #TARGET_PRIOR_GOALS} pe 90 de minute,
+     * cantarit cat {@link #TARGET_PRIOR_T} secunde de joc). Asa golurile pastrate se intind pe toata
+     * perioada si raman legate de calitatea ocaziei; spre final, cu goluri lipsa, lambda creste.
+     */
+    double guideGoal(Team team, double p) {
+        if (target == null) {
+            return p;
+        }
+        int left = goalsLeft(team);
+        if (left <= 0) {
+            return 0.0;
+        }
+        double elapsed = Math.max(0.0, t - perStart);
+        double remain = Math.max(1.0, perEnd - t);
+        double prior = TARGET_PRIOR_GOALS / (2 * halfLen);
+        double rate = (team.mXg - perXg0[team.index] + prior * TARGET_PRIOR_T) / (elapsed + TARGET_PRIOR_T);
+        double expected = Math.max(1e-6, rate * remain);
+        return Geo.clamp(left / expected * p, 0.0, 1.0);
+    }
+
+    /** Finalul celor 90 de minute in modul tinta: scorul trebuie sa fie exact cel cerut. */
+    private void targetEndOfRegularTime() {
+        if (teams[0].goals != target.score[0] || teams[1].goals != target.score[1]) {
+            targetFailed = true;
+            state = OVER;
+            return;
+        }
+        score90 = score();
+        if (target.extraTime != null) {
+            extraTime = true;
+            ev("EXTRA_TIME", null, null, null, "Prelungiri: " + scoreText());
+            startPeriod(2 * halfLen, 2 * ET_HALF);
+            extraPeriod(3, teams[0], "extra1");
+        } else if (koAggregate != null) {
+            finish();
+        } else {
+            state = OVER;
+            ev("FULL_TIME", null, null, null, "Final: " + scoreText());
+        }
+    }
+
+    private void targetEndOfExtraTime() {
+        if (teams[0].goals - score90[0] != target.extraTime[0] || teams[1].goals - score90[1] != target.extraTime[1]) {
+            targetFailed = true;
+            state = OVER;
+            return;
+        }
+        if (target.penalties != null) {
+            shootoutDue = true;
+            state = OVER;
+        } else {
+            finish();
+        }
+    }
+
+    /** Samanta incercarii {@code k} (k = 0: chiar samanta ceruta); amestec splitmix64. */
+    static long mix(long seed, long k) {
+        if (k == 0) {
+            return seed;
+        }
+        long z = seed + k * 0x9E3779B97F4A7C15L;
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        return z ^ (z >>> 31);
+    }
+
+    /** Meciul cu scor tinta acceptat: cronologia, cate incercari, samanta incercarii acceptate. */
+    public static final class TargetRun {
+        public final Map<String, Object> timeline;
+        public final int tries;
+        public final long seed;
+        public final int[] score;
+
+        TargetRun(Map<String, Object> timeline, int tries, long seed, int[] score) {
+            this.timeline = timeline;
+            this.tries = tries;
+            this.seed = seed;
+            this.score = score;
+        }
+    }
+
+    /** cate nuclee are masina: marimea bazinului de incercari si plafonul simularilor pornite deodata. */
+    private static final int CORES = Math.max(1, Runtime.getRuntime().availableProcessors());
+    /** bazinul comun (pe proces, marime fixa) al incercarilor speculative ale meciurilor cu tinta. */
+    private static final ExecutorService TRY_POOL = Executors.newFixedThreadPool(CORES, r -> {
+        Thread th = new Thread(r, "target-try");
+        th.setDaemon(true);
+        return th;
+    });
+    /** cate incercari de meci cu tinta se joaca acum in proces (pe orice fir). */
+    private static final AtomicInteger RUNNING = new AtomicInteger();
+    /** cate meciuri cu tinta asteapta acum incercari dupa prima (isi impart nucleele libere). */
+    private static final AtomicInteger WAITING = new AtomicInteger();
+    /** marimea primului val de incercari speculative (dupa incercarea 0, jucata singura). */
+    static final int FIRST_WAVE = 3;
+
+    /** opreste incercarea (o incercare cu k mai mic a reusit deja), verificat din cand in cand in bucla. */
+    private BooleanSupplier stop;
+
+    /** Joaca incercarea k; null daca n-a atins tinta (sau a fost oprita). */
+    private static TargetRun oneTry(Map<String, Object> home, Map<String, Object> away, long seed, double minutes,
+                                    int recordHz, boolean keepFrames, int[] aggregate, Target tg, int k,
+                                    BooleanSupplier stop) {
+        long sd = mix(seed, k);
+        RUNNING.incrementAndGet();
+        try {
+            Sim sim = new Sim(home, away, sd, minutes, recordHz, keepFrames);
+            if (aggregate != null) {
+                sim.knockout(aggregate);
+            }
+            sim.target(tg);
+            sim.stop = stop;
+            Map<String, Object> tl = sim.run();
+            return sim.targetFailed ? null : new TargetRun(tl, k + 1, sd, sim.score());
+        } finally {
+            RUNNING.decrementAndGet();
+        }
+    }
+
+    /**
+     * Joaca meciul condus spre {@code tg}: incercarea k foloseste samanta {@link #mix}(seed, k), pana
+     * la {@code tg.maxTries}; meciul e cel al celui mai mic k care atinge tinta. null = tinta neatinsa.
+     *
+     * <p>Incercarea 0 se joaca singura, pe firul apelantului. Daca rateaza, urmatoarele se joaca in
+     * valuri speculative pe bazinul comun {@link #TRY_POOL}: primul val are {@link #FIRST_WAVE}
+     * incercari, urmatoarele cate nuclee sunt libere, impartite la meciurile cu tinta care asteapta
+     * acum in proces ({@link #WAITING}). Nucleele libere se socotesc din simularile pornite deja
+     * ({@link #RUNNING}), deci cand masina e plina incercarile merg una dupa alta, pe firul
+     * apelantului, ca inainte. Rezultatul e acelasi ca al buclei secventiale: se accepta tot cel mai
+     * mic k reusit; o incercare cu k mai mare se opreste doar ca sa nu arda procesor. Incercarile
+     * se joaca fara cadre; cea acceptata se rejoaca (aceeasi samanta, acelasi meci) cu cadre daca
+     * {@code keepFrames}.
+     */
+    public static TargetRun playTarget(Map<String, Object> home, Map<String, Object> away, long seed, double minutes,
+                                       int recordHz, boolean keepFrames, int[] aggregate, Target tg) {
+        TargetRun won = oneTry(home, away, seed, minutes, recordHz, false, aggregate, tg, 0, null);
+        if (won == null && tg.maxTries > 1) {
+            WAITING.incrementAndGet();
+            try {
+                int next = 1;
+                while (won == null && next < tg.maxTries) {
+                    int free = CORES - RUNNING.get();
+                    int share = free / Math.max(1, WAITING.get());
+                    int size = Math.min(Math.min(next == 1 ? FIRST_WAVE : CORES, share), tg.maxTries - next);
+                    if (size <= 1) {
+                        won = oneTry(home, away, seed, minutes, recordHz, false, aggregate, tg, next, null);
+                        next++;
+                    } else {
+                        won = wave(home, away, seed, minutes, recordHz, aggregate, tg, next, size);
+                        next += size;
+                    }
+                }
+            } finally {
+                WAITING.decrementAndGet();
+            }
+        }
+        if (won != null && keepFrames) {
+            int k = won.tries - 1;
+            TargetRun framed = oneTry(home, away, seed, minutes, recordHz, true, aggregate, tg, k, null);
+            if (framed == null || framed.score[0] != won.score[0] || framed.score[1] != won.score[1]) {
+                throw new IllegalStateException("meciul cu tinta nu s-a putut rejuca cu cadre (k = " + k + ")");
+            }
+            won = framed;
+        }
+        return won;
+    }
+
+    /** Un val: incercarile next .. next + size - 1 in paralel; intoarce cea reusita cu k minim, sau null. */
+    private static TargetRun wave(Map<String, Object> home, Map<String, Object> away, long seed, double minutes,
+                                  int recordHz, int[] aggregate, Target tg, int next, int size) {
+        AtomicInteger best = new AtomicInteger(Integer.MAX_VALUE);
+        List<Future<TargetRun>> wf = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            int k = next + i;
+            wf.add(TRY_POOL.submit(() -> {
+                TargetRun r = oneTry(home, away, seed, minutes, recordHz, false, aggregate, tg, k,
+                        () -> best.get() < k);
+                if (r != null) {
+                    best.accumulateAndGet(k, Math::min);
+                }
+                return r;
+            }));
+        }
+        // in ordinea lui k: primul reusit e cel acceptat (o incercare se opreste doar daca una cu k
+        // mai mic a reusit, deci toate cele dinaintea lui s-au jucat pana la capat si au ratat)
+        for (Future<TargetRun> f : wf) {
+            TargetRun r;
+            try {
+                r = f.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("meciul cu tinta a fost intrerupt", e);
+            } catch (ExecutionException e) {
+                throw e.getCause() instanceof RuntimeException re ? re : new IllegalStateException(e.getCause());
+            }
+            if (r != null) {
+                return r;
+            }
+        }
+        return null;
     }
 
     private static Map<String, Object> halfEntry(int frame, int d0, int d1) {
@@ -839,6 +1112,12 @@ public final class Sim {
         int t0 = sc[0] + koAggregate[0];
         int t1 = sc[1] + koAggregate[1];
         int winner = t0 != t1 ? (t0 > t1 ? 0 : 1) : (penalties != null && penalties[0] > penalties[1] ? 0 : 1);
+        if (target != null && t0 == t1 && penalties == null) {
+            // tinta fara departajare la egalitate la general: meciul ramane nedecis
+            k.put("winner", null);
+            k.put("decidedBy", "none");
+            return k;
+        }
         k.put("winner", winner);
         k.put("decidedBy", t0 != t1 ? (extraTime ? "extra_time" : "regular") : "penalties");
         return k;
@@ -912,7 +1191,9 @@ public final class Sim {
             if (half == 1 && t >= halfLen) {
                 halfTime();
             } else if (half == 2 && t >= 2 * halfLen) {
-                if (koAggregate != null) {
+                if (target != null) {
+                    targetEndOfRegularTime();
+                } else if (koAggregate != null) {
                     endOfRegularTime();
                 } else {
                     state = OVER;
@@ -923,7 +1204,11 @@ public final class Sim {
                 ev("EXTRA_HALF_TIME", null, null, null, "Pauză în prelungiri: " + scoreText());
                 extraPeriod(4, teams[1], "extra2");
             } else if (half == 4 && t >= 2 * halfLen + 2 * ET_HALF) {
-                endOfExtraTime();
+                if (target != null) {
+                    targetEndOfExtraTime();
+                } else {
+                    endOfExtraTime();
+                }
             }
         }
         if (tickNo % recEvery == 0) {
@@ -1007,10 +1292,31 @@ public final class Sim {
         record();
         while (state != OVER) {
             tick();
+            if (stop != null && (tickNo & 255) == 0 && stop.getAsBoolean()) {
+                targetFailed = true;        // incercare speculativa de prisos: o alta cu k mai mic a reusit
+                return null;
+            }
         }
         if (shootoutDue) {
             shootoutDue = false;
-            Shootout.play(this);
+            if (target != null) {
+                // departajarea are generatorul ei: se cauta samanta care da exact scorul tintei
+                // (doar trageri, fara a rejuca meciul), apoi se joaca cu ea
+                for (int j = 0; j < Target.SHOOTOUT_SEEDS && shootoutSeed == Long.MIN_VALUE; j++) {
+                    long sd = mix(seed ^ 0x5DEECE66DL, j + 1);
+                    int[] sc = Shootout.kicks(this, new Mt(sd));
+                    if (sc[0] == target.penalties[0] && sc[1] == target.penalties[1]) {
+                        shootoutSeed = sd;
+                    }
+                }
+                if (shootoutSeed == Long.MIN_VALUE) {
+                    targetFailed = true;
+                    return timeline();
+                }
+                Shootout.play(this, new Mt(shootoutSeed));
+            } else {
+                Shootout.play(this);
+            }
             finish();
         }
         return timeline();

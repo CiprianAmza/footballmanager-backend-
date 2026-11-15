@@ -123,9 +123,44 @@ final class Shootout {
         return new double[] {x, y};
     }
 
+    /**
+     * Doar scorul departajarii pe care {@link #play(Sim, Mt)} l-ar juca cu {@code rng}: aceleasi
+     * trageri, in aceeasi ordine, fara cadre si fara evenimente (modul tinta cauta asa samanta
+     * departajarii, fara sa rejoace meciul).
+     */
+    static int[] kicks(Sim s, Mt rng) {
+        int first = rng.random() < 0.5 ? 0 : 1;
+        List<List<Player>> orders = List.of(order(s.teams[0]), order(s.teams[1]));
+        int[] next = new int[2];
+        int[] taken = new int[2];
+        int[] scored = new int[2];
+        while (!decided(taken, scored)) {
+            int ti = taken[0] == taken[1] ? first : 1 - first;
+            Team team = s.teams[ti];
+            Player gk = s.opp(team).gk;
+            List<Player> ord = orders.get(ti);
+            Player tk = ord.get(next[ti] % ord.size());
+            next[ti]++;
+            double pg = SetPiece.penGoalProb(tk, gk);
+            double pm = Math.min(Wt.pen_miss_base, 1.0 - pg);
+            int outcome = SetPiece.penOutcome(rng.random(), pg, pm);
+            SetPiece.penAim(rng, outcome);
+            SetPiece.penSpeed(tk, rng);
+            taken[ti]++;
+            if (outcome == Sim.ShotState.GOAL) {
+                scored[ti]++;
+            }
+        }
+        return scored;
+    }
+
     /** Joaca departajarea; pune {@code s.shootout} si {@code s.penalties}. */
     static void play(Sim s) {
-        Mt rng = s.rng;
+        play(s, s.rng);
+    }
+
+    /** La fel, cu generatorul dat (modul tinta: generatorul departajarii, separat de al meciului). */
+    static void play(Sim s, Mt rng) {
         Ball b = s.ball;
         s.state = Sim.DEAD;
         s.rkind = "shootout";

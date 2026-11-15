@@ -202,7 +202,10 @@ final class BallPlay {
             double yc = Math.abs(den) > 1e-6 ? b.py + (y - b.py) * ((gx - b.px) / den) : y;
             Team defending = ((s.teams[0].dir == 1) == (gx == 0.0)) ? s.teams[0] : s.teams[1];
             Team attacking = s.opp(defending);
-            if (Math.abs(yc - Geo.MID_Y) < Geo.GOAL_HALF && b.z < Geo.GOAL_H) {
+            // scor tinta cu cota atinsa: golul fara sut (pasa, centrare, autogol) nu se mai da, mingea
+            // e socotita iesita pe langa poarta (corner sau lovitura de poarta)
+            if (Math.abs(yc - Geo.MID_Y) < Geo.GOAL_HALF && b.z < Geo.GOAL_H
+                    && (s.target == null || s.goalsLeft(attacking) > 0)) {
                 failPending(s, "goal", null);
                 if (Sim.LEGACY) {
                     goal(s, attacking, null, last == defending, null);

@@ -21,6 +21,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import match2d.engine.Sim;
+import match2d.engine.Target;
 
 /**
  * Serviciul HTTP al motorului de meci 2D, cu aceleasi adrese ca serviciul Python pe care il
@@ -58,6 +59,8 @@ public final class Service {
         String away;
         long seed;
         double minutes;
+        /** {met, tries, seed} la meciul cu scor tinta, altfel null. */
+        Map<String, Object> target;
     }
 
     /** Campul optional {@code knockout} al cererii: aggregate-ul, sau null (meci obisnuit). */
@@ -147,6 +150,19 @@ public final class Service {
         }
     }
 
+    /**
+     * Samanta cererii. Un intreg din JSON (Long) se ia exact; inainte trecea prin double, iar
+     * semintele peste 2^53 se rotunjeau (alt meci decat cel cerut). Ca inainte raman: 0 sau lipsa = 1,
+     * numerele reale si sirurile (prin double), si tot drumul legacy.
+     */
+    private static long seedOf(Map<String, Object> payload) {
+        Object v = payload.get("seed");
+        if (!Sim.legacy() && v instanceof Long l && l != 0L) {
+            return l;
+        }
+        return (long) number(payload, "seed", 1);
+    }
+
     private static Object sorted(Object v) {
         if (v instanceof Map<?, ?> map) {
             Map<String, Object> out = new TreeMap<>();
@@ -167,12 +183,20 @@ public final class Service {
 
     private static String key(Map<String, Object> home, Map<String, Object> away, long seed, double minutes,
                               int[] knockout) {
+        return key(home, away, seed, minutes, knockout, null);
+    }
+
+    private static String key(Map<String, Object> home, Map<String, Object> away, long seed, double minutes,
+                              int[] knockout, Target target) {
         try {
             MessageDigest sha = MessageDigest.getInstance("SHA-1");
             // fara knockout cheia e exact cea dinainte; cu el, aggregate-ul intra in id
-            List<Object> parts = knockout == null ? List.of(sorted(home), sorted(away), seed, minutes)
+            List<Object> parts = new ArrayList<>(knockout == null ? List.of(sorted(home), sorted(away), seed, minutes)
                     : List.of(sorted(home), sorted(away), seed, minutes,
-                    Map.of("knockout", Map.of("aggregate", List.of(knockout[0], knockout[1]))));
+                    Map.of("knockout", Map.of("aggregate", List.of(knockout[0], knockout[1])))));
+            if (target != null) {
+                parts.add(Map.of("target", sorted(target.toMap())));
+            }
             byte[] hash = sha.digest(Json.write(parts).getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < 8; i++) {
@@ -191,6 +215,7 @@ public final class Service {
         long seed;
         double minutes;
         int[] knockout;
+        Target target;
         String id;
     }
 
@@ -202,21 +227,48 @@ public final class Service {
             // doua echipe de aceeasi culoare nu se disting pe teren
             m.away.put("color", !m.home.get("color").equals("#f5f7fa") ? "#f5f7fa" : "#1f2933");
         }
-        m.seed = (long) number(payload, "seed", 1);
+        m.seed = seedOf(payload);
         m.minutes = Math.max(1.0, Math.min(120.0, number(payload, "minutes", 90)));
         m.knockout = knockout(payload);
         m.id = key(m.home, m.away, m.seed, m.minutes, m.knockout);
+        if (payload.get("target") != null) {
+            if (Sim.legacy()) {
+                throw new TeamIo.TeamError("\"target\" (scorul tinta) nu exista in modul legacy");
+            }
+            try {
+                m.target = Target.parse(payload.get("target"));
+            } catch (IllegalArgumentException e) {
+                throw new TeamIo.TeamError(e.getMessage());
+            }
+            // tinta intra in id (fara ea id-ul e exact cel dinainte)
+            m.id = key(m.home, m.away, m.seed, m.minutes, m.knockout, m.target);
+        }
         return m;
     }
 
     private static Item play(Request m, boolean keepFrames) {
         long t0 = System.nanoTime();
-        Sim sim = new Sim(m.home, m.away, m.seed, m.minutes, m.minutes <= 20 ? 10 : 5, keepFrames);
-        if (m.knockout != null) {
-            sim.knockout(m.knockout);
-        }
         Item item = new Item();
-        item.timeline = sim.run();
+        if (m.target != null) {
+            // scorul tinta: incercari pe seminte derivate din (seed, k) pana iese exact tinta
+            Sim.TargetRun run = Sim.playTarget(m.home, m.away, m.seed, m.minutes, m.minutes <= 20 ? 10 : 5,
+                    keepFrames, m.knockout, m.target);
+            if (run == null) {
+                throw new TeamIo.TeamError("target not met after " + m.target.maxTries + " tries");
+            }
+            item.timeline = run.timeline;
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("met", true);
+            info.put("tries", run.tries);
+            info.put("seed", run.seed);
+            item.target = info;
+        } else {
+            Sim sim = new Sim(m.home, m.away, m.seed, m.minutes, m.minutes <= 20 ? 10 : 5, keepFrames);
+            if (m.knockout != null) {
+                sim.knockout(m.knockout);
+            }
+            item.timeline = sim.run();
+        }
         item.took = (System.nanoTime() - t0) / 1e9;
         item.home = (String) m.home.get("name");
         item.away = (String) m.away.get("name");
@@ -242,6 +294,19 @@ public final class Service {
         return result(m.id, item, cached, false, null);
     }
 
+    /**
+     * Minutul golului limitat la repriza lui ({@code half}: 1, 2, apoi 3 si 4 la prelungiri), pentru
+     * un meci de {@code minutes} minute (reprize de minutes / 2, prelungiri de 15): la 90 de minute
+     * 1-45, 46-90, 91-105, 106-120.
+     */
+    static long clampMinute(long minute, int half, double minutes) {
+        double start = half == 1 ? 0.0 : half == 2 ? minutes / 2 : half == 3 ? minutes : minutes + 15.0;
+        double end = half == 1 ? minutes / 2 : half == 2 ? minutes : half == 3 ? minutes + 15.0 : minutes + 30.0;
+        long lo = (long) Math.floor(start) + 1;
+        long hi = Math.max(lo, (long) Math.ceil(end));
+        return Math.max(lo, Math.min(minute, hi));
+    }
+
     private static Integer uid(Object v) {
         return v instanceof Number n ? Integer.valueOf(n.intValue()) : null;
     }
@@ -264,14 +329,23 @@ public final class Service {
         List<Map<String, Object>> goals = new ArrayList<>();
         Object knockout = tl.get("knockout");
         int period = 0;             // la meciul eliminatoriu: 0 = cele 90 de minute, 1 si 2 = prelungirile
+        int half = 1;               // repriza golului: 1, 2; 3 si 4 = reprizele de prelungiri
         for (Map<String, Object> e : (List<Map<String, Object>>) tl.get("events")) {
             if ("EXTRA_TIME".equals(e.get("type")) || "EXTRA_HALF_TIME".equals(e.get("type"))) {
                 period++;
             }
+            if ("HALF_TIME".equals(e.get("type")) || "EXTRA_TIME".equals(e.get("type"))
+                    || "EXTRA_HALF_TIME".equals(e.get("type"))) {
+                half++;
+            }
             if ("GOAL".equals(e.get("type"))) {
                 Map<String, Object> g = new LinkedHashMap<>();
                 long minute = (long) Math.floor(((Number) e.get("t")).doubleValue() / 60) + 1;
-                if (knockout != null) {
+                if (!Sim.legacy()) {
+                    // golul marcat dupa fluierul reprizei (sutul in zbor, penalty-ul acordat, pasul de
+                    // 0.1 s de dupa limita) ramane in repriza lui: 1-45, 46-90, 91-105, 106-120
+                    minute = clampMinute(minute, half, item.minutes);
+                } else if (knockout != null) {
                     // golul din prelungirile cerute de timp nu iese din perioada lui: 1-90, 91-105, 106-120
                     minute = period == 0 ? Math.min(minute, 90) : period == 1 ? Math.max(91, Math.min(minute, 105))
                             : Math.max(106, Math.min(minute, 120));
@@ -325,6 +399,9 @@ public final class Service {
         }
         if (knockout != null) {
             out.put("knockout", knockout);
+        }
+        if (item.target != null) {
+            out.put("target", item.target);
         }
         if (players != null) {
             out.put("engineVersion", tl.get("version"));
@@ -402,7 +479,7 @@ public final class Service {
     /** Joaca un meci cu echipele deja in forma motorului si intoarce cronologia (sau doar rezumatul). */
     @SuppressWarnings("unchecked")
     static Map<String, Object> simulate(Map<String, Object> payload) {
-        long seed = (long) number(payload, "seed", 1);
+        long seed = seedOf(payload);
         double minutes = number(payload, "minutes", 90);
         boolean summaryOnly = Boolean.TRUE.equals(payload.get("summaryOnly"));
         int hz = payload.get("recordHz") instanceof Number n ? n.intValue() : (minutes <= 20 ? 10 : 5);

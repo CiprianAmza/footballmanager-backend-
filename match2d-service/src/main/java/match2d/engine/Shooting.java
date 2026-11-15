@@ -274,8 +274,11 @@ final class Shooting {
         // cei de langa sutor se pot arunca in fata mingii chiar daca nu sunt fix pe linie
         double br = Wt.block_reach + Wt.block_reach_near * Math.max(0.0, 1.0 - u * k.pathLen / 8.0);
         if (0.02 < u && u < 0.92 && dseg < br && u * k.pathLen > 0.8 && k.zEnd * u < 1.9) {
-            return (1.0 - dseg / br) * (Wt.block_base + Wt.block_slope * (
+            double pb = (1.0 - dseg / br) * (Wt.block_base + Wt.block_slope * (
                     Wt.block_bravery * o.n[A.bravery] + Wt.block_positioning * o.n[A.positioning]) / 2);
+            // cel mult 1: cu block_base 0.90 un aparator brav, chiar pe linie, trecea de 1, iar in
+            // xG (1 - pb) iesea negativ; tragerea rng.random() < pb da acelasi blocaj si cu 1
+            return Sim.LEGACY ? pb : Math.min(1.0, pb);
         }
         return -1.0;
     }
@@ -418,8 +421,18 @@ final class Shooting {
                 sh.outcome = Sim.ShotState.MISS;
                 sh.frac = 1.08;
             } else {
-                boolean save = forced >= 0 ? forced == Sim.ShotState.SAVE
-                        : rng.random() < saveProb(s, p, k, special, gu, dlat, setPiece == 2 ? Wt.fk_gk_late : 0.0);
+                boolean save;
+                if (forced >= 0) {
+                    save = forced == Sim.ShotState.SAVE;
+                } else if (s.target == null) {
+                    save = rng.random() < saveProb(s, p, k, special, gu, dlat, setPiece == 2 ? Wt.fk_gk_late : 0.0);
+                } else {
+                    // scor tinta: aceeasi tragere, cu sansa de gol condusa (Sim.guideGoal); cu cota
+                    // atinsa golul devine parada
+                    double r = rng.random();
+                    double sp = saveProb(s, p, k, special, gu, dlat, setPiece == 2 ? Wt.fk_gk_late : 0.0);
+                    save = r < 1.0 - s.guideGoal(team, 1.0 - sp);
+                }
                 if (save) {
                     sh.outcome = Sim.ShotState.SAVE;
                     sh.frac = gu;

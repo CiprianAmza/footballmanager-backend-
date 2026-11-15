@@ -672,6 +672,11 @@ final class SetPiece {
         if (s.t >= s.halfLen * 4.0 / 3.0) {
             team.mShotsLate++;
         }
+        if (s.target != null) {
+            // scor tinta: sansa de gol condusa (Sim.guideGoal); ce se pierde din ea devine parada
+            pg = s.guideGoal(team, pg);
+            pm = Math.min(Wt.pen_miss_base, 1.0 - pg);
+        }
         int outcome = penOutcome(rng.random(), pg, pm);
         double[] aim = penAim(rng, outcome);
         double aimY = aim[0];
