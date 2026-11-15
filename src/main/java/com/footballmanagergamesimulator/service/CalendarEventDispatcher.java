@@ -386,6 +386,7 @@ public class CalendarEventDispatcher {
         int currentDay = calendar.getCurrentDay();
 
         List<Team> allTeams = teamRepository.findAll();
+        Set<Long> humanTeamIds = new HashSet<>(userContext.getAllHumanTeamIds());
         for (Team team : allTeams) {
             // Process wages through finance service (records transaction + updates totalFinances)
             long wagesPaid = chairmanModeProperties.isEnabled()
@@ -405,7 +406,7 @@ public class CalendarEventDispatcher {
             if (!chairmanModeProperties.isEnabled()) accrueManagerSalary(team);
 
             // Send financial report to human managers
-            if (userContext.isHumanTeam(team.getId())) {
+            if (humanTeamIds.contains(team.getId())) {
                 financeService.sendMonthlyFinancialReport(team.getId(), season, currentDay, wagesPaid);
                 financialTroubleMediaService.publishIfNeeded(team.getId(), season, currentDay, wagesPaid);
             }

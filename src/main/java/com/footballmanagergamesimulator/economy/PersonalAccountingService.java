@@ -325,6 +325,66 @@ public class PersonalAccountingService {
         validateText("description", description, 300);
         PersonalLedgerEntry existing = ledgerRepository
                 .findByAccountIdAndIdempotencyKey(account.getId(), idempotencyKey).orElse(null);
+        PostingResult result = applyPosting(account, type, signedAmount, careerEarningsDelta,
+                season, day, correlationId, idempotencyKey, counterpartTeamId, counterpartAssetId, description, existing);
+        if (!result.replayed()) {
+            accountRepository.save(account);
+            ledgerRepository.save(result.entry());
+            mirror(account);
+        }
+        return result;
+    }
+
+    @Transactional
+    public void postMonthlySalaries(Map<Long, PersonProfile> profiles, Map<Long, Long> amounts,
+                                    int season, int day, long teamId) {
+        List<Long> profileIds = profiles.values().stream().map(PersonProfile::getId).toList();
+        Map<Long, PersonalAccount> accounts = new HashMap<>();
+        accountRepository.findAllByProfileIdForUpdate(profileIds)
+                .forEach(account -> accounts.put(account.getProfileId(), account));
+        for (PersonProfile profile : profiles.values()) {
+            if (!accounts.containsKey(profile.getId())) {
+                ensureAccount(profile);
+                PersonalAccount account = accountRepository.findByProfileIdForUpdate(profile.getId())
+                        .orElseThrow(() -> new EconomyConflictException("ACCOUNT_NOT_FOUND", "Personal account is missing"));
+                accounts.put(profile.getId(), account);
+            }
+        }
+
+        String prefix = "PAYROLL:" + season + ":" + day + ":" + teamId + ":HUMAN:";
+        List<String> keys = amounts.keySet().stream().map(humanId -> prefix + humanId).toList();
+        List<Long> accountIds = accounts.values().stream().map(PersonalAccount::getId).toList();
+        Map<Long, Map<String, PersonalLedgerEntry>> existingByAccount = new HashMap<>();
+        for (PersonalLedgerEntry entry : ledgerRepository.findAllByAccountIdInAndIdempotencyKeyIn(accountIds, keys)) {
+            existingByAccount.computeIfAbsent(entry.getAccountId(), ignored -> new HashMap<>())
+                    .put(entry.getIdempotencyKey(), entry);
+        }
+        List<PersonalLedgerEntry> entries = new ArrayList<>();
+        Map<Long, PersonalAccount> changedOwners = new HashMap<>();
+        amounts.forEach((humanId, amount) -> {
+            if (amount <= 0) throw new IllegalArgumentException("Career income must be positive");
+            PersonalAccount account = accounts.get(profiles.get(humanId).getId());
+            String key = prefix + humanId;
+            PersonalLedgerEntry existing = existingByAccount.getOrDefault(account.getId(), Map.of()).get(key);
+            PostingResult result = applyPosting(account, LedgerEntryType.SALARY, amount, amount, season, day,
+                    key, key, teamId, null, "Monthly salary", existing);
+            if (!result.replayed()) {
+                entries.add(result.entry());
+                if (account.getOwnerHumanId() != null) changedOwners.put(account.getOwnerHumanId(), account);
+            }
+        });
+
+        // The accounts and Humans loaded in this transaction are flushed together by JPA.
+        for (Human human : humanRepository.findAllById(changedOwners.keySet())) {
+            mirror(changedOwners.get(human.getId()), human);
+        }
+        ledgerRepository.saveAll(entries);
+    }
+
+    private PostingResult applyPosting(PersonalAccount account, LedgerEntryType type, long signedAmount,
+                                       long careerEarningsDelta, int season, int day,
+                                       String correlationId, String idempotencyKey, Long counterpartTeamId,
+                                       Long counterpartAssetId, String description, PersonalLedgerEntry existing) {
         if (existing != null) {
             if (existing.getEntryType() != type
                     || existing.getSignedAmount() != signedAmount
@@ -358,13 +418,10 @@ public class PersonalAccountingService {
 
         account.setCashBalance(newBalance);
         account.setLifetimeCareerEarnings(newEarnings);
-        accountRepository.save(account);
         PersonalLedgerEntry entry = baseEntry(account, type, signedAmount, careerEarningsDelta,
                 newBalance, season, day, correlationId, idempotencyKey, description);
         entry.setCounterpartTeamId(counterpartTeamId);
         entry.setCounterpartAssetId(counterpartAssetId);
-        ledgerRepository.save(entry);
-        mirror(account);
         return new PostingResult(account, entry, false);
     }
 
@@ -402,10 +459,14 @@ public class PersonalAccountingService {
     private void mirror(PersonalAccount account) {
         if (account.getOwnerHumanId() == null) return;
         humanRepository.findById(account.getOwnerHumanId()).ifPresent(human -> {
-            human.setWealth(account.getCashBalance());
-            human.setCareerEarnings(account.getLifetimeCareerEarnings());
+            mirror(account, human);
             humanRepository.save(human);
         });
+    }
+
+    private void mirror(PersonalAccount account, Human human) {
+        human.setWealth(account.getCashBalance());
+        human.setCareerEarnings(account.getLifetimeCareerEarnings());
     }
 
     private static void validateText(String field, String value, int max) {

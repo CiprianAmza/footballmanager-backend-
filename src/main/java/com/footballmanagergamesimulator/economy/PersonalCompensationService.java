@@ -7,6 +7,9 @@ import com.footballmanagergamesimulator.repository.HumanRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
+
 @Service
 public class PersonalCompensationService {
 
@@ -36,5 +39,16 @@ public class PersonalCompensationService {
         accountingService.ensureAccount(profile);
         return accountingService.post(profile.getId(), type, amount, amount, season, day,
                 correlationId, idempotencyKey, teamId, null, description);
+    }
+
+    @Transactional
+    public void creditMonthlySalaries(Map<Long, Long> amounts, int season, int day, long teamId) {
+        if (amounts.isEmpty()) return;
+        List<Human> recipients = humanRepository.findAllById(amounts.keySet());
+        if (recipients.size() != amounts.size()) {
+            throw new EconomyConflictException("PERSON_NOT_FOUND", "Paid person was not found");
+        }
+        accountingService.postMonthlySalaries(profileService.ensureForHumans(recipients),
+                amounts, season, day, teamId);
     }
 }
