@@ -70,6 +70,37 @@ public class MatchPlanningService {
                 homeShootout, awayShootout, slots);
     }
 
+    /**
+     * Plan whose regular-time goals were already played elsewhere (the 2D match engine):
+     * {@code regularGoals} carry their own side, minute, type and, when known, scorer. Extra
+     * time, when played, gets its goal slots from {@link #extraTimeSlots}. Slots are ordered by
+     * minute (stable, so goals of the same minute keep their order) and indexed from 0.
+     */
+    public MatchPlan planWithRegularGoals(String fixtureKey, long seed, long homeTeamId, long awayTeamId,
+                                          List<GoalSlot> regularGoals,
+                                          int homeScoreET, int awayScoreET,
+                                          int homeShootout, int awayShootout) {
+        int homeScore90 = 0;
+        int awayScore90 = 0;
+        for (GoalSlot slot : regularGoals) {
+            if (slot.getPhase() != GoalPhase.REGULAR_TIME) {
+                throw new IllegalArgumentException("played goals must be regular-time goals");
+            }
+            if (slot.getTeamId() == homeTeamId) homeScore90++;
+            else if (slot.getTeamId() == awayTeamId) awayScore90++;
+            else throw new IllegalArgumentException("goal belongs to an unknown team: " + slot.getTeamId());
+        }
+        List<GoalSlot> slots = new ArrayList<>(regularGoals);
+        if (homeScoreET >= 0 && awayScoreET >= 0) {
+            slots.addAll(extraTimeSlots(seed, homeTeamId, awayTeamId, homeScoreET, awayScoreET));
+        }
+        slots.sort((a, b) -> Integer.compare(a.getMinute(), b.getMinute()));
+        for (int i = 0; i < slots.size(); i++) slots.get(i).setSlotIndex(i);
+        return new MatchPlan(fixtureKey, seed, ALGORITHM_VERSION, homeTeamId, awayTeamId,
+                homeScore90, awayScore90, homeScoreET, awayScoreET,
+                homeShootout, awayShootout, slots);
+    }
+
     /** Generate ONLY the extra-time goal slots (minutes 91-120), for a live knockout whose
      *  ET is decided at commit and appended to the already-played regular-time plan. Uses a
      *  dedicated, seed-derived RNG so the ET minutes/types are deterministic and stable

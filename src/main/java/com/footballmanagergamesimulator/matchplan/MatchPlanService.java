@@ -355,6 +355,35 @@ public class MatchPlanService {
     public PersistedScoringPlan persistOrLoadScoreDecision(MatchScoringDecision decision,
                                                             long homeTeamId, long awayTeamId,
                                                             KnockoutPlanSplit knockoutPlanSplit) {
+        return persistOrLoad(decision, homeTeamId, awayTeamId, knockoutPlanSplit, () ->
+                planningService.plan(decision.fixtureKey(), decision.seed(), homeTeamId, awayTeamId,
+                        knockoutPlanSplit.score90Home(), knockoutPlanSplit.score90Away(),
+                        knockoutPlanSplit.etHome(), knockoutPlanSplit.etAway(),
+                        knockoutPlanSplit.shootoutHome(), knockoutPlanSplit.shootoutAway()));
+    }
+
+    /**
+     * Same atomic adoption for a regular time already played by the 2D match engine: the
+     * regular-time slots are the engine's goals ({@code regularTimeGoals}, resolved where the
+     * engine named the scorer) instead of planned ones; extra-time slots are planned as usual.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PersistedScoringPlan persistOrLoadScoreDecision(MatchScoringDecision decision,
+                                                            long homeTeamId, long awayTeamId,
+                                                            KnockoutPlanSplit knockoutPlanSplit,
+                                                            List<GoalSlot> regularTimeGoals) {
+        if (regularTimeGoals == null) throw new IllegalArgumentException("regularTimeGoals are required");
+        return persistOrLoad(decision, homeTeamId, awayTeamId, knockoutPlanSplit, () ->
+                planningService.planWithRegularGoals(decision.fixtureKey(), decision.seed(),
+                        homeTeamId, awayTeamId, regularTimeGoals,
+                        knockoutPlanSplit.etHome(), knockoutPlanSplit.etAway(),
+                        knockoutPlanSplit.shootoutHome(), knockoutPlanSplit.shootoutAway()));
+    }
+
+    private PersistedScoringPlan persistOrLoad(MatchScoringDecision decision,
+                                               long homeTeamId, long awayTeamId,
+                                               KnockoutPlanSplit knockoutPlanSplit,
+                                               java.util.function.Supplier<MatchPlan> newPlan) {
         if (decision == null || knockoutPlanSplit == null) {
             throw new IllegalArgumentException("decision and knockoutPlanSplit are required");
         }
@@ -371,13 +400,47 @@ public class MatchPlanService {
             }
             return persisted(existing);
         }
-        MatchPlan plan = planningService.plan(decision.fixtureKey(), decision.seed(), homeTeamId, awayTeamId,
-                knockoutPlanSplit.score90Home(), knockoutPlanSplit.score90Away(),
-                knockoutPlanSplit.etHome(), knockoutPlanSplit.etAway(),
-                knockoutPlanSplit.shootoutHome(), knockoutPlanSplit.shootoutAway());
+        MatchPlan plan = newPlan.get();
         plan.applyScoreDecision(decision);
         plan.setStatus(MatchPlan.Status.PLANNED);
         return persisted(matchPlanRepository.saveAndFlush(plan));
+    }
+
+    /** Whether any plan (of any status) exists for the fixture. */
+    public boolean hasPlan(String fixtureKey) {
+        return matchPlanRepository.findByFixtureKey(fixtureKey).isPresent();
+    }
+
+    /**
+     * Instant pipeline for a regular time already played by the 2D match engine, in the
+     * caller's transaction (a human fixture, whose row the caller has already locked). Builds
+     * the plan from the engine's goals ({@link MatchPlanningService#planWithRegularGoals}),
+     * applies the decision, resolves the remaining slots against the given line-ups and
+     * persists plan, events and squad timeline like {@link #buildAndPersistLive}.
+     */
+    @Transactional
+    public List<MatchEvent> buildAndPersistWithPlayedGoals(String fixtureKey, long competitionId, int season,
+                                                           int round, long homeTeamId, long awayTeamId,
+                                                           Lineup home, Lineup away,
+                                                           KnockoutPlanSplit knockoutPlanSplit,
+                                                           MatchScoringDecision decision,
+                                                           List<GoalSlot> regularTimeGoals) {
+        if (decision == null || knockoutPlanSplit == null || regularTimeGoals == null
+                || !fixtureKey.equals(decision.fixtureKey())) {
+            throw new IllegalArgumentException("decision, split and goals must belong to " + fixtureKey);
+        }
+        knockoutPlanSplit.validateAgainst(decision);
+        lockCompetitionFixture(fixtureKey);
+        if (matchPlanRepository.findByFixtureKey(fixtureKey).isPresent()) {
+            throw new IllegalStateException("a plan already exists for " + fixtureKey);
+        }
+        MatchPlan plan = planningService.planWithRegularGoals(fixtureKey, decision.seed(),
+                homeTeamId, awayTeamId, regularTimeGoals,
+                knockoutPlanSplit.etHome(), knockoutPlanSplit.etAway(),
+                knockoutPlanSplit.shootoutHome(), knockoutPlanSplit.shootoutAway());
+        plan.applyScoreDecision(decision);
+        return resolveAndPersist(plan, home, away, fixtureKey, competitionId, season, round,
+                homeTeamId, awayTeamId);
     }
 
     private PersistedScoringPlan persisted(MatchPlan plan) {

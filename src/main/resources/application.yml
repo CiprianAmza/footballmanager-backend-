@@ -110,6 +110,17 @@ gameplay:
   player-availability-disabled: true
 
 # =============================================================
+# 2D match engine (external microservice, match-engine-java)
+# =============================================================
+# Active only while match.engine.match-plan.enabled is true.
+match2d:
+  mode: "off"          # off = classic engine everywhere | human = 2D only in matches of a human-managed club | all = every match
+  fallback: classic    # classic = fall back to the classic engine, with a log | fail = error
+  service:
+    url: http://localhost:8791
+    timeout-seconds: 20
+
+# =============================================================
 # Global award weighting
 # =============================================================
 # Championships are ranked by the average rating of each club's best 11 players.

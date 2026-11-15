@@ -36,6 +36,8 @@ public class MatchController {
     @Autowired
     CompetitionTeamInfoMatchRepository competitionTeamInfoMatchRepository;
     @Autowired
+    com.footballmanagergamesimulator.match2d.Match2dReplayService match2dReplayService;
+    @Autowired
     MatchService matchService;
     @Autowired
     LiveMatchSimulationService liveMatchSimulationService;
@@ -1138,6 +1140,10 @@ public class MatchController {
         report.put("events", matchEvents);
         report.put("shotTimeline", shotTimeline);
         report.put("momentum", momentum);
+        // Present only for a match the 2D engine played, so it can be watched again.
+        if (match2dReplayService.exists(competitionId, season, round, teamId1, teamId2)) {
+            report.put("match2d", true);
+        }
         return report;
     }
 

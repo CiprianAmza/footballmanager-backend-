@@ -15,6 +15,11 @@ import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoringFing
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.matchplan.MatchScoringDecision;
 import com.footballmanagergamesimulator.matchplan.ScoreEngineKind;
+import com.footballmanagergamesimulator.match2d.Match2dLineupService;
+import com.footballmanagergamesimulator.match2d.Match2dMapper;
+import com.footballmanagergamesimulator.match2d.Match2dReplayService;
+import com.footballmanagergamesimulator.match2d.Match2dRoundPlanner;
+import com.footballmanagergamesimulator.match2d.Match2dTeam;
 import com.footballmanagergamesimulator.controller.TacticController;
 import com.footballmanagergamesimulator.frontend.PlayerView;
 import com.footballmanagergamesimulator.frontend.FormationData;
@@ -138,6 +143,9 @@ public class MatchRoundSimulator {
     @Autowired private CompartmentEngineConfig compartmentEngineConfig;
     @Autowired private CanonicalRuntimeScoringService canonicalRuntimeScoringService;
     @Autowired private CanonicalScoreSampler canonicalScoreSampler;
+    @Autowired private Match2dRoundPlanner match2dPlanner;
+    @Autowired private Match2dLineupService match2dLineupService;
+    @Autowired private Match2dReplayService match2dReplayService;
 
     /** How many authoritative/admin scores were produced since the last reset. */
     private static final java.util.Map<com.footballmanagergamesimulator.matchplan.ScoreEngineKind, java.util.concurrent.atomic.AtomicInteger>
@@ -419,6 +427,11 @@ public class MatchRoundSimulator {
         // separately for both teams of every fixture.
         playerCapabilityService.preloadForCurrentThread(roundPlayerIds);
 
+        // 2D match engine (match2d.mode): every fixture of this round it plays is asked for in
+        // ONE request, before the loop. Empty when the mode is off: nothing below changes then.
+        Map<Long, Match2dRoundPlanner.Played> match2dByRow = prefetchMatch2d(
+                matches, _competitionId, (int) _roundId);
+
         for (CompetitionTeamInfoMatch match : matches) {
             long teamId1 = match.getTeam1Id();
             long teamId2 = match.getTeam2Id();
@@ -476,6 +489,9 @@ public class MatchRoundSimulator {
                         (int) _roundId, teamId1, teamId2);
                 teamPower1 = humanCanonicalScore.homePower();
                 teamPower2 = humanCanonicalScore.awayPower();
+                // A forced admin score wins over the 2D engine.
+                Match2dRoundPlanner.Played humanMatch2d = adminScore != null ? null
+                        : usableMatch2d(match2dByRow.get(match.getId()), teamId1, teamId2);
 
                 // Check if any human manager has viewFullMatch enabled
                 boolean useFullMatchEngine = false;
@@ -494,8 +510,10 @@ public class MatchRoundSimulator {
                         .filter(Objects::nonNull)
                         .filter(manager -> manager.isViewFullMatch() && !manager.isAlwaysContinue())
                         .findFirst().orElse(resolveCurrentManager(humanTeamIdForMatch, humanManagers));
+                // The 2D engine plays the whole match without substitutions, so its matches are
+                // never handed to the interactive live session.
                 if (humanManager != null && humanManager.isViewFullMatch()
-                        && !humanManager.isAlwaysContinue() && adminScore == null) {
+                        && !humanManager.isAlwaysContinue() && adminScore == null && humanMatch2d == null) {
                     useFullMatchEngine = true;
                 }
 
@@ -560,6 +578,11 @@ public class MatchRoundSimulator {
                         teamScore2 = canonical.awayGoals();
                         teamPower1 = canonical.homePower();
                         teamPower2 = canonical.awayPower();
+                        if (humanMatch2d != null) {
+                            // Regular time played by the 2D engine; powers stay Compartment's.
+                            teamScore1 = humanMatch2d.homeGoals();
+                            teamScore2 = humanMatch2d.awayGoals();
+                        }
                     }
 
                     // The regular-time (90') score, captured before resolveKnockoutMatch
@@ -596,11 +619,26 @@ public class MatchRoundSimulator {
                     Lineup canonicalAwayLineup = null;
                     List<Scorer> canonicalHomeScorers = null;
                     List<Scorer> canonicalAwayScorers = null;
+                    MatchScoringDecision humanMatch2dDecision = null;
+                    List<MatchEvent> humanMatch2dEvents = null;
                     if (matchPlanService.isEnabled()) {
                         String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                                 .competitionFixtureKey(match.getId());
                         List<MatchEvent> canonicalEvents;
-                        if (adminScore == null) {
+                        if (humanMatch2d != null) {
+                            long seed2d = com.footballmanagergamesimulator.matchplan.MatchPlanService.seedFor(
+                                    fixtureKey, _competitionId, _season, (int) _roundId, teamId1, teamId2);
+                            humanMatch2dDecision = Match2dMapper.decision(fixtureKey, seed2d,
+                                    humanMatch2d.result(), humanMatch2d.requestJson(), teamPower1, teamPower2);
+                            canonicalEvents = matchPlanService.buildAndPersistWithPlayedGoals(
+                                    fixtureKey, _competitionId, _season, (int) _roundId, teamId1, teamId2,
+                                    buildAiCanonicalLineup(teamId1, seed2d, false),
+                                    buildAiCanonicalLineup(teamId2, seed2d, false),
+                                    planSplit, humanMatch2dDecision,
+                                    match2dGoalSlots(humanMatch2d, teamId1, teamId2));
+                            Match2dMapper.fillMissingNames(canonicalEvents, humanMatch2d.home(), humanMatch2d.away());
+                            humanMatch2dEvents = canonicalEvents;
+                        } else if (adminScore == null) {
                             MatchScoringDecision decision = canonicalDecision(fixtureKey, _competitionId,
                                     _season, (int) _roundId, teamId1, teamId2, humanCanonicalScore);
                             canonicalEvents = matchPlanService.buildAndPersistCanonical(
@@ -629,6 +667,11 @@ public class MatchRoundSimulator {
                                 teamId2, teamId1, teamScore2, teamScore1,
                                 tactic2, _competitionId, (int) _roundId,
                                 tallyForTeam(canonicalEvents, teamId2), canonicalAwayLineup);
+                        if (humanMatch2d != null) {
+                            Map<Long, Double> ratings2d = Match2dMapper.ratingsById(humanMatch2d.result());
+                            Match2dMapper.applyRatings(canonicalHomeScorers, ratings2d);
+                            Match2dMapper.applyRatings(canonicalAwayScorers, ratings2d);
+                        }
                     } else {
                         lineupRatingService.getScorersForTeam(teamId1, teamId2, teamScore1, teamScore2, tactic1, _competitionId, (int) _roundId);
                         lineupRatingService.getScorersForTeam(teamId2, teamId1, teamScore2, teamScore1, tactic2, _competitionId, (int) _roundId);
@@ -651,7 +694,18 @@ public class MatchRoundSimulator {
                     }
 
                     // Generate and persist match stats
-                    if (humanCanonicalScore != null) {
+                    if (humanMatch2d != null && humanMatch2dDecision != null) {
+                        matchStatsService.saveMatch2dStats(
+                                match2dEffectsInput(humanMatch2dDecision, planSplit, teamId1, teamId2,
+                                        humanMatch2dEvents),
+                                _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                                humanMatch2d.result());
+                        match2dReplayService.record(
+                                com.footballmanagergamesimulator.matchplan.MatchPlanService
+                                        .competitionFixtureKey(match.getId()),
+                                _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                                teamId1, teamId2, humanMatch2d);
+                    } else if (humanCanonicalScore != null) {
                         CanonicalRuntimeScore canonical = humanCanonicalScore;
                         matchStatsService.generateAndSaveCanonicalRuntimeMatchStats(
                                 _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
@@ -727,6 +781,8 @@ public class MatchRoundSimulator {
                 long _tsDecision = System.nanoTime();
                 final String aiFixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
                         .competitionFixtureKey(match.getId());
+                Match2dRoundPlanner.Played aiMatch2d = usableMatch2d(
+                        match2dByRow.get(match.getId()), teamId1, teamId2);
                 // Persistence is an immutable compatibility boundary: once an AI decision exists,
                 // the current MatchPlan flag cannot route the fixture back to another scorer.
                 Optional<com.footballmanagergamesimulator.matchplan.PersistedScoringPlan> persistedPlan =
@@ -798,6 +854,13 @@ public class MatchRoundSimulator {
                     teamPower1 = canonicalScore.homePower();
                     teamPower2 = canonicalScore.awayPower();
                     selectedScoreEngine = ScoreEngineKind.COMPARTMENT_V1;
+                    if (aiMatch2d != null) {
+                        // Regular time played by the 2D engine; powers and the knockout
+                        // evaluation stay Compartment's.
+                        teamScore1 = aiMatch2d.homeGoals();
+                        teamScore2 = aiMatch2d.awayGoals();
+                        selectedScoreEngine = ScoreEngineKind.MATCH2D_V1;
+                    }
                 }
                 }
 
@@ -848,7 +911,10 @@ public class MatchRoundSimulator {
                             ? canonicalScoringFingerprintService.adminOverrideInputFingerprint(
                                     aiFixtureKey, score90Home, score90Away)
                             : canonicalScore.inputFingerprint();
-                    MatchScoringDecision decision = new MatchScoringDecision(
+                    MatchScoringDecision decision = selectedScoreEngine == ScoreEngineKind.MATCH2D_V1
+                            ? Match2dMapper.decision(aiFixtureKey, decisionSeed, aiMatch2d.result(),
+                                    aiMatch2d.requestJson(), teamPower1, teamPower2)
+                            : new MatchScoringDecision(
                             aiFixtureKey, decisionSeed, selectedScoreEngine,
                             selectedScoreEngine.algorithmVersion(), configFingerprint, inputFingerprint,
                             score90Home, score90Away, teamPower1, teamPower2,
@@ -873,7 +939,10 @@ public class MatchRoundSimulator {
                             canonicalScore == null ? 0.0 : canonicalScore.homePassingControl(),
                             canonicalScore == null ? 0.0 : canonicalScore.awayPassingControl());
                     com.footballmanagergamesimulator.matchplan.PersistedScoringPlan adopted =
-                            matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2, planSplit);
+                            selectedScoreEngine == ScoreEngineKind.MATCH2D_V1
+                                    ? matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2,
+                                            planSplit, match2dGoalSlots(aiMatch2d, teamId1, teamId2))
+                                    : matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2, planSplit);
                     AdoptedScoring adoptedScoring = adoptScoringPlan(adopted, match, teamId1, teamId2,
                             firstLegScores, knockout);
                     teamScore1 = adoptedScoring.homeScore();
@@ -906,6 +975,12 @@ public class MatchRoundSimulator {
                 }
 
                 tScoreDecision += System.nanoTime() - _tsDecision;
+                // A plan decided by the 2D engine (now or in an earlier, rolled-back attempt) keeps
+                // its eleven on the pitch for 90 minutes; its ratings and statistics come from
+                // the 2D result only when that result is the one adopted here.
+                boolean match2dPlan = adoptedDecision != null
+                        && adoptedDecision.scoreEngine() == ScoreEngineKind.MATCH2D_V1;
+                if (!match2dPlan) aiMatch2d = null;
                 String aiTactic1 = getManagerTacticCached(teamId1);
                 String aiTactic2 = getManagerTacticCached(teamId2);
 
@@ -930,8 +1005,8 @@ public class MatchRoundSimulator {
                     int _season = Integer.parseInt(getCurrentSeason());
                     long seed = com.footballmanagergamesimulator.matchplan.MatchPlanService
                             .seedFor(fixtureKey, _competitionId, _season, (int) _roundId, teamId1, teamId2);
-                    Lineup homeLineup = buildAiCanonicalLineup(teamId1, seed);
-                    Lineup awayLineup = buildAiCanonicalLineup(teamId2, seed);
+                    Lineup homeLineup = buildAiCanonicalLineup(teamId1, seed, !match2dPlan);
+                    Lineup awayLineup = buildAiCanonicalLineup(teamId2, seed, !match2dPlan);
                     List<MatchEvent> canonicalEvents = matchPlanService.buildAndPersistLive(
                             fixtureKey, _competitionId, _season, (int) _roundId,
                             teamId1, teamId2, homeLineup, awayLineup,
@@ -940,6 +1015,9 @@ public class MatchRoundSimulator {
                             planSplit.shootoutHome(), planSplit.shootoutAway());
                     if (adoptedDecision == null) {
                         throw new IllegalStateException("durable AI fixture has no adopted scoring decision");
+                    }
+                    if (aiMatch2d != null) {
+                        Match2dMapper.fillMissingNames(canonicalEvents, aiMatch2d.home(), aiMatch2d.away());
                     }
                     canonicalEffectsInput = new CanonicalMatchEffectsInput(
                             adoptedDecision, planSplit, teamId1, teamId2,
@@ -956,6 +1034,13 @@ public class MatchRoundSimulator {
                     team2Scorers = getScorersForTeamCanonical(
                             teamId2, teamId1, teamScore2, teamScore1, _competitionId, (int) _roundId,
                             awayLineup, tallyForTeam(canonicalEvents, teamId2));
+                    if (aiMatch2d != null) {
+                        Map<Long, Double> ratings2d = Match2dMapper.ratingsById(aiMatch2d.result());
+                        Match2dMapper.applyRatings(team1Scorers, ratings2d);
+                        Match2dMapper.applyRatings(team2Scorers, ratings2d);
+                        match2dReplayService.record(fixtureKey, _competitionId, _season, (int) _roundId,
+                                teamId1, teamId2, aiMatch2d);
+                    }
                     canonicalAiFixtureKeys.add(fixtureKey);
                 } else {
                     team1Scorers = getScorersForTeamSimplified(
@@ -999,7 +1084,12 @@ public class MatchRoundSimulator {
                 tMgrRep += System.nanoTime() - _ts;
 
                 _ts = System.nanoTime();
-                if (durablePlan) {
+                if (durablePlan && aiMatch2d != null) {
+                    matchStatsService.saveMatch2dStats(
+                            canonicalEffectsInput,
+                            _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
+                            aiMatch2d.result());
+                } else if (durablePlan) {
                     matchStatsService.generateAndSaveCanonicalMatchStats(
                             canonicalEffectsInput,
                             _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId);
@@ -1526,6 +1616,8 @@ public class MatchRoundSimulator {
         Map<Long, int[]> tally = new HashMap<>();
         for (MatchEvent e : events) {
             if (e.getTeamId() != teamId) continue;
+            // An own goal counts for this side but belongs to no scorer of it.
+            if (Match2dMapper.OWN_GOAL.equals(e.getDetails())) continue;
             boolean goal = "goal".equals(e.getEventType());
             boolean assist = "assist".equals(e.getEventType());
             if (!goal && !assist) continue;
@@ -2226,6 +2318,96 @@ public class MatchRoundSimulator {
             Map<Long, PlayerSkills> skillsByPlayerId,
             List<CoachPermissionService.LockedSlot> legacyLockedSlots) {}
 
+    // ============================================================
+    //  2D match engine (match2d.*)
+    // ============================================================
+
+    /**
+     * Asks the 2D engine, in one request, for every fixture of the round the mode puts on it
+     * that has no forced admin score and no plan yet. Each club is sent with exactly the
+     * eleven the game fields ({@link #canonicalLineupSlotSources}). Empty map when the mode is
+     * off: no query, no request.
+     */
+    private Map<Long, Match2dRoundPlanner.Played> prefetchMatch2d(
+            List<CompetitionTeamInfoMatch> matches, long competitionId, int round) {
+        if (!match2dPlanner.isActive() || matches.isEmpty()) return Map.of();
+        int season = Integer.parseInt(getCurrentSeason());
+        List<Match2dRoundPlanner.Fixture> fixtures = new ArrayList<>();
+        for (CompetitionTeamInfoMatch match : matches) {
+            long homeTeamId = match.getTeam1Id();
+            long awayTeamId = match.getTeam2Id();
+            if (homeTeamId <= 0 || awayTeamId <= 0) continue;
+            boolean human = userContext.isHumanTeam(homeTeamId) || userContext.isHumanTeam(awayTeamId);
+            if (!match2dPlanner.wants(human)) continue;
+            String fixtureKey = com.footballmanagergamesimulator.matchplan.MatchPlanService
+                    .competitionFixtureKey(match.getId());
+            if (matchPlanService.hasPlan(fixtureKey)) continue;
+            if (teamPostMatchService.readPredeterminedScore(competitionId, round, homeTeamId, awayTeamId) != null) {
+                continue;
+            }
+            Match2dTeam home = match2dTeam(homeTeamId);
+            Match2dTeam away = match2dTeam(awayTeamId);
+            if (home == null || away == null) continue;
+            fixtures.add(new Match2dRoundPlanner.Fixture(match.getId(), home, away,
+                    com.footballmanagergamesimulator.matchplan.MatchPlanService.seedFor(
+                            fixtureKey, competitionId, season, round, homeTeamId, awayTeamId)));
+        }
+        return match2dPlanner.play(fixtures);
+    }
+
+    /** The club as the 2D engine receives it, from the round's automatic eleven; null when incomplete. */
+    private Match2dTeam match2dTeam(long teamId) {
+        getSimpleTeamRating(teamId);
+        List<CanonicalLineupSlotSource> sources = canonicalLineupSlotSources(teamId);
+        Team team = roundTeam(teamId);
+        if (team == null || sources.size() != 11) return null;
+        RoundContext context = roundContext.get();
+        PersonalizedTactic tactic = context != null ? context.tacticsByTeam().get(teamId) : null;
+        List<Match2dLineupService.Slot> slots = sources.stream()
+                .map(source -> new Match2dLineupService.Slot(source.player(), source.skills(),
+                        source.usedPosition(), source.formationData()))
+                .toList();
+        return match2dLineupService.assemble(team, getManagerTacticCached(teamId), tactic, slots);
+    }
+
+    /** The 2D result, if the elevens it was played with are still the ones the round fields. */
+    private Match2dRoundPlanner.Played usableMatch2d(Match2dRoundPlanner.Played played,
+                                                     long homeTeamId, long awayTeamId) {
+        if (played == null) return null;
+        if (!Match2dMapper.playerIds(played.home()).equals(starterIds(homeTeamId))
+                || !Match2dMapper.playerIds(played.away()).equals(starterIds(awayTeamId))) {
+            System.out.println("  [match2d] match " + played.matchRowId()
+                    + ": the eleven changed after the 2D engine played it; the classic engine plays it");
+            return null;
+        }
+        return played;
+    }
+
+    private Set<Long> starterIds(long teamId) {
+        return starterSlotsCache.getOrDefault(teamId, List.of()).stream()
+                .map(slot -> slot.player().getId())
+                .collect(Collectors.toSet());
+    }
+
+    private List<com.footballmanagergamesimulator.matchplan.GoalSlot> match2dGoalSlots(
+            Match2dRoundPlanner.Played played, long homeTeamId, long awayTeamId) {
+        return Match2dMapper.regularTimeSlots(played.result(), homeTeamId, awayTeamId,
+                Match2dMapper.playerIds(played.home()), Match2dMapper.playerIds(played.away()));
+    }
+
+    private CanonicalMatchEffectsInput match2dEffectsInput(
+            MatchScoringDecision decision, com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit split,
+            long homeTeamId, long awayTeamId, List<MatchEvent> events) {
+        return new CanonicalMatchEffectsInput(decision, split, homeTeamId, awayTeamId,
+                events.stream()
+                        .filter(event -> "goal".equalsIgnoreCase(event.getEventType())
+                                || "assist".equalsIgnoreCase(event.getEventType()))
+                        .map(event -> new CanonicalMatchEffectEvent(
+                                event.getSlotIndex(), event.getMinute(), event.getTeamId(),
+                                event.getPlayerId(), event.getEventType()))
+                        .toList());
+    }
+
     private PersonalizedTactic canonicalTactic(long teamId) {
         ShadowTacticAxes axes = canonicalTacticCache.computeIfAbsent(teamId, ignored ->
                 personalizedTacticRepository.findPersonalizedTacticByTeamId(teamId)
@@ -2587,6 +2769,11 @@ public class MatchRoundSimulator {
      * player can no longer score after his exit minute and subs get canonical appearance rows.
      */
     private Lineup buildAiCanonicalLineup(long teamId, long planSeed) {
+        return buildAiCanonicalLineup(teamId, planSeed, true);
+    }
+
+    /** {@code withSubs=false}: the eleven plays the whole match (2D engine matches have no substitutions). */
+    private Lineup buildAiCanonicalLineup(long teamId, long planSeed, boolean withSubs) {
         List<TacticController.StarterSlot> starters = starterSlotsCache.getOrDefault(teamId, List.of());
         List<PlayerView> bench = substitutionsCache.getOrDefault(teamId, List.of());
         FormationEvaluationSquad squad = formationSquadCache.get(teamId);
@@ -2608,7 +2795,7 @@ public class MatchRoundSimulator {
                     skillsById, penaltyTakerId, freeKickTakerId));
         }
         // planSeed*31+teamId mirrors LineupAdapter.buildAutomatic's AI_INSTANT sub-seed derivation.
-        return lineupAdapter.buildFromSnapshot(xi, benchContributors, planSeed * 31 + teamId, true);
+        return lineupAdapter.buildFromSnapshot(xi, benchContributors, planSeed * 31 + teamId, withSubs);
     }
 
     private Contributor toCanonicalContributor(PlayerView pv, String position,

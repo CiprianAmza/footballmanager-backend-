@@ -347,6 +347,20 @@ public class MatchStatsService {
         return saveWithShotEvents(projectCanonicalMatchStats(input, competitionId, season, round));
     }
 
+    /**
+     * Statistics of a match played by the 2D match engine: the canonical projection for
+     * whatever the engine does not measure, overwritten with the engine's own team statistics
+     * (shots kept at {@code shots >= onTarget >= goals}), then persisted with its shot events.
+     */
+    public MatchStats saveMatch2dStats(
+            CanonicalMatchEffectsInput input,
+            long competitionId, int season, int round,
+            com.footballmanagergamesimulator.match2d.Match2dResult result) {
+        MatchStats stats = projectCanonicalMatchStats(input, competitionId, season, round);
+        com.footballmanagergamesimulator.match2d.Match2dMapper.overwriteStats(stats, result);
+        return saveWithShotEvents(stats);
+    }
+
     private MatchStats generateCanonicalMatchStats(
             CanonicalMatchEffectsInput input, long competitionId, int season, int round,
             CanonicalMatchStatsProfileV1 profile, Random rng) {

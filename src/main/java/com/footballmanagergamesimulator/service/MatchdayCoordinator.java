@@ -40,6 +40,7 @@ import java.util.Set;
 public class MatchdayCoordinator {
 
     @Autowired private HumanRepository humanRepository;
+    @Autowired private com.footballmanagergamesimulator.match2d.Match2dReplayService match2dReplayService;
     @Autowired private MatchEventRepository matchEventRepository;
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private CompetitionTeamInfoDetailRepository competitionTeamInfoDetailRepository;
@@ -388,6 +389,11 @@ public class MatchdayCoordinator {
                 eventsList.add(eventMap);
             }
             result.put("matchEvents", eventsList);
+            // Present only for a match the 2D engine played, so it can be watched again.
+            if (match2dReplayService.exists(competitionId, season, matchday,
+                    detail.getTeam1Id(), detail.getTeam2Id())) {
+                result.put("match2d", true);
+            }
         }
 
         return result;
@@ -770,6 +776,7 @@ public class MatchdayCoordinator {
         java.util.Map<Long, int[]> tally = new java.util.HashMap<>();
         for (MatchEvent e : events) {
             if (e.getTeamId() != teamId) continue;
+            if (com.footballmanagergamesimulator.match2d.Match2dMapper.OWN_GOAL.equals(e.getDetails())) continue;
             boolean goal = "goal".equals(e.getEventType());
             boolean assist = "assist".equals(e.getEventType());
             if (!goal && !assist) continue;
