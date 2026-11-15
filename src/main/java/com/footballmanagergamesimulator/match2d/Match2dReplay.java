@@ -10,9 +10,9 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
 /**
- * A real fixture played by the 2D match engine, kept so it can be watched again: the engine
- * keeps only its last matches, but it is deterministic, so the same request played again gives
- * the same match and the same page.
+ * A real fixture drawn by the 2D match engine (the classic result, reproduced), kept so it can
+ * be watched again: the engine keeps only its last matches, but it is deterministic, so the
+ * same request (with its {@code target}) played again gives the same match and the same page.
  */
 @Entity
 @Table(name = "match2d_replay", uniqueConstraints = @UniqueConstraint(columnNames = "fixture_key"))

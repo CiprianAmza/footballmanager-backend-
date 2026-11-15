@@ -8,28 +8,33 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
- * Decides which fixtures of a round the 2D match engine plays ({@code match2d.mode}) and asks
- * the engine for all of them in one request. Whatever the engine cannot answer is left to the
- * classic engine ({@code match2d.fallback: classic}) or fails the round ({@code fail}).
+ * Decides which fixtures get a match drawn by the 2D match engine ({@code match2d.mode}) and
+ * asks the engine for it. The score is never the 2D engine's: the classic engine decides
+ * every fixture (90 minutes, extra time, shootout) and the 2D engine is asked, one match at a
+ * time, for a match that ends exactly with that result ({@link Match2dTarget}). A drawn match
+ * the engine cannot deliver, or that misses the target, leaves the fixture wholly classic
+ * ({@code match2d.fallback: classic}) or fails the round ({@code fail}).
  *
- * <p>After the service fails to answer, it is not asked again for
- * {@link #BREAKER_MILLIS} (classic fallback only), so a stopped service costs one timeout per
- * half minute, not one per competition.
+ * <p>When the service cannot be reached at all ({@link Match2dEngineClient.Unreachable}: it is
+ * stopped), it is not asked again for {@link #BREAKER_MILLIS} (classic fallback only), so a
+ * stopped service costs one connect attempt per half minute, not one per match. The matches
+ * skipped meanwhile are counted and reported in one log line when the pause ends. A request
+ * that times out while the engine plays, an error answer or a missed target leaves only that
+ * match classic, with a log line, and pauses nothing. Safe to call from the threads that
+ * simulate competitions in parallel: the engine client is thread-safe and the breaker and its
+ * counter are atomic.
  */
 @Component
 public class Match2dRoundPlanner {
 
     private static final Logger log = LoggerFactory.getLogger(Match2dRoundPlanner.class);
 
-    /** Every real fixture is a full match; extra time is played only when {@code knockout} asks for it. */
+    /** Every real fixture is a full match; extra time is played only when the target has it. */
     public static final int MATCH_MINUTES = 90;
     static final long BREAKER_MILLIS = 30_000L;
 
@@ -40,6 +45,8 @@ public class Match2dRoundPlanner {
     private final LongSupplier clock;
     /** Epoch millis before which the service is not asked again. */
     private final AtomicLong pausedUntil = new AtomicLong();
+    /** Matches left classic, without a request, since the breaker last opened. */
+    private final AtomicInteger skippedWhilePaused = new AtomicInteger();
 
     @Autowired
     public Match2dRoundPlanner(Match2dSettings settings, Match2dEngineClient engine,
@@ -47,7 +54,7 @@ public class Match2dRoundPlanner {
         this(settings, engine, objectMapper, engineConfig.getMatchPlan().isEnabled(), System::currentTimeMillis);
         if (settings.getMode() != Match2dSettings.Mode.OFF && !matchPlanEnabled) {
             log.warn("match2d.mode={} is ignored: the 2D engine needs match.engine.match-plan.enabled=true;"
-                    + " every match is played by the classic engine.", settings.getMode());
+                    + " no match is drawn by the 2D engine.", settings.getMode());
         } else if (settings.getMode() != Match2dSettings.Mode.OFF) {
             log.info("2D match engine on: mode={}, fallback={}, service={}", settings.getMode(),
                     settings.getFallback(), settings.getService().getUrl());
@@ -64,32 +71,21 @@ public class Match2dRoundPlanner {
     }
 
     /**
-     * One fixture to play: the two line-ups exactly as the game fields them, and the plan seed.
-     * {@code knockout} is set for a knockout match decided in this match (single match or
-     * second leg); {@code null} for a league match or a first leg.
+     * One fixture to draw: the two line-ups exactly as the game fields them, the plan seed,
+     * the result the classic engine decided ({@code target}) and, for a match that decides a
+     * knockout tie (single match or second leg), the first-leg goals ({@code knockout};
+     * {@code null} for a league match or a first leg).
      */
     public record Fixture(long matchRowId, Match2dTeam home, Match2dTeam away, long seed,
-                          Match2dEngineClient.Knockout knockout) {
-        public Fixture(long matchRowId, Match2dTeam home, Match2dTeam away, long seed) {
-            this(matchRowId, home, away, seed, null);
-        }
+                          Match2dEngineClient.Knockout knockout, Match2dTarget target) {
     }
 
     /**
-     * A fixture the engine played. {@code requestJson} is the {@code POST /matches} body that
-     * replays exactly this match.
+     * A fixture the engine drew, reproducing its target. {@code requestJson} is the
+     * {@code POST /matches} body (with the target) that replays exactly this match.
      */
     public record Played(long matchRowId, Match2dTeam home, Match2dTeam away, long seed,
                          Match2dResult result, String requestJson) {
-        /** Home goals in regular time (extra-time goals excluded). */
-        public int homeGoals() {
-            return Match2dMapper.homeGoals(result);
-        }
-
-        /** Away goals in regular time (extra-time goals excluded). */
-        public int awayGoals() {
-            return Match2dMapper.awayGoals(result);
-        }
     }
 
     /** The mode in force: {@code off} whenever the canonical match plan is off. */
@@ -97,13 +93,7 @@ public class Match2dRoundPlanner {
         return matchPlanEnabled ? settings.getMode() : Match2dSettings.Mode.OFF;
     }
 
-    /** Whether this round should look for 2D fixtures at all. */
-    public boolean isActive() {
-        if (mode() == Match2dSettings.Mode.OFF) return false;
-        return settings.getFallback() == Match2dSettings.Fallback.FAIL || !isPaused();
-    }
-
-    /** Whether the mode puts this fixture on the 2D engine. */
+    /** Whether the mode gives this fixture a match drawn by the 2D engine. */
     public boolean wants(boolean humanMatch) {
         return switch (mode()) {
             case OFF -> false;
@@ -117,65 +107,64 @@ public class Match2dRoundPlanner {
     }
 
     /**
-     * Plays every fixture in one request and returns the usable results by match row id. A
-     * fixture missing from the map is played by the classic engine. With
-     * {@code fallback: fail} any failure throws instead.
+     * Asks the engine for the match of one fixture ({@code POST /results}, one match) and
+     * returns it when it is usable and reproduces the fixture's target exactly; {@code null}
+     * otherwise (the fixture then stays classic), and without a request while the breaker is
+     * open. With {@code fallback: fail} any failure throws instead.
      */
-    public Map<Long, Played> play(List<Fixture> fixtures) {
-        if (fixtures == null || fixtures.isEmpty()) return Map.of();
-        List<Match2dEngineClient.Request> requests = new ArrayList<>(fixtures.size());
-        for (Fixture fixture : fixtures) {
-            requests.add(new Match2dEngineClient.Request(fixture.home(), fixture.away(), fixture.seed(),
-                    MATCH_MINUTES, Long.toString(fixture.matchRowId()), fixture.knockout()));
+    public Played draw(Fixture fixture) {
+        boolean fail = settings.getFallback() == Match2dSettings.Fallback.FAIL;
+        if (!fail && isPaused()) {
+            skippedWhilePaused.incrementAndGet();
+            return null;
         }
-        List<Match2dResult> results;
+        int skipped = skippedWhilePaused.getAndSet(0);
+        if (skipped > 0) {
+            log.warn("The 2D match engine was paused: {} match(es) stayed classic without being drawn.", skipped);
+        }
+        String ref = Long.toString(fixture.matchRowId());
+        Match2dResult result;
         try {
-            results = engine.results(requests);
-        } catch (RuntimeException failure) {
-            if (settings.getFallback() == Match2dSettings.Fallback.FAIL) {
-                throw new IllegalStateException("The 2D match engine could not play the round: "
-                        + failure.getMessage(), failure);
+            result = engine.resultOf(new Match2dEngineClient.Request(fixture.home(), fixture.away(),
+                    fixture.seed(), MATCH_MINUTES, ref, fixture.knockout(), fixture.target()));
+        } catch (Match2dEngineClient.Unreachable unreachable) {
+            if (fail) {
+                throw new IllegalStateException("The 2D match engine could not draw match "
+                        + fixture.matchRowId() + ": " + unreachable.getMessage(), unreachable);
             }
             pausedUntil.set(clock.getAsLong() + BREAKER_MILLIS);
-            log.warn("The 2D match engine did not answer ({}); {} match(es) are played by the classic engine"
-                    + " and the 2D engine is not asked again for {} s.",
-                    failure.getMessage(), fixtures.size(), BREAKER_MILLIS / 1000);
-            return Map.of();
-        }
-
-        Map<Long, Played> played = new HashMap<>();
-        for (int i = 0; i < fixtures.size(); i++) {
-            Fixture fixture = fixtures.get(i);
-            Match2dResult result = i < results.size() ? results.get(i) : null;
-            String problem = problemWith(fixture, result);
-            if (problem != null) {
-                if (settings.getFallback() == Match2dSettings.Fallback.FAIL) {
-                    throw new IllegalStateException("The 2D match engine could not play match "
-                            + fixture.matchRowId() + ": " + problem);
-                }
-                log.warn("2D match {} is played by the classic engine: {}", fixture.matchRowId(), problem);
-                continue;
+            log.warn("The 2D match engine cannot be reached ({}); match {} and every match of the next"
+                    + " ~{} s stay classic without asking it (counted when the pause ends).",
+                    unreachable.getMessage(), fixture.matchRowId(), BREAKER_MILLIS / 1000);
+            return null;
+        } catch (RuntimeException failure) {
+            if (fail) {
+                throw new IllegalStateException("The 2D match engine could not draw match "
+                        + fixture.matchRowId() + ": " + failure.getMessage(), failure);
             }
-            played.put(fixture.matchRowId(), new Played(fixture.matchRowId(), fixture.home(), fixture.away(),
-                    fixture.seed(), result, requestJson(fixture)));
+            log.warn("2D match {} stays classic: the engine did not deliver it ({})",
+                    fixture.matchRowId(), failure.getMessage());
+            return null;
         }
-        return played;
-    }
-
-    private static String problemWith(Fixture fixture, Match2dResult result) {
-        if (result == null) return "no result";
-        if (result.isFailed()) return result.error();
-        if (result.ref() != null && !result.ref().equals(Long.toString(fixture.matchRowId()))) {
-            return "the result belongs to match " + result.ref();
+        String problem = result != null && result.ref() != null && !result.ref().equals(ref)
+                ? "the result belongs to match " + result.ref()
+                : fixture.target().problemWith(result);
+        if (problem != null) {
+            if (fail) {
+                throw new IllegalStateException("The 2D match engine could not draw match "
+                        + fixture.matchRowId() + ": " + problem);
+            }
+            log.warn("2D match {} stays classic: {}", fixture.matchRowId(), problem);
+            return null;
         }
-        if (!Match2dMapper.usable(result)) return "the goals do not add up to the score or fall outside the match";
-        return null;
+        return new Played(fixture.matchRowId(), fixture.home(), fixture.away(), fixture.seed(), result,
+                requestJson(fixture));
     }
 
     private String requestJson(Fixture fixture) {
         try {
-            return objectMapper.writeValueAsString(Match2dEngineClient.playBody(
-                    fixture.home(), fixture.away(), fixture.seed(), MATCH_MINUTES, fixture.knockout()));
+            return objectMapper.writeValueAsString(Match2dEngineClient.playBody(fixture.home(), fixture.away(),
+                    fixture.seed(), MATCH_MINUTES, fixture.knockout(), fixture.target()));
         } catch (JsonProcessingException unwritable) {
             throw new IllegalStateException("2D match " + fixture.matchRowId() + " cannot be written", unwritable);
         }

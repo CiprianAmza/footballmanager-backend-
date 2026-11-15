@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Records the fixtures played by the 2D engine and plays them again for watching. */
+/** Records the fixtures drawn by the 2D engine and plays them again for watching. */
 @Service
 public class Match2dReplayService {
 
@@ -39,7 +39,7 @@ public class Match2dReplayService {
         replays.save(replay);
     }
 
-    /** Whether this match (either team order) was played by the 2D engine. */
+    /** Whether this match (either team order) was drawn by the 2D engine. */
     @Transactional(readOnly = true)
     public boolean exists(long competitionId, int season, int round, long teamId1, long teamId2) {
         return replays.existsByCompetitionIdAndSeasonAndRoundAndTeam1IdAndTeam2Id(
@@ -51,14 +51,14 @@ public class Match2dReplayService {
     /**
      * Plays the saved match again and returns {@code viewUrl}, {@code score},
      * {@code engineVersion} and {@code versionMismatch} (the engine now runs another version
-     * than the one that decided the result, so the page may differ from it). 404 when the
-     * match was not played by the 2D engine; 502/503 when the engine does not answer.
+     * than the one that drew the match, so the page may differ from it). 404 when the
+     * match was not drawn by the 2D engine; 502/503 when the engine does not answer.
      */
     @Transactional(readOnly = true)
     public Map<String, Object> replay(long competitionId, int season, int round, long teamId1, long teamId2) {
         Match2dReplay replay = find(competitionId, season, round, teamId1, teamId2)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "This match was not played by the 2D match engine."));
+                        "This match was not drawn by the 2D match engine."));
         JsonNode answer = engine.replay(replay.getRequestJson());
         String version = answer.hasNonNull("engineVersion") ? answer.get("engineVersion").asText() : null;
         Map<String, Object> out = new LinkedHashMap<>();

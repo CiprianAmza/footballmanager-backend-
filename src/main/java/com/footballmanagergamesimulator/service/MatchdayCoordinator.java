@@ -389,7 +389,7 @@ public class MatchdayCoordinator {
                 eventsList.add(eventMap);
             }
             result.put("matchEvents", eventsList);
-            // Present only for a match the 2D engine played, so it can be watched again.
+            // Present only for a match the 2D engine drew, so it can be watched again.
             if (match2dReplayService.exists(competitionId, season, matchday,
                     detail.getTeam1Id(), detail.getTeam2Id())) {
                 result.put("match2d", true);

@@ -9,7 +9,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** The plan of a regular time already played by the 2D engine. */
+/** The plan of a match drawn by the 2D engine (the classic result, reproduced). */
 class MatchPlanningServicePlayedGoalsTest {
 
     private static final long HOME = 10L;
@@ -38,18 +38,12 @@ class MatchPlanningServicePlayedGoalsTest {
     }
 
     @Test
-    void extraTimeGoalsArePlannedAfterThePlayedRegularTime() {
-        MatchPlan plan = planning.planWithRegularGoals("CTIM:1", 7L, HOME, AWAY,
+    void anExtraTimeScoreWithoutItsPlayedGoalsIsRefused() {
+        // The drawn match reproduces extra time too, so its goals are never planned apart.
+        assertThatThrownBy(() -> planning.planWithRegularGoals("CTIM:1", 7L, HOME, AWAY,
                 List.of(resolved(HOME, 44, "OPEN_PLAY", 101L), resolved(AWAY, 89, "OPEN_PLAY", 201L)),
-                1, 0, -1, -1);
-
-        assertThat(plan.getGoalSlots()).hasSize(3);
-        GoalSlot extra = plan.getGoalSlots().get(2);
-        assertThat(extra.getPhase()).isEqualTo(GoalPhase.EXTRA_TIME);
-        assertThat(extra.getTeamId()).isEqualTo(HOME);
-        assertThat(extra.getMinute()).isBetween(91, 120);
-        assertThat(plan.getHomeGoals()).isEqualTo(2);
-        assertThat(plan.getAwayGoals()).isEqualTo(1);
+                1, 0, -1, -1))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

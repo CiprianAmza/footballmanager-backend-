@@ -1,10 +1,16 @@
 package com.footballmanagergamesimulator.match2d;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -16,9 +22,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/** Which fixtures are drawn, and when a drawn match is kept or the fixture stays classic. */
 class Match2dRoundPlannerTest {
 
     private final ObjectMapper json = new ObjectMapper();
@@ -29,10 +37,24 @@ class Match2dRoundPlannerTest {
     private final Match2dTeam home = team(3, 31);
     private final Match2dTeam away = team(8, 81);
 
+    private final Logger plannerLog = (Logger) LoggerFactory.getLogger(Match2dRoundPlanner.class);
+    private final ListAppender<ILoggingEvent> logLines = new ListAppender<>();
+
     @BeforeEach
     void setUp() {
         settings = new Match2dSettings();
         engine = mock(Match2dEngineClient.class);
+        logLines.start();
+        plannerLog.addAppender(logLines);
+    }
+
+    @AfterEach
+    void tearDown() {
+        plannerLog.detachAppender(logLines);
+    }
+
+    private List<String> warnings() {
+        return logLines.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 
     private Match2dRoundPlanner planner(Match2dSettings.Mode mode, boolean matchPlanEnabled) {
@@ -40,21 +62,24 @@ class Match2dRoundPlannerTest {
         return new Match2dRoundPlanner(settings, engine, json, matchPlanEnabled, now::get);
     }
 
+    private Match2dRoundPlanner.Fixture fixture(long row, long seed, int homeGoals, int awayGoals) {
+        return new Match2dRoundPlanner.Fixture(row, home, away, seed, null,
+                Match2dTarget.of(KnockoutPlanSplit.regularOnly(homeGoals, awayGoals)));
+    }
+
     @Test
-    void offIsTheDefaultAndPutsNoMatchOnThe2dEngine() {
+    void offIsTheDefaultAndDrawsNoMatch() {
         assertThat(new Match2dSettings().getMode()).isEqualTo(Match2dSettings.Mode.OFF);
         assertThat(new Match2dSettings().getFallback()).isEqualTo(Match2dSettings.Fallback.CLASSIC);
         Match2dRoundPlanner planner = planner(Match2dSettings.Mode.OFF, true);
 
-        assertThat(planner.isActive()).isFalse();
         assertThat(planner.wants(true)).isFalse();
         assertThat(planner.wants(false)).isFalse();
     }
 
     @Test
-    void humanModeTakesOnlyTheMatchesOfAHumanClubAndAllModeTakesEveryMatch() {
+    void humanModeDrawsOnlyTheMatchesOfAHumanClubAndAllModeDrawsEveryMatch() {
         Match2dRoundPlanner human = planner(Match2dSettings.Mode.HUMAN, true);
-        assertThat(human.isActive()).isTrue();
         assertThat(human.wants(true)).isTrue();
         assertThat(human.wants(false)).isFalse();
 
@@ -68,92 +93,127 @@ class Match2dRoundPlannerTest {
         Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, false);
 
         assertThat(planner.mode()).isEqualTo(Match2dSettings.Mode.OFF);
-        assertThat(planner.isActive()).isFalse();
         assertThat(planner.wants(true)).isFalse();
     }
 
     @Test
-    void theWholeRoundGoesInOneRequestOfNinetyMinutesWithTheMatchRowAsReference() throws Exception {
+    void oneMatchIsSentWithItsTargetAndTheReplayRequestKeepsTheTarget() throws Exception {
         Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
-        when(engine.results(any())).thenReturn(List.of(played("5", 1, 0), played("6", 0, 0)));
+        when(engine.resultOf(any())).thenReturn(played("5", 1, 0));
 
-        Map<Long, Match2dRoundPlanner.Played> out = planner.play(List.of(
-                new Match2dRoundPlanner.Fixture(5L, home, away, 77L),
-                new Match2dRoundPlanner.Fixture(6L, away, home, 78L)));
+        Match2dRoundPlanner.Played out = planner.draw(fixture(5L, 77L, 1, 0));
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<Match2dEngineClient.Request>> sent = ArgumentCaptor.forClass(List.class);
-        verify(engine).results(sent.capture());
-        assertThat(sent.getValue()).extracting(Match2dEngineClient.Request::ref).containsExactly("5", "6");
-        assertThat(sent.getValue()).extracting(Match2dEngineClient.Request::minutes).containsOnly(90);
-        assertThat(sent.getValue().get(0).seed()).isEqualTo(77L);
-        assertThat(out).containsOnlyKeys(5L, 6L);
-        assertThat(out.get(5L).homeGoals()).isEqualTo(1);
+        ArgumentCaptor<Match2dEngineClient.Request> sent = ArgumentCaptor.forClass(Match2dEngineClient.Request.class);
+        verify(engine).resultOf(sent.capture());
+        assertThat(sent.getValue().ref()).isEqualTo("5");
+        assertThat(sent.getValue().minutes()).isEqualTo(90);
+        assertThat(sent.getValue().seed()).isEqualTo(77L);
+        assertThat(sent.getValue().target().score()).containsExactly(1, 0);
+        assertThat(out).isNotNull();
+        assertThat(out.matchRowId()).isEqualTo(5L);
 
-        JsonNode replayBody = json.readTree(out.get(5L).requestJson());
+        JsonNode replayBody = json.readTree(out.requestJson());
         assertThat(replayBody.get("seed").asLong()).isEqualTo(77L);
         assertThat(replayBody.get("minutes").asInt()).isEqualTo(90);
         assertThat(replayBody.get("home").get("id").asLong()).isEqualTo(3L);
+        assertThat(replayBody.get("target").get("score").toString()).isEqualTo("[1,0]");
         assertThat(replayBody.has("ref")).isFalse();
     }
 
     @Test
-    void aMatchTheEngineCouldNotPlayIsLeftToTheClassicEngineAndTheOthersAreKept() {
+    void aKnockoutFixtureSendsItsAggregateAndExtraTimeTarget() throws Exception {
         Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
-        when(engine.results(any())).thenReturn(List.of(
-                Match2dResult.failed("5", "no keeper"), played("6", 2, 2), played("7", 3, 0, 1)));
+        when(engine.resultOf(any())).thenReturn(json.readValue("""
+                {"ref":"5","score":[2,1],"goals":[{"minute":12,"team":0},{"minute":70,"team":1},{"minute":97,"team":0}],
+                 "knockout":{"aggregate":[0,0],"score90":[1,1],"extraTime":true,"extraTimeGoals":[1,0],
+                             "winner":0,"decidedBy":"extra_time"}}""", Match2dResult.class));
 
-        Map<Long, Match2dRoundPlanner.Played> out = planner.play(List.of(
-                new Match2dRoundPlanner.Fixture(5L, home, away, 1L),
-                new Match2dRoundPlanner.Fixture(6L, home, away, 2L),
-                new Match2dRoundPlanner.Fixture(7L, home, away, 3L)));
+        Match2dRoundPlanner.Played out = planner.draw(new Match2dRoundPlanner.Fixture(5L, home, away, 77L,
+                Match2dKnockout.request(0, 0, null), Match2dTarget.of(KnockoutPlanSplit.knockout(1, 1, 1, 0, null, null))));
 
-        assertThat(out).containsOnlyKeys(6L);   // 7 lists one goal for a 3-0 score
-        assertThat(planner.isActive()).isTrue();
+        assertThat(out).isNotNull();
+        JsonNode replayBody = json.readTree(out.requestJson());
+        assertThat(replayBody.get("knockout").get("aggregate").toString()).isEqualTo("[0,0]");
+        assertThat(replayBody.get("target").toString()).isEqualTo("{\"score\":[1,1],\"extraTime\":[1,0]}");
     }
 
     @Test
-    void aStoppedServiceLeavesTheRoundToTheClassicEngineAndPausesThe2dEngineForThirtySeconds() {
+    void aMatchThatMissesTheTargetOrFailsLeavesTheFixtureClassicWithoutPausingTheEngine() {
         Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
-        when(engine.results(any())).thenThrow(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "down"));
+        when(engine.resultOf(any())).thenReturn(
+                played("5", 2, 0),                                        // target is 1-0
+                Match2dResult.failed("6", "target not met after 64 tries"),
+                played("7", 3, 0, 1),                                     // lists one goal for a 3-0 score
+                played("99", 1, 0));                                      // answer for another match
 
-        assertThat(planner.play(List.of(new Match2dRoundPlanner.Fixture(5L, home, away, 1L)))).isEmpty();
-        assertThat(planner.isActive()).isFalse();
+        assertThat(planner.draw(fixture(5L, 1L, 1, 0))).isNull();
+        assertThat(planner.draw(fixture(6L, 2L, 1, 0))).isNull();
+        assertThat(planner.draw(fixture(7L, 3L, 3, 0))).isNull();
+        assertThat(planner.draw(fixture(8L, 4L, 1, 0))).isNull();
+        assertThat(planner.isPaused()).isFalse();
+    }
+
+    @Test
+    void anUnreachableServicePausesThe2dEngineForThirtySecondsAndTheSkippedMatchesAreCountedOnce() {
+        Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
+        when(engine.resultOf(any())).thenThrow(new Match2dEngineClient.Unreachable("down"))
+                .thenReturn(played("9", 0, 0));
+
+        assertThat(planner.draw(fixture(5L, 1L, 0, 0))).isNull();
+        assertThat(planner.isPaused()).isTrue();
+        assertThat(warnings()).singleElement().asString().contains("next ~30 s stay classic");
+        assertThat(planner.draw(fixture(6L, 1L, 0, 0))).isNull();   // not asked while paused
+        assertThat(planner.draw(fixture(7L, 1L, 0, 0))).isNull();
+        assertThat(planner.draw(fixture(8L, 1L, 0, 0))).isNull();
+        verify(engine, times(1)).resultOf(any());
+        assertThat(warnings()).hasSize(1);                          // no line per skipped match
 
         now.addAndGet(29_999L);
-        assertThat(planner.isActive()).isFalse();
+        assertThat(planner.isPaused()).isTrue();
         now.addAndGet(1L);
-        assertThat(planner.isActive()).isTrue();
+        assertThat(planner.isPaused()).isFalse();
+
+        assertThat(planner.draw(fixture(9L, 1L, 0, 0))).isNotNull();
+        assertThat(warnings()).hasSize(2);
+        assertThat(warnings().get(1)).contains("3 match(es) stayed classic");
+        assertThat(planner.draw(fixture(9L, 1L, 0, 0))).isNotNull();
+        assertThat(warnings()).hasSize(2);                          // the count is reported once
+    }
+
+    @Test
+    void aTimeoutOrAnErrorAnswerLeavesOnlyThatMatchClassicAndTheNextOneIsSent() {
+        Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
+        when(engine.resultOf(any()))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                        "The 2D match engine did not answer: request timed out"))
+                .thenReturn(played("6", 1, 0));
+
+        assertThat(planner.draw(fixture(5L, 1L, 1, 0))).isNull();
+        assertThat(planner.isPaused()).isFalse();
+        assertThat(warnings()).singleElement().asString().contains("2D match 5 stays classic");
+        assertThat(planner.draw(fixture(6L, 2L, 1, 0))).isNotNull();
+        verify(engine, times(2)).resultOf(any());
     }
 
     @Test
     void withFallbackFailAStoppedServiceIsAnErrorAndTheBreakerDoesNotApply() {
         settings.setFallback(Match2dSettings.Fallback.FAIL);
         Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
-        when(engine.results(any())).thenThrow(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "down"));
+        when(engine.resultOf(any())).thenThrow(new Match2dEngineClient.Unreachable("down"));
 
-        assertThatThrownBy(() -> planner.play(List.of(new Match2dRoundPlanner.Fixture(5L, home, away, 1L))))
-                .isInstanceOf(IllegalStateException.class);
-        assertThat(planner.isActive()).isTrue();
+        assertThatThrownBy(() -> planner.draw(fixture(5L, 1L, 0, 0))).isInstanceOf(IllegalStateException.class);
+        assertThat(planner.isPaused()).isFalse();
     }
 
     @Test
-    void withFallbackFailAFailedMatchIsAnError() {
+    void withFallbackFailAMissedTargetIsAnError() {
         settings.setFallback(Match2dSettings.Fallback.FAIL);
         Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
-        when(engine.results(any())).thenReturn(List.of(Match2dResult.failed("5", "no keeper")));
+        when(engine.resultOf(any())).thenReturn(Match2dResult.failed("5", "target not met after 64 tries"));
 
-        assertThatThrownBy(() -> planner.play(List.of(new Match2dRoundPlanner.Fixture(5L, home, away, 1L))))
+        assertThatThrownBy(() -> planner.draw(fixture(5L, 1L, 1, 0)))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no keeper");
-    }
-
-    @Test
-    void noFixturesMeansNoRequest() {
-        Match2dRoundPlanner planner = planner(Match2dSettings.Mode.ALL, true);
-
-        assertThat(planner.play(List.of())).isEmpty();
-        org.mockito.Mockito.verifyNoInteractions(engine);
+                .hasMessageContaining("target not met");
     }
 
     /** A played result whose goal list matches the score unless {@code listedGoals} says otherwise. */
@@ -171,7 +231,8 @@ class Match2dRoundPlannerTest {
         }
         try {
             return json.readValue("{\"ref\":\"" + ref + "\",\"score\":[" + homeGoals + "," + awayGoals
-                    + "],\"engineVersion\":\"1\",\"goals\":[" + goals + "]}", Match2dResult.class);
+                    + "],\"engineVersion\":\"1\",\"goals\":[" + goals + "],\"target\":{\"met\":true,\"tries\":1}}",
+                    Match2dResult.class);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

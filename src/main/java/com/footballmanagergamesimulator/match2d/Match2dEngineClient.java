@@ -25,8 +25,9 @@ import java.util.Map;
 /**
  * Talks to the 2D match engine, a separate local microservice
  * ({@code java -jar match2d.jar serve} in the {@code match-engine-java} project). The engine
- * plays the match from the two line-ups and answers with a summary and the address of the
- * page that replays it.
+ * plays the match from the two line-ups (for a real fixture: towards the result the classic
+ * engine decided, see {@link Match2dTarget}) and answers with a summary and the address of
+ * the page that replays it.
  *
  * <p>Configure the address with {@code match2d.service.url}; the default is where the
  * service listens when started without arguments.
@@ -82,21 +83,23 @@ public class Match2dEngineClient {
 
     /** The body of {@code POST /matches}: both line-ups, the seed and the length. */
     public static Map<String, Object> playBody(Match2dTeam home, Match2dTeam away, long seed, int minutes) {
-        return playBody(home, away, seed, minutes, null);
+        return playBody(home, away, seed, minutes, null, null);
     }
 
     /**
-     * The body of {@code POST /matches}, with {@code knockout} when the match must end with a
-     * winner (extra time and shootout played by the engine); without it when {@code null}.
+     * The body of {@code POST /matches}, with {@code knockout} (the first-leg goals of a match
+     * that decides a tie) and {@code target} (the result the match must end with) when they
+     * are not {@code null}.
      */
     public static Map<String, Object> playBody(Match2dTeam home, Match2dTeam away, long seed, int minutes,
-                                               Knockout knockout) {
+                                               Knockout knockout, Match2dTarget target) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("home", home);
         body.put("away", away);
         body.put("seed", seed);
         body.put("minutes", minutes);
         if (knockout != null) body.put("knockout", knockout);
+        if (target != null) body.put("target", target);
         return body;
     }
 
@@ -108,6 +111,30 @@ public class Match2dEngineClient {
     public Match2dResult result(Match2dTeam home, Match2dTeam away, long seed, int minutes, String ref) {
         JsonNode answer = post("/results", new Request(home, away, seed, minutes, ref), playTimeout);
         return toResult(answer);
+    }
+
+    /**
+     * Plays one match ({@code POST /results} with a single match) and returns its result. A
+     * match the engine refuses, with HTTP 200 or with an error status and a JSON
+     * {@code error} (a {@code target} it could not meet, for one), comes back as a
+     * {@linkplain Match2dResult#failed failed result}; only a service that does not answer
+     * or answers something unreadable throws.
+     */
+    public Match2dResult resultOf(Request match) {
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(match);
+        } catch (IOException unwritable) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "The match could not be written for the 2D match engine: " + unwritable.getMessage());
+        }
+        Answer answer = send("/results", json, playTimeout);
+        if (answer.status() != 200) {
+            String reason = answer.body() == null ? "" : answer.body().path("error").asText("");
+            if (reason.isBlank()) throw refused(answer);
+            return Match2dResult.failed(match.ref(), reason);
+        }
+        return toResult(answer.body());
     }
 
     /**
@@ -133,14 +160,16 @@ public class Match2dEngineClient {
     }
 
     /**
-     * One match for {@link #results}: the two line-ups as the engine receives them.
-     * {@code knockout} is set only for a match that must end with a winner.
+     * One match for {@link #results} and {@link #resultOf}: the two line-ups as the engine
+     * receives them. {@code knockout} is set only for a match that decides a tie;
+     * {@code target} only for a fixture whose result the classic engine already decided (the
+     * 2D engine then plays a match that ends exactly with it).
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Request(Match2dTeam home, Match2dTeam away, long seed, int minutes, String ref,
-                          Knockout knockout) {
+                          Knockout knockout, Match2dTarget target) {
         public Request(Match2dTeam home, Match2dTeam away, long seed, int minutes, String ref) {
-            this(home, away, seed, minutes, ref, null);
+            this(home, away, seed, minutes, ref, null, null);
         }
     }
 
@@ -180,6 +209,35 @@ public class Match2dEngineClient {
     }
 
     private JsonNode postJson(String path, String json, Duration timeout) {
+        Answer answer = send(path, json, timeout);
+        if (answer.status() != 200) throw refused(answer);
+        return answer.body();
+    }
+
+    /**
+     * The service could not be reached at all (connection refused, or no connection within
+     * the short connect timeout): it is stopped or not there. A request that connected but
+     * timed out while the engine was playing is not this; it is a plain
+     * {@link ResponseStatusException} (502).
+     */
+    public static final class Unreachable extends ResponseStatusException {
+        public Unreachable(String reason) {
+            super(HttpStatus.SERVICE_UNAVAILABLE, reason);
+        }
+    }
+
+    /** An HTTP status and its JSON body. */
+    private record Answer(int status, JsonNode body) {
+    }
+
+    private static ResponseStatusException refused(Answer answer) {
+        String reason = answer.body() == null ? "" : answer.body().path("error").asText("");
+        return new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                "The 2D match engine refused the match"
+                        + (reason.isBlank() ? " (HTTP " + answer.status() + ")." : ": " + reason));
+    }
+
+    private Answer send(String path, String json, Duration timeout) {
         HttpResponse<String> response;
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
@@ -189,9 +247,8 @@ public class Match2dEngineClient {
                     .build();
             response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (ConnectException | HttpConnectTimeoutException unreachable) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "The 2D match engine is not running at " + baseUrl
-                            + ". Start it with: java -jar match2d.jar serve");
+            throw new Unreachable("The 2D match engine is not running at " + baseUrl
+                    + ". Start it with: java -jar match2d.jar serve");
         } catch (IOException failure) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "The 2D match engine did not answer: " + failure.getMessage());
@@ -208,12 +265,6 @@ public class Match2dEngineClient {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "The 2D match engine sent an answer that is not JSON.");
         }
-        if (response.statusCode() != 200) {
-            String reason = answer == null ? "" : answer.path("error").asText("");
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "The 2D match engine refused the match"
-                            + (reason.isBlank() ? " (HTTP " + response.statusCode() + ")." : ": " + reason));
-        }
-        return answer;
+        return new Answer(response.statusCode(), answer);
     }
 }

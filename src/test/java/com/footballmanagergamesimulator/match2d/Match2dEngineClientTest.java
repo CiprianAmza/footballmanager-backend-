@@ -76,16 +76,83 @@ class Match2dEngineClientTest {
 
         assertThatThrownBy(() -> new Match2dEngineClient(base, json)
                 .play(team(1, "Inazuma Japan"), team(2, "Xenon"), 1L, 90))
-                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
+                .isInstanceOfSatisfying(Match2dEngineClient.Unreachable.class, failure -> {
                     assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
                     assertThat(failure.getReason()).contains(base).contains("java -jar match2d.jar serve");
                 });
     }
 
+    @Test
+    void oneDrawnMatchIsPostedToResultsWithItsTargetAndReadBack() throws Exception {
+        AtomicReference<String> received = new AtomicReference<>();
+        String base = startEngine("/results", 200, """
+                {"ref":"5","score":[1,0],"goals":[{"minute":9,"team":0}],"engineVersion":"1",
+                 "target":{"met":true,"tries":4,"seed":123}}""", received, new AtomicReference<>());
+
+        Match2dResult result = new Match2dEngineClient(base, json).resultOf(new Match2dEngineClient.Request(
+                team(1, "A"), team(2, "B"), 7L, 90, "5", null,
+                Match2dTarget.of(com.footballmanagergamesimulator.matchplan.KnockoutPlanSplit.regularOnly(1, 0))));
+
+        JsonNode sent = json.readTree(received.get());
+        assertThat(sent.has("matches")).isFalse();
+        assertThat(sent.path("target").toString()).isEqualTo("{\"score\":[1,0]}");
+        assertThat(sent.path("ref").asText()).isEqualTo("5");
+        assertThat(result.score()).containsExactly(1, 0);
+        assertThat(result.target().met()).isTrue();
+        assertThat(result.target().tries()).isEqualTo(4);
+    }
+
+    @Test
+    void aTargetTheEngineCannotMeetComesBackAsAFailedResultEvenWithAnErrorStatus() throws Exception {
+        String base = startEngine("/results", 422, "{\"ref\":\"5\",\"error\":\"target not met after 64 tries\"}",
+                new AtomicReference<>(), new AtomicReference<>());
+
+        Match2dResult result = new Match2dEngineClient(base, json).resultOf(
+                new Match2dEngineClient.Request(team(1, "A"), team(2, "B"), 7L, 90, "5"));
+
+        assertThat(result.isFailed()).isTrue();
+        assertThat(result.ref()).isEqualTo("5");
+        assertThat(result.error()).isEqualTo("target not met after 64 tries");
+    }
+
+    @Test
+    void aMatchThatTakesLongerThanTheTimeoutIsAFailureButNotAnUnreachableService() throws Exception {
+        engine = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        engine.createContext("/results", exchange -> {
+            try {
+                Thread.sleep(2_500L);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            exchange.close();
+        });
+        engine.start();
+        Match2dSettings settings = new Match2dSettings();
+        settings.getService().setUrl("http://127.0.0.1:" + engine.getAddress().getPort());
+        settings.getService().setTimeoutSeconds(1);
+
+        assertThatThrownBy(() -> new Match2dEngineClient(settings, json).resultOf(
+                new Match2dEngineClient.Request(team(1, "A"), team(2, "B"), 7L, 90, "5")))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
+                    assertThat(failure).isNotInstanceOf(Match2dEngineClient.Unreachable.class);
+                    assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                });
+    }
+
+    @Test
+    void theDefaultTimeoutIsOneMinute() {
+        assertThat(new Match2dSettings().getService().getTimeoutSeconds()).isEqualTo(60);
+    }
+
     private String startEngine(int status, String body, AtomicReference<String> received,
                                AtomicReference<String> method) throws IOException {
+        return startEngine("/matches", status, body, received, method);
+    }
+
+    private String startEngine(String path, int status, String body, AtomicReference<String> received,
+                               AtomicReference<String> method) throws IOException {
         engine = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        engine.createContext("/matches", exchange -> {
+        engine.createContext(path, exchange -> {
             method.set(exchange.getRequestMethod());
             received.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);

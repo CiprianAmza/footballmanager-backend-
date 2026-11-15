@@ -71,12 +71,12 @@ public class MatchPlanningService {
     }
 
     /**
-     * Plan whose goals were already played elsewhere (the 2D match engine): {@code playedGoals}
-     * carry their own side, minute, phase, type and, when known, scorer. Played extra-time goals
-     * (phase {@code EXTRA_TIME}) must add up exactly to the extra-time score and replace the
-     * planned ones; when none is given, extra time, when played, gets its goal slots from
-     * {@link #extraTimeSlots}. Slots are ordered by minute (stable, so goals of the same minute
-     * keep their order) and indexed from 0.
+     * Plan whose goals were already played elsewhere (a match drawn by the 2D match engine,
+     * reproducing the classic result): {@code playedGoals} carry their own side, minute, phase,
+     * type and, when known, scorer, and are the plan's only goal slots. The played extra-time
+     * goals (phase {@code EXTRA_TIME}) must add up exactly to the extra-time score
+     * ({@code -1} = no extra time, so none). Slots are ordered by minute (stable, so goals of
+     * the same minute keep their order) and indexed from 0.
      */
     public MatchPlan planWithRegularGoals(String fixtureKey, long seed, long homeTeamId, long awayTeamId,
                                           List<GoalSlot> playedGoals,
@@ -99,16 +99,11 @@ public class MatchPlanningService {
                 awayScore90++;
             }
         }
-        boolean playedExtraTime = homePlayedET + awayPlayedET > 0;
-        if (playedExtraTime && (homeScoreET < 0 || awayScoreET < 0
-                || homePlayedET != homeScoreET || awayPlayedET != awayScoreET)) {
+        if (homePlayedET != Math.max(0, homeScoreET) || awayPlayedET != Math.max(0, awayScoreET)) {
             throw new IllegalArgumentException("played extra-time goals " + homePlayedET + "-" + awayPlayedET
                     + " do not match the extra-time score " + homeScoreET + "-" + awayScoreET);
         }
         List<GoalSlot> slots = new ArrayList<>(playedGoals);
-        if (!playedExtraTime && homeScoreET >= 0 && awayScoreET >= 0) {
-            slots.addAll(extraTimeSlots(seed, homeTeamId, awayTeamId, homeScoreET, awayScoreET));
-        }
         slots.sort((a, b) -> Integer.compare(a.getMinute(), b.getMinute()));
         for (int i = 0; i < slots.size(); i++) slots.get(i).setSlotIndex(i);
         return new MatchPlan(fixtureKey, seed, ALGORITHM_VERSION, homeTeamId, awayTeamId,
