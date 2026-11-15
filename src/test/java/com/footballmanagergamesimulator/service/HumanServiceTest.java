@@ -49,6 +49,12 @@ class HumanServiceTest {
     private CompositeNameGenerator compositeNameGenerator;
 
     @Mock
+    private NationService nationService;
+
+    @Mock
+    private FaceGenerator faceGenerator;
+
+    @Mock
     private TeamPlayerHistoricalRelationRepository teamPlayerHistoricalRelationRepository;
 
     @Mock

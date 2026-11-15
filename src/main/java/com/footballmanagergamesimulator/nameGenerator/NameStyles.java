@@ -5,8 +5,7 @@ import java.util.Map;
 
 /**
  * The phonetic identities shipped with the game, one per fictional culture.
- * Pool keys are shared vocabulary: PREFIX, VOWEL, MIDDLE, SUFFIX, plus WORD and PLACE for
- * styles that compose a whole stem with a place ending (Tervala, Altzair).
+ * Old styles assemble syllables; the newer cultures use an authored given/family pair.
  */
 public final class NameStyles {
 
@@ -14,10 +13,18 @@ public final class NameStyles {
     public static final String VOWEL = "VOWEL";
     public static final String MIDDLE = "MIDDLE";
     public static final String SUFFIX = "SUFFIX";
+    public static final String GIVEN = "GIVEN";
+    public static final String FAMILY = "FAMILY";
     /** A whole word used as a name stem (Tervala: Koivu, Honka). */
     public static final String WORD = "WORD";
     /** A lowercase place ending appended to a WORD (Tervala: niemi, koski). */
     public static final String PLACE = "PLACE";
+
+    /** Hand-authored portrait players; the allocator leaves these exact pairs for the world seed. */
+    public static final Map<Long, List<String>> REFERENCE_NAMES = Map.of(
+            11L, List.of("Aven Saloren", "Neris Vaelo"),
+            12L, List.of("Dorn Vradek", "Odran Tesk"),
+            13L, List.of("Saevi Qelith", "Izel Vaes"));
 
     /** Latin/galactic: Exansius, Ireolus. Historic default, also used by the legacy static generator. */
     public static final NameStyle ELEVEN = NameStyle.of("eleven",
@@ -124,6 +131,42 @@ public final class NameStyles {
                     new NameStyle.Pattern(1, List.of(WORD, PLACE)),
                     new NameStyle.Pattern(3, List.of(PREFIX, MIDDLE)),
                     new NameStyle.Pattern(1, List.of(WORD, MIDDLE))));
+
+    /** Veyra: flowing vowels and v/l/r; short and longer given names share one family pool. */
+    public static final NameStyle VEYRA = fullNameStyle("veyra",
+            List.of("Aven", "Neris", "Maelis", "Lio", "Teren", "Sova", "Elian", "Orel",
+                    "Varo", "Iven", "Saren", "Luma", "Rivo", "Nael", "Evin", "Talio",
+                    "Meran", "Silo", "Yaren", "Olis", "Vela", "Daren", "Aro", "Selin"),
+            List.of("Saloren", "Vaelo", "Orava", "Mavess", "Ilvar", "Narel", "Veyalen", "Caleth",
+                    "Sirel", "Alorai", "Revorel", "Selaven", "Mireth", "Uvelin", "Dorel", "Laeven",
+                    "Ossai", "Veloran", "Neral", "Saivel", "Coren", "Meralis", "Tessel", "Auvren",
+                    "Leveth", "Orien", "Naress", "Virel", "Esvan", "Pellor", "Saeven", "Olt"));
+
+    /** Branik: compact consonant clusters and clipped endings, distinct from Khess's suffixes. */
+    public static final NameStyle BRANIK = fullNameStyle("branik",
+            List.of("Dorn", "Odran", "Dren", "Irdan", "Tovan", "Udro", "Bram", "Eddan",
+                    "Ordam", "Venn", "Branik", "Dast", "Merrit", "Ulben", "Rudd", "Stenn",
+                    "Beld", "Tarnel", "Noll", "Borrin", "Ett", "Joss", "Delmar", "Osket"),
+            List.of("Vradek", "Tesk", "Volbak", "Zemrat", "Drazel", "Belm", "Breddal", "Talmet",
+                    "Vossad", "Darnel", "Mordet", "Bramvek", "Tordal", "Denvoss", "Beltrum", "Orrad",
+                    "Stammel", "Vennor", "Rudbelt", "Dravet", "Ornbast", "Brasset", "Dolmar", "Fennard",
+                    "Hulden", "Marod", "Nerbet", "Ostrel", "Skeld", "Uldram", "Dorr", "Marn"));
+
+    /** Sileth: sibilants, ae/ei vowels, and a few short ancestral family names. */
+    public static final NameStyle SILETH = fullNameStyle("sileth",
+            List.of("Saevi", "Izel", "Eshai", "Thesin", "Orya", "Nemei", "Qael", "Zhen",
+                    "Vaeli", "Cyran", "Aeth", "Ossir", "Ysela", "Tevrai", "Lyss", "Azhel",
+                    "Sei", "Rhyel", "Ilza", "Qorin", "Ethei", "Vezra", "Naesh", "Syren"),
+            List.of("Qelith", "Vaes", "Xorun", "Ulai", "Shezel", "Azhar", "Azharel", "Eshor",
+                    "Thaelis", "Soryn", "Ixavel", "Nemeth", "Ossaith", "Kyreth", "Vezzar", "Aelq",
+                    "Shaevin", "Thorys", "Isketh", "Raezel", "Olyth", "Zhaelis", "Quorin", "Ezhai",
+                    "Vessael", "Syrith", "Thelq", "Ishavel", "Noryth", "Sezari", "Orz", "Ul"));
+
+    private static NameStyle fullNameStyle(String id, List<String> given, List<String> family) {
+        return NameStyle.of(id,
+                Map.of(GIVEN, given, FAMILY, family.stream().map(name -> " " + name).toList()),
+                List.of(new NameStyle.Pattern(1, List.of(GIVEN, FAMILY))));
+    }
 
     private NameStyles() {
     }

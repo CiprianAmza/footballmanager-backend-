@@ -89,6 +89,7 @@ public class GameInitializationService {
     @Autowired private CompetitionReputationService competitionReputationService;
     @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
     @Autowired private AgentService agentService;
+    @Autowired private WorldExpansionService worldExpansionService;
     @Autowired(required = false) private com.footballmanagergamesimulator.service.board.ClubBoardService clubBoardService;
 
     /**
@@ -100,6 +101,7 @@ public class GameInitializationService {
         memoryCheckpointService.restoreLatest();
         Optional<Round> existing = roundRepository.findById(1L);
         if (existing.isPresent()) {
+            worldExpansionService.importIntoExistingWorld(existing.get());
             superCupService.ensureCompetitions();
             competitionReputationService.ensureReputations();
             int protectedPlayers = bootstrapService.ensureSpecialPlayersNeverLeave();
@@ -129,15 +131,16 @@ public class GameInitializationService {
         if (usePrebuiltData && !rebuildPrebuiltData && prebuiltDataService.snapshotExists()) {
             System.out.println("=== Loading pre-built data from " + prebuiltDataService.snapshotFile() + " ===");
             prebuiltDataService.restore();
+            Round restored = roundRepository.findById(1L).orElseThrow(() ->
+                    new IllegalStateException("Pre-built snapshot contained no Round — delete "
+                            + prebuiltDataService.snapshotFile() + " and regenerate"));
+            worldExpansionService.importIntoExistingWorld(restored);
             superCupService.ensureCompetitions();
             competitionReputationService.ensureReputations();
             bootstrapService.ensureSpecialPlayersNeverLeave();
             newSeasonPlayerReadinessService.resetActiveTeamPlayers();
             agentService.ensureAgents();
             if (clubBoardService != null) clubBoardService.ensureBoards();
-            Round restored = roundRepository.findById(1L).orElseThrow(() ->
-                    new IllegalStateException("Pre-built snapshot contained no Round — delete "
-                            + prebuiltDataService.snapshotFile() + " and regenerate"));
             applyManagerTacticPolicyDefaultsIfNeeded(restored);
             return restored;
         }
@@ -165,6 +168,7 @@ public class GameInitializationService {
         seasonObjectiveService.generateSeasonObjectives((int) round.getSeason());
 
         generateInitialSquadsAndStaff(round);
+        worldExpansionService.finishFreshSquads();
         bootstrapService.initializeSpecialPlayers();
         agentService.ensureAgents();
         if (clubBoardService != null) clubBoardService.ensureBoards();
@@ -215,6 +219,17 @@ public class GameInitializationService {
         roundRepository.save(round);
         System.out.println("=== Elite manager tactic defaults applied to " + changed.size()
                 + " manager(s) ===");
+    }
+
+    /** Native save imports replace the database while services remain alive. */
+    public void applyWorldExpansion(Round round) {
+        compositeNameGenerator.clearPendingReservations();
+        WorldExpansionService.ImportResult result = worldExpansionService.importIntoExistingWorld(round);
+        if (!result.changed()) return;
+        superCupService.ensureCompetitions();
+        competitionReputationService.ensureReputations();
+        agentService.ensureAgents();
+        if (clubBoardService != null) clubBoardService.ensureBoards();
     }
 
     /**

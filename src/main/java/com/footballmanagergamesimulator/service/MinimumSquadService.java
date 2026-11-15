@@ -51,6 +51,8 @@ public class MinimumSquadService {
     @Autowired private CompetitionService competitionService;
     @Autowired private StaffService staffService;
     @Autowired private UserContext userContext;
+    @Autowired private NationService nationService;
+    @Autowired private FaceGenerator faceGenerator;
 
     @Transactional
     public CompletionSummary ensureMinimumSquads(int season) {
@@ -123,6 +125,7 @@ public class MinimumSquadService {
         List<TeamPlayerHistoricalRelation> relations = new ArrayList<>(promotions.size());
         for (Promotion promotion : promotions) {
             Human player = promotion.player();
+            faceGenerator.assignFace(player, nationService.nationIdForTeam(promotion.team().getId()));
             PlayerSkills playerSkills = new PlayerSkills();
             playerSkills.setPlayerId(player.getId());
             playerSkills.setPosition(player.getPosition());

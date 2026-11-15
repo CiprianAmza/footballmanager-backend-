@@ -1,11 +1,13 @@
 package com.footballmanagergamesimulator.service;
 
 import com.footballmanagergamesimulator.model.CompetitionHistory;
+import com.footballmanagergamesimulator.model.Competition;
 import com.footballmanagergamesimulator.model.CompetitionTeamInfo;
 import com.footballmanagergamesimulator.model.Round;
 import com.footballmanagergamesimulator.model.Team;
 import com.footballmanagergamesimulator.model.TeamCompetitionDetail;
 import com.footballmanagergamesimulator.repository.CompetitionHistoryRepository;
+import com.footballmanagergamesimulator.repository.CompetitionRepository;
 import com.footballmanagergamesimulator.repository.CompetitionTeamInfoRepository;
 import com.footballmanagergamesimulator.repository.RoundRepository;
 import com.footballmanagergamesimulator.repository.TeamCompetitionDetailRepository;
@@ -17,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -34,6 +37,9 @@ class CompetitionDisplayServiceTest {
     @Mock private TeamCompetitionDetailRepository details;
     @Mock private TeamRepository teams;
     @Mock private RoundRepository rounds;
+    @Mock private CompetitionRepository competitions;
+    @Mock private EuropeanCoefficientService coefficients;
+    @Mock private com.footballmanagergamesimulator.config.EuropeanQualificationPolicy qualificationPolicy;
     @InjectMocks private CompetitionDisplayService service;
 
     @Test
@@ -75,6 +81,45 @@ class CompetitionDisplayServiceTest {
         assertEquals("52", standings.get(0).getPoints());
         verify(history, never()).findAll();
         verify(teams, never()).findById(any(Long.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void pendingEuropeanAdmissionDoesNotHideDomesticLeaguesOrGiveThemQualificationZones() {
+        Competition old = league(1, 1, "Gallactick Football First League");
+        Competition veyra = league(22, 11, "Liga Veyra");
+        Competition branik = league(25, 12, "Liga Branik");
+        Competition sileth = league(28, 13, "Liga Sileth");
+        List<Competition> all = List.of(old, veyra, branik, sileth);
+        when(coefficients.getLeagueIdsSortedByCoefficient()).thenReturn(List.of(1L));
+        when(competitions.findAll()).thenReturn(all);
+        all.forEach(c -> when(competitions.findById(c.getId())).thenReturn(Optional.of(c)));
+        when(details.findAllByCompetitionIdIn(any())).thenReturn(List.of(detail(107, 22, 3), detail(1, 1, 6)));
+        when(teams.findAllById(any())).thenReturn(List.of(team(1), team(107)));
+        when(qualificationPolicy.directForRank(1)).thenReturn(1);
+
+        var result = service.getLeaguesOverview(5);
+        var leagues = (List<Map<String, Object>>) result.get("leagues");
+
+        assertEquals(List.of(1L, 25L, 28L, 22L), leagues.stream().map(row -> row.get("competitionId")).toList());
+        assertEquals(1, leagues.get(0).get("associationRank"));
+        assertEquals(List.of(1), ((Map<String, Object>) leagues.get(0).get("qualificationZones")).get("locGroup"));
+        for (var pending : leagues.subList(1, leagues.size())) {
+            assertEquals(0, pending.get("associationRank"));
+            assertEquals(false, pending.get("europeanEligible"));
+            var zones = (Map<String, Object>) pending.get("qualificationZones");
+            assertTrue(zones.values().stream().allMatch(value -> ((List<?>) value).isEmpty()));
+        }
+        var veyraRow = leagues.stream().filter(row -> row.get("competitionId").equals(22L)).findFirst().orElseThrow();
+        assertEquals(1, ((List<?>) veyraRow.get("topTeams")).size());
+        verify(details).findAllByCompetitionIdIn(List.of(1L, 25L, 28L, 22L));
+    }
+
+    private static Competition league(long id, long nationId, String name) {
+        Competition league = new Competition();
+        league.setId(id); league.setNationId(nationId); league.setName(name);
+        league.setTypeId(Competition.LEAGUE); league.setTier(1);
+        return league;
     }
 
     private static CompetitionTeamInfo participant(long teamId, long competitionId, long season) {

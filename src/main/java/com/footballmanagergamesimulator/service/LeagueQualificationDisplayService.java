@@ -81,9 +81,11 @@ public class LeagueQualificationDisplayService {
 
         int associationRank = topFlight == null ? 0
                 : coefficientService.getLeagueIdsSortedByCoefficient().indexOf(topFlight.getId()) + 1;
-        int locSpots = associationRank >= 1 && associationRank <= 7
+        boolean europeanEligible = topFlight != null && EuropeanEntryEligibility.isEligibleTopFlight(topFlight)
+                && associationRank >= 1;
+        int locSpots = europeanEligible && associationRank <= 7
                 ? qualificationPolicy.totalForRank(associationRank) : 0;
-        int starsCupLeagueSpots = associationRank >= 1 && associationRank <= 4 ? 1 : 0;
+        int starsCupLeagueSpots = europeanEligible && associationRank <= 4 ? 1 : 0;
 
         Map<Long, TeamQualification> qualificationByTeam = new LinkedHashMap<>();
         int position = 1;
@@ -114,10 +116,10 @@ public class LeagueQualificationDisplayService {
                 : teamRepository.findById(cupWinnerTeamId).map(team -> team.getName())
                     .orElse("Team #" + cupWinnerTeamId);
 
-        if (cupWinnerTeamId != null && !qualificationByTeam.containsKey(cupWinnerTeamId)) {
+        if (europeanEligible && cupWinnerTeamId != null && !qualificationByTeam.containsKey(cupWinnerTeamId)) {
             qualificationByTeam.put(cupWinnerTeamId,
                     new TeamQualification(cupWinnerTeamId, "STARS_CUP", "CUP_WINNER", null));
-        } else if (cupWinnerTeamId != null) {
+        } else if (europeanEligible && cupWinnerTeamId != null) {
             for (int index = 0; index < topFlightStandings.size(); index++) {
                 long teamId = topFlightStandings.get(index);
                 if (qualificationByTeam.containsKey(teamId)) continue;
@@ -127,9 +129,9 @@ public class LeagueQualificationDisplayService {
             }
         }
 
-        String cupWinnerRoute = cupWinnerTeamId == null ? null
-                : qualificationByTeam.get(cupWinnerTeamId).route();
-        int configuredStarsCupSpots = associationRank >= 1 && associationRank <= 7 && cup != null
+        TeamQualification cupWinnerQualification = qualificationByTeam.get(cupWinnerTeamId);
+        String cupWinnerRoute = cupWinnerQualification == null ? null : cupWinnerQualification.route();
+        int configuredStarsCupSpots = europeanEligible && associationRank <= 7 && cup != null
                 ? starsCupLeagueSpots + 1 : starsCupLeagueSpots;
 
         return new LeagueQualificationContext(

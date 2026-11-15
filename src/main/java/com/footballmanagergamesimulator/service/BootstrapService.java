@@ -71,6 +71,7 @@ public class BootstrapService {
     @Autowired private ChairmanTacticalMandateRepository chairmanTacticalMandateRepository;
     @Autowired private NationService nationService;
     @Autowired private FaceGenerator faceGenerator;
+    @Autowired private WorldExpansionService worldExpansionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** Run the structural one-time seed in order: competitions → 11 team groups. */
@@ -87,6 +88,7 @@ public class BootstrapService {
         initializeTeams9();
         initializeTeams10();
         initializeTeams11();
+        worldExpansionService.seedStructures(1);
         initializeSignatureTactics();
     }
 

@@ -67,12 +67,19 @@ public class CompetitionDisplayService {
     /**
      * Leagues overview for the leagues-overview frontend page. All first-division
      * leagues sorted by their nation's coefficient rank (rank 1 = strongest),
+     * followed by domestic leagues not yet admitted to Europe, in name order,
      * each with top N standings + qualification zones so the FE can colour each
      * row based on what that position earns.
      */
     public Map<String, Object> getLeaguesOverview(int topN) {
         int curSeason = Integer.parseInt(currentSeason());
-        List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
+        List<Long> coefficientLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
+        List<Long> sortedLeagueIds = new ArrayList<>(coefficientLeagueIds);
+        competitionRepository.findAll().stream().filter(Competition::isTopFlight)
+                .filter(league -> !coefficientLeagueIds.contains(league.getId()))
+                .sorted(Comparator.comparing(Competition::getName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparingLong(Competition::getId))
+                .map(Competition::getId).forEach(sortedLeagueIds::add);
         Map<Long, List<TeamCompetitionDetail>> standingsByLeague = teamCompetitionDetailRepository
                 .findAllByCompetitionIdIn(sortedLeagueIds).stream()
                 .collect(Collectors.groupingBy(TeamCompetitionDetail::getCompetitionId));
@@ -92,8 +99,13 @@ public class CompetitionDisplayService {
             league.put("competitionId", leagueId);
             league.put("name", comp.getName());
             league.put("nationId", comp.getNationId());
+            // rank is the overview order, not a grant of European membership.
             league.put("rank", rank);
-            league.put("qualificationZones", computeLeagueQualificationZones(rank));
+            int associationRank = EuropeanEntryEligibility.isEligibleTopFlight(comp)
+                    ? coefficientLeagueIds.indexOf(leagueId) + 1 : 0;
+            league.put("associationRank", associationRank);
+            league.put("europeanEligible", associationRank > 0);
+            league.put("qualificationZones", computeLeagueQualificationZones(associationRank));
 
             List<TeamCompetitionDetail> standings = standingsByLeague.getOrDefault(leagueId, List.of()).stream()
                     .sorted((a, b) -> {

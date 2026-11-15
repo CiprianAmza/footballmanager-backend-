@@ -97,6 +97,7 @@ public class GameStateService {
         competitionReputationService.ensureReputations();
         this.round = roundRepository.findById(1L)
                 .orElseThrow(() -> new IllegalStateException("Imported save contains no Round row"));
+        gameInitializationService.applyWorldExpansion(this.round);
         gameInitializationService.applyManagerTacticPolicyDefaultsIfNeeded(this.round);
         this.cachedLeagueCompIds = null;
         this.cachedCupCompIds = null;

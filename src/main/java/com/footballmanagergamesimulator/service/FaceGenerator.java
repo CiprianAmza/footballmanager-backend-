@@ -15,7 +15,7 @@ import java.util.Random;
  * hair colour are the nation-defining axes), it does not enter the seed.
  *
  * <p>Index ranges (kept small and stable so the FE can map them to art):
- * baseFaceId 0-9, skinTone 0-5 (light->dark), hairStyle 0-9, hairColor 0-5
+ * baseFaceId 0-9, skinTone 0-5 (light->dark), hairStyle 0-19, hairColor 0-5
  * (0 black,1 dark brown,2 light brown,3 blonde,4 red,5 grey), eyeColor 0-3 (0 brown,1 hazel,2 green,3 blue).
  * For the salmarid (Mareval) and kaarnid (Tervala) species, skinTone selects the body material and
  * hairColor the hair / foliage tint; the human meanings above do not apply to them.
@@ -40,36 +40,45 @@ public class FaceGenerator {
     }
 
     // Per-nation STRUCTURAL identity (mirror of the FE player-face NATION_STRUCTURE table): the favored
-    // pool of head silhouettes (faceShape 0-15) and hair silhouettes (hairStyle 0-19) per nation, so
+    // pool of head silhouettes (faceShape 0-17) and hair silhouettes (hairStyle 0-19) per nation, so
     // each nation is recognizable by head + hair while keeping per-player variety within the pool.
     private static final Map<Long, int[]> NATION_HEAD = Map.ofEntries(
-            Map.entry(0L, new int[]{0, 1, 2, 4}),        // International
-            Map.entry(1L, new int[]{5, 6, 7, 8, 9}),     // Gallactick — alien skulls
-            Map.entry(2L, new int[]{14, 3, 0, 11}),      // Dong
-            Map.entry(3L, new int[]{15, 2, 6, 12}),      // Khess
-            Map.entry(4L, new int[]{11, 10, 0, 1}),      // FootieCup
-            Map.entry(5L, new int[]{13, 4, 12, 1}),      // Cards
-            Map.entry(6L, new int[]{16, 17, 10, 11}),    // Literature — lunar: crescent-moon(16)/onion-dome(17)/crescent(10)/semicircle(11)
-            Map.entry(7L, new int[]{15, 13, 2, 6}));     // Eleven
+            Map.entry(0L, new int[]{0, 1, 2, 4}), // International
+            Map.entry(1L, new int[]{5, 6, 7, 8, 9}), // Gallactick
+            Map.entry(2L, new int[]{14, 3, 0, 11}), // Dong
+            Map.entry(3L, new int[]{15, 2, 6, 12}), // Khess
+            Map.entry(4L, new int[]{11, 10, 0, 1}), // FootieCup
+            Map.entry(5L, new int[]{13, 4, 12, 1}), // Cards
+            Map.entry(6L, new int[]{16, 17, 10, 11}), // Literature
+            Map.entry(7L, new int[]{15, 13, 2, 6}), // Eleven
+            Map.entry(11L, new int[]{1, 4, 12, 2}), // Veyra
+            Map.entry(12L, new int[]{0, 3, 14, 15}), // Branik
+            Map.entry(13L, new int[]{1, 2, 4, 12, 15})); // Sileth
     private static final Map<Long, int[]> NATION_HAIR = Map.ofEntries(
-            Map.entry(0L, new int[]{0, 1, 3, 5, 8}),
-            Map.entry(1L, new int[]{14, 15, 17, 18, 19}),// Gallactick — exotic hair
-            Map.entry(2L, new int[]{2, 13, 14, 4}),
-            Map.entry(3L, new int[]{14, 2, 15, 11}),
-            Map.entry(4L, new int[]{8, 1, 5, 17}),
-            Map.entry(5L, new int[]{0, 3, 6, 10}),
-            Map.entry(6L, new int[]{5, 7, 9, 10}),
-            Map.entry(7L, new int[]{3, 2, 11, 14}));
+            Map.entry(0L, new int[]{0, 1, 3, 5, 8}), // International
+            Map.entry(1L, new int[]{14, 15, 17, 18, 19}), // Gallactick
+            Map.entry(2L, new int[]{2, 13, 14, 4}), // Dong
+            Map.entry(3L, new int[]{14, 2, 15, 11}), // Khess
+            Map.entry(4L, new int[]{8, 1, 5, 17}), // FootieCup
+            Map.entry(5L, new int[]{0, 3, 6, 10}), // Cards
+            Map.entry(6L, new int[]{5, 7, 9, 10}), // Literature
+            Map.entry(7L, new int[]{3, 2, 11, 14}), // Eleven
+            Map.entry(11L, new int[]{5, 7, 8, 9, 10}), // Veyra
+            Map.entry(12L, new int[]{0, 2, 3, 8, 11}), // Branik
+            Map.entry(13L, new int[]{1, 3, 7, 8, 9})); // Sileth
     /** Per-nation favored eyebrow pool (browShape 0-8), mirror of the FE NATION_STRUCTURE brows. */
     private static final Map<Long, int[]> NATION_BROW = Map.ofEntries(
-            Map.entry(0L, new int[]{0, 2, 4}),
-            Map.entry(1L, new int[]{4, 8, 1}),
-            Map.entry(2L, new int[]{3, 5, 7}),
-            Map.entry(3L, new int[]{6, 1, 5}),
-            Map.entry(4L, new int[]{7, 0, 5}),
-            Map.entry(5L, new int[]{4, 8, 2}),
-            Map.entry(6L, new int[]{8, 5, 2}),
-            Map.entry(7L, new int[]{5, 4, 6}));
+            Map.entry(0L, new int[]{0, 2, 4}), // International
+            Map.entry(1L, new int[]{4, 8, 1}), // Gallactick
+            Map.entry(2L, new int[]{3, 5, 7}), // Dong
+            Map.entry(3L, new int[]{6, 1, 5}), // Khess
+            Map.entry(4L, new int[]{7, 0, 5}), // FootieCup
+            Map.entry(5L, new int[]{4, 8, 2}), // Cards
+            Map.entry(6L, new int[]{8, 5, 2}), // Literature
+            Map.entry(7L, new int[]{5, 4, 6}), // Eleven
+            Map.entry(11L, new int[]{2, 4, 8}), // Veyra
+            Map.entry(12L, new int[]{0, 3, 7}), // Branik
+            Map.entry(13L, new int[]{1, 4, 8})); // Sileth
     private static final int[] DEFAULT_HEAD_POOL = {0, 1, 2, 4};
     private static final int[] DEFAULT_HAIR_POOL = {0, 1, 3, 5, 8};
     private static final int[] DEFAULT_BROW_POOL = {0, 2, 4};
@@ -79,34 +88,40 @@ public class FaceGenerator {
      * (Mareval) and kaarnid (Tervala) species the FE maps skinTone to the body material instead.
      */
     private static final Map<Long, int[]> SKIN_TONE_WEIGHTS = Map.ofEntries(
-            Map.entry(0L, new int[]{20, 25, 20, 15, 12, 8}),   // Europe / mixed continental
-            Map.entry(1L, new int[]{35, 30, 20, 10, 4, 1}),    // Gallactick — pale
-            Map.entry(2L, new int[]{2, 6, 14, 25, 28, 25}),    // Dong — dark
-            Map.entry(3L, new int[]{10, 18, 28, 24, 14, 6}),   // Khess — mid
-            Map.entry(4L, new int[]{30, 28, 22, 12, 6, 2}),    // FootieCup — fair
-            Map.entry(5L, new int[]{14, 20, 26, 22, 12, 6}),   // Cards — mid
-            Map.entry(6L, new int[]{25, 26, 22, 14, 8, 5}),    // Literature — fair-mid
-            Map.entry(7L, new int[]{5, 10, 18, 25, 24, 18}),   // Eleven — dark-mid
-            Map.entry(8L, new int[]{8, 20, 28, 22, 14, 8}),    // Mareval — copper skin tones (salmarid body)
-            Map.entry(9L, new int[]{18, 10, 14, 24, 18, 16}),  // Tervala — bark: birch, aspen, ash, oak, walnut, alder
-            Map.entry(10L, new int[]{26, 28, 22, 12, 8, 4}));  // Altzair — pale to weathered skin
+            Map.entry(0L, new int[]{20, 25, 20, 15, 12, 8}), // International
+            Map.entry(1L, new int[]{35, 30, 20, 10, 4, 1}), // Gallactick
+            Map.entry(2L, new int[]{2, 6, 14, 25, 28, 25}), // Dong
+            Map.entry(3L, new int[]{10, 18, 28, 24, 14, 6}), // Khess
+            Map.entry(4L, new int[]{30, 28, 22, 12, 6, 2}), // FootieCup
+            Map.entry(5L, new int[]{14, 20, 26, 22, 12, 6}), // Cards
+            Map.entry(6L, new int[]{25, 26, 22, 14, 8, 5}), // Literature
+            Map.entry(7L, new int[]{5, 10, 18, 25, 24, 18}), // Eleven
+            Map.entry(8L, new int[]{8, 20, 28, 22, 14, 8}), // Mareval
+            Map.entry(9L, new int[]{18, 10, 14, 24, 18, 16}), // Tervala
+            Map.entry(10L, new int[]{26, 28, 22, 12, 8, 4}), // Altzair
+            Map.entry(11L, new int[]{22, 24, 18, 16, 12, 8}), // Veyra
+            Map.entry(12L, new int[]{14, 22, 24, 18, 14, 8}), // Branik
+            Map.entry(13L, new int[]{20, 22, 20, 16, 14, 8})); // Sileth
 
     /**
      * Per-nation hair-colour weights over indices 0-5. For the salmarid (Mareval) and kaarnid (Tervala)
      * species the FE maps hairColor to the hair / foliage tint instead of the human palette.
      */
     private static final Map<Long, int[]> HAIR_COLOR_WEIGHTS = Map.ofEntries(
-            Map.entry(0L, new int[]{30, 25, 18, 14, 6, 7}),
-            Map.entry(1L, new int[]{15, 22, 24, 28, 6, 5}),    // Gallactick — lots of blonde
-            Map.entry(2L, new int[]{55, 28, 10, 2, 1, 4}),     // Dong — mostly black
-            Map.entry(3L, new int[]{40, 30, 16, 6, 3, 5}),     // Khess — dark
-            Map.entry(4L, new int[]{18, 24, 24, 22, 7, 5}),    // FootieCup — varied/blonde
-            Map.entry(5L, new int[]{30, 28, 20, 12, 5, 5}),
-            Map.entry(6L, new int[]{22, 28, 22, 18, 5, 5}),
-            Map.entry(7L, new int[]{50, 30, 12, 3, 1, 4}),    // Eleven — dark
-            Map.entry(8L, new int[]{20, 26, 22, 14, 10, 8}),   // Mareval — sun-bleached hair shades
-            Map.entry(9L, new int[]{22, 22, 16, 20, 10, 10}),  // Tervala — foliage: deep green, spring green, yellow, autumn red, copper, bare twigs
-            Map.entry(10L, new int[]{26, 20, 18, 16, 10, 10})); // Altzair — black, soot-dark, dark grey, grey, ash brown, silver
+            Map.entry(0L, new int[]{30, 25, 18, 14, 6, 7}), // International
+            Map.entry(1L, new int[]{15, 22, 24, 28, 6, 5}), // Gallactick
+            Map.entry(2L, new int[]{55, 28, 10, 2, 1, 4}), // Dong
+            Map.entry(3L, new int[]{40, 30, 16, 6, 3, 5}), // Khess
+            Map.entry(4L, new int[]{18, 24, 24, 22, 7, 5}), // FootieCup
+            Map.entry(5L, new int[]{30, 28, 20, 12, 5, 5}), // Cards
+            Map.entry(6L, new int[]{22, 28, 22, 18, 5, 5}), // Literature
+            Map.entry(7L, new int[]{50, 30, 12, 3, 1, 4}), // Eleven
+            Map.entry(8L, new int[]{20, 26, 22, 14, 10, 8}), // Mareval
+            Map.entry(9L, new int[]{22, 22, 16, 20, 10, 10}), // Tervala
+            Map.entry(10L, new int[]{26, 20, 18, 16, 10, 10}), // Altzair
+            Map.entry(11L, new int[]{28, 28, 12, 12, 8, 12}), // Veyra
+            Map.entry(12L, new int[]{35, 22, 14, 10, 11, 8}), // Branik
+            Map.entry(13L, new int[]{30, 24, 16, 10, 8, 12})); // Sileth
 
     private static final int[] DEFAULT_SKIN = {17, 17, 17, 17, 16, 16};
     private static final int[] DEFAULT_HAIR = {17, 17, 17, 17, 16, 16};
@@ -121,7 +136,10 @@ public class FaceGenerator {
             Map.entry(6L, "monument"),     // Literature
             Map.entry(8L, "salmarid"),     // Mareval
             Map.entry(9L, "kaarnid"),      // Tervala
-            Map.entry(10L, "ikazkin"));    // Altzair
+            Map.entry(10L, "ikazkin"), // Altzair
+            Map.entry(11L, "veyran"),     // Veyra
+            Map.entry(12L, "branik"),     // Branik
+            Map.entry(13L, "sileth"));     // Sileth
 
     /**
      * Assign the face descriptor on {@code player} using the player's id as the deterministic seed and

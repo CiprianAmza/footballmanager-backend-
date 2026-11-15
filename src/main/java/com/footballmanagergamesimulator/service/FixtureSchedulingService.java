@@ -402,6 +402,41 @@ public class FixtureSchedulingService {
     }
 
     /**
+     * Adds only one new domestic competition to an unstarted season. Used by the
+     * additive world importer; existing fixtures, European events and shared
+     * training/transfer events must remain exactly as they were.
+     */
+    public void addDomesticCompetitionCalendar(long competitionId, int season) {
+        Competition competition = competitionRepository.findById(competitionId).orElseThrow();
+        long type = competition.getTypeId();
+        if (type != Competition.LEAGUE && type != Competition.CUP && type != Competition.SUPER_CUP) {
+            throw new IllegalArgumentException("Only domestic competitions can be added to a running calendar");
+        }
+        if (calendarEventRepository.findAllBySeason(season).stream()
+                .anyMatch(event -> Objects.equals(event.getCompetitionId(), competitionId))) return;
+
+        int[] days;
+        if (competition.isLeague()) {
+            int rounds = getActualRoundCount(competitionId, season);
+            if (rounds < 1) throw new IllegalStateException("New league must have fixtures before calendar events");
+            days = generateLeagueMatchDays(rounds);
+        } else {
+            days = type == Competition.CUP ? new int[]{49, 91, 154, 231, 280, 315} : new int[]{32};
+        }
+        Set<Integer> usedDays = new HashSet<>();
+        List<CalendarEvent> additions = new ArrayList<>();
+        for (int index = 0; index < days.length; index++) {
+            days[index] = resolveWithinCompetitionCollision(days[index], usedDays);
+            usedDays.add(days[index]);
+            addMatchAndPressConf(additions, new HashSet<>(), competition, season,
+                    competition.isLeague() ? "MATCH_LEAGUE" : "MATCH_CUP",
+                    days[index], index + 1, 0, "");
+        }
+        calendarEventRepository.saveAll(additions);
+        updateMatchDays(competitionId, season, days);
+    }
+
+    /**
      * Counts the actual number of distinct rounds that exist in CompetitionTeamInfoMatch
      * for a given competition and season. This is the most reliable way to know
      * how many matchdays the league actually has.

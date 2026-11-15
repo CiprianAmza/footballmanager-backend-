@@ -395,15 +395,24 @@ public class CupBracketService {
         String seasonStr = String.valueOf(currentSeason);
 
         List<Long> sortedLeagueIds = europeanCoefficientService.getLeagueIdsSortedByCoefficient();
+        List<Competition> allCompetitions = competitionRepository.findAll();
         List<Competition> orderedCups = new ArrayList<>();
         for (Long leagueId : sortedLeagueIds) {
             Competition league = competitionRepository.findById(leagueId).orElse(null);
             if (league == null) continue;
-            competitionRepository.findAll().stream()
+            allCompetitions.stream()
                     .filter(c -> c.getTypeId() == 2L && c.getNationId() == league.getNationId())
                     .findFirst()
                     .ifPresent(orderedCups::add);
         }
+        // European admission controls continental places, not whether a domestic
+        // cup is visible. Keep the old ranked order, then append unranked cups.
+        Set<Long> orderedCupIds = orderedCups.stream().map(Competition::getId).collect(Collectors.toSet());
+        allCompetitions.stream().filter(c -> c.getTypeId() == Competition.CUP)
+                .filter(c -> !orderedCupIds.contains(c.getId()))
+                .sorted(Comparator.comparing(Competition::getName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparingLong(Competition::getId))
+                .forEach(orderedCups::add);
 
         List<Map<String, Object>> cups = new ArrayList<>();
         int rank = 0;
