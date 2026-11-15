@@ -19,6 +19,8 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
   jpa:
+    # Continue runs many transactions. Keep their persistence contexts scoped to each transaction.
+    open-in-view: false
     database-platform: ${DB_DIALECT:org.hibernate.dialect.PostgreSQLDialect}
     hibernate:
       # Transitional until the historical H2 migrations all have PostgreSQL equivalents.

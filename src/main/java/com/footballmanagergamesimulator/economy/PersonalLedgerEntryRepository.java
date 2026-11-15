@@ -6,11 +6,14 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.Optional;
 import java.util.List;
 
 public interface PersonalLedgerEntryRepository extends JpaRepository<PersonalLedgerEntry, Long> {
     Optional<PersonalLedgerEntry> findByAccountIdAndIdempotencyKey(long accountId, String idempotencyKey);
+    List<PersonalLedgerEntry> findAllByAccountIdInAndIdempotencyKeyIn(
+            Collection<Long> accountIds, Collection<String> idempotencyKeys);
     List<PersonalLedgerEntry> findAllByCorrelationId(String correlationId);
     List<PersonalLedgerEntry> findAllByAccountIdOrderByCreatedAtAscIdAsc(long accountId);
     Page<PersonalLedgerEntry> findAllByAccountId(long accountId, Pageable pageable);

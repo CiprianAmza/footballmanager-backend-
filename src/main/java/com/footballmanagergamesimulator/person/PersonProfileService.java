@@ -97,17 +97,31 @@ public class PersonProfileService {
         if (human.getTypeId() != TypeNames.PLAYER_TYPE && human.getTypeId() != TypeNames.MANAGER_TYPE) {
             throw new IllegalArgumentException("Only player and manager identities have personal economy profiles");
         }
-        return profileRepository.findByHumanId(human.getId()).orElseGet(() -> {
-            PersonProfile profile = new PersonProfile();
-            profile.setHumanId(human.getId());
-            profile.setCareerType(human.getTypeId() == TypeNames.MANAGER_TYPE
-                    ? CareerType.MANAGER : CareerType.PLAYER);
-            profile.setControlType(ControlType.AI);
-            profile.setDisplayName(normalizedName(human.getName(), null, "human-" + human.getId()));
-            profile.setActive(!human.isRetired());
-            profile.setRetired(human.isRetired());
-            return profileRepository.save(profile);
-        });
+        return profileRepository.findByHumanId(human.getId()).orElseGet(() -> createForHuman(human));
+    }
+
+    @Transactional
+    public Map<Long, PersonProfile> ensureForHumans(List<Human> humans) {
+        Map<Long, PersonProfile> profiles = new HashMap<>();
+        if (humans.isEmpty()) return profiles;
+        profileRepository.findAllByHumanIdIn(humans.stream().map(Human::getId).toList())
+                .forEach(profile -> profiles.put(profile.getHumanId(), profile));
+        for (Human human : humans) {
+            profiles.computeIfAbsent(human.getId(), ignored -> ensureForHuman(human));
+        }
+        return profiles;
+    }
+
+    private PersonProfile createForHuman(Human human) {
+        PersonProfile profile = new PersonProfile();
+        profile.setHumanId(human.getId());
+        profile.setCareerType(human.getTypeId() == TypeNames.MANAGER_TYPE
+                ? CareerType.MANAGER : CareerType.PLAYER);
+        profile.setControlType(ControlType.AI);
+        profile.setDisplayName(normalizedName(human.getName(), null, "human-" + human.getId()));
+        profile.setActive(!human.isRetired());
+        profile.setRetired(human.isRetired());
+        return profileRepository.save(profile);
     }
 
     @Transactional

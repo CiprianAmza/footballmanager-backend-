@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface PersonalAccountRepository extends JpaRepository<PersonalAccount, Long> {
@@ -19,4 +21,8 @@ public interface PersonalAccountRepository extends JpaRepository<PersonalAccount
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from PersonalAccount account where account.profileId = :profileId")
     Optional<PersonalAccount> findByProfileIdForUpdate(@Param("profileId") long profileId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select account from PersonalAccount account where account.profileId in :profileIds order by account.id")
+    List<PersonalAccount> findAllByProfileIdForUpdate(@Param("profileIds") Collection<Long> profileIds);
 }

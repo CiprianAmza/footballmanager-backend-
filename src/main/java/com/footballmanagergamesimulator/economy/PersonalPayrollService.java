@@ -5,8 +5,6 @@ import com.footballmanagergamesimulator.service.FinanceService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Map;
-
 @Service
 public class PersonalPayrollService {
 
@@ -30,12 +28,7 @@ public class PersonalPayrollService {
         FinanceService.MonthlyPayrollResult payroll =
                 financeService.processTeamMonthlyPayroll(team, season, day);
         if (!payroll.replayed()) {
-            for (Map.Entry<Long, Long> payment : payroll.personalCredits().entrySet()) {
-                String key = "PAYROLL:" + season + ":" + day + ":" + team.getId()
-                        + ":HUMAN:" + payment.getKey();
-                compensationService.creditCareerIncome(payment.getKey(), LedgerEntryType.SALARY,
-                        payment.getValue(), season, day, team.getId(), key, key, "Monthly salary");
-            }
+            compensationService.creditMonthlySalaries(payroll.personalCredits(), season, day, team.getId());
         }
         return payroll.totalWages();
     }

@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface PersonProfileRepository extends JpaRepository<PersonProfile, Long> {
@@ -14,6 +16,7 @@ public interface PersonProfileRepository extends JpaRepository<PersonProfile, Lo
     @Query("select profile from PersonProfile profile where profile.id = :id")
     Optional<PersonProfile> findByIdForUpdate(@Param("id") long id);
     Optional<PersonProfile> findByHumanId(Long humanId);
+    List<PersonProfile> findAllByHumanIdIn(Collection<Long> humanIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select profile from PersonProfile profile where profile.userId = :userId")
