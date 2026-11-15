@@ -186,6 +186,119 @@ changes or whenever a portable save is needed:
 curl http://localhost:8086/game/export -o football-manager-save.json
 ```
 
+## 2D match engine (optional microservice)
+
+The game can play its matches with a separate service, the 2D match engine: it
+simulates the whole match on a pitch from the players' ratings and the clubs'
+tactics, and the game stores what it produced. It is **off by default**; with
+the flag off nothing changes and the service is never called.
+
+### 1. Start the service
+
+The engine is its own small project, `match-engine-java` (Java 17, no
+dependencies). It is not part of this repository yet; on the development machine
+it lives next to the backend, in `~/IdeaProjects/match-engine-java`.
+
+```bash
+cd ~/IdeaProjects/match-engine-java
+bash build.sh serve                                  # builds out/serve/match2d.jar (the service must be stopped)
+java -jar out/serve/match2d.jar serve --port 8791
+curl http://localhost:8791/health                    # {"status":"ok","engine":"java",...}
+```
+
+### 2. Choose the engine
+
+In `src/main/resources/application.yml`, or as command-line arguments
+(`--match2d.mode=all --match2d.service.url=http://localhost:8791`):
+
+```yaml
+match2d:
+  mode: "off"          # "off" = classic engine | "human" = 2D only in matches of a human-managed club | "all" = every match
+  fallback: classic    # classic = play the round with the classic engine when the service fails | fail = error
+  service:
+    url: http://localhost:8791
+    timeout-seconds: 20
+```
+
+Keep the quotes around `"off"`: YAML reads a bare `off` as a boolean. The flag
+needs `match.engine.match-plan.enabled: true` (the default).
+
+### 3. What the game takes from the 2D engine
+
+| | With `match2d.mode` on |
+|---|---|
+| Score at 90 minutes, scorers, assists, goal minutes | 2D engine |
+| Player ratings, man of the match, match stats | 2D engine |
+| Knockout ties level after 90 minutes | 2D engine: extra time (2 x 15 minutes), then a penalty shootout |
+| Injuries | classic rules |
+| Substitutions, red cards | none: the starting eleven plays the whole match |
+| Admin-forced score | still wins |
+| Service down, or a fixture it cannot play | the round is played by the classic engine, with a warning in the log |
+
+Each competition round is sent in one request. The engine plays the starting
+eleven the game itself picks for the fixture. A match played by the 2D engine
+does not open the interactive live match.
+
+Knockout ties: a single-leg tie goes to extra time when it is level after 90
+minutes; in a two-leg tie the second leg goes to extra time when the aggregate
+is level. Extra-time goals count in the score and for the scorers; shootout
+kicks do not. There is no away-goals rule.
+
+### 4. Watch a match again
+
+Every fixture played by the 2D engine is stored (table `match2d_replay`) with
+the exact request that produced it, so the same match can be shown later:
+
+```bash
+curl http://localhost:8086/match/2d/replay/{competitionId}/{season}/{round}/{teamId1}/{teamId2}
+# {"viewUrl":"http://localhost:8791/view/...","score":[2,1],"engineVersion":"1","versionMismatch":false}
+```
+
+`viewUrl` is a page served by the engine (pitch, highlights mode, goal
+replays); the frontend shows it in the **Watch 2D** window, from the result
+window after Continue and from the match report. The human match result and
+`/match/report/...` carry `"match2d": true` for such a fixture. The route
+answers 404 for a match that was not played by the 2D engine and 502/503 when
+the service does not answer. The engine keeps only the last matches in memory,
+so the backend sends the stored request again each time; a replay matches the
+stored result only while the engine version is the same (`versionMismatch`).
+
+### 5. Ask for a result on demand
+
+These routes only return what the engine played; they write nothing to the
+database and do not need `match2d.mode`:
+
+```bash
+# one match (seed, minutes and ref are optional)
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"homeTeamId": 3, "awayTeamId": 8, "seed": 7, "minutes": 90, "ref": "round-5"}' \
+  http://localhost:8086/match/2d/result
+
+# a group of matches, answered in the same order
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"matches": [{"homeTeamId": 3, "awayTeamId": 8}, {"homeTeamId": 5, "awayTeamId": 9, "ref": "b"}]}' \
+  http://localhost:8086/match/2d/results
+```
+
+A result has `score`, `goals` (minute, team, `playerId`, `assistId`, own goal,
+how), `summary` (team stats), `players` (rating, man of the match, counters per
+player), `highlights` and `engineVersion`; a fixture that failed comes back as
+`{"ref", "error"}` without failing the group. Without a seed, the same pair of
+teams always gives the same match. Two more routes help while developing:
+`GET /match/2d/preview?teamId1=..&teamId2=..&seed=..&minutes=..` (plays a match
+and returns its `viewUrl`) and `GET /match/2d/lineup/{teamId}` (the team exactly
+as the engine receives it).
+
+The service's own routes, used by the backend: `POST /results` (one fixture or
+`{"matches": [...]}`, up to 512, played in parallel), `POST /matches` (plays one
+fixture and keeps it for `GET /view/{id}`), `GET /health`.
+
+### 6. Tests
+
+```bash
+mvn test -Dtest='Match2d*Test,MatchPlanningServicePlayed*Test'
+```
+
 ## Automated testing
 
 Fast unit tests:
