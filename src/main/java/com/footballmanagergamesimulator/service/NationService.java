@@ -12,10 +12,10 @@ import java.util.Optional;
 
 /**
  * Resolves a player's nation. Nation is not stored on {@link com.footballmanagergamesimulator.model.Human};
- * it is derived through {@code Team.competitionId -> Competition.nationId}. The 8 nations (ids 0-7) are
+ * it is derived through {@code Team.competitionId -> Competition.nationId}. The 10 nations (ids 0-9) are
  * the {@code nationId} values seeded in {@code BootstrapService.initializeCompetitions()}; their display
  * labels here mirror the competition names in that seed. Nation 0 is the continental layer (LoC / Stars
- * Cup) and is mapped for safety even though club teams resolve to nations 1-7.
+ * Cup) and is mapped for safety even though club teams resolve to nations 1-9.
  */
 @Service
 public class NationService {
@@ -25,15 +25,17 @@ public class NationService {
 
     private static final NationInfo UNKNOWN = new NationInfo(-1, "Unknown", "xx");
 
-    private static final Map<Long, NationInfo> NATIONS = Map.of(
-            0L, new NationInfo(0, "Europe", "eu"),
-            1L, new NationInfo(1, "Gallactick", "ga"),
-            2L, new NationInfo(2, "Dong", "do"),
-            3L, new NationInfo(3, "Khess", "kh"),
-            4L, new NationInfo(4, "FootieCup", "fo"),
-            5L, new NationInfo(5, "Cards", "ca"),
-            6L, new NationInfo(6, "Literature", "li"),
-            7L, new NationInfo(7, "Eleven", "el"));
+    private static final Map<Long, NationInfo> NATIONS = Map.ofEntries(
+            Map.entry(0L, new NationInfo(0, "Europe", "eu")),
+            Map.entry(1L, new NationInfo(1, "Gallactick", "ga")),
+            Map.entry(2L, new NationInfo(2, "Dong", "do")),
+            Map.entry(3L, new NationInfo(3, "Khess", "kh")),
+            Map.entry(4L, new NationInfo(4, "FootieCup", "fo")),
+            Map.entry(5L, new NationInfo(5, "Cards", "ca")),
+            Map.entry(6L, new NationInfo(6, "Literature", "li")),
+            Map.entry(7L, new NationInfo(7, "Eleven", "el")),
+            Map.entry(8L, new NationInfo(8, "Mareval", "ma")),
+            Map.entry(9L, new NationInfo(9, "Tervala", "te")));
 
     private final TeamRepository teamRepository;
     private final CompetitionRepository competitionRepository;
