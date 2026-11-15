@@ -15,6 +15,7 @@ import com.footballmanagergamesimulator.compartment.runtime.CanonicalScoringFing
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.matchplan.MatchScoringDecision;
 import com.footballmanagergamesimulator.matchplan.ScoreEngineKind;
+import com.footballmanagergamesimulator.match2d.Match2dKnockout;
 import com.footballmanagergamesimulator.match2d.Match2dLineupService;
 import com.footballmanagergamesimulator.match2d.Match2dMapper;
 import com.footballmanagergamesimulator.match2d.Match2dReplayService;
@@ -99,6 +100,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class MatchRoundSimulator {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MatchRoundSimulator.class);
 
     @Autowired private HumanRepository humanRepository;
     @Autowired private InjuryRepository injuryRepository;
@@ -429,12 +432,26 @@ public class MatchRoundSimulator {
 
         // 2D match engine (match2d.mode): every fixture of this round it plays is asked for in
         // ONE request, before the loop. Empty when the mode is off: nothing below changes then.
-        Map<Long, Match2dRoundPlanner.Played> match2dByRow = prefetchMatch2d(
-                matches, _competitionId, (int) _roundId);
+        // A second leg whose first leg is played in this same call carries the first-leg goals
+        // into the engine, so it is asked for (in one more request) once the first legs are played.
+        List<CompetitionTeamInfoMatch> match2dAfterFirstLegs = secondLegsAwaitingFirstLeg(matches, knockout);
+        Set<Long> match2dAfterFirstLegRows = match2dAfterFirstLegs.stream()
+                .map(CompetitionTeamInfoMatch::getId).collect(Collectors.toSet());
+        Map<Long, Match2dRoundPlanner.Played> match2dByRow = new HashMap<>(prefetchMatch2d(
+                matches.stream().filter(m -> !match2dAfterFirstLegRows.contains(m.getId())).toList(),
+                _competitionId, (int) _roundId, knockout, firstLegScores));
+        boolean match2dSecondLegsPending = !match2dAfterFirstLegs.isEmpty();
 
         for (CompetitionTeamInfoMatch match : matches) {
             long teamId1 = match.getTeam1Id();
             long teamId2 = match.getTeam2Id();
+
+            if (match2dSecondLegsPending && match2dAfterFirstLegRows.contains(match.getId())) {
+                // Matches are sorted by leg: every first leg of this call is played by now.
+                match2dByRow.putAll(prefetchMatch2d(match2dAfterFirstLegs, _competitionId, (int) _roundId,
+                        knockout, firstLegScores));
+                match2dSecondLegsPending = false;
+            }
 
             // Defensive skip: a cup bracket slot still holding a 0 placeholder means
             // its prelim feeder never resolved (data from before the propagation fix,
@@ -546,7 +563,7 @@ public class MatchRoundSimulator {
                         KnockoutMatchResolution pre = resolveKnockoutMatch(
                                 match, teamId1, teamPower1, teamId2, teamPower2,
                                 targetHomeGoals, targetAwayGoals, firstLegScores,
-                                humanCanonicalScore.evaluation());
+                                humanCanonicalScore.evaluation(), null);
                         etHome = pre.et1() == null ? -1 : pre.et1();
                         etAway = pre.et2() == null ? -1 : pre.et2();
                         shootoutHome = pre.penalty1() == null ? -1 : pre.penalty1();
@@ -595,10 +612,11 @@ public class MatchRoundSimulator {
                                     .regularOnly(score90Home, score90Away);
 
                     if (knockout) {
+                        // A 2D match that played extra time / the shootout decides the tie itself.
                         knockoutResolution = resolveKnockoutMatch(
                                 match, teamId1, teamPower1, teamId2, teamPower2,
                                 teamScore1, teamScore2, firstLegScores,
-                                humanCanonicalScore.evaluation());
+                                humanCanonicalScore.evaluation(), humanMatch2d);
                         teamScore1 = knockoutResolution.score1();
                         teamScore2 = knockoutResolution.score2();
 
@@ -635,7 +653,7 @@ public class MatchRoundSimulator {
                                     buildAiCanonicalLineup(teamId1, seed2d, false),
                                     buildAiCanonicalLineup(teamId2, seed2d, false),
                                     planSplit, humanMatch2dDecision,
-                                    match2dGoalSlots(humanMatch2d, teamId1, teamId2));
+                                    match2dGoalSlots(humanMatch2d, teamId1, teamId2, knockoutResolution));
                             Match2dMapper.fillMissingNames(canonicalEvents, humanMatch2d.home(), humanMatch2d.away());
                             humanMatch2dEvents = canonicalEvents;
                         } else if (adminScore == null) {
@@ -878,7 +896,8 @@ public class MatchRoundSimulator {
                             match, teamId1, teamPower1, teamId2, teamPower2,
                             teamScore1, teamScore2, firstLegScores,
                             java.util.Objects.requireNonNull(canonicalEvaluation,
-                                    "canonical knockout evaluation"));
+                                    "canonical knockout evaluation"),
+                            selectedScoreEngine == ScoreEngineKind.MATCH2D_V1 ? aiMatch2d : null);
                     teamScore1 = knockoutResolution.score1();
                     teamScore2 = knockoutResolution.score2();
 
@@ -941,7 +960,8 @@ public class MatchRoundSimulator {
                     com.footballmanagergamesimulator.matchplan.PersistedScoringPlan adopted =
                             selectedScoreEngine == ScoreEngineKind.MATCH2D_V1
                                     ? matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2,
-                                            planSplit, match2dGoalSlots(aiMatch2d, teamId1, teamId2))
+                                            planSplit, match2dGoalSlots(aiMatch2d, teamId1, teamId2,
+                                                    knockoutResolution))
                                     : matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2, planSplit);
                     AdoptedScoring adoptedScoring = adoptScoringPlan(adopted, match, teamId1, teamId2,
                             firstLegScores, knockout);
@@ -1691,7 +1711,7 @@ public class MatchRoundSimulator {
                 match.getLegNumber(), match.getTieId(), homeTeamId, awayTeamId, split, leg1);
         return new KnockoutMatchResolution(result.score1(), result.score2(), result.scoreSuffix(),
                 result.winnerTeamId(), result.decidedBy(), result.penalty1(), result.penalty2(),
-                result.aggregate1(), result.aggregate2(), result.et1(), result.et2());
+                result.aggregate1(), result.aggregate2(), result.et1(), result.et2(), false);
     }
 
     private record KnockoutMatchResolution(
@@ -1699,7 +1719,8 @@ public class MatchRoundSimulator {
             Long winnerTeamId, String decidedBy,
             Integer penalty1, Integer penalty2,
             Integer aggregate1, Integer aggregate2,
-            Integer et1, Integer et2) {} // extra-time goals for team1/team2, null when no ET
+            Integer et1, Integer et2, // extra-time goals for team1/team2, null when no ET
+            boolean playedBy2d) {} // extra time and shootout come from the 2D engine's result
 
     /**
      * Resolve extra time / penalties before scorers, statistics and standings are
@@ -1711,7 +1732,8 @@ public class MatchRoundSimulator {
             CompetitionTeamInfoMatch match,
             long teamId1, double teamPower1, long teamId2, double teamPower2,
             int score1, int score2, Map<Long, int[]> firstLegScores,
-            CanonicalMatchEvaluation canonicalEvaluation) {
+            CanonicalMatchEvaluation canonicalEvaluation,
+            Match2dRoundPlanner.Played match2d) {
         int legNumber = match.getLegNumber();
         long tieId = match.getTieId();
 
@@ -1719,23 +1741,29 @@ public class MatchRoundSimulator {
             firstLegScores.put(tieId, new int[]{score1, score2});
             return new KnockoutMatchResolution(
                     score1, score2, " (1st leg)", null, "FIRST_LEG",
-                    null, null, null, null, null, null);
+                    null, null, null, null, null, null, false);
         }
 
-        int[] leg1 = null;
-        if (legNumber == 2 && tieId != 0) {
-            leg1 = firstLegScores.get(tieId);
-            if (leg1 == null) {
-                CompetitionTeamInfoMatch leg1Row = competitionTeamInfoMatchRepository
-                        .findByCompetitionIdAndSeasonNumberAndTieIdAndLegNumber(
-                                match.getCompetitionId(), match.getSeasonNumber(), tieId, 1).orElse(null);
-                if (leg1Row != null) {
-                    if (leg1Row.getTeam1Score() < 0 || leg1Row.getTeam2Score() < 0) {
-                        throw new IllegalStateException("first-leg score is unavailable for tie " + tieId);
-                    }
-                    leg1 = new int[]{leg1Row.getTeam1Score(), leg1Row.getTeam2Score()};
+        int[] leg1 = firstLegScore(match, firstLegScores);
+
+        if (match2d != null) {
+            // The 2D engine played extra time and the shootout itself (knockout block); its
+            // decision replaces the classic rule. score1/score2 are its regular-time score.
+            Match2dKnockout.Verdict verdict = Match2dKnockout.decide(
+                    match2d.result(), legNumber, tieId, leg1, teamId1, teamId2);
+            String problem = verdict.problem();
+            if (verdict.usable()) {
+                Match2dKnockout.Decision d = verdict.decision();
+                if (d.score90Home() == score1 && d.score90Away() == score2) {
+                    return new KnockoutMatchResolution(
+                            d.score1(), d.score2(), d.scoreSuffix(), d.winnerTeamId(), d.decidedBy(),
+                            d.penalty1(), d.penalty2(), d.aggregate1(), d.aggregate2(), d.et1(), d.et2(), true);
                 }
+                problem = "its 90' score " + d.score90Home() + "-" + d.score90Away()
+                        + " is not the match's " + score1 + "-" + score2;
             }
+            log.warn("2D match {}: extra time and shootout are decided by the classic rule over the 2D 90' score: {}",
+                    match.getId(), problem);
         }
 
         if (legNumber == 2 && tieId != 0 && leg1 != null) {
@@ -1764,7 +1792,7 @@ public class MatchRoundSimulator {
             Integer et2 = decision.extraTime() ? decision.etA() : null;
             return new KnockoutMatchResolution(
                     score1, score2, suffix, winner, decidedBy,
-                    penalty1, penalty2, finalAggregate1, finalAggregate2, et1, et2);
+                    penalty1, penalty2, finalAggregate1, finalAggregate2, et1, et2, false);
         }
 
         // Single-leg knockout, including the defensive fallback for a missing leg 1.
@@ -1784,7 +1812,27 @@ public class MatchRoundSimulator {
         Integer et2 = decision.extraTime() ? decision.etB() : null;
         return new KnockoutMatchResolution(
                 score1, score2, suffix, winner, decidedBy,
-                penalty1, penalty2, null, null, et1, et2);
+                penalty1, penalty2, null, null, et1, et2, false);
+    }
+
+    /**
+     * The first leg's {@code [team1, team2]} score for a second leg: from this call's
+     * {@code firstLegScores}, else from the first-leg row. {@code null} when the match is no
+     * second leg or its first leg is not found; throws when the first leg is not played yet.
+     */
+    private int[] firstLegScore(CompetitionTeamInfoMatch match, Map<Long, int[]> firstLegScores) {
+        long tieId = match.getTieId();
+        if (match.getLegNumber() != 2 || tieId == 0) return null;
+        int[] leg1 = firstLegScores.get(tieId);
+        if (leg1 != null) return leg1;
+        CompetitionTeamInfoMatch leg1Row = competitionTeamInfoMatchRepository
+                .findByCompetitionIdAndSeasonNumberAndTieIdAndLegNumber(
+                        match.getCompetitionId(), match.getSeasonNumber(), tieId, 1).orElse(null);
+        if (leg1Row == null) return null;
+        if (leg1Row.getTeam1Score() < 0 || leg1Row.getTeam2Score() < 0) {
+            throw new IllegalStateException("first-leg score is unavailable for tie " + tieId);
+        }
+        return new int[]{leg1Row.getTeam1Score(), leg1Row.getTeam2Score()};
     }
 
     /** Resolve extra time with the same canonical evaluation that produced the 90-minute score. */
@@ -2325,11 +2373,13 @@ public class MatchRoundSimulator {
     /**
      * Asks the 2D engine, in one request, for every fixture of the round the mode puts on it
      * that has no forced admin score and no plan yet. Each club is sent with exactly the
-     * eleven the game fields ({@link #canonicalLineupSlotSources}). Empty map when the mode is
-     * off: no query, no request.
+     * eleven the game fields ({@link #canonicalLineupSlotSources}). A knockout match decided in
+     * this match (single match, second leg) carries {@code knockout}, so the engine plays extra
+     * time and the shootout itself. Empty map when the mode is off: no query, no request.
      */
     private Map<Long, Match2dRoundPlanner.Played> prefetchMatch2d(
-            List<CompetitionTeamInfoMatch> matches, long competitionId, int round) {
+            List<CompetitionTeamInfoMatch> matches, long competitionId, int round,
+            boolean knockout, Map<Long, int[]> firstLegScores) {
         if (!match2dPlanner.isActive() || matches.isEmpty()) return Map.of();
         int season = Integer.parseInt(getCurrentSeason());
         List<Match2dRoundPlanner.Fixture> fixtures = new ArrayList<>();
@@ -2350,9 +2400,40 @@ public class MatchRoundSimulator {
             if (home == null || away == null) continue;
             fixtures.add(new Match2dRoundPlanner.Fixture(match.getId(), home, away,
                     com.footballmanagergamesimulator.matchplan.MatchPlanService.seedFor(
-                            fixtureKey, competitionId, season, round, homeTeamId, awayTeamId)));
+                            fixtureKey, competitionId, season, round, homeTeamId, awayTeamId),
+                    knockout ? match2dKnockoutRequest(match, firstLegScores) : null));
         }
         return match2dPlanner.play(fixtures);
+    }
+
+    /**
+     * The {@code knockout} field of a knockout-round fixture ({@link Match2dKnockout#request}):
+     * none for a first leg, nor for a second leg whose first leg is not played yet (the
+     * classic rule then decides it, as before).
+     */
+    private com.footballmanagergamesimulator.match2d.Match2dEngineClient.Knockout match2dKnockoutRequest(
+            CompetitionTeamInfoMatch match, Map<Long, int[]> firstLegScores) {
+        int[] leg1;
+        try {
+            leg1 = firstLegScore(match, firstLegScores);
+        } catch (IllegalStateException unavailable) {
+            log.warn("2D match {}: {}; it is played without extra time", match.getId(), unavailable.getMessage());
+            return null;
+        }
+        return Match2dKnockout.request(match.getLegNumber(), match.getTieId(), leg1);
+    }
+
+    /** Second legs whose first leg is among {@code matches} (so its score is not known yet). */
+    private static List<CompetitionTeamInfoMatch> secondLegsAwaitingFirstLeg(
+            List<CompetitionTeamInfoMatch> matches, boolean knockout) {
+        if (!knockout) return List.of();
+        Set<Long> firstLegTies = matches.stream()
+                .filter(m -> m.getLegNumber() == 1 && m.getTieId() != 0)
+                .map(CompetitionTeamInfoMatch::getTieId)
+                .collect(Collectors.toSet());
+        return matches.stream()
+                .filter(m -> m.getLegNumber() == 2 && m.getTieId() != 0 && firstLegTies.contains(m.getTieId()))
+                .toList();
     }
 
     /** The club as the 2D engine receives it, from the round's automatic eleven; null when incomplete. */
@@ -2389,10 +2470,23 @@ public class MatchRoundSimulator {
                 .collect(Collectors.toSet());
     }
 
+    /**
+     * The goal slots the 2D engine played: its regular-time goals, plus its extra-time goals
+     * when it also decided the tie ({@code knockout.playedBy2d()}); otherwise extra time, if
+     * any, is planned by the classic rule.
+     */
     private List<com.footballmanagergamesimulator.matchplan.GoalSlot> match2dGoalSlots(
-            Match2dRoundPlanner.Played played, long homeTeamId, long awayTeamId) {
-        return Match2dMapper.regularTimeSlots(played.result(), homeTeamId, awayTeamId,
-                Match2dMapper.playerIds(played.home()), Match2dMapper.playerIds(played.away()));
+            Match2dRoundPlanner.Played played, long homeTeamId, long awayTeamId,
+            KnockoutMatchResolution knockout) {
+        Set<Long> homePlayers = Match2dMapper.playerIds(played.home());
+        Set<Long> awayPlayers = Match2dMapper.playerIds(played.away());
+        List<com.footballmanagergamesimulator.matchplan.GoalSlot> slots = new ArrayList<>(
+                Match2dMapper.regularTimeSlots(played.result(), homeTeamId, awayTeamId, homePlayers, awayPlayers));
+        if (knockout != null && knockout.playedBy2d()) {
+            slots.addAll(Match2dMapper.extraTimeSlots(played.result(), homeTeamId, awayTeamId,
+                    homePlayers, awayPlayers));
+        }
+        return slots;
     }
 
     private CanonicalMatchEffectsInput match2dEffectsInput(

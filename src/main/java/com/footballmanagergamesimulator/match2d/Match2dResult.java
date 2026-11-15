@@ -38,13 +38,18 @@ public record Match2dResult(
         JsonNode tacticIgnored,
         List<PlayerLine> players,
         List<Highlight> highlights,
+        /**
+         * Extra time and shootout of a knockout match; sent only when the request asked for
+         * {@code knockout}. {@code score} then includes the extra-time goals, never the shootout.
+         */
+        Knockout knockout,
         /** Set only when this match could not be played; everything else is then empty. */
         String error) {
 
     /** A match that could not be played: only the caller's reference and the reason. */
     public static Match2dResult failed(String ref, String error) {
         return new Match2dResult(ref, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, error);
+                null, null, null, null, null, null, null, error);
     }
 
     @JsonIgnore
@@ -85,6 +90,34 @@ public record Match2dResult(
             boolean motm,
             /** Counters (goals, assists, shots, ...), keyed as the engine sends them. */
             JsonNode stats) {
+    }
+
+    /**
+     * How a knockout match ended, in the orientation of this match ({@code [home, away]};
+     * team 0 = home, 1 = away). {@code aggregate} echoes the goals each side carried in from
+     * the first leg ({@code [0, 0]} for a single match); extra time is played when
+     * {@code score90 + aggregate} is level, the shootout when it is still level after it.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Knockout(
+            List<Integer> aggregate,
+            List<Integer> score90,
+            Boolean extraTime,
+            List<Integer> extraTimeGoals,
+            /** Shootout tally, {@code null} when there was none. */
+            List<Integer> penalties,
+            List<Kick> shootout,
+            /** 0 = home, 1 = away. */
+            Integer winner,
+            /** {@code regular}, {@code extra_time} or {@code penalties}. */
+            String decidedBy) {
+    }
+
+    /** One shootout kick. Not a goal: it is in no goal list and in no player's statistics. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Kick(Integer team, Long uid, Long playerId, String player, Boolean scored) {
     }
 
     /** A stretch of play worth replaying, in seconds of match time. */

@@ -71,27 +71,42 @@ public class MatchPlanningService {
     }
 
     /**
-     * Plan whose regular-time goals were already played elsewhere (the 2D match engine):
-     * {@code regularGoals} carry their own side, minute, type and, when known, scorer. Extra
-     * time, when played, gets its goal slots from {@link #extraTimeSlots}. Slots are ordered by
-     * minute (stable, so goals of the same minute keep their order) and indexed from 0.
+     * Plan whose goals were already played elsewhere (the 2D match engine): {@code playedGoals}
+     * carry their own side, minute, phase, type and, when known, scorer. Played extra-time goals
+     * (phase {@code EXTRA_TIME}) must add up exactly to the extra-time score and replace the
+     * planned ones; when none is given, extra time, when played, gets its goal slots from
+     * {@link #extraTimeSlots}. Slots are ordered by minute (stable, so goals of the same minute
+     * keep their order) and indexed from 0.
      */
     public MatchPlan planWithRegularGoals(String fixtureKey, long seed, long homeTeamId, long awayTeamId,
-                                          List<GoalSlot> regularGoals,
+                                          List<GoalSlot> playedGoals,
                                           int homeScoreET, int awayScoreET,
                                           int homeShootout, int awayShootout) {
         int homeScore90 = 0;
         int awayScore90 = 0;
-        for (GoalSlot slot : regularGoals) {
-            if (slot.getPhase() != GoalPhase.REGULAR_TIME) {
-                throw new IllegalArgumentException("played goals must be regular-time goals");
+        int homePlayedET = 0;
+        int awayPlayedET = 0;
+        for (GoalSlot slot : playedGoals) {
+            boolean home = slot.getTeamId() == homeTeamId;
+            if (!home && slot.getTeamId() != awayTeamId) {
+                throw new IllegalArgumentException("goal belongs to an unknown team: " + slot.getTeamId());
             }
-            if (slot.getTeamId() == homeTeamId) homeScore90++;
-            else if (slot.getTeamId() == awayTeamId) awayScore90++;
-            else throw new IllegalArgumentException("goal belongs to an unknown team: " + slot.getTeamId());
+            if (slot.getPhase() == GoalPhase.EXTRA_TIME) {
+                if (home) homePlayedET++; else awayPlayedET++;
+            } else if (home) {
+                homeScore90++;
+            } else {
+                awayScore90++;
+            }
         }
-        List<GoalSlot> slots = new ArrayList<>(regularGoals);
-        if (homeScoreET >= 0 && awayScoreET >= 0) {
+        boolean playedExtraTime = homePlayedET + awayPlayedET > 0;
+        if (playedExtraTime && (homeScoreET < 0 || awayScoreET < 0
+                || homePlayedET != homeScoreET || awayPlayedET != awayScoreET)) {
+            throw new IllegalArgumentException("played extra-time goals " + homePlayedET + "-" + awayPlayedET
+                    + " do not match the extra-time score " + homeScoreET + "-" + awayScoreET);
+        }
+        List<GoalSlot> slots = new ArrayList<>(playedGoals);
+        if (!playedExtraTime && homeScoreET >= 0 && awayScoreET >= 0) {
             slots.addAll(extraTimeSlots(seed, homeTeamId, awayTeamId, homeScoreET, awayScoreET));
         }
         slots.sort((a, b) -> Integer.compare(a.getMinute(), b.getMinute()));

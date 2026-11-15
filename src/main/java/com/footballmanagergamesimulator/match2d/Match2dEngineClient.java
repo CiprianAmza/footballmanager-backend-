@@ -82,11 +82,21 @@ public class Match2dEngineClient {
 
     /** The body of {@code POST /matches}: both line-ups, the seed and the length. */
     public static Map<String, Object> playBody(Match2dTeam home, Match2dTeam away, long seed, int minutes) {
+        return playBody(home, away, seed, minutes, null);
+    }
+
+    /**
+     * The body of {@code POST /matches}, with {@code knockout} when the match must end with a
+     * winner (extra time and shootout played by the engine); without it when {@code null}.
+     */
+    public static Map<String, Object> playBody(Match2dTeam home, Match2dTeam away, long seed, int minutes,
+                                               Knockout knockout) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("home", home);
         body.put("away", away);
         body.put("seed", seed);
         body.put("minutes", minutes);
+        if (knockout != null) body.put("knockout", knockout);
         return body;
     }
 
@@ -122,9 +132,27 @@ public class Match2dEngineClient {
         return out;
     }
 
-    /** One match for {@link #results}: the two line-ups as the engine receives them. */
+    /**
+     * One match for {@link #results}: the two line-ups as the engine receives them.
+     * {@code knockout} is set only for a match that must end with a winner.
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Request(Match2dTeam home, Match2dTeam away, long seed, int minutes, String ref) {
+    public record Request(Match2dTeam home, Match2dTeam away, long seed, int minutes, String ref,
+                          Knockout knockout) {
+        public Request(Match2dTeam home, Match2dTeam away, long seed, int minutes, String ref) {
+            this(home, away, seed, minutes, ref, null);
+        }
+    }
+
+    /**
+     * The {@code knockout} field of a request: {@code aggregate} = the goals each side brings
+     * into this match from the first leg, {@code [home, away]} in this match's orientation;
+     * {@code [0, 0]} for a single match.
+     */
+    public record Knockout(List<Integer> aggregate) {
+        public static Knockout of(int home, int away) {
+            return new Knockout(List.of(home, away));
+        }
     }
 
     private Match2dResult toResult(JsonNode answer) {

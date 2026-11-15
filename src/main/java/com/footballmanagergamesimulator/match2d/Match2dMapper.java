@@ -32,13 +32,17 @@ public final class Match2dMapper {
     public static final String OWN_GOAL = "OWN_GOAL";
     static final int FIRST_MINUTE = 1;
     static final int LAST_MINUTE = 90;
+    static final int FIRST_EXTRA_TIME_MINUTE = 91;
+    static final int LAST_EXTRA_TIME_MINUTE = 120;
 
     private Match2dMapper() {
     }
 
     /**
      * Whether a result can decide a fixture: it was played, has a two-sided non-negative
-     * score, and lists exactly as many goals for each side (team 0 or 1) as that score.
+     * score, and lists exactly as many goals for each side (team 0 or 1) as that score. A goal
+     * after minute 90 is accepted only in a knockout result that went to extra time, and never
+     * after minute 120.
      */
     public static boolean usable(Match2dResult result) {
         if (result == null || result.isFailed()) return false;
@@ -50,17 +54,57 @@ public final class Match2dMapper {
         int[] counted = new int[2];
         for (Match2dResult.Goal goal : result.goals() == null ? List.<Match2dResult.Goal>of() : result.goals()) {
             if (goal == null || goal.team() == null || (goal.team() != 0 && goal.team() != 1)) return false;
+            if (goal.minute() != null && goal.minute() > LAST_MINUTE
+                    && (!playedExtraTime(result) || goal.minute() > LAST_EXTRA_TIME_MINUTE)) {
+                return false;
+            }
             counted[goal.team()]++;
         }
         return counted[0] == score.get(0) && counted[1] == score.get(1);
     }
 
+    /** Home goals in regular time: the score without the extra-time goals. */
     public static int homeGoals(Match2dResult result) {
-        return result.score().get(0);
+        return result.score().get(0) - extraTimeGoals(result, 0);
     }
 
+    /** Away goals in regular time: the score without the extra-time goals. */
     public static int awayGoals(Match2dResult result) {
-        return result.score().get(1);
+        return result.score().get(1) - extraTimeGoals(result, 1);
+    }
+
+    /** Whether the engine says it played extra time ({@code knockout.extraTime}). */
+    static boolean playedExtraTime(Match2dResult result) {
+        return result != null && result.knockout() != null
+                && Boolean.TRUE.equals(result.knockout().extraTime());
+    }
+
+    /**
+     * Whether a goal belongs to extra time: scored after minute 90 of a match that went to
+     * extra time. Without extra time every goal is a regular-time goal.
+     */
+    static boolean isExtraTimeGoal(Match2dResult result, Match2dResult.Goal goal) {
+        return goal != null && goal.minute() != null && goal.minute() > LAST_MINUTE && playedExtraTime(result);
+    }
+
+    /** The extra-time goals listed for one side (0 = home, 1 = away). */
+    static int extraTimeGoals(Match2dResult result, int side) {
+        if (result.goals() == null) return 0;
+        int count = 0;
+        for (Match2dResult.Goal goal : result.goals()) {
+            if (isExtraTimeGoal(result, goal) && goal.team() != null && goal.team() == side) count++;
+        }
+        return count;
+    }
+
+    /** Regular-time goals listed for one side (0 = home, 1 = away). */
+    static int regularTimeGoals(Match2dResult result, int side) {
+        if (result.goals() == null) return 0;
+        int count = 0;
+        for (Match2dResult.Goal goal : result.goals()) {
+            if (goal != null && !isExtraTimeGoal(result, goal) && goal.team() != null && goal.team() == side) count++;
+        }
+        return count;
     }
 
     /** The goal minute shown by the game: the engine's, kept inside regular time. */
@@ -80,8 +124,15 @@ public final class Match2dMapper {
         };
     }
 
+    /** An extra-time goal minute, kept inside minutes 91-120. */
+    static int extraTimeMinuteOf(Integer minute) {
+        if (minute == null) return FIRST_EXTRA_TIME_MINUTE;
+        return Math.max(FIRST_EXTRA_TIME_MINUTE, Math.min(LAST_EXTRA_TIME_MINUTE, minute));
+    }
+
     /**
-     * One regular-time goal slot per engine goal, in the engine's order. {@code team} 0/1 is the
+     * One regular-time goal slot per engine regular-time goal (extra-time goals, see
+     * {@link #isExtraTimeGoal}, are left out), in the engine's order. {@code team} 0/1 is the
      * side the goal counts for. A goal whose scorer is a starter of that side (or, for an own
      * goal, of the other side) comes already resolved; any other goal is left unresolved, for
      * the classic resolver to pick its scorer from the eleven. An own goal without a known
@@ -90,26 +141,43 @@ public final class Match2dMapper {
      */
     public static List<GoalSlot> regularTimeSlots(Match2dResult result, long homeTeamId, long awayTeamId,
                                                   Set<Long> homePlayers, Set<Long> awayPlayers) {
+        return slots(result, GoalPhase.REGULAR_TIME, homeTeamId, awayTeamId, homePlayers, awayPlayers);
+    }
+
+    /**
+     * One extra-time goal slot (minutes 91-120) per engine extra-time goal, in the engine's
+     * order, under the same scorer, own-goal and assist rules as {@link #regularTimeSlots}.
+     * Empty when the match did not go to extra time.
+     */
+    public static List<GoalSlot> extraTimeSlots(Match2dResult result, long homeTeamId, long awayTeamId,
+                                                Set<Long> homePlayers, Set<Long> awayPlayers) {
+        return slots(result, GoalPhase.EXTRA_TIME, homeTeamId, awayTeamId, homePlayers, awayPlayers);
+    }
+
+    private static List<GoalSlot> slots(Match2dResult result, GoalPhase phase, long homeTeamId, long awayTeamId,
+                                        Set<Long> homePlayers, Set<Long> awayPlayers) {
         List<GoalSlot> slots = new ArrayList<>();
         if (result.goals() == null) return slots;
         for (Match2dResult.Goal goal : result.goals()) {
+            boolean extraTime = isExtraTimeGoal(result, goal);
+            if (extraTime != (phase == GoalPhase.EXTRA_TIME)) continue;
             boolean home = goal.team() == 0;
             long teamId = home ? homeTeamId : awayTeamId;
             Set<Long> own = home ? homePlayers : awayPlayers;
             Set<Long> other = home ? awayPlayers : homePlayers;
-            int minute = minuteOf(goal.minute());
+            int minute = extraTime ? extraTimeMinuteOf(goal.minute()) : minuteOf(goal.minute());
             Long playerId = goal.playerId();
             if (goal.own()) {
                 if (playerId != null && other.contains(playerId)) {
-                    GoalSlot slot = new GoalSlot(teamId, minute, GoalPhase.REGULAR_TIME, OWN_GOAL);
+                    GoalSlot slot = new GoalSlot(teamId, minute, phase, OWN_GOAL);
                     slot.resolve(playerId, null);
                     slots.add(slot);
                 } else {
-                    slots.add(new GoalSlot(teamId, minute, GoalPhase.REGULAR_TIME, "OPEN_PLAY"));
+                    slots.add(new GoalSlot(teamId, minute, phase, "OPEN_PLAY"));
                 }
                 continue;
             }
-            GoalSlot slot = new GoalSlot(teamId, minute, GoalPhase.REGULAR_TIME, goalTypeOf(goal.how()));
+            GoalSlot slot = new GoalSlot(teamId, minute, phase, goalTypeOf(goal.how()));
             if (playerId != null && own.contains(playerId)) {
                 Long assistId = goal.assistId();
                 boolean assistValid = assistId != null && !assistId.equals(playerId) && own.contains(assistId);
@@ -121,7 +189,8 @@ public final class Match2dMapper {
     }
 
     /**
-     * The durable scoring decision of a 2D match: the engine's regular-time score, with no
+     * The durable scoring decision of a 2D match: the engine's regular-time score (extra-time
+     * goals excluded), with no
      * SHOOTER, PASSING STYLE or red-card component (every goal is collective). xG comes from
      * the engine's summary; the fingerprints name the engine version and the exact request.
      */

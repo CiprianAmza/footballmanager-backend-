@@ -363,9 +363,10 @@ public class MatchPlanService {
     }
 
     /**
-     * Same atomic adoption for a regular time already played by the 2D match engine: the
-     * regular-time slots are the engine's goals ({@code regularTimeGoals}, resolved where the
-     * engine named the scorer) instead of planned ones; extra-time slots are planned as usual.
+     * Same atomic adoption for a match already played by the 2D match engine: the slots are the
+     * engine's goals ({@code regularTimeGoals}, resolved where the engine named the scorer)
+     * instead of planned ones; extra-time slots are the engine's too when it played extra time
+     * (phase {@code EXTRA_TIME} in the list), else planned as usual.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PersistedScoringPlan persistOrLoadScoreDecision(MatchScoringDecision decision,

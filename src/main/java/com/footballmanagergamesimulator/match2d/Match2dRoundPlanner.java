@@ -29,7 +29,7 @@ public class Match2dRoundPlanner {
 
     private static final Logger log = LoggerFactory.getLogger(Match2dRoundPlanner.class);
 
-    /** Every real fixture is a full match; the engine plays no extra time. */
+    /** Every real fixture is a full match; extra time is played only when {@code knockout} asks for it. */
     public static final int MATCH_MINUTES = 90;
     static final long BREAKER_MILLIS = 30_000L;
 
@@ -63,8 +63,16 @@ public class Match2dRoundPlanner {
         this.clock = clock;
     }
 
-    /** One fixture to play: the two line-ups exactly as the game fields them, and the plan seed. */
-    public record Fixture(long matchRowId, Match2dTeam home, Match2dTeam away, long seed) {
+    /**
+     * One fixture to play: the two line-ups exactly as the game fields them, and the plan seed.
+     * {@code knockout} is set for a knockout match decided in this match (single match or
+     * second leg); {@code null} for a league match or a first leg.
+     */
+    public record Fixture(long matchRowId, Match2dTeam home, Match2dTeam away, long seed,
+                          Match2dEngineClient.Knockout knockout) {
+        public Fixture(long matchRowId, Match2dTeam home, Match2dTeam away, long seed) {
+            this(matchRowId, home, away, seed, null);
+        }
     }
 
     /**
@@ -73,10 +81,12 @@ public class Match2dRoundPlanner {
      */
     public record Played(long matchRowId, Match2dTeam home, Match2dTeam away, long seed,
                          Match2dResult result, String requestJson) {
+        /** Home goals in regular time (extra-time goals excluded). */
         public int homeGoals() {
             return Match2dMapper.homeGoals(result);
         }
 
+        /** Away goals in regular time (extra-time goals excluded). */
         public int awayGoals() {
             return Match2dMapper.awayGoals(result);
         }
@@ -116,7 +126,7 @@ public class Match2dRoundPlanner {
         List<Match2dEngineClient.Request> requests = new ArrayList<>(fixtures.size());
         for (Fixture fixture : fixtures) {
             requests.add(new Match2dEngineClient.Request(fixture.home(), fixture.away(), fixture.seed(),
-                    MATCH_MINUTES, Long.toString(fixture.matchRowId())));
+                    MATCH_MINUTES, Long.toString(fixture.matchRowId()), fixture.knockout()));
         }
         List<Match2dResult> results;
         try {
@@ -158,14 +168,14 @@ public class Match2dRoundPlanner {
         if (result.ref() != null && !result.ref().equals(Long.toString(fixture.matchRowId()))) {
             return "the result belongs to match " + result.ref();
         }
-        if (!Match2dMapper.usable(result)) return "the goals do not add up to the score";
+        if (!Match2dMapper.usable(result)) return "the goals do not add up to the score or fall outside the match";
         return null;
     }
 
     private String requestJson(Fixture fixture) {
         try {
             return objectMapper.writeValueAsString(Match2dEngineClient.playBody(
-                    fixture.home(), fixture.away(), fixture.seed(), MATCH_MINUTES));
+                    fixture.home(), fixture.away(), fixture.seed(), MATCH_MINUTES, fixture.knockout()));
         } catch (JsonProcessingException unwritable) {
             throw new IllegalStateException("2D match " + fixture.matchRowId() + " cannot be written", unwritable);
         }
