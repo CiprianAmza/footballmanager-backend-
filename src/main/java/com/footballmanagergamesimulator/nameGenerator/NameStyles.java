@@ -6,7 +6,7 @@ import java.util.Map;
 /**
  * The phonetic identities shipped with the game, one per fictional culture.
  * Pool keys are shared vocabulary: PREFIX, VOWEL, MIDDLE, SUFFIX, plus WORD and PLACE for
- * styles that compose a whole stem with a place ending (Tervala).
+ * styles that compose a whole stem with a place ending (Tervala, Altzair).
  */
 public final class NameStyles {
 
@@ -100,6 +100,30 @@ public final class NameStyles {
                     new NameStyle.Pattern(2, List.of(PREFIX, SUFFIX)),
                     new NameStyle.Pattern(1, List.of(WORD, PLACE)),
                     new NameStyle.Pattern(3, List.of(PREFIX, VOWEL, MIDDLE, SUFFIX))));
+
+    /**
+     * Forge-country surnames, for Altzair: Burdineta, Ikazaga, Labarri, Sutondo, Mailegi.
+     * Pool use differs from the other styles: WORD holds r-final roots (Harr, Iturr) and PLACE their
+     * endings, while MIDDLE holds whole compound tails (izabal, aberri) that close a name on their own,
+     * appended to either a PREFIX or a WORD. No VOWEL pool is used.
+     */
+    public static final NameStyle ALTZAIR = NameStyle.of("altzair",
+            Map.of(
+                    PREFIX, List.of("Burdin", "Ikaz", "Lab", "Sut", "Mail", "Ingud", "Olab", "Garm", "Kez", "Mend",
+                            "Zub", "Etx", "Goik", "Bel", "Zabal", "Ald", "Ormaz", "Azk", "Uriz", "Olaz",
+                            "Txap", "Altz", "Aran", "Bidas", "Erret", "Gald", "Ilun", "Jaur", "Lekun", "Mitx",
+                            "Nab", "Oiz", "Pag", "Sagast", "Zum", "Izag", "Unz", "Otx", "Atx", "Arizt"),
+                    SUFFIX, List.of("eta", "aga", "arri", "ondo", "egi", "uri", "oa", "ain", "ola"),
+                    WORD, List.of("Harr", "Urr", "Arr", "Ibarr", "Iturr", "Larr", "Agirr", "Elorr", "Gorr", "Sarr",
+                            "Lizar", "Ugar"),
+                    PLACE, List.of("eta", "aga", "ondo", "egi", "uri", "oa", "ain", "ola"),
+                    MIDDLE, List.of("izabal", "aberri", "ezar", "agoiti", "ebeiti", "agarai", "aburu", "amendi",
+                            "ibar", "ebide", "ategi", "iturri")),
+            List.of(
+                    new NameStyle.Pattern(3, List.of(PREFIX, SUFFIX)),
+                    new NameStyle.Pattern(1, List.of(WORD, PLACE)),
+                    new NameStyle.Pattern(3, List.of(PREFIX, MIDDLE)),
+                    new NameStyle.Pattern(1, List.of(WORD, MIDDLE))));
 
     private NameStyles() {
     }

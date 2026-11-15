@@ -88,7 +88,8 @@ public class FaceGenerator {
             Map.entry(6L, new int[]{25, 26, 22, 14, 8, 5}),    // Literature — fair-mid
             Map.entry(7L, new int[]{5, 10, 18, 25, 24, 18}),   // Eleven — dark-mid
             Map.entry(8L, new int[]{8, 20, 28, 22, 14, 8}),    // Mareval — copper skin tones (salmarid body)
-            Map.entry(9L, new int[]{18, 10, 14, 24, 18, 16})); // Tervala — bark: birch, aspen, ash, oak, walnut, alder
+            Map.entry(9L, new int[]{18, 10, 14, 24, 18, 16}),  // Tervala — bark: birch, aspen, ash, oak, walnut, alder
+            Map.entry(10L, new int[]{26, 28, 22, 12, 8, 4}));  // Altzair — pale to weathered skin
 
     /**
      * Per-nation hair-colour weights over indices 0-5. For the salmarid (Mareval) and kaarnid (Tervala)
@@ -104,7 +105,8 @@ public class FaceGenerator {
             Map.entry(6L, new int[]{22, 28, 22, 18, 5, 5}),
             Map.entry(7L, new int[]{50, 30, 12, 3, 1, 4}),    // Eleven — dark
             Map.entry(8L, new int[]{20, 26, 22, 14, 10, 8}),   // Mareval — sun-bleached hair shades
-            Map.entry(9L, new int[]{22, 22, 16, 20, 10, 10})); // Tervala — foliage: deep green, spring green, yellow, autumn red, copper, bare twigs
+            Map.entry(9L, new int[]{22, 22, 16, 20, 10, 10}),  // Tervala — foliage: deep green, spring green, yellow, autumn red, copper, bare twigs
+            Map.entry(10L, new int[]{26, 20, 18, 16, 10, 10})); // Altzair — black, soot-dark, dark grey, grey, ash brown, silver
 
     private static final int[] DEFAULT_SKIN = {17, 17, 17, 17, 16, 16};
     private static final int[] DEFAULT_HAIR = {17, 17, 17, 17, 16, 16};
@@ -118,7 +120,8 @@ public class FaceGenerator {
             Map.entry(5L, "crystalline"),  // Cards
             Map.entry(6L, "monument"),     // Literature
             Map.entry(8L, "salmarid"),     // Mareval
-            Map.entry(9L, "kaarnid"));     // Tervala
+            Map.entry(9L, "kaarnid"),      // Tervala
+            Map.entry(10L, "ikazkin"));    // Altzair
 
     /**
      * Assign the face descriptor on {@code player} using the player's id as the deterministic seed and

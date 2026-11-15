@@ -11,7 +11,7 @@ import java.util.Map;
  * (e.g. {@code team.getCompetitionId()}), so the id is first resolved to its
  * nation via {@link Competition#getNationId()}; an id with no competition row is
  * treated as a nationId directly. Nation ids follow the bootstrap seed mirrored
- * in {@code NationService}: 1=Gallactick, 2=Dong, 3=Khess, 6=Literature, 8=Mareval, 9=Tervala.
+ * in {@code NationService}: 1=Gallactick, 2=Dong, 3=Khess, 6=Literature, 8=Mareval, 9=Tervala, 10=Altzair.
  */
 @Component
 public class CompositeNameGenerator implements NameGeneratorStrategy {
@@ -22,6 +22,7 @@ public class CompositeNameGenerator implements NameGeneratorStrategy {
     private static final long LITERATURE_NATION_ID = 6L;
     private static final long MAREVAL_NATION_ID = 8L;
     private static final long TERVALA_NATION_ID = 9L;
+    private static final long ALTZAIR_NATION_ID = 10L;
 
     private final CompetitionRepository competitionRepository;
     private final Map<Long, NameGeneratorStrategy> strategiesByNation;
@@ -36,7 +37,8 @@ public class CompositeNameGenerator implements NameGeneratorStrategy {
                 KHESS_NATION_ID, new KessNameGenerator(),
                 LITERATURE_NATION_ID, new LiraNameGenerator(),
                 MAREVAL_NATION_ID, new MarevalNameGenerator(),
-                TERVALA_NATION_ID, new TervalaNameGenerator());
+                TERVALA_NATION_ID, new TervalaNameGenerator(),
+                ALTZAIR_NATION_ID, new AltzairNameGenerator());
     }
 
     @Override

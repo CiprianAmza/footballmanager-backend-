@@ -12,10 +12,10 @@ import java.util.Optional;
 
 /**
  * Resolves a player's nation. Nation is not stored on {@link com.footballmanagergamesimulator.model.Human};
- * it is derived through {@code Team.competitionId -> Competition.nationId}. The 10 nations (ids 0-9) are
+ * it is derived through {@code Team.competitionId -> Competition.nationId}. The 11 nations (ids 0-10) are
  * the {@code nationId} values seeded in {@code BootstrapService.initializeCompetitions()}; their display
  * labels here mirror the competition names in that seed. Nation 0 is the continental layer (LoC / Stars
- * Cup) and is mapped for safety even though club teams resolve to nations 1-9.
+ * Cup) and is mapped for safety even though club teams resolve to nations 1-10.
  */
 @Service
 public class NationService {
@@ -35,7 +35,8 @@ public class NationService {
             Map.entry(6L, new NationInfo(6, "Literature", "li")),
             Map.entry(7L, new NationInfo(7, "Eleven", "el")),
             Map.entry(8L, new NationInfo(8, "Mareval", "ma")),
-            Map.entry(9L, new NationInfo(9, "Tervala", "te")));
+            Map.entry(9L, new NationInfo(9, "Tervala", "te")),
+            Map.entry(10L, new NationInfo(10, "Altzair", "al")));
 
     private final TeamRepository teamRepository;
     private final CompetitionRepository competitionRepository;
