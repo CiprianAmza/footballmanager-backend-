@@ -363,10 +363,10 @@ public class MatchPlanService {
     }
 
     /**
-     * Same atomic adoption for a fixture drawn by the 2D match engine (the classic result,
-     * reproduced): the slots are the drawn match's goals ({@code regularTimeGoals}, including
-     * any extra-time goals with phase {@code EXTRA_TIME}, resolved where the engine named the
-     * scorer) instead of planned ones.
+     * Same atomic adoption for a match already played by the 2D match engine: the slots are the
+     * engine's goals ({@code regularTimeGoals}, resolved where the engine named the scorer)
+     * instead of planned ones; extra-time slots are the engine's too when it played extra time
+     * (phase {@code EXTRA_TIME} in the list), else planned as usual.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PersistedScoringPlan persistOrLoadScoreDecision(MatchScoringDecision decision,
@@ -413,9 +413,9 @@ public class MatchPlanService {
     }
 
     /**
-     * Instant pipeline for a fixture drawn by the 2D match engine (the classic result,
-     * reproduced), in the caller's transaction (a human fixture, whose row the caller has
-     * already locked). Builds the plan from the drawn goals ({@link MatchPlanningService#planWithRegularGoals}),
+     * Instant pipeline for a regular time already played by the 2D match engine, in the
+     * caller's transaction (a human fixture, whose row the caller has already locked). Builds
+     * the plan from the engine's goals ({@link MatchPlanningService#planWithRegularGoals}),
      * applies the decision, resolves the remaining slots against the given line-ups and
      * persists plan, events and squad timeline like {@link #buildAndPersistLive}.
      */

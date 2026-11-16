@@ -8,7 +8,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** The plan of a drawn 2D knockout match, extra time included. */
+/** The plan of a knockout match whose extra time was also played by the 2D engine. */
 class MatchPlanningServicePlayedExtraTimeTest {
 
     private static final long HOME = 10L;

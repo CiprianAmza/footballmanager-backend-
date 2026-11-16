@@ -114,15 +114,13 @@ gameplay:
 # =============================================================
 # 2D match engine (external microservice, match-engine-java)
 # =============================================================
-# Active only while match.engine.match-plan.enabled is true. The score (90', extra time,
-# shootout) is ALWAYS decided by the classic engine; the 2D engine only draws a match that
-# ends exactly with that score (scorers, assists, minutes, ratings, stats, replay).
+# Active only while match.engine.match-plan.enabled is true.
 match2d:
-  mode: "off"          # which matches get a drawn 2D match: off = none | human = matches of a human-managed club | all = every match
-  fallback: classic    # 2D fails or misses the score: classic = the match stays wholly classic, with a log | fail = error
+  mode: "off"          # off = classic engine everywhere | human = 2D only in matches of a human-managed club | all = every match
+  fallback: classic    # classic = fall back to the classic engine, with a log | fail = error
   service:
     url: http://localhost:8791
-    timeout-seconds: 60      # per drawn match; a timeout leaves only that match classic
+    timeout-seconds: 20
 
 # =============================================================
 # Global award weighting

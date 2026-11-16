@@ -21,11 +21,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Pure mapping from a match drawn by the 2D match engine onto the game's canonical match
- * records: the scoring decision, the goal slots, the player ratings and the team statistics.
- * The score itself is the classic engine's (the drawn match reproduces it, see
- * {@link Match2dTarget}). No I/O; everything the game does not get from the engine stays as
- * the classic pipeline produces it.
+ * Pure mapping from a result of the 2D match engine onto the game's canonical match records:
+ * the scoring decision, the regular-time goal slots, the player ratings and the team
+ * statistics. No I/O; everything the game does not get from the engine stays as the
+ * classic pipeline produces it.
  */
 public final class Match2dMapper {
 
@@ -40,7 +39,7 @@ public final class Match2dMapper {
     }
 
     /**
-     * Whether a result is coherent enough to be used: it was played, has a two-sided non-negative
+     * Whether a result can decide a fixture: it was played, has a two-sided non-negative
      * score, and lists exactly as many goals for each side (team 0 or 1) as that score. A goal
      * after minute 90 is accepted only in a knockout result that went to extra time, and never
      * after minute 120.
@@ -190,9 +189,8 @@ public final class Match2dMapper {
     }
 
     /**
-     * The durable scoring decision of a fixture drawn by the 2D engine, marked
-     * {@link ScoreEngineKind#MATCH2D_V1}: the regular-time score of the drawn match (extra-time
-     * goals excluded), which is the classic engine's score it was asked to reproduce, with no
+     * The durable scoring decision of a 2D match: the engine's regular-time score (extra-time
+     * goals excluded), with no
      * SHOOTER, PASSING STYLE or red-card component (every goal is collective). xG comes from
      * the engine's summary; the fingerprints name the engine version and the exact request.
      */

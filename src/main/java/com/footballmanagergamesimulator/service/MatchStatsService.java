@@ -348,7 +348,7 @@ public class MatchStatsService {
     }
 
     /**
-     * Statistics of a match drawn by the 2D match engine: the canonical projection for
+     * Statistics of a match played by the 2D match engine: the canonical projection for
      * whatever the engine does not measure, overwritten with the engine's own team statistics
      * (shots kept at {@code shots >= onTarget >= goals}), then persisted with its shot events.
      */

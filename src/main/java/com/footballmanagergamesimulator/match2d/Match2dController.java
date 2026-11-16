@@ -84,9 +84,9 @@ public class Match2dController {
     }
 
     /**
-     * Watch again a real fixture the 2D engine drew: same values as {@code /match/report}.
+     * Watch again a real fixture the 2D engine played: same values as {@code /match/report}.
      * Answers {@code viewUrl}, {@code score}, {@code engineVersion}, {@code versionMismatch};
-     * 404 when the match was not drawn by the 2D engine.
+     * 404 when the match was not played by the 2D engine.
      */
     @GetMapping("/replay/{competitionId}/{season}/{round}/{teamId1}/{teamId2}")
     public Map<String, Object> replay(@PathVariable long competitionId,

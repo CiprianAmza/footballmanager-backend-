@@ -188,12 +188,10 @@ curl http://localhost:8086/game/export -o football-manager-save.json
 
 ## 2D match engine (optional microservice)
 
-The game can have its matches drawn by a separate service, the 2D match engine:
-it simulates the whole match on a pitch from the players' ratings and the clubs'
-tactics. The **score is always decided by the classic engine** (Compartment V1):
-the 2D engine receives that score as a target and plays a match that ends
-exactly with it, and the game keeps the details of that match. It is **off by
-default**; with the flag off nothing changes and the service is never called.
+The game can play its matches with a separate service, the 2D match engine: it
+simulates the whole match on a pitch from the players' ratings and the clubs'
+tactics, and the game stores what it produced. It is **off by default**; with
+the flag off nothing changes and the service is never called.
 
 ### 1. Start the service
 
@@ -213,72 +211,48 @@ curl http://localhost:8791/health                    # {"status":"ok","engine":"
 rules, weights, events, the knockout request and its own tests
 (`bash test.sh KnockoutTest`).
 
-### 2. Choose which matches are drawn
+### 2. Choose the engine
 
 In `src/main/resources/application.yml`, or as command-line arguments
 (`--match2d.mode=all --match2d.service.url=http://localhost:8791`):
 
 ```yaml
 match2d:
-  mode: "off"          # "off" = no match is drawn | "human" = matches of a human-managed club | "all" = every match
-  fallback: classic    # classic = a match the 2D engine cannot draw stays classic | fail = error
+  mode: "off"          # "off" = classic engine | "human" = 2D only in matches of a human-managed club | "all" = every match
+  fallback: classic    # classic = play the round with the classic engine when the service fails | fail = error
   service:
     url: http://localhost:8791
-    timeout-seconds: 60
+    timeout-seconds: 20
 ```
 
 Keep the quotes around `"off"`: YAML reads a bare `off` as a boolean. The flag
 needs `match.engine.match-plan.enabled: true` (the default).
 
-The mode never changes a result: scores, extra time and shootouts are exactly
-those of `mode: "off"`. It only says which matches also get a drawn 2D match.
-`human` draws the one or two matches of the human clubs in a round; `all` draws
-every match of every competition, and each drawn match costs one or more 2D
-simulations (the engine plays until a match ends with the target score). As
-measured: about 1.3 s per drawn match, so a round of ~20 matches takes 10-36 s
-with `all`, against ~0.3 s per matchday with `off`; with `human`, the match of
-the human-managed club takes about 2-3 s more. `timeout-seconds` (default 60)
-applies to each drawn match; a match that takes longer stays classic on its
-own, and the next match is asked for as usual.
+### 3. What the game takes from the 2D engine
 
-### 3. What the game takes from the drawn match
-
-For a match the mode selects, the classic engine first decides it completely:
-the 90-minute score and, in a knockout tie, extra time and the shootout. Then
-the game sends the fixture to the engine (`POST /results`, one match) with that
-result as `target` (`score`, plus `extraTime` and `penalties` only when they
-were played), and the engine plays a match that ends exactly with it.
-
-| | Drawn match (`match2d.mode` on) |
+| | With `match2d.mode` on |
 |---|---|
-| Score at 90 minutes, extra time, shootout | classic engine (the drawn match reproduces them) |
-| Scorers, assists, goal minutes (90 minutes and extra time) | drawn match |
-| Player ratings, man of the match, match stats | drawn match |
+| Score at 90 minutes, scorers, assists, goal minutes | 2D engine |
+| Player ratings, man of the match, match stats | 2D engine |
+| Knockout ties level after 90 minutes | 2D engine: extra time (2 x 15 minutes), then a penalty shootout |
 | Injuries | classic rules |
-| Substitutions, red cards | none in a drawn match: the starting eleven plays the whole match |
-| Admin-forced score | not drawn: the match stays classic |
-| A timeout, an error, or a match that misses the target | that match stays wholly classic (classic scorers, no replay), with a warning in the log |
-| Service down (cannot be reached) | the match stays classic, and so does every match of the next ~30 s, without asking the service; one warning when the pause starts, one with the number of skipped matches when it ends |
+| Substitutions, red cards | none: the starting eleven plays the whole match |
+| Admin-forced score | still wins |
+| Service down, or a fixture it cannot play | the round is played by the classic engine, with a warning in the log |
 
-The engine plays the starting eleven the game itself picks for the fixture. A
-match of a human club chosen for drawing does not open the interactive live
-match, even when the service then fails (it is then resolved instantly by the
-classic engine). The game accepts a drawn match only when its goals add up and
-it matches the target exactly: the 90-minute goals of each side, the extra-time
-goals of each side and the shootout score. Only a service that cannot be
-reached at all (connection refused, or no connection within 3 s) pauses the 2D
-engine for 30 seconds.
+Each competition round is sent in one request. The engine plays the starting
+eleven the game itself picks for the fixture. A match played by the 2D engine
+does not open the interactive live match.
 
-Knockout ties are decided by the classic rule: a single-leg tie goes to extra
-time when it is level after 90 minutes; in a two-leg tie the second leg goes to
-extra time when the aggregate is level. Extra-time goals count in the score and
-for the scorers; shootout kicks do not. There is no away-goals rule.
+Knockout ties: a single-leg tie goes to extra time when it is level after 90
+minutes; in a two-leg tie the second leg goes to extra time when the aggregate
+is level. Extra-time goals count in the score and for the scorers; shootout
+kicks do not. There is no away-goals rule.
 
 ### 4. Watch a match again
 
-Every fixture drawn by the 2D engine is stored (table `match2d_replay`) with
-the exact request that produced it (target included), so the same match can be
-shown later:
+Every fixture played by the 2D engine is stored (table `match2d_replay`) with
+the exact request that produced it, so the same match can be shown later:
 
 ```bash
 curl http://localhost:8086/match/2d/replay/{competitionId}/{season}/{round}/{teamId1}/{teamId2}
@@ -289,15 +263,15 @@ curl http://localhost:8086/match/2d/replay/{competitionId}/{season}/{round}/{tea
 replays); the frontend shows it in the **Watch 2D** window, from the result
 window after Continue and from the match report. The human match result and
 `/match/report/...` carry `"match2d": true` for such a fixture. The route
-answers 404 for a match that was not drawn by the 2D engine and 502/503 when
+answers 404 for a match that was not played by the 2D engine and 502/503 when
 the service does not answer. The engine keeps only the last matches in memory,
 so the backend sends the stored request again each time; a replay matches the
 stored result only while the engine version is the same (`versionMismatch`).
 
 ### 5. Ask for a result on demand
 
-These routes only return what the engine played, without a target; they write
-nothing to the database and do not need `match2d.mode`:
+These routes only return what the engine played; they write nothing to the
+database and do not need `match2d.mode`:
 
 ```bash
 # one match (seed, minutes and ref are optional)
@@ -320,10 +294,9 @@ teams always gives the same match. Two more routes help while developing:
 and returns its `viewUrl`) and `GET /match/2d/lineup/{teamId}` (the team exactly
 as the engine receives it).
 
-The service's own routes, used by the backend: `POST /results` (one fixture,
-optionally with `target`, or `{"matches": [...]}`, up to 512, played in
-parallel), `POST /matches` (plays one fixture and keeps it for `GET /view/{id}`),
-`GET /health`.
+The service's own routes, used by the backend: `POST /results` (one fixture or
+`{"matches": [...]}`, up to 512, played in parallel), `POST /matches` (plays one
+fixture and keeps it for `GET /view/{id}`), `GET /health`.
 
 ### 6. Tests
 

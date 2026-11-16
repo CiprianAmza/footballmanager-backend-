@@ -4,13 +4,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.matchplan.GoalPhase;
 import com.footballmanagergamesimulator.matchplan.GoalSlot;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/** Extra-time goals of a drawn 2D knockout match: usability, regular-time score, goal slots. */
+/** Extra-time goals of a 2D knockout match: usability, regular-time score, goal slots, request. */
 class Match2dExtraTimeTest {
 
     private static final long HOME = 10L;
@@ -84,5 +90,38 @@ class Match2dExtraTimeTest {
 
         assertThat(Match2dMapper.extraTimeSlots(r, HOME, AWAY, HOME_XI, AWAY_XI)).isEmpty();
         assertThat(Match2dMapper.regularTimeSlots(r, HOME, AWAY, HOME_XI, AWAY_XI)).hasSize(1);
+    }
+
+    @Test
+    void thePlannerSendsKnockoutAndKeepsItInTheReplayRequest() throws Exception {
+        Match2dSettings settings = new Match2dSettings();
+        settings.setMode(Match2dSettings.Mode.ALL);
+        Match2dEngineClient engine = mock(Match2dEngineClient.class);
+        Match2dRoundPlanner planner = new Match2dRoundPlanner(settings, engine, json, true, () -> 0L);
+        Match2dResult league = result("{\"ref\":\"6\",\"score\":[0,0],\"goals\":[]}");
+        when(engine.results(any())).thenReturn(List.of(result(EXTRA_TIME_RESULT), league));
+        Match2dTeam home = team(3, 101);
+        Match2dTeam away = team(8, 201);
+
+        Map<Long, Match2dRoundPlanner.Played> out = planner.play(List.of(
+                new Match2dRoundPlanner.Fixture(5L, home, away, 77L, Match2dKnockout.request(0, 0, null)),
+                new Match2dRoundPlanner.Fixture(6L, home, away, 78L)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Match2dEngineClient.Request>> sent = ArgumentCaptor.forClass(List.class);
+        verify(engine).results(sent.capture());
+        assertThat(sent.getValue().get(0).knockout().aggregate()).containsExactly(0, 0);
+        assertThat(sent.getValue().get(1).knockout()).isNull();
+        assertThat(out).containsOnlyKeys(5L, 6L);
+        assertThat(out.get(5L).homeGoals()).isEqualTo(1);
+        assertThat(json.readTree(out.get(5L).requestJson()).get("knockout").get("aggregate").toString())
+                .isEqualTo("[0,0]");
+        assertThat(json.readTree(out.get(6L).requestJson()).has("knockout")).isFalse();
+    }
+
+    private static Match2dTeam team(long id, long playerId) {
+        return new Match2dTeam(id, "Team " + id, "442", "red", "black", Map.of("formation", "442"),
+                List.of(new Match2dTeam.Player(playerId, "P" + playerId, 9, "ST", "ST", 70, false,
+                        null, null, null, null, false, Map.of("finishing", 15))));
     }
 }

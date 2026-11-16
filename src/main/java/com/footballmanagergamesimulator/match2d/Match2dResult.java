@@ -8,7 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 
 /**
- * The result of one match played (or drawn) by the 2D match engine ({@code POST /results}), as the
+ * The result of one match played by the 2D match engine ({@code POST /results}), as the
  * engine sends it. The parts whose shape the engine may extend ({@code summary},
  * {@code tactics}, {@code tacticIgnored}, the per-player {@code stats}) stay as JSON, so a
  * new key there never breaks reading; unknown fields are ignored.
@@ -39,20 +39,17 @@ public record Match2dResult(
         List<PlayerLine> players,
         List<Highlight> highlights,
         /**
-         * Extra time and shootout of a knockout match; sent when the request asked for
-         * {@code knockout} or its {@code target} has extra time. {@code score} then includes
-         * the extra-time goals, never the shootout.
+         * Extra time and shootout of a knockout match; sent only when the request asked for
+         * {@code knockout}. {@code score} then includes the extra-time goals, never the shootout.
          */
         Knockout knockout,
-        /** How the engine met the request's {@code target}; sent only when the request had one. */
-        TargetReport target,
         /** Set only when this match could not be played; everything else is then empty. */
         String error) {
 
     /** A match that could not be played: only the caller's reference and the reason. */
     public static Match2dResult failed(String ref, String error) {
         return new Match2dResult(ref, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, error);
+                null, null, null, null, null, null, null, error);
     }
 
     @JsonIgnore
@@ -115,15 +112,6 @@ public record Match2dResult(
             Integer winner,
             /** {@code regular}, {@code extra_time} or {@code penalties}. */
             String decidedBy) {
-    }
-
-    /**
-     * The engine's report on a request {@code target}: {@code met}, the number of simulations
-     * it took ({@code tries}) and the seed of the one that met it.
-     */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TargetReport(Boolean met, Integer tries, Long seed) {
     }
 
     /** One shootout kick. Not a goal: it is in no goal list and in no player's statistics. */
