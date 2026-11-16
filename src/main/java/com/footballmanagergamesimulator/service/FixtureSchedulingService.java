@@ -22,6 +22,8 @@ import java.util.stream.Collectors;
 @Service
 public class FixtureSchedulingService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(FixtureSchedulingService.class);
+
     /** European draws are published one week before the first match of the stage. */
     public static final int EUROPEAN_DRAW_LEAD_DAYS = 7;
 
@@ -82,6 +84,10 @@ public class FixtureSchedulingService {
         long _competitionId = Long.parseLong(competitionId);
         long _roundId = Long.parseLong(roundId);
         String currentSeasonStr = String.valueOf(season);
+
+        // The Diamond League draws its whole season itself (DiamondLeagueService);
+        // the knockout branch below must never pair its clubs off.
+        if (competitionIdsByType((int) Competition.DIAMOND_LEAGUE).contains(_competitionId)) return;
 
         List<Long> participants = getParticipants(_competitionId, _roundId, currentSeasonStr);
 
@@ -297,6 +303,7 @@ public class FixtureSchedulingService {
                     matchDays = new int[]{32};
                     eventType = "MATCH_CUP";
                     break;
+                case 7: // Diamond League — placed after every other competition, see below
                 default:
                     continue;
             }
@@ -337,6 +344,10 @@ public class FixtureSchedulingService {
             // Update CompetitionTeamInfoMatch with day values
             updateMatchDays(comp.getId(), season, matchDays);
         }
+
+        // 1b. The Diamond League goes on days its clubs keep free in every other
+        // competition, so it is placed once all of those days are known.
+        scheduleDiamondLeague(season, competitions, allEvents, allMatchDays);
 
         // 2. Auto-schedule pre-season friendlies with real opponents for human teams
         // Create MATCH_FRIENDLY calendar events on the standard pre-season days
@@ -399,6 +410,76 @@ public class FixtureSchedulingService {
 
         // Auto-schedule pre-season friendlies with real opponents for human teams
         friendlyMatchService.autoSchedulePreSeasonFriendlies(season, scheduledFriendlyDays);
+    }
+
+    /** Window for Diamond League rounds: after the Super Cup, before the awards ceremony. */
+    static final int DIAMOND_LEAGUE_FIRST_DAY = 33;
+    static final int DIAMOND_LEAGUE_LAST_DAY = 332;
+
+    /**
+     * Places each Diamond League round (all its matches on one day) on a day on
+     * which none of its clubs can have another match. Reserved are: every day of
+     * the clubs' own leagues and of any competition they are entered in, plus every
+     * cup, super cup and continental matchday of the season whether or not the club
+     * is (still) in it — continental places and later knockout rounds are only
+     * settled during the season, so their days are kept free from the start and a
+     * Diamond League match never has to move.
+     */
+    private void scheduleDiamondLeague(int season, List<Competition> competitions,
+                                       List<CalendarEvent> allEvents, Set<Integer> allMatchDays) {
+        Map<Long, Competition> byId = competitions.stream()
+                .collect(Collectors.toMap(Competition::getId, c -> c, (a, b) -> a));
+        for (Competition diamond : competitions) {
+            if (!diamond.isDiamondLeague()) continue;
+            int rounds = getActualRoundCount(diamond.getId(), season);
+            if (rounds == 0) continue;
+            if (calendarEventRepository.findAllBySeason(season).stream()
+                    .anyMatch(e -> Objects.equals(e.getCompetitionId(), diamond.getId()))) continue;
+
+            Set<Long> clubs = competitionTeamInfoRepository
+                    .findAllByCompetitionIdAndSeasonNumber(diamond.getId(), season).stream()
+                    .map(CompetitionTeamInfo::getTeamId).collect(Collectors.toSet());
+            Set<Long> clubCompetitions = competitionTeamInfoRepository.findAllBySeasonNumber(season).stream()
+                    .filter(cti -> clubs.contains(cti.getTeamId()))
+                    .map(CompetitionTeamInfo::getCompetitionId)
+                    .collect(Collectors.toCollection(HashSet::new));
+            for (long club : clubs) {
+                competitionTeamInfoMatchRepository.findAllBySeasonNumberAndTeamId(String.valueOf(season), club)
+                        .forEach(m -> clubCompetitions.add(m.getCompetitionId()));
+            }
+
+            Set<Integer> busy = new HashSet<>();
+            for (CalendarEvent event : allEvents) {
+                if (event.getCompetitionId() == null || event.getEventType() == null
+                        || !event.getEventType().startsWith("MATCH_")) continue;
+                Competition other = byId.get(event.getCompetitionId());
+                if (other == null || other.getId() == diamond.getId()) continue;
+                long type = other.getTypeId();
+                boolean reserved = type == Competition.CUP || type == Competition.SUPER_CUP
+                        || type == Competition.LEAGUE_OF_CHAMPIONS || type == Competition.STARS_CUP
+                        || clubCompetitions.contains(other.getId());
+                if (reserved) busy.add(event.getDay());
+            }
+
+            int[] days = com.footballmanagergamesimulator.algorithms.DiamondLeagueDayPlanner.plan(
+                    rounds, busy, DIAMOND_LEAGUE_FIRST_DAY, DIAMOND_LEAGUE_LAST_DAY);
+            if (days == null) {
+                log.warn("Diamond League season {}: {} rounds do not fit between days {} and {} "
+                                + "({} days already taken by its clubs); it is not scheduled",
+                        season, rounds, DIAMOND_LEAGUE_FIRST_DAY, DIAMOND_LEAGUE_LAST_DAY, busy.size());
+                continue;
+            }
+            int withoutRest = 0;
+            for (int i = 0; i < days.length; i++) {
+                if (busy.contains(days[i] - 1) || busy.contains(days[i] + 1)) withoutRest++;
+                addMatchAndPressConf(allEvents, allMatchDays, diamond, season, "MATCH_LEAGUE",
+                        days[i], i + 1, 0, "");
+            }
+            updateMatchDays(diamond.getId(), season, days);
+            log.info("Diamond League season {}: {} rounds on days {}..{} ({} days reserved by its clubs, "
+                            + "{} rounds next to another match)",
+                    season, rounds, days[0], days[days.length - 1], busy.size(), withoutRest);
+        }
     }
 
     /**

@@ -68,7 +68,15 @@ public class CompetitionFormatConfig {
 
         // Domestic Super Cup: one single-match final.
         byType.put(6, CompetitionFormat.builder(6, CompetitionFormat.Kind.KNOCKOUT).build());
+
+        // Diamond League (7): invitational round-robin, matchday == round. Every pair
+        // meets four times (two at each ground), whatever the field size.
+        byType.put(7, CompetitionFormat.builder(7, CompetitionFormat.Kind.LEAGUE)
+                .encounters(Map.of(), DIAMOND_LEAGUE_ENCOUNTERS).build());
     }
+
+    /** Meetings per pair in the Diamond League: two home, two away. */
+    public static final int DIAMOND_LEAGUE_ENCOUNTERS = 4;
 
     /**
      * Builds the Stars Cup format from its group shape so a shape change adapts

@@ -202,8 +202,25 @@ public class CompetitionProgressService {
             currentRound = upcoming.isEmpty() ? entryRound : upcoming.get(0).getRound();
             stageReached = normalizedStageLabel(competition, currentRound, season);
         }
+        if (competition.isDiamondLeague()) {
+            // A table competition: nobody is eliminated and there is no final; once
+            // every fixture is played the place in the table decides the outcome.
+            eliminatedById = null;
+            eliminationResult = null;
+            if (results.isEmpty()) {
+                status = "NOT_STARTED";
+            } else if (!upcoming.isEmpty()) {
+                status = "ACTIVE";
+                stageReached = normalizedStageLabel(competition, currentRound, season);
+            } else {
+                int position = tablePosition(teamId, competitionId);
+                currentRound = latestRound;
+                status = position == 1 ? "WINNER" : position == 2 ? "RUNNER_UP" : "FINISHED";
+                stageReached = ordinal(position) + " place";
+            }
+        }
         if (eliminatedById != null) {
-            eliminatedByName = teamRepository.findById(eliminatedById).map(Team::getName).orElse("Unknown");
+            eliminatedByName =teamRepository.findById(eliminatedById).map(Team::getName).orElse("Unknown");
         }
 
         Map<String, Object> view = new LinkedHashMap<>();
@@ -489,8 +506,32 @@ public class CompetitionProgressService {
             case "ELIMINATED" -> "Eliminated in " + stage
                     + (eliminator == null ? "" : " by " + eliminator);
             case "NOT_STARTED" -> "Starts in " + stage;
+            case "FINISHED" -> "Finished in " + stage;
             default -> "Playing in " + stage;
         };
+    }
+
+    /** 1-based place in a points table (points, goal difference, goals scored). */
+    private int tablePosition(long teamId, long competitionId) {
+        List<TeamCompetitionDetail> table = new ArrayList<>(standingsRepository.findAllByCompetitionId(competitionId));
+        table.sort(Comparator.comparingInt(TeamCompetitionDetail::getPoints).reversed()
+                .thenComparing(Comparator.comparingInt(TeamCompetitionDetail::getGoalDifference).reversed())
+                .thenComparing(Comparator.comparingInt(TeamCompetitionDetail::getGoalsFor).reversed()));
+        for (int i = 0; i < table.size(); i++) {
+            if (table.get(i).getTeamId() == teamId) return i + 1;
+        }
+        return table.size() + 1;
+    }
+
+    private static String ordinal(int n) {
+        int mod100 = n % 100;
+        String suffix = (mod100 >= 11 && mod100 <= 13) ? "th" : switch (n % 10) {
+            case 1 -> "st";
+            case 2 -> "nd";
+            case 3 -> "rd";
+            default -> "th";
+        };
+        return n + suffix;
     }
 
     private boolean isGroupCompetition(Competition competition) {
@@ -504,7 +545,7 @@ public class CompetitionProgressService {
 
     private String phase(Competition competition, long round, long season) {
         int type = (int) competition.getTypeId();
-        if (type == 1 || type == 3) return "LEAGUE";
+        if (type == 1 || type == 3 || competition.isDiamondLeague()) return "LEAGUE";
         if (type == 6) return "FINAL";
         CompetitionFormat format = formats.get(type);
         if (type == 4 || type == 5) {
@@ -518,7 +559,7 @@ public class CompetitionProgressService {
 
     private String roundLabel(Competition competition, long round, long season) {
         int type = (int) competition.getTypeId();
-        if (type == 1 || type == 3) return "Matchday " + round;
+        if (type == 1 || type == 3 || competition.isDiamondLeague()) return "Matchday " + round;
         if (type == 6) return "Final";
         CompetitionFormat format = formats.get(type);
         if (type == 4) {

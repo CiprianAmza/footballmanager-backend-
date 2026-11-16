@@ -118,6 +118,7 @@ public class NewSeasonSetupProcessor {
     @Lazy @Autowired private EndOfSeasonProcessor endOfSeasonProcessor;
     @Lazy @Autowired private MatchSimulationOrchestrator matchSimulationOrchestrator;
     @Autowired private SuperCupService superCupService;
+    @Autowired private DiamondLeagueService diamondLeagueService;
     @Autowired private SponsorshipService sponsorshipService;
     @Autowired private MinimumSquadService minimumSquadService;
     @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
@@ -176,6 +177,9 @@ public class NewSeasonSetupProcessor {
 
         resetCompetitionData();
         superCupService.prepareSeason(newSeason);
+        // New Diamond League edition: entries and the drawn schedule. Its table rows
+        // are rebuilt from these entries by removeCompetitionData just below.
+        diamondLeagueService.prepareSeason(newSeason);
         removeCompetitionData((long) newSeason);
         // A good season grows the league's top 3 in each statistics category (attributes; rating follows).
         seasonStatGrowthService.apply((int) oldSeason, new Random());

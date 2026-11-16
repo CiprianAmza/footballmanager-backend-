@@ -175,7 +175,8 @@ public class MatchdayCoordinator {
         // Fixtures are pre-generated at season start. Re-running getFixturesForRound
         // here duplicates every round in competition_team_info_match and trips
         // unique-constraint violations on match_stats inside simulateRound.
-        if (typeId == 1 || typeId == 3) {
+        // The Diamond League (typeId 7) is the same: a pre-drawn round-robin.
+        if (typeId == 1 || typeId == 3 || typeId == (int) Competition.DIAMOND_LEAGUE) {
             matchRoundSimulator.simulateRound(compIdStr, roundStr);
             return;
         }

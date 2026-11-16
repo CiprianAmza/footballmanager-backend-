@@ -292,7 +292,7 @@ public class CompetitionDisplayService {
             comp.putAll(competitionProgressService.teamProgress(
                     teamId, competition.getId(), curSeason));
 
-            if (competition.isLeague()) {
+            if (competition.isLeague() || competition.isDiamondLeague()) {
                 TeamCompetitionDetail detail = teamCompetitionDetailRepository
                         .findFirstByTeamIdAndCompetitionId(teamId, competition.getId());
                 if (detail != null) {
