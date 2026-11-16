@@ -18,6 +18,10 @@ final class TacticArenaEntities {
     static final String KIND_TOP = "REFERENCE_TOP";
     static final String KIND_MEDIAN = "REFERENCE_MEDIAN";
     static final String KIND_BOTTOM = "REFERENCE_BOTTOM";
+    static final String KIND_DIAMOND = "DIAMOND";
+
+    static final String CATEGORY_GENERAL = "GENERAL";
+    static final String CATEGORY_DIAMOND = "DIAMOND";
 
     private TacticArenaEntities() {
     }

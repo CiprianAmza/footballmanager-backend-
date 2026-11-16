@@ -37,7 +37,8 @@ public final class TacticArenaStats {
 
     public record RunTotals(Totals overall, Totals home, Totals away) {}
 
-    public record Split(int pld, int pts, int ptsMax, int w, int d, int l,
+    /** {@code ptsPct}: points as a share of the maximum, in percent with one decimal (comparable across leagues). */
+    public record Split(int pld, int pts, int ptsMax, Double ptsPct, int w, int d, int l,
                         int gf, int ga, int gd, Integer xgf, Integer xga, Integer xgd) {}
 
     public record Results(int basedOn, Split overall, Split home, Split away) {}
@@ -73,7 +74,8 @@ public final class TacticArenaStats {
             xga = round(t.xgAgainst() / n);
             xgd = round((t.xgFor() - t.xgAgainst()) / n);
         }
-        return new Split(t.matches(), round(t.points() / n), round(t.matches() * 3 / n),
+        Double ptsPct = t.matches() == 0 ? null : Math.round(t.points() * 1000.0 / (t.matches() * 3)) / 10.0;
+        return new Split(t.matches(), round(t.points() / n), round(t.matches() * 3 / n), ptsPct,
                 round(t.wins() / n), round(t.draws() / n), round(t.losses() / n),
                 round(t.goalsFor() / n), round(t.goalsAgainst() / n),
                 round((t.goalsFor() - t.goalsAgainst()) / n), xgf, xga, xgd);

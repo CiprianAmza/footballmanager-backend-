@@ -55,11 +55,13 @@ Set-piece taker ids may be `null`.
 ### `Split` (one row of the results block)
 
 ```json
-{ "pld": 114, "pts": 73, "ptsMax": 114, "w": 22, "d": 7, "l": 9,
+{ "pld": 114, "pts": 73, "ptsMax": 114, "ptsPct": 64.0, "w": 22, "d": 7, "l": 9,
   "gf": 68, "ga": 35, "gd": 33, "xgf": 61, "xga": 38, "xgd": 23 }
 ```
 
 - `pld`: total league matches over the runs it is based on (sum, not average).
+- `ptsPct`: total points as a share of the total maximum, in percent with one decimal: use it
+  to sort across clubs whose leagues have a different number of matches (DIAMOND).
 - `pts`: average league points per season, rounded. `ptsMax`: average league matches per
   season × 3 (fm-arena shows `pts / ptsMax`, e.g. "73 / 114").
 - `w`, `d`, `l`, `gf`, `ga`, `gd`, `xgf`, `xga`, `xgd`: averages per season, rounded to
@@ -285,12 +287,29 @@ Formation keys (`tactic.tactic`): `442`, `433`, `343`, `451`, `352`, `4231`, `41
 | `recovery` | `Standard`, `Slow`, `Very Fast`, `Instantly` |
 
 **Two parts of a test.** The *general* part plays the tactic on the three fixed reference
-clubs (`tactic-arena.reference-teams`, default `Inazuma Japan, Zeus, Desert Lion`, in that
+clubs (`tactic-arena.reference-teams`, default `Inazuma Japan, Diamond Dust, Desert Lion`, in that
 order, whatever the chosen club's league): the averages and the leaderboard come from it,
 so all tests compare on the same clubs. The *custom* part is the run with the club the user
 chose (`CHOSEN`), shown separately. A reference name that is not in the base world is a
 `400` at launch. With the setting empty the reference clubs are, as before, the highest /
 median / lowest reputation of the chosen club's league.
+
+**Categories** (`"category"`, optional, default `"GENERAL"`):
+
+- `GENERAL`: the three fixed reference clubs above, with `tier` `TOP` / `MID` / `BOTTOM`
+  (1st, 2nd, 3rd club of `tactic-arena.reference-teams`: top, mid-table and bottom club).
+- `DIAMOND`: one reference run for each club of `tactic-arena.diamond-teams` (default, in this
+  order: `Inazuma Japan, Shadows, FC San Marino, Tik Tok, Xenon, Ligthnings, No Merci,
+  Athletic Sohatu`), each a full season with the same tactic and the automatic eleven;
+  `tier: null`, `label: "Diamond League club"`. The averages use all 8 runs
+  (`basedOn: 8`); `ptsMax` is the mean of the clubs' maxima and `ptsPct` makes the clubs of
+  different leagues comparable. A chosen club, if given, is still the separate `CHOSEN` run.
+  A name not in the base world is a `400`.
+
+```json
+{ "name": "Diamond 433", "category": "DIAMOND", "autoEleven": true, "owner": "mass-script",
+  "tactic": { "tactic": "433" } }
+```
 
 **General-only test**: with `autoEleven: true`, `teamId` may be left out; the test then has
 only the three reference runs:
@@ -329,15 +348,17 @@ The leaderboard (all tests, newest first; the UI sorts).
   "gitPush": GitPushStatus,
   "baseline": BaselineStatus,
   "referenceTeams": [
-    { "name": "Inazuma Japan", "teamId": 87, "reputation": 10000, "predictedPosition": 1, "leagueSize": 20 },
-    { "name": "Zeus", "teamId": 91, "reputation": 7400, "predictedPosition": 4, "leagueSize": 20 },
-    { "name": "Desert Lion", "teamId": 104, "reputation": 4800, "predictedPosition": 18, "leagueSize": 20 }
+    { "tier": "TOP", "name": "Inazuma Japan", "teamId": 87, "reputation": 10000, "predictedPosition": 1, "leagueSize": 20 },
+    { "tier": "MID", "name": "Diamond Dust", "teamId": 96, "reputation": 6400, "predictedPosition": 10, "leagueSize": 20 },
+    { "tier": "BOTTOM", "name": "Desert Lion", "teamId": 104, "reputation": 4800, "predictedPosition": 18, "leagueSize": 20 }
   ],
+  "diamondTeams": [ { "tier": null, "name": "Inazuma Japan", "teamId": 87, ... } ],
   "tests": [ TestSummary ]
 }
 ```
 
-`referenceTeams`: the fixed reference clubs in force (`null` when the setting is empty;
+`diamondTeams`: the clubs of the DIAMOND category, same shape (`tier: null`).
+`referenceTeams`: the fixed reference clubs in force (each with `tier`: `TOP`, `MID`, `BOTTOM`) (`null` when the setting is empty;
 `teamId`/`reputation`/prediction `null` for a name not found or while there is no base
 world).
 
@@ -365,15 +386,31 @@ requested).
   "startDay": 1,
   "endDay": 330,
   "engine": "classic",
+  "category": "GENERAL",
   "autoEleven": false,
   "createdAt": "2026-11-16T10:00:00Z",
   "finishedAt": "2026-11-16T10:40:00Z",
   "status": "RUNNING",
   "progress": 42.5,
   "results": Results,
-  "chosen": Results
+  "chosen": Results,
+  "byTier": {
+    "TOP":    { "teamId": 87,  "teamName": "Inazuma Japan", "results": { "overall": Split, "home": Split, "away": Split } },
+    "MID":    { "teamId": 96,  "teamName": "Diamond Dust",  "results": { ... } },
+    "BOTTOM": null
+  },
+  "byClub": [
+    { "teamId": 87, "teamName": "Inazuma Japan", "predictedPosition": 1, "leagueSize": 20,
+      "leagueName": "Eleven League", "results": { "overall": Split, "home": Split, "away": Split } }
+  ]
 }
 ```
+
+- `category`: `GENERAL` or `DIAMOND` (older tests: `GENERAL`).
+- `byTier` (GENERAL only): each reference run on its own; a tier is `null` until its run is
+  `DONE`. Sort the leaderboard by the result at the top / mid-table / bottom club with it.
+- `byClub` (both categories): every reference run on its own, in the order of the setting;
+  `results` is `null` until the run is `DONE`.
 
 - `status`: `QUEUED` (waiting for a free simulation slot, behind earlier tests),
   `PREPARING` (the base world is generated first; `message` says so), `RUNNING` (at least
@@ -386,7 +423,7 @@ requested).
   tested club's matches go through the 2D engine, the rest classic).
 - `teamId`, `teamName`, `leagueId`, `leagueName`, `predictedPosition`, `leagueSize`: the
   CHOSEN club; all `null` for a general-only test.
-- `results`: the 3 reference runs (`null` until all three are `DONE`). `ptsMax` comes from
+- `results`: all reference runs (3, or 8 for DIAMOND; `null` until all are `DONE`). `ptsMax` comes from
   the reference clubs' own league matches.
 - `chosen`: the run with the chosen club, with the maximum of its own league (`null` until
   it is `DONE`, and always `null` for a general-only test).
@@ -413,13 +450,15 @@ requested).
   (`tactic-arena.capture`). `status`: `null` (never asked since this backend started),
   `OFF` (`message` says why: off, no browser, page address unknown), `QUEUED`, `RUNNING`,
   `DONE`, `FAILED` (`message`: how many images arrived before the time limit).
-  `images` / `expected`: images stored now / 3 per run.
+  `images` / `expected`: images stored now / 3 × the test's runs (12 for a GENERAL test with a
+  chosen club, 9 without; 27 or 24 for DIAMOND).
 - `message`: why the test failed / was cancelled, else `null`.
 - `leagueMatchesTotal` / `leagueMatchesRemaining`: the chosen club's league matches in
   season 1; always equal now (every run plays the whole season from day 1), kept so the
   page does not change.
 - `baselineUid`: the base world the test runs on.
-- `runs`: in this order `CHOSEN`, `REFERENCE_TOP`, `REFERENCE_MEDIAN`, `REFERENCE_BOTTOM`;
+- `runs`: in this order `CHOSEN`, then the reference runs: `REFERENCE_TOP`, `REFERENCE_MEDIAN`,
+  `REFERENCE_BOTTOM` (GENERAL) or 8 × `DIAMOND` (indexes 1–8, order of the setting);
   a general-only test has only the three reference runs (indexes 1–3). With fixed
   reference clubs the three kinds are just three positions: show `label` ("Reference") and
   the club's name, not "highest / median / lowest reputation".
@@ -432,6 +471,7 @@ requested).
   "index": 0,
   "kind": "CHOSEN",
   "label": "Chosen club",
+  "tier": null,
   "teamId": 104,
   "teamName": "FC Example",
   "teamReputation": 7200,
@@ -452,9 +492,12 @@ requested).
 ```
 
 Until the test is bound, the three reference runs have `teamId: 0` and `teamName: null`.
-`label`: the text to show for the run's role: `"Chosen club"`, `"Reference"` (fixed reference
-clubs) or, with the setting empty, `"Highest reputation"` / `"Median reputation"` /
-`"Lowest reputation"`. `predictedPosition` / `leagueSize`: the club's press prediction, read
+`label`: the text to show for the run's role: `"Chosen club"`, `"Reference · top club"`,
+`"Reference · mid-table club"`, `"Reference · bottom club"` or `"Diamond League club"`.
+`tier`: `TOP` / `MID` / `BOTTOM` for the GENERAL reference runs (from their position; also for
+tests stored before the field existed), `null` for the chosen club and DIAMOND runs. With
+`tactic-arena.reference-teams` empty the tiers are the highest / median / lowest reputation
+of the chosen club's league. `predictedPosition` / `leagueSize`: the club's press prediction, read
 from the base world by `teamId` (so finished tests have it too; `null` without predictions).
 `progress` = `simulatedDays / totalDays × 100`; `stats` (`basedOn: 1`) and `result` are
 `null` until the run is `DONE`. `images` lists the kinds already uploaded.

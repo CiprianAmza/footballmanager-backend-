@@ -339,8 +339,14 @@ tactic fixed all season. A test has two parts:
 
 - **General** (always): the tactic on the **same three reference clubs for every test**, so
   that all tests are compared on the same clubs: `tactic-arena.reference-teams`, by default
-  `Inazuma Japan, Zeus, Desert Lion` (all three in the Eleven League), whatever the chosen
+  `Inazuma Japan, Diamond Dust, Desert Lion` (all three in the Eleven League), whatever the chosen
   club's league. The averages and the leaderboard come from these three runs.
+- **Diamond League** (a separate category, `"category": "DIAMOND"`): instead of the three
+  reference clubs, one full season on each of the 8 clubs of `tactic-arena.diamond-teams`
+  (Inazuma Japan, Shadows, FC San Marino, Tik Tok, Xenon, Ligthnings, No Merci, Athletic
+  Sohatu), averaged over the 8 runs; `ptsPct` (points as a share of the maximum) compares
+  clubs of leagues of different sizes. Example body:
+  `{"name": "Diamond 433", "category": "DIAMOND", "autoEleven": true, "tactic": {"tactic": "433"}}`.
 - **Custom** (optional): the club the user picked, with the eleven they picked, shown
   separately. A test launched with `autoEleven: true` and no club is general only (three
   runs); a script can launch many of these.
@@ -348,9 +354,9 @@ tactic fixed all season. A test has two parts:
 | Run | Club | Starting eleven |
 |-----|------|-----------------|
 | 0 `CHOSEN` | the club you picked (custom part) | the eleven you picked, or the automatic one with `autoEleven` |
-| 1 `REFERENCE_TOP` | 1st reference club (Inazuma Japan) | the game's automatic best XI for the formation |
-| 2 `REFERENCE_MEDIAN` | 2nd reference club (Zeus) | same |
-| 3 `REFERENCE_BOTTOM` | 3rd reference club (Desert Lion) | same |
+| 1 `REFERENCE_TOP` (tier `TOP`) | 1st reference club, the top club (Inazuma Japan) | the game's automatic best XI for the formation |
+| 2 `REFERENCE_MEDIAN` (tier `MID`) | 2nd reference club, the mid-table club (Diamond Dust) | same |
+| 3 `REFERENCE_BOTTOM` (tier `BOTTOM`) | 3rd reference club, the bottom club (Desert Lion) | same |
 
 Reference clubs get the same formation and instructions; the roles, duties and player
 instructions are copied slot by slot onto their automatic eleven. With
@@ -429,7 +435,10 @@ only, separately for Overall / Home / Away:
   matches per season × 3, from the reference clubs' own league);
 - `GF`, `GA`, `GD`, `xGF`, `xGA`, `xGD` = averages per season, rounded to whole numbers.
 
-The run with the chosen club gets the same figures, shown separately.
+The run with the chosen club gets the same figures, shown separately. The leaderboard also
+carries each reference run on its own (`byTier`: top / mid-table / bottom club; `byClub`:
+every club, also for DIAMOND), so the best tactic overall, for a top club, a mid-table club
+or a bottom club can be told apart by sorting.
 
 ### 5. How long it takes
 
@@ -533,7 +542,8 @@ For a new pair today you have to add the mapping there (for example
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `tactic-arena.parallel-runs` | `4` | simulation processes of this backend, shared by all tests |
-| `tactic-arena.reference-teams` | `Inazuma Japan, Zeus, Desert Lion` | the three fixed reference clubs (names in the base world); empty = highest/median/lowest reputation of the chosen club's league |
+| `tactic-arena.diamond-teams` | `Inazuma Japan, Shadows, FC San Marino, Tik Tok, Xenon, Ligthnings, No Merci, Athletic Sohatu` | the clubs of the DIAMOND category, one run each |
+| `tactic-arena.reference-teams` | `Inazuma Japan, Diamond Dust, Desert Lion` | the three fixed reference clubs (names in the base world); empty = highest/median/lowest reputation of the chosen club's league |
 | `tactic-arena.baseline-dir` | `<work-dir>/baseline` | the base world (can be shared by several backends) |
 | `tactic-arena.export-dir` | empty (no export) | folder for exported tests |
 | `tactic-arena.git-push` | `false` | commit and push the export folder after each test |

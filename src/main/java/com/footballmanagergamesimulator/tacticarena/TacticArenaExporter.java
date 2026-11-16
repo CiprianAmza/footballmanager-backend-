@@ -154,6 +154,7 @@ public class TacticArenaExporter {
         test.setExportFolder(folder.getFileName().toString());
         test.setBaselineUid(text(node, "baselineUid"));
         test.setAutoEleven(node.path("autoEleven").asBoolean(false));
+        test.setCategory(node.path("category").asText(TacticArenaEntities.CATEGORY_GENERAL));
         test = testRepository.save(test);
 
         for (JsonNode r : node.path("runs")) {

@@ -281,6 +281,29 @@ public class TacticArenaBaseline {
         }
     }
 
+    private Map<Long, String> leagueNames;
+    private long leagueNamesModified = -1;
+
+    /** {teamId -> league name} from {@code clubs.json}. */
+    synchronized Map<Long, String> leagueNames() {
+        Path file = dir().resolve("clubs.json");
+        try {
+            if (!Files.exists(file)) return Map.of();
+            long modified = Files.getLastModifiedTime(file).toMillis();
+            if (leagueNames == null || modified != leagueNamesModified) {
+                Map<Long, String> map = new java.util.HashMap<>();
+                for (JsonNode league : objectMapper.readTree(file.toFile()).path("leagues")) {
+                    for (JsonNode team : league.path("teams")) map.put(team.path("teamId").asLong(), league.path("name").asText());
+                }
+                leagueNames = map;
+                leagueNamesModified = modified;
+            }
+            return leagueNames;
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
     /** {teamId -> {predictedPosition, leagueSize}} from {@code clubs.json}; empty when it has none. */
     synchronized Map<Long, Integer[]> predictions() {
         Path file = dir().resolve("clubs.json");

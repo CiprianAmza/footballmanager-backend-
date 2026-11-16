@@ -40,6 +40,7 @@ class TacticArenaStatsTest {
         assertEquals(6, r.overall().pld());
         assertEquals(3, r.overall().pts());
         assertEquals(6, r.overall().ptsMax());
+        assertEquals(55.6, r.overall().ptsPct());   // 10 of 18 points
         assertEquals(2, r.overall().gf());   // 7 / 3 = 2.33
         assertEquals(2, r.overall().ga());   // 5 / 3 = 1.67
         assertEquals(1, r.overall().gd());   // 2 / 3 = 0.67
