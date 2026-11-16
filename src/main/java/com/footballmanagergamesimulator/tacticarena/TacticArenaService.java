@@ -590,6 +590,8 @@ public class TacticArenaService {
                 stored.setGzJson(gz);
                 resultRepository.save(stored);
                 run.setTotalsJson(json(totals(result)));
+                Map<String, Object> diamond = diamondTotals(result);
+                run.setDiamondJson(diamond == null ? null : json(diamond));
                 run.setStatus(DONE);
                 run.setCurrentDay(test.getEndDay() + 1);
                 run.setSimulatedDays(run.getTotalDays());
@@ -862,6 +864,14 @@ public class TacticArenaService {
         long referenceRuns = runs.stream().filter(r -> r.getRunIndex() > 0).count();
         row.put("results", referenceRuns > 0 && reference.size() == referenceRuns ? TacticArenaStats.average(reference) : null);
         row.put("chosen", chosen == null ? null : TacticArenaStats.average(List.of(chosen)));
+        // Diamond League, apart from the league: mean of the reference runs whose club plays in it.
+        List<TacticArenaStats.RunTotals> diamondRuns = new ArrayList<>();
+        for (TacticArenaRun run : runs) {
+            if (run.getRunIndex() == 0) continue;
+            TacticArenaStats.RunTotals d = readDiamondTotals(run);
+            if (d != null) diamondRuns.add(d);
+        }
+        row.put("diamond", diamondRuns.isEmpty() ? null : TacticArenaStats.average(diamondRuns));
         // Each reference run on its own (top / mid-table / bottom club), so the leaderboard can sort by it.
         Map<String, Object> byTier = new LinkedHashMap<>();
         for (String tier : TIERS) byTier.put(tier, null);
@@ -878,6 +888,7 @@ public class TacticArenaService {
             entry.put("teamId", run.getTeamId());
             entry.put("teamName", run.getTeamName());
             entry.put("results", results);
+            entry.put("diamond", diamondJson(run));
             byTier.put(tier, entry);
         }
         if (!CATEGORY_DIAMOND.equals(test.getCategory())) row.put("byTier", byTier);
@@ -903,6 +914,7 @@ public class TacticArenaService {
                 results.put("away", one.away());
             }
             entry.put("results", results);
+            entry.put("diamond", diamondJson(run));
             byClub.add(entry);
         }
         row.put("byClub", byClub);
@@ -930,6 +942,7 @@ public class TacticArenaService {
         r.put("kind", run.getKind());
         r.put("label", runLabel(run));
         r.put("tier", tier(run));
+        r.put("diamond", diamondJson(run));
         r.put("teamId", run.getTeamId());
         r.put("teamName", run.getTeamName());
         r.put("teamReputation", run.getTeamReputation());
@@ -969,10 +982,36 @@ public class TacticArenaService {
 
     /** League matches simulated in the run, from the collected result. */
     TacticArenaStats.RunTotals totals(JsonNode result) {
+        long leagueId = result.path("leagueId").asLong();
+        return totalsOf(result, m -> leagueId > 0 && m.has("competitionId")
+                ? m.path("competitionId").asLong() == leagueId
+                : "League".equals(m.path("competitionType").asText()) && !"DIAMOND".equals(m.path("competitionKind").asText()));
+    }
+
+    /** Diamond League totals of a run, {totals, position, of}; null when the club does not play in it. */
+    Map<String, Object> diamondTotals(JsonNode result) {
+        JsonNode id = result.path("diamondLeagueId");
+        if (!id.isNumber()) return null;
+        long diamondId = id.asLong();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("totals", totalsOf(result, m -> m.path("competitionId").asLong() == diamondId));
+        Integer position = null;
+        int of = 0;
+        long teamId = result.path("teamId").asLong();
+        for (JsonNode row : result.path("diamondTable")) {
+            of++;
+            if (row.path("teamId").asLong() == teamId) position = row.path("position").asInt();
+        }
+        out.put("position", position);
+        out.put("of", of == 0 ? null : of);
+        return out;
+    }
+
+    private TacticArenaStats.RunTotals totalsOf(JsonNode result, java.util.function.Predicate<JsonNode> include) {
         List<TacticArenaStats.MatchLine> lines = new ArrayList<>();
         long teamId = result.path("teamId").asLong();
         for (JsonNode m : result.path("matches")) {
-            if (!"League".equals(m.path("competitionType").asText())) continue;
+            if (!include.test(m)) continue;
             if (!m.path("inRun").asBoolean(true)) continue;
             if (!"played".equals(m.path("status").asText())) continue;
             if (m.path("teamGoals").isNull() || m.path("teamGoals").isMissingNode()) continue;
@@ -983,6 +1022,36 @@ public class TacticArenaService {
                     xgFor, xgAgainst));
         }
         return TacticArenaStats.totals(lines);
+    }
+
+    private TacticArenaStats.RunTotals readDiamondTotals(TacticArenaRun run) {
+        if (!DONE.equals(run.getStatus()) || run.getDiamondJson() == null) return null;
+        try {
+            return objectMapper.treeToValue(objectMapper.readTree(run.getDiamondJson()).path("totals"),
+                    TacticArenaStats.RunTotals.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** {overall, home, away, position, of} of the run's Diamond League; null when its club does not play in it. */
+    private Map<String, Object> diamondJson(TacticArenaRun run) {
+        TacticArenaStats.RunTotals totals = readDiamondTotals(run);
+        if (totals == null) return null;
+        TacticArenaStats.Results one = TacticArenaStats.average(List.of(totals));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("overall", one.overall());
+        out.put("home", one.home());
+        out.put("away", one.away());
+        try {
+            JsonNode node = objectMapper.readTree(run.getDiamondJson());
+            out.put("position", node.path("position").isNumber() ? node.path("position").asInt() : null);
+            out.put("of", node.path("of").isNumber() ? node.path("of").asInt() : null);
+        } catch (Exception e) {
+            out.put("position", null);
+            out.put("of", null);
+        }
+        return out;
     }
 
     private TacticArenaStats.RunTotals readTotals(TacticArenaRun run) {

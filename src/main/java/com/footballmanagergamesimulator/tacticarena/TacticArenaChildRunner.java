@@ -301,9 +301,16 @@ public class TacticArenaChildRunner {
     private Map<String, Object> collect(Team team, int season, ChildSpec spec, PersonalizedTacticView used,
                                         List<PlayerView> squad, Set<String> playedBefore, int endDay) {
         long teamId = team.getId();
+        long leagueId = team.getCompetitionId();
+        Map<Long, String> kinds = new HashMap<>();
+        Long diamondId = null;
         List<Map<String, Object>> matches = new ArrayList<>();
         for (ScheduleView v : schedule(teamId, season)) {
             Map<String, Object> row = objectMapper.convertValue(v, new TypeReference<LinkedHashMap<String, Object>>() {});
+            // The schedule's competitionType says "League" for the Diamond League too: this tells them apart.
+            String kind = kinds.computeIfAbsent(v.getCompetitionId(), id -> competitionKind(id, leagueId));
+            row.put("competitionKind", kind);
+            if ("DIAMOND".equals(kind)) diamondId = v.getCompetitionId();
             Double xgFor = null, xgAgainst = null;
             Optional<MatchStats> stats = matchStatsRepository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
                     v.getCompetitionId(), season, v.getRoundNumber(), v.getTeamId1(), v.getTeamId2());
@@ -319,24 +326,48 @@ public class TacticArenaChildRunner {
             matches.add(row);
         }
 
-        long leagueId = team.getCompetitionId();
         List<TeamCompetitionView> leagueTable = competitionDisplayService.getTeamDetails(leagueId, teamId);
+        List<TeamCompetitionView> diamondTable = diamondId == null ? null
+                : competitionDisplayService.getTeamDetails(diamondId, teamId);
+        List<Map<String, Object>> sources = new ArrayList<>(competitionDisplayService.getTeamCompetitions(teamId));
+        final Long diamondCompetition = diamondId;
+        if (diamondId != null && sources.stream().noneMatch(c -> ((Number) c.get("competitionId")).longValue() == diamondCompetition)) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("competitionId", diamondId);
+            entry.put("name", competitionRepository.findById(diamondId).map(Competition::getName).orElse("Diamond League"));
+            entry.put("typeId", Competition.DIAMOND_LEAGUE);
+            sources.add(entry);
+        }
         List<Map<String, Object>> competitions = new ArrayList<>();
-        for (Map<String, Object> source : competitionDisplayService.getTeamCompetitions(teamId)) {
+        for (Map<String, Object> source : sources) {
             Map<String, Object> comp = new LinkedHashMap<>(source);
             long competitionId = ((Number) comp.get("competitionId")).longValue();
-            boolean league = competitionRepository.findById(competitionId).map(Competition::isLeague).orElse(false);
+            Competition competition = competitionRepository.findById(competitionId).orElse(null);
+            boolean diamond = competition != null && competition.isDiamondLeague();
+            boolean league = competition != null && (competition.isLeague() || diamond);
+            comp.put("kind", competitionId == leagueId ? "LEAGUE" : diamond ? "DIAMOND" : league ? "LEAGUE" : "CUP");
+            comp.put("diamond", diamond);
             Integer position = null;
             Integer points = null;
             if (league) {
                 List<TeamCompetitionView> table = competitionId == leagueId ? leagueTable
-                        : competitionDisplayService.getTeamDetails(competitionId, teamId);
+                        : diamond ? diamondTable : competitionDisplayService.getTeamDetails(competitionId, teamId);
                 for (TeamCompetitionView row : table) {
                     if (row.getTeamId() == teamId) {
                         position = row.getPosition();
                         points = parseInt(row.getPoints());
+                        if (diamond) {
+                            // the club-competitions page gives these only for domestic leagues
+                            comp.put("games", parseInt(row.getGames()));
+                            comp.put("wins", parseInt(row.getWins()));
+                            comp.put("draws", parseInt(row.getDraws()));
+                            comp.put("loses", parseInt(row.getLoses()));
+                            comp.put("goalsFor", parseInt(row.getGoalsFor()));
+                            comp.put("goalsAgainst", parseInt(row.getGoalsAgainst()));
+                        }
                     }
                 }
+                if (diamond) comp.put("of", table.size());
             }
             comp.put("position", position);
             comp.put("points", points);
@@ -362,7 +393,20 @@ public class TacticArenaChildRunner {
         result.put("matches", matches);
         result.put("competitions", competitions);
         result.put("leagueTable", leagueTable);
+        result.put("diamondLeagueId", diamondId);
+        result.put("diamondTable", diamondTable);
         return result;
+    }
+
+    /** LEAGUE (the club's own league), DIAMOND, CUP, CONTINENTAL or OTHER. */
+    private String competitionKind(long competitionId, long leagueId) {
+        if (competitionId == leagueId) return "LEAGUE";
+        Competition c = competitionRepository.findById(competitionId).orElse(null);
+        if (c == null) return "OTHER";
+        if (c.isDiamondLeague()) return "DIAMOND";
+        if (c.isLeague()) return "LEAGUE";
+        if (c.getTypeId() == Competition.LEAGUE_OF_CHAMPIONS || c.getTypeId() == Competition.STARS_CUP) return "CONTINENTAL";
+        return "CUP";
     }
 
     private static Integer parseInt(String value) {

@@ -435,7 +435,12 @@ only, separately for Overall / Home / Away:
   matches per season × 3, from the reference clubs' own league);
 - `GF`, `GA`, `GD`, `xGF`, `xGA`, `xGD` = averages per season, rounded to whole numbers.
 
-The run with the chosen club gets the same figures, shown separately. The leaderboard also
+The run with the chosen club gets the same figures, shown separately. The **Diamond League**
+(the invitational league of the 8 elite clubs, 28 matches each, next to their league and
+cups) never counts in the league figures: a club that plays in it gets its own Diamond League
+block (place, points, W/D/L, goals, xG), and the test averages it over the reference runs
+that have it. A base world generated before the Diamond League existed does not have it:
+rebuild the base world to get it. The leaderboard also
 carries each reference run on its own (`byTier`: top / mid-table / bottom club; `byClub`:
 every club, also for DIAMOND), so the best tactic overall, for a top club, a mid-table club
 or a bottom club can be told apart by sorting.

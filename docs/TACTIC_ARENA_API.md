@@ -74,7 +74,8 @@ Set-piece taker ids may be `null`.
 { "basedOn": 3, "overall": Split, "home": Split, "away": Split }
 ```
 
-Only league matches simulated in the run count (matches already played before the test
+Only the club's **own domestic league** counts (`competitionId == leagueId`): the Diamond
+League is reported apart, in `diamond` (below). Only league matches simulated in the run count (matches already played before the test
 started are excluded). `basedOn` is the number of finished runs it is computed from: 3 for
 a finished test's reference block, 1 for the chosen-club block or a single run.
 
@@ -395,18 +396,26 @@ requested).
   "results": Results,
   "chosen": Results,
   "byTier": {
-    "TOP":    { "teamId": 87,  "teamName": "Inazuma Japan", "results": { "overall": Split, "home": Split, "away": Split } },
+    "TOP":    { "teamId": 87,  "teamName": "Inazuma Japan", "results": { "overall": Split, "home": Split, "away": Split },
+                "diamond": RunDiamond },
     "MID":    { "teamId": 96,  "teamName": "Diamond Dust",  "results": { ... } },
     "BOTTOM": null
   },
   "byClub": [
     { "teamId": 87, "teamName": "Inazuma Japan", "predictedPosition": 1, "leagueSize": 20,
-      "leagueName": "Eleven League", "results": { "overall": Split, "home": Split, "away": Split } }
+      "leagueName": "Eleven League", "results": { "overall": Split, "home": Split, "away": Split },
+      "diamond": RunDiamond }
   ]
 }
 ```
 
 - `category`: `GENERAL` or `DIAMOND` (older tests: `GENERAL`).
+- `diamond`: the **Diamond League** (competition type 7: the 8 elite clubs, each meets each
+  4 times, 28 matches, max 84 points), apart from the league: `{basedOn, overall, home, away}`
+  (`Results` shape) = mean of the reference runs whose club plays in it (GENERAL: usually only
+  the top club; DIAMOND: all 8); `null` when none does. A base world generated before the
+  Diamond League existed has none: rebuild it.
+- `byTier` / `byClub` entries carry `diamond` (`RunDiamond` or `null`) too.
 - `byTier` (GENERAL only): each reference run on its own; a tier is `null` until its run is
   `DONE`. Sort the leaderboard by the result at the top / mid-table / bottom club with it.
 - `byClub` (both categories): every reference run on its own, in the order of the setting;
@@ -472,6 +481,7 @@ requested).
   "kind": "CHOSEN",
   "label": "Chosen club",
   "tier": null,
+  "diamond": null,
   "teamId": 104,
   "teamName": "FC Example",
   "teamReputation": 7200,
@@ -492,6 +502,10 @@ requested).
 ```
 
 Until the test is bound, the three reference runs have `teamId: 0` and `teamName: null`.
+`diamond` (`RunDiamond`): the run's Diamond League, `{overall, home, away, position, of}` —
+`Split`s like the league's plus the final place and the number of clubs — or `null` when the
+club does not play in it.
+
 `label`: the text to show for the run's role: `"Chosen club"`, `"Reference · top club"`,
 `"Reference · mid-table club"`, `"Reference · bottom club"` or `"Diamond League club"`.
 `tier`: `TOP` / `MID` / `BOTTOM` for the GENERAL reference runs (from their position; also for
@@ -537,7 +551,9 @@ from the base world by `teamId` (so finished tests have it too; `null` without p
   `opponentGoals`, `resultOutcome`, `decidedBy`, `winnerTeamId`,
   `penaltyTeam1Score`, `penaltyTeam2Score`, `aggregateTeam1Score`, ... ) plus:
   - `xgFor`, `xgAgainst`: numbers with 2 decimals, `null` when the game has no stats;
-  - `inRun`: always `true` now (no match is played before a run starts).
+  - `inRun`: always `true` now (no match is played before a run starts);
+  - `competitionKind`: `LEAGUE` (the club's own league), `DIAMOND`, `CUP`, `CONTINENTAL` or
+    `OTHER` (the schedule's `competitionType` says `"League"` for the Diamond League too).
 - `competitions`: the club's competitions at season end, each item exactly as
   `GET /competition/getTeamCompetitions/{teamId}` returns it (name, typeId, tier,
   `stageReached`, `status` such as `WINNER` / `RUNNER_UP` / `ELIMINATED`, `statusLabel`,
@@ -548,6 +564,10 @@ from the base world by `teamId` (so finished tests have it too; `null` without p
   league as `WINNER` / `Final`); show `position` and `points` instead.
 - `leagueTable`: the final table of the club's league, same items as
   `GET /competition/getTeams/{competitionId}`.
+- `diamondLeagueId`, `diamondTable`: the Diamond League's id and final table (same items), or
+  `null` when the club does not play in it. In `competitions` its entry has `kind: "DIAMOND"`,
+  `diamond: true`, `position`, `points`, `of` and `games`, `wins`, `draws`, `loses`,
+  `goalsFor`, `goalsAgainst`; every other entry has `kind` `LEAGUE` / `CUP` and `diamond: false`.
 
 ### `POST /tactic-arena/tests/{id}/cancel`
 

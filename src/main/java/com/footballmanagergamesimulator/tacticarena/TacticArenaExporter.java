@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -173,7 +174,11 @@ public class TacticArenaExporter {
             run.setStartedAt(instant(r, "startedAt"));
             run.setFinishedAt(instant(r, "finishedAt"));
             JsonNode result = r.path("result");
-            if (result.isObject()) run.setTotalsJson(objectMapper.writeValueAsString(service.totals(result)));
+            if (result.isObject()) {
+                run.setTotalsJson(objectMapper.writeValueAsString(service.totals(result)));
+                Map<String, Object> diamond = service.diamondTotals(result);
+                run.setDiamondJson(diamond == null ? null : objectMapper.writeValueAsString(diamond));
+            }
             run = runRepository.save(run);
             if (result.isObject()) {
                 TacticArenaRunResult stored = new TacticArenaRunResult();

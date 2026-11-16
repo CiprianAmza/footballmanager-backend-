@@ -36,4 +36,8 @@ public class TacticArenaRun {
     /** League totals of the run ({@link TacticArenaStats.RunTotals} as JSON), once DONE. */
     @Column(length = 4000)
     private String totalsJson;
+
+    /** Diamond League totals of the run ({totals, position, of} as JSON), when its club plays in it. */
+    @Column(length = 4000)
+    private String diamondJson;
 }
