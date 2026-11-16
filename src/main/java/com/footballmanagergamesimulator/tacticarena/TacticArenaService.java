@@ -74,6 +74,8 @@ public class TacticArenaService {
     private ScheduledExecutorService scheduler;
     /** The test whose PREPARING step started the current/last base-world build. */
     private volatile Long buildRequestedBy;
+    /** Tests created after this (by requests that arrive while startup finishes) are not left over from before. */
+    private final Instant constructedAt = Instant.now();
 
     // ================================================================ lifecycle
 
@@ -87,6 +89,7 @@ public class TacticArenaService {
         try {
             for (TacticArenaTest test : testRepository.findAll()) {
                 if (terminal(test.getStatus())) continue;
+                if (test.getCreatedAt() != null && test.getCreatedAt().isAfter(constructedAt)) continue;
                 for (TacticArenaRun run : runRepository.findAllByTestIdOrderByRunIndexAsc(test.getId())) {
                     if (terminal(run.getStatus())) continue;
                     run.setStatus(FAILED);

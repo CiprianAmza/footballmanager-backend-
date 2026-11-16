@@ -1078,6 +1078,13 @@ public class TacticController {
      * player is preferred when ratings are close. Per position the best apt players fill the
      * required slots; remaining slots are filled by the best apt leftovers (out of position).
      */
+    /** The format's name for a pitch slot: the fine position (e.g. AMC, DM) when the format uses it, else the base one. */
+    private String slotPositionFor(int positionIndex, Map<String, Integer> tacticFormat) {
+        String fine = tacticService.getPositionFromIndex(positionIndex);
+        if (tacticFormat.containsKey(fine)) return fine;
+        return TacticService.getBasePosition(fine);
+    }
+
     private List<StarterSlot> selectStarterSlots(Team team, Map<String, Integer> tacticFormat, String formation) {
 
         Set<Long> unavailableIds = safeUnavailableIds(team.getId());
@@ -1090,7 +1097,10 @@ public class TacticController {
                 legacyLocksUnlessCanonicalMandate(team.getId()), unavailableIds)) {
             Human locked = humanRepository.findById(lock.playerId()).orElse(null);
             if (locked == null || lockedPlayerIds.contains(locked.getId())) continue;
-            String slotPos = TacticService.getBasePosition(tacticService.getPositionFromIndex(lock.positionIndex()));
+            // Count the lock under the formation's own position name: the formats use fine positions
+            // (DM, AMC, ...), so collapsing a locked AMC/DM slot to MC left that position "unfilled"
+            // and the selector added extra starters (13 for Inazuma Japan's 31411 mandate).
+            String slotPos = slotPositionFor(lock.positionIndex(), tacticFormat);
             slots.add(new StarterSlot(adaptPlayer(locked, team), slotPos));
             lockedPlayerIds.add(locked.getId());
             lockedCountByPos.merge(slotPos, 1, Integer::sum);
@@ -1126,7 +1136,8 @@ public class TacticController {
                     .sorted((x, y) -> Double.compare(aptness(y), aptness(x)))
                     .toList();
 
-            int taken = Math.min(needed, playersForThisPosition.size());
+            // Never more than eleven starters, whatever the locks were.
+            int taken = Math.min(Math.min(needed, playersForThisPosition.size()), Math.max(0, available));
             for (int i = 0; i < taken; i++) {
                 slots.add(new StarterSlot(playersForThisPosition.get(i), position));
                 available -= 1;
