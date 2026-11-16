@@ -51,6 +51,11 @@ public class TacticArenaController {
         return service.baselineStatus();
     }
 
+    @PostMapping("/baseline/refresh")
+    public Map<String, Object> refreshBaseline() {
+        return service.refreshBaseline();
+    }
+
     @PostMapping("/baseline/rebuild")
     public Map<String, Object> rebuildBaseline() {
         return service.rebuildBaseline();

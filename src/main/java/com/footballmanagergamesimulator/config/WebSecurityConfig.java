@@ -33,6 +33,10 @@ public class WebSecurityConfig {
     /** Tactic Arena is public: it never touches a career, so it needs no account (nor a CSRF token). */
     private static final String TACTIC_ARENA_PATHS = "/tactic-arena/**";
 
+    /** Folder of the simulator build of the interface; when set, its page and static files are public. */
+    @Value("${tactic-arena.ui-dir:}")
+    private String tacticArenaUiDir;
+
     /** Phase Lab endpoints (scenario preview + rating). Dev tool; enabled by
      *  default in this test project, disable with phaselab.enabled=false. */
     private static final String PHASE_LAB_PATHS = "/api/dev/phaselab/**";
@@ -183,6 +187,10 @@ public class WebSecurityConfig {
                     if (faceLabEnabled) requests.requestMatchers(FACE_LAB_PATHS).permitAll();
                     if (phaseLabEnabled) requests.requestMatchers(PHASE_LAB_PATHS).permitAll();
                     requests.requestMatchers(TACTIC_ARENA_PATHS).permitAll();
+                    if (tacticArenaUiDir != null && !tacticArenaUiDir.isBlank()) {
+                        requests.requestMatchers(HttpMethod.GET,
+                                com.footballmanagergamesimulator.tacticarena.TacticArenaUi.PUBLIC_PATHS).permitAll();
+                    }
                     requests.requestMatchers("/admin/login").permitAll();
                     requests.requestMatchers("/admin/**").hasRole("ADMIN");
                     requests.anyRequest().authenticated();

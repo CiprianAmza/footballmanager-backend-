@@ -53,6 +53,8 @@ public class TacticArenaBaselineBuilder {
 
     @Value("${tactic-arena.child.baseline-dir}") private String outDir;
     @Value("${tactic-arena.child.parent-pid:0}") private long parentPid;
+    /** Refresh only {@code clubs.json} of an existing base world (this database is a copy of it). */
+    @Value("${tactic-arena.child.refresh:false}") private boolean refreshOnly;
 
     @Autowired private ObjectMapper objectMapper;
     @Autowired private CalendarService calendarService;
@@ -95,6 +97,12 @@ public class TacticArenaBaselineBuilder {
     }
 
     void build(Path dir) throws Exception {
+        if (refreshOnly) {
+            Files.createDirectories(dir);
+            progress(dir, "CLUBS", 0, 0);
+            Files.write(dir.resolve("clubs.json"), objectMapper.writeValueAsBytes(world.clubs()));
+            return;
+        }
         Files.createDirectories(dir.resolve("setup"));
         progress(dir, "CAREER", 0, 0);
 

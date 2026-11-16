@@ -55,6 +55,7 @@ public class TacticArenaService {
     @Autowired private TacticArenaGitPublisher gitPublisher;
     @Autowired private TacticArenaBaseline baseline;
     @Autowired private TacticArenaProcesses childProcesses;
+    @Autowired private TacticArenaCapture capture;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TacticService tacticService;
 
@@ -62,6 +63,8 @@ public class TacticArenaService {
     @Value("${tactic-arena.child.run-dir:}") private String childRunDir;
     @Value("${tactic-arena.child.baseline-dir:}") private String childBaselineDir;
     @Value("${match2d.mode:off}") private String match2dMode;
+    /** Fixed reference clubs (names in the base world), the same for every test; empty = by reputation. */
+    @Value("${tactic-arena.reference-teams:Inazuma Japan, Zeus, Desert Lion}") private String referenceTeamsSetting;
 
     private final Object lock = new Object();
     private final Map<Long, Process> processes = new ConcurrentHashMap<>();
@@ -95,6 +98,11 @@ public class TacticArenaService {
                 deleteQuietly(testWorkDir(test.getId()));
             }
             baseline.cleanupAfterRestart();
+            if (baseline.ready()) {
+                for (String name : referenceTeamNames()) {
+                    if (findTeam(name) == null) log.warn("[tactic-arena] reference club '{}' (tactic-arena.reference-teams) is not in the base world", name);
+                }
+            }
             exporter.importMissing();
         } catch (Exception e) {
             log.warn("[tactic-arena] startup recovery failed: {}", e.toString());
@@ -159,7 +167,22 @@ public class TacticArenaService {
         if (!baseline.ready()) throw baselineMissing();
         JsonNode setup = baseline.setup(teamId);
         if (setup == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No such club in the base world");
+        if (setup.path("team") instanceof com.fasterxml.jackson.databind.node.ObjectNode team) {
+            Integer[] p = baseline.predictions().get(teamId);
+            team.put("predictedPosition", p == null ? null : p[0]);
+            team.put("leagueSize", p == null ? null : p[1]);
+        }
         return setup;
+    }
+
+    public Map<String, Object> refreshBaseline() {
+        if (childMode()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Not available in a simulation process");
+        try {
+            baseline.startRefresh();
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
+        }
+        return baseline.toJson();
     }
 
     // ================================================================ create
@@ -209,13 +232,14 @@ public class TacticArenaService {
         if (childMode()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Not available in a simulation process");
         String name = request.name() == null ? "" : request.name().trim();
         if (name.isEmpty() || name.length() > 80) throw bad("The test name must have 1 to 80 characters");
-        if (request.teamId() == null) throw bad("teamId is required");
         PersonalizedTacticView tactic = request.tactic();
         if (tactic == null) throw bad("tactic is required");
         validateFormation(tactic);
         boolean auto = Boolean.TRUE.equals(request.autoEleven());
+        if (request.teamId() == null && !auto) throw bad("teamId is required (it may be left out only with autoEleven: true)");
         if (auto) tactic = normalizeAuto(tactic);
-        tactic.setTeamId(request.teamId());
+        long chosenTeam = request.teamId() == null ? 0 : request.teamId();
+        tactic.setTeamId(chosenTeam);
 
         synchronized (lock) {
             TacticArenaTest test = new TacticArenaTest();
@@ -223,7 +247,7 @@ public class TacticArenaService {
             test.setName(name);
             test.setOwner(owner);
             test.setFormation(tactic.getTactic());
-            test.setTeamId(request.teamId());
+            test.setTeamId(chosenTeam);
             test.setSeason(1);
             test.setEngine("off".equalsIgnoreCase(match2dMode.trim()) ? "classic" : "2d-human");
             test.setStatus(QUEUED);
@@ -233,14 +257,15 @@ public class TacticArenaService {
 
             List<TacticArenaRun> runs = new ArrayList<>();
             String[] kinds = {KIND_CHOSEN, KIND_TOP, KIND_MEDIAN, KIND_BOTTOM};
-            for (int i = 0; i < 4; i++) {
+            // A general-only test (no club chosen) has just the three reference runs.
+            for (int i = chosenTeam > 0 ? 0 : 1; i < 4; i++) {
                 TacticArenaRun run = new TacticArenaRun();
                 run.setRunIndex(i);
                 run.setKind(kinds[i]);
                 run.setStatus(QUEUED);
                 runs.add(run);
             }
-            runs.get(0).setTeamId(request.teamId());
+            if (chosenTeam > 0) runs.get(0).setTeamId(chosenTeam);
             // With a base world the test is bound (and validated) now; otherwise when the
             // base world it starts with is ready.
             if (baseline.ready()) bind(test, runs);
@@ -256,44 +281,104 @@ public class TacticArenaService {
     /** Fill club, league, season span and reference clubs from the base world; validate the eleven. */
     private void bind(TacticArenaTest test, List<TacticArenaRun> runs) {
         JsonNode meta = baseline.meta();
-        JsonNode league = baseline.leagueOf(test.getTeamId());
-        JsonNode setup = baseline.setup(test.getTeamId());
-        if (meta == null || league == null || setup == null) throw bad("Club " + test.getTeamId() + " is not in the base world");
-        PersonalizedTacticView tactic;
-        try {
-            tactic = objectMapper.readValue(test.getTacticJson(), PersonalizedTacticView.class);
-        } catch (Exception e) {
-            throw bad("Unreadable tactic");
+        if (meta == null) throw bad("There is no base world");
+        boolean hasChosen = test.getTeamId() > 0;
+        JsonNode chosen = null;
+        List<JsonNode> chosenLeagueTeams = new ArrayList<>();
+        if (hasChosen) {
+            JsonNode league = baseline.leagueOf(test.getTeamId());
+            JsonNode setup = baseline.setup(test.getTeamId());
+            if (league == null || setup == null) throw bad("Club " + test.getTeamId() + " is not in the base world");
+            PersonalizedTacticView tactic;
+            try {
+                tactic = objectMapper.readValue(test.getTacticJson(), PersonalizedTacticView.class);
+            } catch (Exception e) {
+                throw bad("Unreadable tactic");
+            }
+            Set<Long> squad = new HashSet<>();
+            for (JsonNode p : setup.path("players")) {
+                if (!p.path("isRetired").asBoolean(false)) squad.add(p.path("id").asLong());
+            }
+            if (!Boolean.TRUE.equals(test.getAutoEleven())) validateLineup(tactic, squad);
+            test.setTeamName(setup.path("team").path("name").asText());
+            test.setLeagueId(league.path("competitionId").asLong());
+            test.setLeagueName(league.path("name").asText());
+            league.path("teams").forEach(chosenLeagueTeams::add); // highest reputation first
+            chosen = chosenLeagueTeams.stream().filter(t -> t.path("teamId").asLong() == test.getTeamId()).findFirst().orElseThrow();
         }
-        Set<Long> squad = new HashSet<>();
-        for (JsonNode p : setup.path("players")) {
-            if (!p.path("isRetired").asBoolean(false)) squad.add(p.path("id").asLong());
+
+        List<JsonNode> references = fixedReferenceTeams();
+        if (references == null) {
+            if (!hasChosen) throw bad("Without a chosen club the reference clubs must be fixed (tactic-arena.reference-teams)");
+            List<JsonNode> teams = chosenLeagueTeams;
+            references = List.of(teams.get(0), teams.get((teams.size() - 1) / 2), teams.get(teams.size() - 1));
         }
-        if (!Boolean.TRUE.equals(test.getAutoEleven())) validateLineup(tactic, squad);
 
         test.setBaselineUid(meta.path("uid").asText());
-        test.setTeamName(setup.path("team").path("name").asText());
-        test.setLeagueId(league.path("competitionId").asLong());
-        test.setLeagueName(league.path("name").asText());
         test.setSeason(meta.path("season").asInt(1));
         test.setStartDay(meta.path("startDay").asInt(1));
         test.setEndDay(meta.path("endDay").asInt());
-        test.setLeagueMatchesTotal(baseline.leagueMatches(test.getTeamId()));
+        long leagueTeam = hasChosen ? test.getTeamId() : references.get(0).path("teamId").asLong();
+        test.setLeagueMatchesTotal(baseline.leagueMatches(leagueTeam));
         test.setLeagueMatchesRemaining(test.getLeagueMatchesTotal());
 
-        List<JsonNode> teams = new ArrayList<>();
-        league.path("teams").forEach(teams::add); // highest reputation first
-        JsonNode chosen = teams.stream().filter(t -> t.path("teamId").asLong() == test.getTeamId()).findFirst().orElseThrow();
-        JsonNode[] clubs = {chosen, teams.get(0), teams.get((teams.size() - 1) / 2), teams.get(teams.size() - 1)};
         int totalDays = test.getEndDay() - test.getStartDay() + 1;
-        for (int i = 0; i < 4; i++) {
-            TacticArenaRun run = runs.get(i);
-            run.setTeamId(clubs[i].path("teamId").asLong());
-            run.setTeamName(clubs[i].path("name").asText());
-            run.setTeamReputation(clubs[i].path("reputation").asInt());
+        for (TacticArenaRun run : runs) {
+            JsonNode club = run.getRunIndex() == 0 ? chosen : references.get(run.getRunIndex() - 1);
+            run.setTeamId(club.path("teamId").asLong());
+            run.setTeamName(club.path("name").asText());
+            run.setTeamReputation(club.path("reputation").asInt());
             run.setTotalDays(totalDays);
             run.setCurrentDay(test.getStartDay());
         }
+    }
+
+    private List<String> referenceTeamNames() {
+        if (referenceTeamsSetting == null || referenceTeamsSetting.isBlank()) return List.of();
+        return Arrays.stream(referenceTeamsSetting.split(",")).map(String::trim).filter(n -> !n.isEmpty()).toList();
+    }
+
+    /** The fixed reference clubs from the base world, in the configured order; null when not fixed. 400 on an unknown name. */
+    private List<JsonNode> fixedReferenceTeams() {
+        List<String> names = referenceTeamNames();
+        if (names.isEmpty()) return null;
+        if (names.size() != 3) throw bad("tactic-arena.reference-teams must name exactly 3 clubs (has " + names.size() + ")");
+        List<JsonNode> found = new ArrayList<>();
+        for (String name : names) {
+            JsonNode team = findTeam(name);
+            if (team == null) throw bad("Reference club '" + name + "' (tactic-arena.reference-teams) is not in the base world");
+            found.add(team);
+        }
+        return found;
+    }
+
+    private JsonNode findTeam(String name) {
+        for (JsonNode league : baseline.clubs().path("leagues")) {
+            for (JsonNode team : league.path("teams")) {
+                if (name.equalsIgnoreCase(team.path("name").asText().trim())) return team;
+            }
+        }
+        return null;
+    }
+
+    /** The reference clubs in force, for the pages: [{name, teamId, reputation, predictedPosition, leagueSize}]; null when not fixed. */
+    private List<Map<String, Object>> referenceTeamsJson() {
+        List<String> names = referenceTeamNames();
+        if (names.isEmpty()) return null;
+        List<Map<String, Object>> rows = new ArrayList<>();
+        boolean ready = baseline.ready();
+        for (String name : names) {
+            JsonNode team = ready ? findTeam(name) : null;
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", team == null ? name : team.path("name").asText());
+            row.put("teamId", team == null ? null : team.path("teamId").asLong());
+            row.put("reputation", team == null ? null : team.path("reputation").asInt());
+            Integer[] p = team == null ? null : baseline.predictions().get(team.path("teamId").asLong());
+            row.put("predictedPosition", p == null ? null : p[0]);
+            row.put("leagueSize", p == null ? null : p[1]);
+            rows.add(row);
+        }
+        return rows;
     }
 
     private void validateFormation(PersonalizedTacticView tactic) {
@@ -538,6 +623,7 @@ public class TacticArenaService {
             } catch (Exception e) {
                 log.warn("[tactic-arena] export of test {} failed: {}", test.getId(), e.toString());
             }
+            capture.request(test.getId());
         }
     }
 
@@ -660,6 +746,7 @@ public class TacticArenaService {
         body.put("matchesPlayed", matches);
         body.put("gitPush", gitPublisher.toJson());
         body.put("baseline", baseline.toJson());
+        body.put("referenceTeams", referenceTeamsJson());
         body.put("tests", rows);
         return body;
     }
@@ -676,7 +763,10 @@ public class TacticArenaService {
         body.put("leagueMatchesTotal", test.getLeagueMatchesTotal());
         body.put("leagueMatchesRemaining", test.getLeagueMatchesRemaining());
         body.put("baselineUid", test.getBaselineUid());
-        if (!forExport) body.put("gitPush", gitPublisher.toJson());
+        if (!forExport) {
+            body.put("gitPush", gitPublisher.toJson());
+            body.put("capture", capture.toJson(test.getId()));
+        }
         Map<Long, List<String>> images = new HashMap<>();
         for (Object[] row : imageRepository.kindsForTest(test.getId())) {
             images.computeIfAbsent((Long) row[0], k -> new ArrayList<>()).add((String) row[1]);
@@ -704,10 +794,14 @@ public class TacticArenaService {
         row.put("name", test.getName());
         row.put("formation", test.getFormation());
         row.put("owner", test.getOwner());
-        row.put("teamId", test.getTeamId());
-        row.put("teamName", test.getTeamName());
-        row.put("leagueId", test.getLeagueId());
-        row.put("leagueName", test.getLeagueName());
+        boolean general = test.getTeamId() <= 0;
+        row.put("teamId", general ? null : test.getTeamId());
+        row.put("teamName", general ? null : test.getTeamName());
+        row.put("leagueId", general ? null : test.getLeagueId());
+        row.put("leagueName", general ? null : test.getLeagueName());
+        Integer[] chosenPrediction = general ? null : baseline.predictions().get(test.getTeamId());
+        row.put("predictedPosition", chosenPrediction == null ? null : chosenPrediction[0]);
+        row.put("leagueSize", chosenPrediction == null ? null : chosenPrediction[1]);
         row.put("season", test.getSeason());
         row.put("startDay", test.getStartDay());
         row.put("endDay", test.getEndDay());
@@ -737,9 +831,13 @@ public class TacticArenaService {
         r.put("id", run.getId());
         r.put("index", run.getRunIndex());
         r.put("kind", run.getKind());
+        r.put("label", runLabel(run));
         r.put("teamId", run.getTeamId());
         r.put("teamName", run.getTeamName());
         r.put("teamReputation", run.getTeamReputation());
+        Integer[] prediction = run.getTeamId() > 0 ? baseline.predictions().get(run.getTeamId()) : null;
+        r.put("predictedPosition", prediction == null ? null : prediction[0]);
+        r.put("leagueSize", prediction == null ? null : prediction[1]);
         r.put("status", run.getStatus());
         r.put("progress", Math.round(runProgress(run) * 10) / 10.0);
         r.put("currentDay", run.getCurrentDay());
@@ -749,6 +847,17 @@ public class TacticArenaService {
         r.put("startedAt", run.getStartedAt() == null ? null : run.getStartedAt().toString());
         r.put("finishedAt", run.getFinishedAt() == null ? null : run.getFinishedAt().toString());
         return r;
+    }
+
+    /** What the pages show for a run: the chosen club, or "Reference" when the reference clubs are fixed. */
+    private String runLabel(TacticArenaRun run) {
+        if (KIND_CHOSEN.equals(run.getKind())) return "Chosen club";
+        if (!referenceTeamNames().isEmpty()) return "Reference";
+        return switch (run.getKind()) {
+            case KIND_TOP -> "Highest reputation";
+            case KIND_MEDIAN -> "Median reputation";
+            default -> "Lowest reputation";
+        };
     }
 
     private static double runProgress(TacticArenaRun run) {
@@ -829,6 +938,10 @@ public class TacticArenaService {
     }
 
     /** Unpack an H2 backup; returns the database name (file name without {@code .mv.db}). */
+    static String unzipWorld(Path zip, Path target) throws IOException {
+        return unzip(zip, target);
+    }
+
     private static String unzip(Path zip, Path target) throws IOException {
         if (!Files.exists(zip)) throw new IOException("The base world " + zip + " is missing");
         String name = null;

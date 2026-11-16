@@ -73,23 +73,7 @@ public class TacticArenaGitPublisher {
         String message = pendingMessage == null ? "Tactic Arena results" : pendingMessage;
         Instant at = Instant.now();
         try {
-            Path dir = Path.of(exportDir);
-            if (!Files.isDirectory(dir)) throw new IllegalStateException("export folder " + dir + " does not exist");
-            Result inside = git(dir, "rev-parse", "--is-inside-work-tree");
-            if (inside.code != 0) throw new IllegalStateException("export folder is not inside a git working copy");
-            Result remotes = git(dir, "remote");
-            if (remotes.code != 0 || remotes.output.isBlank()) throw new IllegalStateException("the repository has no remote");
-
-            check(git(dir, "add", "-A", "."), "git add");
-            Result staged = git(dir, "diff", "--cached", "--quiet", "--", ".");
-            boolean committed = false;
-            if (staged.code == 1) {
-                check(git(dir, "commit", "-m", message, "--", "."), "git commit");
-                committed = true;
-            } else if (staged.code != 0) {
-                check(staged, "git diff");
-            }
-            push(dir);
+            boolean committed = commitAndPushFolder(Path.of(exportDir), message);
             status = new GitPushStatus(true, at, true, committed ? "Pushed: " + message : "Nothing new to commit; pushed");
             log.info("[tactic-arena] git push ok ({})", message);
         } catch (Exception e) {
@@ -99,17 +83,131 @@ public class TacticArenaGitPublisher {
         }
     }
 
-    /** Push; when another backend pushed first, rebase on it and try again (a few times). */
-    private static void push(Path dir) throws Exception {
+    boolean enabled() {
+        return enabled;
+    }
+
+    /**
+     * True when git-push is on and {@code dir} lies in the same git working copy as the
+     * export folder (then the base world is shared through the results repository).
+     */
+    boolean sharesRepository(Path dir) {
+        if (!enabled) return false;
+        try {
+            return runOnGitThread(() -> {
+                Path probe = Files.isDirectory(dir) ? dir : dir.getParent();
+                if (probe == null || !Files.isDirectory(probe)) return false;
+                Result a = git(probe, "rev-parse", "--show-toplevel");
+                Result b = git(Path.of(exportDir), "rev-parse", "--show-toplevel");
+                return a.code == 0 && b.code == 0 && a.output.trim().equals(b.output.trim());
+            });
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** {@code git pull --rebase --autostash} in the repository of {@code dir}; false (logged) when it fails. */
+    boolean pull(Path dir) {
+        try {
+            return runOnGitThread(() -> {
+                String remote = remote(dir);
+                Result branch = git(dir, "rev-parse", "--abbrev-ref", "HEAD");
+                Result result = branch.code == 0 && !"HEAD".equals(branch.output.trim())
+                        ? git(dir, "pull", "--rebase", "--autostash", remote, branch.output.trim())
+                        : git(dir, "pull", "--rebase", "--autostash");
+                if (result.code != 0) log.warn("[tactic-arena] git pull in {} failed: {}", dir, result.output.trim());
+                return result.code == 0;
+            });
+        } catch (Exception e) {
+            log.warn("[tactic-arena] git pull in {} failed: {}", dir, e.toString());
+            return false;
+        }
+    }
+
+    /** Commit everything under {@code dir} and push, now (waits for the git thread). */
+    void commitAndPushNow(Path dir, String message) {
+        Instant at = Instant.now();
+        try {
+            runOnGitThread(() -> commitAndPushFolder(dir, message));
+            status = new GitPushStatus(true, at, true, "Pushed: " + message);
+            log.info("[tactic-arena] git push ok ({})", message);
+        } catch (Exception e) {
+            String error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            status = new GitPushStatus(true, at, false, error);
+            log.warn("[tactic-arena] git push of {} failed: {}", dir, error);
+        }
+    }
+
+    /** Keep local helper files (the base world's lock and build folders) out of git status. */
+    void excludeLocally(Path dir, List<String> patterns) {
+        try {
+            runOnGitThread(() -> {
+                Result gitDir = git(dir, "rev-parse", "--git-common-dir");
+                if (gitDir.code != 0) return null;
+                Path info = dir.resolve(gitDir.output.trim()).normalize().resolve("info");
+                Files.createDirectories(info);
+                Path exclude = info.resolve("exclude");
+                String current = Files.exists(exclude) ? Files.readString(exclude, StandardCharsets.UTF_8) : "";
+                StringBuilder add = new StringBuilder();
+                for (String pattern : patterns) if (!current.lines().anyMatch(pattern::equals)) add.append(pattern).append('\n');
+                if (add.length() > 0) {
+                    String base = current.isEmpty() || current.endsWith("\n") ? current : current + "\n";
+                    Files.writeString(exclude, base + add, StandardCharsets.UTF_8);
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            log.warn("[tactic-arena] could not update .git/info/exclude: {}", e.toString());
+        }
+    }
+
+    private <T> T runOnGitThread(java.util.concurrent.Callable<T> task) throws Exception {
+        try {
+            return executor.submit(task).get(10, TimeUnit.MINUTES);
+        } catch (java.util.concurrent.ExecutionException e) {
+            if (e.getCause() instanceof Exception cause) throw cause;
+            throw e;
+        }
+    }
+
+    /** add + commit (only when something changed) + push of one folder; true when a commit was made. */
+    private static boolean commitAndPushFolder(Path dir, String message) throws Exception {
+        if (!Files.isDirectory(dir)) throw new IllegalStateException("folder " + dir + " does not exist");
+        Result inside = git(dir, "rev-parse", "--is-inside-work-tree");
+        if (inside.code != 0) throw new IllegalStateException("folder is not inside a git working copy");
+        String remote = remote(dir);
+        check(git(dir, "add", "-A", "."), "git add");
+        Result staged = git(dir, "diff", "--cached", "--quiet", "--", ".");
+        boolean committed = false;
+        if (staged.code == 1) {
+            check(git(dir, "commit", "-m", message, "--", "."), "git commit");
+            committed = true;
+        } else if (staged.code != 0) {
+            check(staged, "git diff");
+        }
+        push(dir, remote);
+        return committed;
+    }
+
+    private static String remote(Path dir) throws Exception {
+        Result remotes = git(dir, "remote");
+        if (remotes.code != 0 || remotes.output.isBlank()) throw new IllegalStateException("the repository has no remote");
+        List<String> names = remotes.output.lines().map(String::trim).filter(l -> !l.isEmpty()).toList();
+        return names.contains("origin") ? "origin" : names.get(0);
+    }
+
+    /** Push HEAD; when another backend pushed first, rebase on it and try again (a few times). */
+    private static void push(Path dir, String remote) throws Exception {
         Result result = null;
         for (int attempt = 1; attempt <= 3; attempt++) {
-            result = git(dir, "push");
+            result = git(dir, "push", "-u", remote, "HEAD");
             if (result.code == 0) return;
             String out = result.output.toLowerCase();
             boolean behind = out.contains("non-fast-forward") || out.contains("fetch first")
                     || out.contains("rejected") || out.contains("updates were rejected");
             if (!behind) break;
-            check(git(dir, "pull", "--rebase", "--autostash"), "git pull --rebase");
+            Result branch = git(dir, "rev-parse", "--abbrev-ref", "HEAD");
+            check(git(dir, "pull", "--rebase", "--autostash", remote, branch.output.trim()), "git pull --rebase");
         }
         check(result, "git push");
     }

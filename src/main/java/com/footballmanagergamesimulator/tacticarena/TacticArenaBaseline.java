@@ -14,6 +14,7 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -43,10 +44,15 @@ public class TacticArenaBaseline {
 
     @Autowired private TacticArenaProcesses processes;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private TacticArenaGitPublisher git;
 
     @Value("${tactic-arena.baseline-dir:}") private String baselineDirSetting;
 
     private Process build;
+    /** The running child only refreshes {@code clubs.json} of the current world. */
+    private boolean refreshing;
+    private Map<Long, Integer[]> predictions;
+    private long predictionsModified = -1;
     private Instant buildStartedAt;
     private String lastError;
     private Instant lastErrorAt;
@@ -144,8 +150,9 @@ public class TacticArenaBaseline {
                 if (!name.startsWith(prefix)) continue;
                 try {
                     long pid = Long.parseLong(name.substring(prefix.length()));
-                    boolean alive = pid != ProcessHandle.current().pid()
-                            && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
+                    boolean own = pid == ProcessHandle.current().pid();
+                    // our own folder is in use when a generation/refresh was started before this ran
+                    boolean alive = own ? build != null : ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
                     if (!alive) TacticArenaService.deleteQuietly(p);
                 } catch (NumberFormatException ignored) {
                     // not ours
@@ -157,7 +164,8 @@ public class TacticArenaBaseline {
     }
 
     synchronized boolean ready() {
-        return build == null && meta() != null;
+        // a refresh only rewrites clubs.json: the world stays usable meanwhile
+        return (build == null || refreshing) && meta() != null;
     }
 
     /** True while this or another backend generates the base world. */
@@ -166,6 +174,7 @@ public class TacticArenaBaseline {
     }
 
     synchronized String status() {
+        if (refreshing && meta() != null) return READY;
         if (building()) return BUILDING;
         if (meta() != null) return READY;
         return lastError != null ? FAILED : MISSING;
@@ -199,11 +208,25 @@ public class TacticArenaBaseline {
         return m == null ? null : m.path("uid").asText(null);
     }
 
-    /** Start generating a new base world, unless another backend already does. */
+    /** With git-push on and the base world inside the results repository, it is shared through git. */
+    private boolean sharedThroughGit() {
+        return git.enabled() && git.sharesRepository(dir());
+    }
+
+    /** Start generating a new base world, unless another backend already does (or git has one). */
     synchronized void startBuild() {
         if (build != null) return;
         Path work = buildDir();
         try {
+            if (sharedThroughGit()) {
+                String name = dir().getFileName().toString();
+                git.excludeLocally(dir().getParent(), List.of(name + ".lock", name + ".build-*"));
+                git.pull(dir().getParent());
+                if (meta() != null) {
+                    log.info("[tactic-arena] base world taken from the results repository");
+                    return;
+                }
+            }
             if (!acquireLock()) return; // someone else generates it; we wait for meta.json
             TacticArenaService.deleteQuietly(work);
             Path db = work.resolve("db");
@@ -225,6 +248,62 @@ public class TacticArenaBaseline {
         }
     }
 
+    /**
+     * Recompute {@code clubs.json} (with the press predictions) of the existing world, without
+     * changing the world or its uid: a child process on an unpacked copy of {@code world.zip}.
+     */
+    synchronized void startRefresh() {
+        if (building()) throw new IllegalStateException("The base world is being generated or refreshed");
+        if (meta() == null) throw new IllegalStateException("There is no base world to refresh");
+        Path work = buildDir();
+        try {
+            if (!acquireLock()) throw new IllegalStateException("Another backend works on the base world");
+            TacticArenaService.deleteQuietly(work);
+            Path db = work.resolve("db");
+            Path out = work.resolve("out");
+            Files.createDirectories(db);
+            Files.createDirectories(out);
+            String dbName = TacticArenaService.unzipWorld(worldZip(), db);
+            build = processes.start(work, db, dbName, Map.of(
+                    "tactic-arena.child.baseline-dir", out.toAbsolutePath().toString(),
+                    "tactic-arena.child.refresh", "true",
+                    "match2d.mode", "off"));
+            refreshing = true;
+            buildStartedAt = Instant.now();
+            lastError = null;
+            log.info("[tactic-arena] refreshing clubs.json of the base world, pid {}", build.pid());
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            build = null;
+            releaseLock();
+            throw new IllegalStateException("Could not start the refresh: " + e.getMessage(), e);
+        }
+    }
+
+    /** {teamId -> {predictedPosition, leagueSize}} from {@code clubs.json}; empty when it has none. */
+    synchronized Map<Long, Integer[]> predictions() {
+        Path file = dir().resolve("clubs.json");
+        try {
+            if (!Files.exists(file)) return Map.of();
+            long modified = Files.getLastModifiedTime(file).toMillis();
+            if (predictions == null || modified != predictionsModified) {
+                Map<Long, Integer[]> map = new java.util.HashMap<>();
+                for (JsonNode league : objectMapper.readTree(file.toFile()).path("leagues")) {
+                    for (JsonNode team : league.path("teams")) {
+                        JsonNode p = team.path("predictedPosition");
+                        if (p.isInt()) map.put(team.path("teamId").asLong(), new Integer[]{p.asInt(), team.path("leagueSize").asInt()});
+                    }
+                }
+                predictions = map;
+                predictionsModified = modified;
+            }
+            return predictions;
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
     /** Delete the current base world and generate a new one. */
     synchronized void rebuild() {
         if (building()) return;
@@ -240,15 +319,39 @@ public class TacticArenaBaseline {
         build = null;
         Path work = buildDir();
         Path out = work.resolve("out");
+        if (refreshing) {
+            refreshing = false;
+            try {
+                if (exit == 0 && Files.exists(out.resolve("clubs.json"))) {
+                    Files.copy(out.resolve("clubs.json"), dir().resolve("clubs.json"), StandardCopyOption.REPLACE_EXISTING);
+                    log.info("[tactic-arena] clubs.json of the base world refreshed ({} s)",
+                            Duration.between(buildStartedAt, Instant.now()).toSeconds());
+                    if (sharedThroughGit()) git.commitAndPushNow(dir(), "Base world " + uid() + ": league predictions");
+                } else {
+                    lastError = "Refresh failed (exit code " + exit + ")";
+                    lastErrorAt = Instant.now();
+                    log.warn("[tactic-arena] {}", lastError);
+                }
+            } catch (Exception e) {
+                lastError = "Could not keep the refreshed clubs.json: " + e.getMessage();
+                lastErrorAt = Instant.now();
+            } finally {
+                TacticArenaService.deleteQuietly(work);
+                releaseLock();
+            }
+            return;
+        }
         try {
             if (exit == 0 && Files.exists(out.resolve("meta.json")) && Files.exists(out.resolve("world.zip"))) {
                 try {
                     meta = null;
+                    Files.deleteIfExists(out.resolve("progress.json")); // build-time only, not part of the world
                     TacticArenaService.deleteQuietly(dir());
                     Files.move(out, dir(), StandardCopyOption.ATOMIC_MOVE);
                     TacticArenaService.deleteQuietly(work);
                     log.info("[tactic-arena] base world ready in {} ({} s)", dir(),
                             Duration.between(buildStartedAt, Instant.now()).toSeconds());
+                    if (sharedThroughGit()) git.commitAndPushNow(dir(), "Base world " + uid());
                     return;
                 } catch (Exception e) {
                     lastError = "Could not keep the new base world: " + e.getMessage();
@@ -305,7 +408,7 @@ public class TacticArenaBaseline {
 
     synchronized Map<String, Object> toJson() {
         Map<String, Object> body = new LinkedHashMap<>();
-        JsonNode m = build == null ? meta() : null;
+        JsonNode m = build == null || refreshing ? meta() : null;
         LockInfo other = build == null ? otherBuilder() : null;
         body.put("status", status());
         body.put("progress", Math.round(progress() * 10) / 10.0);
@@ -318,7 +421,9 @@ public class TacticArenaBaseline {
         body.put("clubs", m == null ? null : m.path("clubs").asInt());
         body.put("buildStartedAt", build != null ? buildStartedAt.toString() : other != null ? other.startedAt().toString() : null);
         body.put("builtByOtherInstance", other != null);
-        body.put("message", other != null ? "Being generated by another backend (pid " + other.pid() + ")" : lastError);
+        body.put("refreshing", refreshing);
+        body.put("message", other != null ? "Being generated by another backend (pid " + other.pid() + ")"
+                : refreshing ? "Refreshing clubs.json (league predictions)" : lastError);
         return body;
     }
 

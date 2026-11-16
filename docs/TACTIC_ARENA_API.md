@@ -102,9 +102,13 @@ summary (e.g. `"Pushed: Tactic test 7: Gegenpress"` or `"Nothing to commit"`).
   "clubs": 182,
   "buildStartedAt": null,
   "builtByOtherInstance": false,
+  "refreshing": false,
   "message": null
 }
 ```
+
+- `refreshing`: `clubs.json` is being recomputed (`POST /tactic-arena/baseline/refresh`); the
+  world stays `READY` and usable meanwhile.
 
 - `status`: `READY`, `BUILDING` (this or another backend sharing the folder generates it),
   `MISSING` (never generated, or deleted), `FAILED` (the last generation failed; `message`
@@ -119,6 +123,15 @@ summary (e.g. `"Pushed: Tactic test 7: Gegenpress"` or `"Nothing to commit"`).
 ### `GET /tactic-arena/baseline`
 
 `BaselineStatus`.
+
+### `POST /tactic-arena/baseline/refresh`
+
+Recomputes only `clubs.json` of the existing base world (today: the press predictions,
+`predictedPosition` / `leagueSize`), in a child process on an unpacked copy of
+`world.zip`. The world, its uid and the tests bound to it do not change. About 20 seconds.
+`409` while the base world is missing or being generated. Response `200`: `BaselineStatus`
+(`refreshing: true`). With git-push on and the base world inside the results repository,
+the new `clubs.json` is committed and pushed.
 
 ### `POST /tactic-arena/baseline/rebuild`
 
@@ -149,14 +162,18 @@ Every club of the base world, grouped by league, best league first (tier, then r
       "tier": 1,
       "teams": [
         { "teamId": 104, "name": "FC Example", "reputation": 7200,
-          "color1": "#c00000", "color2": "#ffffff" }
+          "color1": "#c00000", "color2": "#ffffff",
+          "predictedPosition": 6, "leagueSize": 12 }
       ]
     }
   ]
 }
 ```
 
-Teams are sorted by reputation, highest first.
+Teams are sorted by reputation, highest first. `predictedPosition` / `leagueSize`: the
+press's predicted league finish (the game's media prediction, `LeaguePredictionService`),
+shown as "6/12"; `null` when the base world has no predictions yet (see
+`POST /tactic-arena/baseline/refresh`).
 
 ### `GET /tactic-arena/clubs/{teamId}/setup`
 
@@ -167,7 +184,8 @@ day 1), in the shapes it already reads:
 {
   "team": { "teamId": 104, "name": "FC Example", "competitionId": 16,
             "competitionName": "Liga 1", "reputation": 7200,
-            "color1": "#c00000", "color2": "#ffffff" },
+            "color1": "#c00000", "color2": "#ffffff",
+            "predictedPosition": 6, "leagueSize": 12 },
   "players": [ PlayerView ],
   "formationCatalog": [ { "tacticName": "442", "totalRating": 0 } ],
   "savedTactic": PersonalizedTacticView,
@@ -266,6 +284,24 @@ Formation keys (`tactic.tactic`): `442`, `433`, `343`, `451`, `352`, `4231`, `41
 | `transition` | `Balanced`, `Win Fouls`, `Fast Counter` |
 | `recovery` | `Standard`, `Slow`, `Very Fast`, `Instantly` |
 
+**Two parts of a test.** The *general* part plays the tactic on the three fixed reference
+clubs (`tactic-arena.reference-teams`, default `Inazuma Japan, Zeus, Desert Lion`, in that
+order, whatever the chosen club's league): the averages and the leaderboard come from it,
+so all tests compare on the same clubs. The *custom* part is the run with the club the user
+chose (`CHOSEN`), shown separately. A reference name that is not in the base world is a
+`400` at launch. With the setting empty the reference clubs are, as before, the highest /
+median / lowest reputation of the chosen club's league.
+
+**General-only test**: with `autoEleven: true`, `teamId` may be left out; the test then has
+only the three reference runs:
+
+```json
+{ "name": "Base 433", "autoEleven": true, "owner": "mass-script",
+  "tactic": { "tactic": "433", "pressing": "Aggressive" } }
+```
+
+Without `autoEleven`, `teamId` is required (the eleven belongs to a club).
+
 `tactic.teamId` is ignored (the body's `teamId` wins). `owner` is optional: the owner is the
 signed-in user when the request has a session, else `owner` (cut to 40 characters), else
 `"guest"`. Validated: name 1–80 characters, known formation, 11 starters that belong to the
@@ -292,9 +328,18 @@ The leaderboard (all tests, newest first; the UI sorts).
   "matchesPlayed": 1368,
   "gitPush": GitPushStatus,
   "baseline": BaselineStatus,
+  "referenceTeams": [
+    { "name": "Inazuma Japan", "teamId": 87, "reputation": 10000, "predictedPosition": 1, "leagueSize": 20 },
+    { "name": "Zeus", "teamId": 91, "reputation": 7400, "predictedPosition": 4, "leagueSize": 20 },
+    { "name": "Desert Lion", "teamId": 104, "reputation": 4800, "predictedPosition": 18, "leagueSize": 20 }
+  ],
   "tests": [ TestSummary ]
 }
 ```
+
+`referenceTeams`: the fixed reference clubs in force (`null` when the setting is empty;
+`teamId`/`reputation`/prediction `null` for a name not found or while there is no base
+world).
 
 `testsCount` = tests with status `DONE`; `matchesPlayed` = sum of `results.overall.pld`
 over those tests. The list also holds the tests other backends exported into the shared
@@ -314,6 +359,8 @@ requested).
   "teamName": "FC Example",
   "leagueId": 16,
   "leagueName": "Liga 1",
+  "predictedPosition": 6,
+  "leagueSize": 12,
   "season": 1,
   "startDay": 1,
   "endDay": 330,
@@ -337,8 +384,12 @@ requested).
   bound to the base world (at creation when it exists, otherwise after `PREPARING`).
 - `engine`: `"classic"` (game runs with `match2d.mode=off`) or `"2d-human"` (only the
   tested club's matches go through the 2D engine, the rest classic).
-- `results`: the 3 reference runs (`null` until all three are `DONE`).
-- `chosen`: the run with the chosen club (`null` until it is `DONE`).
+- `teamId`, `teamName`, `leagueId`, `leagueName`, `predictedPosition`, `leagueSize`: the
+  CHOSEN club; all `null` for a general-only test.
+- `results`: the 3 reference runs (`null` until all three are `DONE`). `ptsMax` comes from
+  the reference clubs' own league matches.
+- `chosen`: the run with the chosen club, with the maximum of its own league (`null` until
+  it is `DONE`, and always `null` for a general-only test).
 
 ### `GET /tactic-arena/tests/{id}`
 
@@ -352,17 +403,26 @@ requested).
   "leagueMatchesRemaining": 44,
   "baselineUid": "5d0c...",
   "gitPush": GitPushStatus,
+  "capture": { "status": "DONE", "message": "Captured in 41 s", "at": "2026-11-16T10:41:00Z",
+               "images": 12, "expected": 12 },
   "runs": [ Run ]
 }
 ```
 
+- `capture`: the headless screenshots taken by the backend after the test is DONE
+  (`tactic-arena.capture`). `status`: `null` (never asked since this backend started),
+  `OFF` (`message` says why: off, no browser, page address unknown), `QUEUED`, `RUNNING`,
+  `DONE`, `FAILED` (`message`: how many images arrived before the time limit).
+  `images` / `expected`: images stored now / 3 per run.
 - `message`: why the test failed / was cancelled, else `null`.
 - `leagueMatchesTotal` / `leagueMatchesRemaining`: the chosen club's league matches in
   season 1; always equal now (every run plays the whole season from day 1), kept so the
   page does not change.
 - `baselineUid`: the base world the test runs on.
-- `runs`: always 4, in this order: `CHOSEN`, `REFERENCE_TOP`, `REFERENCE_MEDIAN`,
-  `REFERENCE_BOTTOM`.
+- `runs`: in this order `CHOSEN`, `REFERENCE_TOP`, `REFERENCE_MEDIAN`, `REFERENCE_BOTTOM`;
+  a general-only test has only the three reference runs (indexes 1–3). With fixed
+  reference clubs the three kinds are just three positions: show `label` ("Reference") and
+  the club's name, not "highest / median / lowest reputation".
 
 `Run`:
 
@@ -371,9 +431,12 @@ requested).
   "id": 21,
   "index": 0,
   "kind": "CHOSEN",
+  "label": "Chosen club",
   "teamId": 104,
   "teamName": "FC Example",
   "teamReputation": 7200,
+  "predictedPosition": 6,
+  "leagueSize": 12,
   "status": "DONE",
   "progress": 100.0,
   "currentDay": 352,
@@ -389,6 +452,10 @@ requested).
 ```
 
 Until the test is bound, the three reference runs have `teamId: 0` and `teamName: null`.
+`label`: the text to show for the run's role: `"Chosen club"`, `"Reference"` (fixed reference
+clubs) or, with the setting empty, `"Highest reputation"` / `"Median reputation"` /
+`"Lowest reputation"`. `predictedPosition` / `leagueSize`: the club's press prediction, read
+from the base world by `teamId` (so finished tests have it too; `null` without predictions).
 `progress` = `simulatedDays / totalDays × 100`; `stats` (`basedOn: 1`) and `result` are
 `null` until the run is `DONE`. `images` lists the kinds already uploaded.
 

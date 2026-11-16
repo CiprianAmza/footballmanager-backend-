@@ -24,6 +24,7 @@ public class TacticArenaWorld {
     @Autowired private CompetitionRepository competitionRepository;
     @Autowired private NationService nationService;
     @Autowired private TacticController tacticController;
+    @Autowired private com.footballmanagergamesimulator.service.squad.LeaguePredictionService leaguePrediction;
 
     public Map<String, Object> clubs() {
         Map<Long, List<Team>> teamsByCompetition = teamRepository.findAll().stream()
@@ -46,7 +47,23 @@ public class TacticArenaWorld {
             List<Map<String, Object>> teams = new ArrayList<>();
             teamsByCompetition.get(league.getId()).stream()
                     .sorted(Comparator.comparingInt(Team::getReputation).reversed().thenComparing(Team::getName))
-                    .forEach(team -> teams.add(teamRow(team)));
+                    .forEach(team -> {
+                        Map<String, Object> teamJson = teamRow(team);
+                        // The press's predicted finish (the game's media prediction), e.g. 6 of 12.
+                        Integer position = null, size = null;
+                        try {
+                            int[] finish = leaguePrediction.predictedFinish(league.getId(), team.getId());
+                            if (finish[0] > 0) {
+                                position = finish[0];
+                                size = finish[1];
+                            }
+                        } catch (RuntimeException ignored) {
+                            // no prediction for this league
+                        }
+                        teamJson.put("predictedPosition", position);
+                        teamJson.put("leagueSize", size);
+                        teams.add(teamJson);
+                    });
             row.put("teams", teams);
             rows.add(row);
         }

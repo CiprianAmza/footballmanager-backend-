@@ -333,19 +333,31 @@ user is only recorded as the test's owner; a guest may type a name, else "guest"
 
 ### 2. What is simulated
 
-Each test makes **4 runs**, each one the whole of **season 1** of the real game, from its
-first day to the last match day (every competition the club plays: league, cups,
-continental), with the tested tactic fixed all season:
+Every run is the whole of **season 1** of the real game, from its first day to the last
+match day (every competition the club plays: league, cups, continental), with the tested
+tactic fixed all season. A test has two parts:
+
+- **General** (always): the tactic on the **same three reference clubs for every test**, so
+  that all tests are compared on the same clubs: `tactic-arena.reference-teams`, by default
+  `Inazuma Japan, Zeus, Desert Lion` (all three in the Eleven League), whatever the chosen
+  club's league. The averages and the leaderboard come from these three runs.
+- **Custom** (optional): the club the user picked, with the eleven they picked, shown
+  separately. A test launched with `autoEleven: true` and no club is general only (three
+  runs); a script can launch many of these.
 
 | Run | Club | Starting eleven |
 |-----|------|-----------------|
-| 0 `CHOSEN` | the club you picked | the eleven you picked |
-| 1 `REFERENCE_TOP` | highest reputation in that club's league | the game's automatic best XI for the formation |
-| 2 `REFERENCE_MEDIAN` | median reputation in the league | same |
-| 3 `REFERENCE_BOTTOM` | lowest reputation in the league | same |
+| 0 `CHOSEN` | the club you picked (custom part) | the eleven you picked, or the automatic one with `autoEleven` |
+| 1 `REFERENCE_TOP` | 1st reference club (Inazuma Japan) | the game's automatic best XI for the formation |
+| 2 `REFERENCE_MEDIAN` | 2nd reference club (Zeus) | same |
+| 3 `REFERENCE_BOTTOM` | 3rd reference club (Desert Lion) | same |
 
 Reference clubs get the same formation and instructions; the roles, duties and player
-instructions are copied slot by slot onto their automatic eleven.
+instructions are copied slot by slot onto their automatic eleven. With
+`tactic-arena.reference-teams` empty, the reference clubs are instead the highest, median
+and lowest reputation of the chosen club's league. Next to each club's reputation the pages
+show the press's predicted league finish ("6/12", the game's media prediction), stored in
+the base world's `clubs.json`.
 
 How a run works:
 
@@ -398,6 +410,10 @@ approximate progress, then its runs start), or generate it from the launch page
 (`POST /tactic-arena/baseline/rebuild`). `GET /tactic-arena/baseline` shows whether it
 exists, when it was made and with which build.
 
+`POST /tactic-arena/baseline/refresh` recomputes only `clubs.json` (for example the press
+predictions) from a copy of the existing `world.zip`, in about 20 seconds, without changing
+the world, its uid or the tests bound to it.
+
 Generate it again (**Rebuild**) when the game's world changes: new or changed nations,
 leagues or clubs, or a change in how players or squads are generated. A new world has
 different players, so tests that were created on the old one and have not started yet fail
@@ -410,7 +426,7 @@ only, separately for Overall / Home / Away:
 
 - `PLD` = total league matches of the three runs;
 - `PTS` = average points per season, shown against the maximum (`73 / 114` = average
-  matches per season × 3);
+  matches per season × 3, from the reference clubs' own league);
 - `GF`, `GA`, `GD`, `xGF`, `xGA`, `xGD` = averages per season, rounded to whole numbers.
 
 The run with the chosen club gets the same figures, shown separately.
@@ -517,11 +533,17 @@ For a new pair today you have to add the mapping there (for example
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `tactic-arena.parallel-runs` | `4` | simulation processes of this backend, shared by all tests |
+| `tactic-arena.reference-teams` | `Inazuma Japan, Zeus, Desert Lion` | the three fixed reference clubs (names in the base world); empty = highest/median/lowest reputation of the chosen club's league |
 | `tactic-arena.baseline-dir` | `<work-dir>/baseline` | the base world (can be shared by several backends) |
 | `tactic-arena.export-dir` | empty (no export) | folder for exported tests |
 | `tactic-arena.git-push` | `false` | commit and push the export folder after each test |
 | `tactic-arena.work-dir` | `<temp>/fm-tactic-arena/<port>` | database copies and logs of running runs |
 | `tactic-arena.child-jvm-args` | `-Xmx3g` | JVM options of each simulation process |
+| `tactic-arena.ui-dir` | empty | folder of the simulator build of the interface; when set, the backend serves it (`/`, `/tactic-arena`, `/tactic-arena/new`, `/tactic-arena/{id}`) |
+| `tactic-arena.capture` | `auto` | `auto`: after a test, open its page in a headless Edge/Chrome so the page uploads its 12 images; `off` |
+| `tactic-arena.capture.browser` | found automatically | path of Edge/Chrome (Windows install folders, then `google-chrome`, `chromium`, `microsoft-edge` on the PATH, then the macOS apps) |
+| `tactic-arena.capture.page-url` | own address when `ui-dir` is set | base address of the pages, e.g. `http://localhost:4215` |
+| `tactic-arena.capture.timeout-seconds` | `300` | the browser is stopped after this, images or not |
 
 ### 10. Limits
 
@@ -535,7 +557,68 @@ For a new pair today you have to add the mapping there (for example
 - The base world folder defaults to the temp folder; set `tactic-arena.baseline-dir` to a
   durable place to keep it across temp clean-ups.
 
-## Automated testing
+### 11. Simulator: run it on any computer
+
+The simulator is one Java process that serves the Tactic Arena pages and API itself, runs
+the tests, takes the screenshots without a person and commits + pushes everything to the
+results repository. The public site that reads that repository is
+<https://ciprianamza.github.io/footballmanager-tactic-arena-results/>.
+
+**What you need**: Java 17+; git with push rights on the results repository (credentials
+already configured, `git push` must work there without a prompt); optionally Microsoft Edge
+or Google Chrome/Chromium for the screenshots (without one, tests finish without images).
+
+**Build the package** (once, on a computer with Maven, Node and the frontend checkout):
+
+```bash
+simulator/build.sh <frontend-dir>          # or: powershell -File simulator\build.ps1 -Frontend <frontend-dir>
+```
+
+It runs `ng build --configuration simulator` in the frontend (the pages call the API on
+their own origin), `mvn package -DskipTests` (an executable Spring Boot jar) and puts
+`simulator.jar`, `ui/`, `run.sh`, `run.ps1`, `run.bat` and a short README into
+`simulator/dist/` (about 95 MB). Copy that folder to any computer.
+
+**Start it** in an empty folder:
+
+```bash
+<dist>/run.sh [results-repository-url]     # Linux, macOS, Git Bash
+<dist>\run.bat [results-repository-url]    # Windows
+```
+
+The default repository is `https://github.com/CiprianAmza/footballmanager-tactic-arena-results.git`.
+The script clones (or updates) it into `./results`, keeps the simulator's database in
+`./data` and its work files in `./work`, and starts on port 8390 (`PORT=` / `-Port`) with
+`ui-dir`, `export-dir=results/tests`, `baseline-dir=results/baseline`, `git-push=true`,
+`match2d.mode=off` and an H2 file database (no Docker, no PostgreSQL). Open
+`http://localhost:8390/tactic-arena`.
+
+**What it does by itself**:
+
+1. If the repository has a base world (`results/baseline/`), the simulator's own database
+   starts as a copy of it (about a minute) and every test uses it.
+2. If not, the first start generates a game world (about 8 minutes); the base world is then
+   generated once (from the page or by the first test), committed and pushed. Before it
+   generates one it runs `git pull`, so a base world pushed meanwhile by another computer
+   is used instead. Its lock file and build folders stay outside git
+   (`.git/info/exclude`).
+3. Every test runs as described above; when it is DONE its result is exported to
+   `results/tests/<id>-<name>-<uid>/`, the page is opened in a headless browser, which
+   draws and uploads the 12 images (tactic, schedule, competitions × 4 runs), and the
+   folder is committed and pushed (`git pull --rebase` and retry when another computer
+   pushed first). Tests pushed by other computers show up in the leaderboard.
+
+Measured on this computer: building the package about 2.5 minutes (95 MB: an 86 MB jar and
+a 9 MB `ui/`). First start against an empty repository: about 7 minutes until the page
+answers, then about 7.5 minutes for the base world (committed and pushed). A test with 4
+runs: about 6.5 minutes, then its 12 screenshots in about 16 seconds (headless Edge), all
+pushed. A second start in another empty folder with the same repository: about 45
+seconds, no generation, and the existing test is in the leaderboard.
+
+The results repository then holds `baseline/` (the shared base world: `world.zip`,
+`clubs.json`, `setup/`, `meta.json`), `tests/` (one folder per test) and the site.
+
+
 
 Fast unit tests:
 
