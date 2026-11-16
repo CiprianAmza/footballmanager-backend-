@@ -33,13 +33,14 @@ public class CompetitionMetadataService {
     }
 
     public String kind(Competition competition) {
-        if (competition.isLeague()) return "LEAGUE";
+        if (competition.isLeague() || competition.isDiamondLeague()) return "LEAGUE";
         if (competition.getTypeId() == Competition.CUP) return "KNOCKOUT";
         if (competition.getTypeId() == Competition.SUPER_CUP) return "SHOWCASE";
         return "MULTI_STAGE";
     }
 
     private String categoryLabel(Competition competition) {
+        if (competition.isDiamondLeague()) return "Invitational league";
         return switch (kind(competition)) {
             case "LEAGUE" -> "League competition";
             case "KNOCKOUT" -> "Knockout competition";
@@ -58,6 +59,10 @@ public class CompetitionMetadataService {
     }
 
     private String description(Competition competition) {
+        if (competition.isDiamondLeague()) {
+            return "Invitational round-robin of elite clubs from different leagues: every pair meets four times, "
+                    + "played alongside their domestic and continental fixtures.";
+        }
         String level = competition.isLeague() ? " at tier " + Math.max(1, competition.getTier()) : "";
         return switch (kind(competition)) {
             case "LEAGUE" -> "Domestic season competition" + level + " with standings and qualification outcomes.";

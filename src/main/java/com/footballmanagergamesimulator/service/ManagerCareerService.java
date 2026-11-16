@@ -159,7 +159,8 @@ public class ManagerCareerService {
                 if (ch.getTeamId() == team.getId() && ch.getLastPosition() == 1) {
                     Competition comp = allCompetitions.stream()
                             .filter(c -> c.getId() == ch.getCompetitionId() && (c.getTypeId() == 2
-                                    || c.getTypeId() == 4 || c.getTypeId() == 5 || c.getTypeId() == 6))
+                                    || c.getTypeId() == 4 || c.getTypeId() == 5 || c.getTypeId() == 6
+                                    || c.getTypeId() == Competition.DIAMOND_LEAGUE))
                             .findFirst().orElse(null);
                     if (comp != null) trophies.add(comp.getName());
                 }

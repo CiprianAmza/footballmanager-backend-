@@ -86,6 +86,7 @@ public class GameInitializationService {
     @Autowired private PrebuiltDataService prebuiltDataService;
     @Autowired private MemoryCheckpointService memoryCheckpointService;
     @Autowired private SuperCupService superCupService;
+    @Autowired private DiamondLeagueService diamondLeagueService;
     @Autowired private CompetitionReputationService competitionReputationService;
     @Autowired private NewSeasonPlayerReadinessService newSeasonPlayerReadinessService;
     @Autowired private AgentService agentService;
@@ -161,6 +162,8 @@ public class GameInitializationService {
         leagueCompetitionIds.addAll(secondLeagueCompetitionIds);
         for (Long competitionId : leagueCompetitionIds)
             fixtureSchedulingService.getFixturesForRound(String.valueOf(competitionId), "1");
+        // Extra invitational competition: entries + drawn fixtures, before the calendar places them.
+        diamondLeagueService.prepareSeason(1);
 
         // Calendar must run AFTER league fixtures exist so updateMatchDays can set the day field
         fixtureSchedulingService.generateSeasonCalendar(1);

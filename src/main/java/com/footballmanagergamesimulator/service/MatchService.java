@@ -525,7 +525,8 @@ public class MatchService {
     static String scheduleCompetitionType(Long typeId) {
         if (typeId == null) return null;
         int type = typeId.intValue();
-        if (type == Competition.LEAGUE || type == LEGACY_SECOND_LEAGUE_TYPE) return "League";
+        if (type == Competition.LEAGUE || type == LEGACY_SECOND_LEAGUE_TYPE
+                || type == Competition.DIAMOND_LEAGUE) return "League";
         if (type == Competition.CUP || type == Competition.SUPER_CUP) return "Cup";
         if (type == Competition.LEAGUE_OF_CHAMPIONS || type == Competition.STARS_CUP) return "Continental";
         return null;
@@ -775,7 +776,7 @@ public class MatchService {
 
     private String mapCompetitionType(long typeId) {
         // typeId 1 = League, 2 = Cup, 3 = Second League (treat as League), 4+ = European
-        if (typeId == 1 || typeId == 3) return "League";
+        if (typeId == 1 || typeId == 3 || typeId == Competition.DIAMOND_LEAGUE) return "League";
         if (typeId == 2) return "Cup";
         return "European";
     }

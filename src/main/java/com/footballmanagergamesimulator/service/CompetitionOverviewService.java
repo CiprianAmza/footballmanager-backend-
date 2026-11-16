@@ -153,7 +153,7 @@ public class CompetitionOverviewService {
 
     private Map<String, Object> finalSummary(Competition competition, int season) {
         Map<String, Object> summary = new LinkedHashMap<>();
-        if (competition.isLeague()) {
+        if (competition.isLeague() || competition.isDiamondLeague()) {
             List<CompetitionHistory> table = historyRepository.findByCompetitionId(competition.getId()).stream()
                     .filter(row -> row.getSeasonNumber() == season)
                     .sorted(Comparator.comparingLong(CompetitionHistory::getLastPosition))

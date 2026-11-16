@@ -51,10 +51,22 @@ public class Competition {
   public static final long LEAGUE_OF_CHAMPIONS = 4;
   public static final long STARS_CUP = 5;
   public static final long SUPER_CUP = 6;
+  /**
+   * Invitational round-robin between a fixed set of clubs from different leagues,
+   * played on top of their domestic and continental fixtures. It has a table like
+   * a league but is never a club's league: {@link #isLeague()} stays false, so it
+   * takes no part in promotion, relegation or continental qualification.
+   */
+  public static final long DIAMOND_LEAGUE = 7;
 
   /** True for a domestic league at any level — what {@code typeId == 1 || == 3} used to ask. */
   public boolean isLeague() {
     return typeId == LEAGUE;
+  }
+
+  /** True for the invitational Diamond League (see {@link #DIAMOND_LEAGUE}). */
+  public boolean isDiamondLeague() {
+    return typeId == DIAMOND_LEAGUE;
   }
 
   /** True for a nation's top flight — what a bare {@code typeId == 1} used to mean. */
