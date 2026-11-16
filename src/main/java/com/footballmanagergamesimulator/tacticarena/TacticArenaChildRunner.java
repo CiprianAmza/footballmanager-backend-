@@ -66,6 +66,9 @@ public class TacticArenaChildRunner {
     @Autowired private CalendarEventRepository calendarEventRepository;
     @Autowired private CompetitionTeamInfoMatchRepository fixtureRepository;
     @Autowired private MatchStatsRepository matchStatsRepository;
+    @Autowired private ScorerRepository scorerRepository;
+    @Autowired private MatchEventRepository matchEventRepository;
+    @Autowired private PlayerSeasonStatRepository playerSeasonStatRepository;
     @Autowired private MatchService matchService;
     @Autowired private CompetitionDisplayService competitionDisplayService;
     @Autowired private TacticController tacticController;
@@ -393,9 +396,144 @@ public class TacticArenaChildRunner {
         result.put("matches", matches);
         result.put("competitions", competitions);
         result.put("leagueTable", leagueTable);
+        Map<Long, String> kindById = new HashMap<>(kinds);
+        List<Map<String, Object>> players = playerStats(teamId, season, leagueId, kindById);
+        result.put("players", players);
+        result.put("playerSummary", playerSummary(teamId, season, players));
         result.put("diamondLeagueId", diamondId);
         result.put("diamondTable", diamondTable);
         return result;
+    }
+
+    // ---------------------------------------------------------------- player statistics
+
+    /** Per-player season figures, from the game's own per-match rows (Scorer), cards (MatchEvent) and minutes (PlayerSeasonStat). */
+    private static final class Line {
+        int apps, starts, goals, assists, rated, yellow, red, cleanSheets;
+        double ratingSum;
+
+        void add(Scorer row) {
+            apps++;
+            if (!row.isSubstitute()) starts++;
+            goals += row.getGoals();
+            assists += row.getAssists();
+            if (row.getRating() > 0 && row.getRating() <= 10) {
+                rated++;
+                ratingSum += row.getRating();
+            }
+        }
+
+        Double avg() {
+            return rated == 0 ? null : Math.round(ratingSum / rated * 100) / 100.0;
+        }
+    }
+
+    private List<Map<String, Object>> playerStats(long teamId, int season, long leagueId, Map<Long, String> kindById) {
+        List<Scorer> rows = scorerRepository.findAllByTeamIdAndSeasonNumber(teamId, season);
+        Map<Long, Line> total = new HashMap<>();
+        Map<Long, Map<String, Line>> byKind = new HashMap<>();
+        for (Scorer row : rows) {
+            total.computeIfAbsent(row.getPlayerId(), k -> new Line()).add(row);
+            String kind = kindById.computeIfAbsent(row.getCompetitionId(), id -> competitionKind(id, leagueId));
+            byKind.computeIfAbsent(row.getPlayerId(), k -> new LinkedHashMap<>()).computeIfAbsent(kind, k -> new Line()).add(row);
+            if ("GK".equalsIgnoreCase(row.getPosition()) && !row.isSubstitute() && row.getOpponentScore() == 0) {
+                total.get(row.getPlayerId()).cleanSheets++;
+            }
+        }
+        // Cards: the match events of the club's competitions this season.
+        for (Long competitionId : kindById.keySet()) {
+            for (MatchEvent event : matchEventRepository.findAllByCompetitionIdAndSeasonNumber(competitionId, season)) {
+                if (event.getTeamId() != teamId) continue;
+                Line line = total.computeIfAbsent(event.getPlayerId(), k -> new Line());
+                if ("yellow_card".equals(event.getEventType())) line.yellow++;
+                else if ("red_card".equals(event.getEventType())) line.red++;
+            }
+        }
+        Map<Long, Integer> minutes = new HashMap<>();
+        for (PlayerSeasonStat stat : playerSeasonStatRepository.findAllByTeamIdAndSeasonNumber(teamId, season)) {
+            minutes.merge(stat.getPlayerId(), stat.getMinutes(), Integer::sum);
+        }
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Human player : humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)) {
+            if (player.isRetired()) continue;
+            Line t = total.getOrDefault(player.getId(), new Line());
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("playerId", player.getId());
+            row.put("name", player.getName());
+            row.put("position", player.getPosition());
+            row.put("age", player.getAge());
+            row.put("rating", Math.round(player.getRating() * 10) / 10.0);
+            row.put("apps", t.apps);
+            row.put("starts", t.starts);
+            row.put("minutes", minutes.get(player.getId()));
+            row.put("goals", t.goals);
+            row.put("assists", t.assists);
+            row.put("avgRating", t.avg());
+            row.put("yellow", t.yellow);
+            row.put("red", t.red);
+            row.put("cleanSheets", "GK".equalsIgnoreCase(player.getPosition()) ? t.cleanSheets : null);
+            Map<String, Object> kinds = new LinkedHashMap<>();
+            byKind.getOrDefault(player.getId(), Map.of()).forEach((kind, line) -> {
+                Map<String, Object> k = new LinkedHashMap<>();
+                k.put("apps", line.apps);
+                k.put("goals", line.goals);
+                k.put("assists", line.assists);
+                k.put("avgRating", line.avg());
+                kinds.put(kind, k);
+            });
+            row.put("byKind", kinds);
+            out.add(row);
+        }
+        out.sort(Comparator.comparingInt((Map<String, Object> r) -> (Integer) r.get("apps")).reversed()
+                .thenComparing((Map<String, Object> r) -> r.get("avgRating") == null ? 0.0 : (Double) r.get("avgRating"),
+                        Comparator.reverseOrder()));
+        return out;
+    }
+
+    private Map<String, Object> playerSummary(long teamId, int season, List<Map<String, Object>> players) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("topScorer", best(players, "goals"));
+        summary.put("topAssists", best(players, "assists"));
+        int maxApps = players.stream().mapToInt(r -> (Integer) r.get("apps")).max().orElse(0);
+        int minApps = Math.max(5, (int) Math.round(maxApps * 0.3));
+        Map<String, Object> bestRated = players.stream()
+                .filter(r -> r.get("avgRating") != null && (Integer) r.get("apps") >= minApps)
+                .max(Comparator.comparingDouble(r -> (Double) r.get("avgRating")))
+                .map(r -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("playerId", r.get("playerId"));
+                    m.put("name", r.get("name"));
+                    m.put("avgRating", r.get("avgRating"));
+                    m.put("apps", r.get("apps"));
+                    return m;
+                }).orElse(null);
+        summary.put("bestRated", bestRated);
+        summary.put("bestRatedMinApps", minApps);
+        double sum = 0;
+        int n = 0;
+        for (Scorer row : scorerRepository.findAllByTeamIdAndSeasonNumber(teamId, season)) {
+            if (row.getRating() > 0 && row.getRating() <= 10) {
+                sum += row.getRating();
+                n++;
+            }
+        }
+        summary.put("teamAvgRating", n == 0 ? null : Math.round(sum / n * 100) / 100.0);
+        return summary;
+    }
+
+    private static Map<String, Object> best(List<Map<String, Object>> players, String field) {
+        return players.stream()
+                .filter(r -> (Integer) r.get(field) > 0)
+                .max(Comparator.comparingInt((Map<String, Object> r) -> (Integer) r.get(field))
+                        .thenComparing(r -> -(Integer) r.get("apps")))
+                .map(r -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("playerId", r.get("playerId"));
+                    m.put("name", r.get("name"));
+                    m.put(field, r.get(field));
+                    return m;
+                }).orElse(null);
     }
 
     /** LEAGUE (the club's own league), DIAMOND, CUP, CONTINENTAL or OTHER. */

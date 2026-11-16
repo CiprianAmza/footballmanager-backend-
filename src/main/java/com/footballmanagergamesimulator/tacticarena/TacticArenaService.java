@@ -104,6 +104,18 @@ public class TacticArenaService {
                 deleteQuietly(testWorkDir(test.getId()));
             }
             baseline.cleanupAfterRestart();
+            // A restart must not leave finished tests without images: capture again the ones short of them.
+            int queued = 0;
+            if (capture.unavailableReason() == null) {
+                for (TacticArenaTest test : testRepository.findAllByStatusOrderByIdAsc(DONE)) {
+                    int[] count = capture.imageCount(test.getId());
+                    if (count[0] < count[1]) {
+                        capture.request(test.getId());
+                        queued++;
+                    }
+                }
+            }
+            if (queued > 0) log.info("[tactic-arena] {} finished test(s) without all their images: captures queued", queued);
             if (baseline.ready()) {
                 for (String name : referenceTeamNames()) {
                     if (findTeam(name) == null) log.warn("[tactic-arena] reference club '{}' (tactic-arena.reference-teams) is not in the base world", name);
@@ -595,6 +607,9 @@ public class TacticArenaService {
                 run.setTotalsJson(json(totals(result)));
                 Map<String, Object> diamond = diamondTotals(result);
                 run.setDiamondJson(diamond == null ? null : json(diamond));
+                Integer[] place = finalPlace(result);
+                run.setFinalPosition(place[0]);
+                run.setFinalLeagueSize(place[1]);
                 run.setStatus(DONE);
                 run.setCurrentDay(test.getEndDay() + 1);
                 run.setSimulatedDays(run.getTotalDays());
@@ -723,6 +738,43 @@ public class TacticArenaService {
     private void deleteLater(Path dir) {
         if (scheduler == null) return;
         scheduler.schedule(() -> deleteQuietly(dir), 5, TimeUnit.SECONDS);
+    }
+
+    // ================================================================ recapture
+
+    /** Delete a DONE test's images and capture them again (headless browser, queued). */
+    public Map<String, Object> recapture(long id) {
+        TacticArenaTest test = require(id);
+        if (!DONE.equals(test.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Only a DONE test can be captured again");
+        String reason = capture.unavailableReason();
+        if (reason != null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Captures are not possible here: " + reason);
+        capture.request(id, () -> deleteImagesOf(id));
+        return capture.toJson(id);
+    }
+
+    /** Queue the recapture of every DONE test (optionally of one category); returns at once. */
+    public Map<String, Object> recaptureAll(String category) {
+        String reason = capture.unavailableReason();
+        if (reason != null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Captures are not possible here: " + reason);
+        String wanted = category == null || category.isBlank() ? null : category.trim().toUpperCase(Locale.ROOT);
+        int queued = 0;
+        for (TacticArenaTest test : testRepository.findAllByStatusOrderByIdAsc(DONE)) {
+            String testCategory = test.getCategory() == null ? CATEGORY_GENERAL : test.getCategory();
+            if (wanted != null && !wanted.equals(testCategory)) continue;
+            long id = test.getId();
+            capture.request(id, () -> deleteImagesOf(id));
+            queued++;
+        }
+        return Map.of("queued", queued, "category", wanted == null ? "ALL" : wanted);
+    }
+
+    private void deleteImagesOf(long testId) {
+        imageRepository.deleteAllByTestId(testId);
+        try {
+            exporter.deleteImages(testId);
+        } catch (Exception e) {
+            log.warn("[tactic-arena] could not delete the exported images of test {}: {}", testId, e.toString());
+        }
     }
 
     // ================================================================ images
@@ -891,6 +943,8 @@ public class TacticArenaService {
             entry.put("teamId", run.getTeamId());
             entry.put("teamName", run.getTeamName());
             entry.put("results", results);
+            entry.put("finalPosition", run.getFinalPosition());
+            entry.put("finalLeagueSize", run.getFinalLeagueSize());
             entry.put("diamond", diamondJson(run));
             byTier.put(tier, entry);
         }
@@ -917,6 +971,9 @@ public class TacticArenaService {
                 results.put("away", one.away());
             }
             entry.put("results", results);
+            boolean done = DONE.equals(run.getStatus());
+            entry.put("finalPosition", done ? run.getFinalPosition() : null);
+            entry.put("finalLeagueSize", done ? run.getFinalLeagueSize() : null);
             entry.put("diamond", diamondJson(run));
             byClub.add(entry);
         }
@@ -945,6 +1002,8 @@ public class TacticArenaService {
         r.put("kind", run.getKind());
         r.put("label", runLabel(run));
         r.put("tier", tier(run));
+        r.put("finalPosition", DONE.equals(run.getStatus()) ? run.getFinalPosition() : null);
+        r.put("finalLeagueSize", DONE.equals(run.getStatus()) ? run.getFinalLeagueSize() : null);
         r.put("diamond", diamondJson(run));
         r.put("teamId", run.getTeamId());
         r.put("teamName", run.getTeamName());
@@ -989,6 +1048,18 @@ public class TacticArenaService {
         return totalsOf(result, m -> leagueId > 0 && m.has("competitionId")
                 ? m.path("competitionId").asLong() == leagueId
                 : "League".equals(m.path("competitionType").asText()) && !"DIAMOND".equals(m.path("competitionKind").asText()));
+    }
+
+    /** {final position in the club's own league, league size} from the collected final table. */
+    Integer[] finalPlace(JsonNode result) {
+        long teamId = result.path("teamId").asLong();
+        Integer position = null;
+        int size = 0;
+        for (JsonNode row : result.path("leagueTable")) {
+            size++;
+            if (row.path("teamId").asLong() == teamId && row.path("position").isNumber()) position = row.path("position").asInt();
+        }
+        return new Integer[]{position, size == 0 ? null : size};
     }
 
     /** Diamond League totals of a run, {totals, position, of}; null when the club does not play in it. */

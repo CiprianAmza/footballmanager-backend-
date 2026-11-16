@@ -91,6 +91,24 @@ public class TacticArenaExporter {
         importMissing();
     }
 
+    /** Remove the exported images of a test (the next commit records the deletion). */
+    void deleteImages(long testId) {
+        Path root = root();
+        if (root == null) return;
+        TacticArenaTest test = service.require(testId);
+        if (test.getExportFolder() == null) return;
+        Path folder = root.resolve(test.getExportFolder());
+        if (!Files.isDirectory(folder)) return;
+        try (Stream<Path> files = Files.list(folder)) {
+            for (Path file : files.toList()) {
+                if (IMAGE_FILE.matcher(file.getFileName().toString()).matches()) Files.deleteIfExists(file);
+            }
+        } catch (IOException e) {
+            log.warn("[tactic-arena] could not delete the images of test {}: {}", testId, e.toString());
+        }
+        gitPublisher.request("Tactic test " + test.getId() + ": " + test.getName() + " (images)");
+    }
+
     private static void writeImage(Path folder, int runIndex, String kind, String contentType, byte[] data) {
         try {
             Files.createDirectories(folder);
@@ -178,6 +196,9 @@ public class TacticArenaExporter {
                 run.setTotalsJson(objectMapper.writeValueAsString(service.totals(result)));
                 Map<String, Object> diamond = service.diamondTotals(result);
                 run.setDiamondJson(diamond == null ? null : objectMapper.writeValueAsString(diamond));
+                Integer[] place = service.finalPlace(result);
+                run.setFinalPosition(place[0]);
+                run.setFinalLeagueSize(place[1]);
             }
             run = runRepository.save(run);
             if (result.isObject()) {

@@ -37,6 +37,10 @@ public class TacticArenaRun {
     @Column(length = 4000)
     private String totalsJson;
 
+    /** Final place in the club's own league and the league's size, once DONE. */
+    private Integer finalPosition;
+    private Integer finalLeagueSize;
+
     /** Diamond League totals of the run ({totals, position, of} as JSON), when its club plays in it. */
     @Column(length = 4000)
     private String diamondJson;

@@ -61,13 +61,35 @@ public class TacticArenaCapture {
     }
 
     void request(long testId) {
+        request(testId, null);
+    }
+
+    /**
+     * Queue a capture; {@code beforeCapture} (e.g. deleting the old images) runs on the capture
+     * thread right before the browser opens, so a long queue costs nothing up front.
+     */
+    void request(long testId, Runnable beforeCapture) {
         String reason = unavailableReason();
         if (reason != null) {
             statuses.put(testId, new CaptureStatus("OFF", reason, Instant.now(), images(testId), expected(testId)));
             return;
         }
         statuses.put(testId, new CaptureStatus("QUEUED", null, Instant.now(), images(testId), expected(testId)));
-        executor.submit(() -> capture(testId));
+        executor.submit(() -> {
+            if (beforeCapture != null) {
+                try {
+                    beforeCapture.run();
+                } catch (RuntimeException e) {
+                    log.warn("[tactic-arena] preparing the capture of test {} failed: {}", testId, e.toString());
+                }
+            }
+            capture(testId);
+        });
+    }
+
+    /** Images stored for the test / images it should have (3 per run). */
+    int[] imageCount(long testId) {
+        return new int[]{images(testId), expected(testId)};
     }
 
     Map<String, Object> toJson(long testId) {

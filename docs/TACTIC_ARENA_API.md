@@ -415,7 +415,8 @@ requested).
   (`Results` shape) = mean of the reference runs whose club plays in it (GENERAL: usually only
   the top club; DIAMOND: all 8); `null` when none does. A base world generated before the
   Diamond League existed has none: rebuild it.
-- `byTier` / `byClub` entries carry `diamond` (`RunDiamond` or `null`) too.
+- `byTier` / `byClub` entries carry `finalPosition`, `finalLeagueSize` (league place) and
+  `diamond` (`RunDiamond` with `position` / `of` = Diamond League place, or `null`) too.
 - `byTier` (GENERAL only): each reference run on its own; a tier is `null` until its run is
   `DONE`. Sort the leaderboard by the result at the top / mid-table / bottom club with it.
 - `byClub` (both categories): every reference run on its own, in the order of the setting;
@@ -502,6 +503,10 @@ requested).
 ```
 
 Until the test is bound, the three reference runs have `teamId: 0` and `teamName: null`.
+`finalPosition` / `finalLeagueSize`: the club's final place in its own league and the
+league's size (`null` until the run is `DONE`); the same two fields are on every `byTier`
+and `byClub` entry.
+
 `diamond` (`RunDiamond`): the run's Diamond League, `{overall, home, away, position, of}` —
 `Split`s like the league's plus the final place and the number of clubs — or `null` when the
 club does not play in it.
@@ -564,10 +569,61 @@ from the base world by `teamId` (so finished tests have it too; `null` without p
   league as `WINNER` / `Final`); show `position` and `points` instead.
 - `leagueTable`: the final table of the club's league, same items as
   `GET /competition/getTeams/{competitionId}`.
+- `players`: every player of the club at the END of the season, most appearances first,
+  then best average rating; from the game's own per-match rows (`Scorer`, as the squad
+  pages), cards from the match events, minutes from the season stats:
+
+  ```json
+  { "playerId": 2677, "name": "Ireanius", "position": "GK", "age": 27, "rating": 78.4,
+    "apps": 40, "starts": 39, "minutes": null, "goals": 0, "assists": 1, "avgRating": 6.92,
+    "yellow": 2, "red": 0, "cleanSheets": 17,
+    "byKind": { "LEAGUE": { "apps": 38, "goals": 0, "assists": 1, "avgRating": 6.95 },
+                "DIAMOND": { ... }, "CUP": { ... } } }
+  ```
+
+  `rating` = the player's value (as in the squad); `apps` = matches he played (starts +
+  substitute appearances), `starts`, `goals`, `assists`, `avgRating` (match ratings 0–10,
+  two decimals; `null` without a rated match), `yellow`, `red`; `cleanSheets` for
+  goalkeepers only (started, no goal conceded), else `null`; `minutes`: `null` when the game
+  keeps no minutes for those matches; `byKind`: the same per kind of competition (keys as
+  `competitionKind`). There is no man-of-the-match figure in the game.
+- `playerSummary`:
+
+  ```json
+  { "topScorer": { "playerId": 2698, "name": "Axenus", "goals": 21 },
+    "topAssists": { "playerId": 5470, "name": "Itexoa", "assists": 12 },
+    "bestRated": { "playerId": 5468, "name": "Saviola", "avgRating": 7.61, "apps": 35 },
+    "bestRatedMinApps": 12,
+    "teamAvgRating": 6.88 }
+  ```
+
+  `bestRated` counts only players with at least `bestRatedMinApps` matches
+  (max(5, 30% of the most-used player's matches)); `teamAvgRating` = mean of all the club's
+  match ratings. `null` entries when nobody qualifies.
+- `squad` stays the squad at the START of the run (its season figures are 0).
 - `diamondLeagueId`, `diamondTable`: the Diamond League's id and final table (same items), or
   `null` when the club does not play in it. In `competitions` its entry has `kind: "DIAMOND"`,
   `diamond: true`, `position`, `points`, `of` and `games`, `wins`, `draws`, `loses`,
   `goalsFor`, `goalsAgainst`; every other entry has `kind` `LEAGUE` / `CUP` and `diamond: false`.
+
+### `POST /tactic-arena/tests/{id}/recapture`
+
+Takes the test's images again (e.g. after the page's panels changed): queues a headless
+capture whose first step deletes the stored images (database and export folder; the
+deletion goes into the next commit), then the page draws and uploads them as after a test
+ends. Response `200`: the test's `capture` object (`status: "QUEUED"`). `409` when the test
+is not `DONE`, or when captures are not possible on this backend (`error` says why: off, no
+browser, page address unknown).
+
+### `POST /tactic-arena/recapture`
+
+Queues the recapture of every `DONE` test, or of one category with `?category=GENERAL` /
+`?category=DIAMOND`. Returns at once; the captures run one after the other (one browser at a
+time). Response `200`: `{"queued": 54, "category": "ALL"}`. `409` when captures are not
+possible on this backend.
+
+At startup the backend also queues the capture of every `DONE` test that has fewer images
+than expected (3 per run), so a restart never leaves finished tests without images.
 
 ### `POST /tactic-arena/tests/{id}/cancel`
 

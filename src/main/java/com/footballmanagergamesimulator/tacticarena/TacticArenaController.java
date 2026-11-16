@@ -91,6 +91,16 @@ public class TacticArenaController {
         return service.detail(id);
     }
 
+    @PostMapping("/tests/{id}/recapture")
+    public Map<String, Object> recapture(@PathVariable long id) {
+        return service.recapture(id);
+    }
+
+    @PostMapping("/recapture")
+    public Map<String, Object> recaptureAll(@RequestParam(value = "category", required = false) String category) {
+        return service.recaptureAll(category);
+    }
+
     @PostMapping("/tests/{id}/cancel")
     public Map<String, Object> cancel(@PathVariable long id) {
         return service.cancel(id);
