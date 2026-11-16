@@ -74,30 +74,10 @@ public class TacticArenaChildRunner {
     @EventListener(ApplicationReadyEvent.class)
     @Order(Ordered.LOWEST_PRECEDENCE)
     public void onReady() {
-        startParentWatchdog();
+        TacticArenaSupport.startParentWatchdog(parentPid);
         Thread worker = new Thread(this::runAndExit, "tactic-arena-child");
         worker.setDaemon(false);
         worker.start();
-    }
-
-    private void startParentWatchdog() {
-        if (parentPid <= 0) return;
-        Thread watchdog = new Thread(() -> {
-            while (true) {
-                try {
-                    Thread.sleep(5000);
-                } catch (InterruptedException e) {
-                    return;
-                }
-                boolean alive = ProcessHandle.of(parentPid).map(ProcessHandle::isAlive).orElse(false);
-                if (!alive) {
-                    System.err.println("[tactic-arena] parent process " + parentPid + " is gone; exiting");
-                    Runtime.getRuntime().halt(4);
-                }
-            }
-        }, "tactic-arena-parent-watchdog");
-        watchdog.setDaemon(true);
-        watchdog.start();
     }
 
     private void runAndExit() {
@@ -187,6 +167,7 @@ public class TacticArenaChildRunner {
             User user = new User();
             user.setUsername("tactic-arena");
             user.setPassword("-");
+            user.setEmail("tactic-arena@localhost");
             user.setActive(true);
             users.add(user);
         }
@@ -368,6 +349,8 @@ public class TacticArenaChildRunner {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("teamId", teamId);
         result.put("teamName", team.getName());
+        result.put("color1", team.getColor1());
+        result.put("color2", team.getColor2());
         result.put("leagueId", leagueId);
         result.put("leagueName", competitionRepository.findById(leagueId).map(Competition::getName).orElse(null));
         result.put("season", season);

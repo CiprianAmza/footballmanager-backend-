@@ -30,6 +30,9 @@ public class WebSecurityConfig {
     /** Face Lab endpoints, opened up only while the dev flag below is set. */
     private static final String FACE_LAB_PATHS = "/api/dev/facelab/**";
 
+    /** Tactic Arena is public: it never touches a career, so it needs no account (nor a CSRF token). */
+    private static final String TACTIC_ARENA_PATHS = "/tactic-arena/**";
+
     /** Phase Lab endpoints (scenario preview + rating). Dev tool; enabled by
      *  default in this test project, disable with phaselab.enabled=false. */
     private static final String PHASE_LAB_PATHS = "/api/dev/phaselab/**";
@@ -123,6 +126,7 @@ public class WebSecurityConfig {
                     // The H2 console is a plain server-rendered form app that knows
                     // nothing about our token. Only reachable while the dev flag is set.
                     if (h2ConsoleEnabled) csrf.ignoringRequestMatchers(h2ConsolePaths);
+                    csrf.ignoringRequestMatchers(TACTIC_ARENA_PATHS);
                 })
                 .headers(headers -> {
                     // The H2 console renders its query editor inside frames, which the
@@ -178,6 +182,7 @@ public class WebSecurityConfig {
                     // no session to authenticate with.
                     if (faceLabEnabled) requests.requestMatchers(FACE_LAB_PATHS).permitAll();
                     if (phaseLabEnabled) requests.requestMatchers(PHASE_LAB_PATHS).permitAll();
+                    requests.requestMatchers(TACTIC_ARENA_PATHS).permitAll();
                     requests.requestMatchers("/admin/login").permitAll();
                     requests.requestMatchers("/admin/**").hasRole("ADMIN");
                     requests.anyRequest().authenticated();

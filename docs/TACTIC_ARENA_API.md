@@ -1,11 +1,14 @@
 # Tactic Arena API
 
-All routes live under `/tactic-arena`, need the same authenticated session as the rest of
-the game, and the mutating ones (`POST`, `PUT`, `DELETE`) need the usual `X-XSRF-TOKEN`
-header, exactly like `/tactic/saveFormation`. Errors are `{"error": "message"}` with a 4xx
-status. Dates are ISO-8601 strings (`"2026-11-16T10:15:30Z"`).
+All routes live under `/tactic-arena` and are **public**: no login, no session cookie and
+no `X-XSRF-TOKEN` are needed (a session, when present, only sets the test's owner). Errors
+are `{"error": "message"}` with a 4xx status. Dates are ISO-8601 strings
+(`"2026-11-16T10:15:30Z"`).
 
-Nothing here writes to the career: the tactic sent with a test is kept only by the test.
+Nothing here reads or writes the career being played, its user or its club. Clubs, squads
+and simulations all come from the **base world**: a new world generated once at season 1,
+day 1 (see `GET /tactic-arena/baseline`). Every run starts from a fresh copy of it and plays
+the whole of season 1.
 
 ## Shared shapes
 
@@ -84,11 +87,56 @@ a finished test's reference block, 1 for the chosen-club block or a single run.
 nothing has been tried since the backend started. `ok: true` → `message` is a short
 summary (e.g. `"Pushed: Tactic test 7: Gegenpress"` or `"Nothing to commit"`).
 
+### `BaselineStatus`
+
+```json
+{
+  "status": "READY",
+  "progress": 100.0,
+  "uid": "5d0c...",
+  "createdAt": "2026-11-16T10:00:00Z",
+  "appVersion": "classes 2026-11-16T09:40:12Z",
+  "season": 1,
+  "startDay": 1,
+  "endDay": 330,
+  "clubs": 182,
+  "buildStartedAt": null,
+  "builtByOtherInstance": false,
+  "message": null
+}
+```
+
+- `status`: `READY`, `BUILDING` (this or another backend sharing the folder generates it),
+  `MISSING` (never generated, or deleted), `FAILED` (the last generation failed; `message`
+  says why).
+- `progress`: 0–100, approximate while `BUILDING`.
+- `uid`, `createdAt`, `appVersion` (the packaged version, or the time of the compiled
+  classes when run from a classes folder; may be `null`), `season`, `startDay`, `endDay`
+  (last match day of season 1), `clubs`: `null` unless `READY`.
+
 ## Routes
+
+### `GET /tactic-arena/baseline`
+
+`BaselineStatus`.
+
+### `POST /tactic-arena/baseline/rebuild`
+
+Deletes the base world and generates a new one (several minutes). `409` while a test is
+`RUNNING`/`PREPARING` or a generation is under way. Response `200`: `BaselineStatus`.
+Tests created on the old base world that have not started yet fail when they come up
+(their players no longer exist).
 
 ### `GET /tactic-arena/clubs`
 
-Every club in the world, grouped by league, best league first (tier, then reputation).
+When the base world is not `READY`, this route and `.../setup` answer `409`:
+
+```json
+{ "error": "There is no base world yet; generate it with POST /tactic-arena/baseline/rebuild",
+  "baseline": BaselineStatus }
+```
+
+Every club of the base world, grouped by league, best league first (tier, then reputation).
 
 ```json
 {
@@ -112,7 +160,8 @@ Teams are sorted by reputation, highest first.
 
 ### `GET /tactic-arena/clubs/{teamId}/setup`
 
-Everything the tactics page needs for any club, in the shapes it already reads:
+Everything the tactics page needs for any club of the base world (squad as at season 1,
+day 1), in the shapes it already reads:
 
 ```json
 {
@@ -134,21 +183,94 @@ Everything the tactics page needs for any club, in the shapes it already reads:
   `managerId`, `managerName`, `managerTacticSource`, `managerTactic`,
   `bestPossibleTactic`, `chairmanRequiredFormation`, `chairmanLockedSlots`).
 
-The other read-only `/tactic/...` routes the page uses (`formationLayout`, `instructions`,
-`roles`, `allRoleSuitabilities`, `playerCard`, `suggestSetPieceTakers`, `askAssistant`,
-`/teams/info/{teamId}`) work for any club and can be called as today. 404 if the club
-does not exist.
+In a new world `savedTactic` often exists with an EMPTY `formationDataList` (the club's
+seeded formation and instructions, no eleven): take the eleven from
+`teamView.bestPossibleTactic` (or `teamView.managerTactic`) in that case.
+
+These shapes come from the base world, not from the career. `team.color1` / `team.color2`
+are the club's shirt colours. The `/tactic/...` routes need a login and read the **career**
+database, so do not use them for Arena data (`allRoleSuitabilities`, `playerCard`,
+`suggestSetPieceTakers`, `askAssistant`, `/teams/info/{teamId}` would describe the career,
+not the base world). The static editor catalogs are public here instead, with exactly the
+JSON of their `/tactic/...` originals:
+
+| Public route | Same JSON as |
+|--------------|--------------|
+| `GET /tactic-arena/roles/{position}` | `GET /tactic/roles/{position}` |
+| `GET /tactic-arena/instructions/{position}` | `GET /tactic/instructions/{position}` |
+| `GET /tactic-arena/formationLayout/{tactic}` | `GET /tactic/formationLayout/{tactic}` |
+| `GET /tactic-arena/ratingTiers` | `GET /tactic/ratingTiers` |
+
+The formations available to a club are `setup.formationCatalog`. 404 if the club is not in
+the base world, 409 as above.
 
 ### `POST /tactic-arena/tests`
 
 Body:
 
 ```json
-{ "name": "Gegenpress 4231", "teamId": 104, "tactic": PersonalizedTacticView }
+{ "name": "Gegenpress 4231", "teamId": 104, "tactic": PersonalizedTacticView, "owner": "Cip" }
 ```
 
-`tactic.teamId` is ignored (the body's `teamId` wins). Validated: name 1–80 characters,
-known formation, 11 starters that belong to the club, no duplicate players or slots.
+**Without an eleven** (for scripts): add `"autoEleven": true`. Then `tactic` needs only the
+formation key and, optionally, team instructions; the chosen club plays the game's automatic
+best eleven for that formation with the assistant's default roles and duties, exactly like
+the reference clubs. Missing instructions take the game's default (listed first below); a
+value outside the list is a `400`. `formationDataList` and set-piece takers are ignored.
+
+```json
+{
+  "name": "Base 442",
+  "teamId": 2,
+  "owner": "mass-script",
+  "autoEleven": true,
+  "tactic": {
+    "tactic": "442",
+    "mentality": "Balanced",
+    "inPossession": "Standard",
+    "passingType": "Normal",
+    "tempo": "Standard",
+    "timeWasting": "Sometimes",
+    "defensiveLine": "Standard",
+    "pressing": "Normal",
+    "width": "Balanced",
+    "dribbling": "Standard",
+    "foulFrequency": "Normal",
+    "foulHardness": "Medium",
+    "tempoFragmentation": "Normal",
+    "widePlay": "Shoot",
+    "transition": "Balanced",
+    "recovery": "Standard"
+  }
+}
+```
+
+Formation keys (`tactic.tactic`): `442`, `433`, `343`, `451`, `352`, `4231`, `4141`, `4411`,
+`4321`, `4222`, `3421`, `532`, `5212`, `541`, `3511`, `31411`.
+
+| Field | Allowed values (default first) |
+|-------|--------------------------------|
+| `mentality` | `Balanced`, `Very Defensive`, `Defensive`, `Attacking`, `Very Attacking` |
+| `inPossession` | `Standard`, `Keep Ball`, `Free Ball Early` |
+| `passingType` | `Normal`, `Short`, `Long` |
+| `tempo` | `Standard`, `Much Lower`, `Lower`, `Higher`, `Much Higher` |
+| `timeWasting` | `Sometimes`, `Never`, `Frequently`, `Always` |
+| `defensiveLine` | `Standard`, `Deep`, `High` |
+| `pressing` | `Normal`, `Very Easy`, `Easy`, `Aggressive`, `Very Aggressive` |
+| `width` | `Balanced`, `Narrow`, `Wide` |
+| `dribbling` | `Standard`, `Less`, `More` |
+| `foulFrequency` | `Normal`, `Rarely`, `Often` |
+| `foulHardness` | `Medium`, `Soft`, `Hard` |
+| `tempoFragmentation` | `Normal`, `Flowing`, `Fragment` |
+| `widePlay` | `Shoot`, `Cut Inside`, `Cross` |
+| `transition` | `Balanced`, `Win Fouls`, `Fast Counter` |
+| `recovery` | `Standard`, `Slow`, `Very Fast`, `Instantly` |
+
+`tactic.teamId` is ignored (the body's `teamId` wins). `owner` is optional: the owner is the
+signed-in user when the request has a session, else `owner` (cut to 40 characters), else
+`"guest"`. Validated: name 1–80 characters, known formation, 11 starters that belong to the
+club **in the base world**, no duplicate players or slots. If the base world is not ready
+yet, the squad check happens once it is (the test then fails with the reason).
 
 Response `200`:
 
@@ -156,7 +278,9 @@ Response `200`:
 { "id": 7 }
 ```
 
-The test is queued at once; only one test simulates at a time, the rest wait (`QUEUED`).
+The test is queued at once. Tests are served in launch order and their runs share the
+backend's simulation slots (`tactic-arena.parallel-runs`, default 4), so several tests can
+run at the same time.
 
 ### `GET /tactic-arena/tests`
 
@@ -167,12 +291,15 @@ The leaderboard (all tests, newest first; the UI sorts).
   "testsCount": 12,
   "matchesPlayed": 1368,
   "gitPush": GitPushStatus,
+  "baseline": BaselineStatus,
   "tests": [ TestSummary ]
 }
 ```
 
 `testsCount` = tests with status `DONE`; `matchesPlayed` = sum of `results.overall.pld`
-over those tests.
+over those tests. The list also holds the tests other backends exported into the shared
+`tactic-arena.export-dir` (read at startup and, at most every 30 s, when this list is
+requested).
 
 `TestSummary`:
 
@@ -187,10 +314,11 @@ over those tests.
   "teamName": "FC Example",
   "leagueId": 16,
   "leagueName": "Liga 1",
-  "season": 3,
-  "startDay": 120,
-  "endDay": 352,
+  "season": 1,
+  "startDay": 1,
+  "endDay": 330,
   "engine": "classic",
+  "autoEleven": false,
   "createdAt": "2026-11-16T10:00:00Z",
   "finishedAt": "2026-11-16T10:40:00Z",
   "status": "RUNNING",
@@ -200,8 +328,13 @@ over those tests.
 }
 ```
 
-- `status`: `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `CANCELLED`.
-- `progress`: 0–100, the mean of the four runs' progress (a finished run counts 100).
+- `status`: `QUEUED` (waiting for a free simulation slot, behind earlier tests),
+  `PREPARING` (the base world is generated first; `message` says so), `RUNNING` (at least
+  one run started), `DONE`, `FAILED`, `CANCELLED`.
+- `progress`: 0–100, the mean of the four runs' progress (a finished run counts 100); while
+  `PREPARING`, the approximate progress of the base world generation.
+- `teamName`, `leagueId`, `leagueName`, `startDay`, `endDay` are `null`/`0` until the test is
+  bound to the base world (at creation when it exists, otherwise after `PREPARING`).
 - `engine`: `"classic"` (game runs with `match2d.mode=off`) or `"2d-human"` (only the
   tested club's matches go through the 2D engine, the rest classic).
 - `results`: the 3 reference runs (`null` until all three are `DONE`).
@@ -215,17 +348,19 @@ over those tests.
 {
   "message": null,
   "tactic": PersonalizedTacticView,
-  "leagueMatchesTotal": 38,
-  "leagueMatchesRemaining": 26,
+  "leagueMatchesTotal": 44,
+  "leagueMatchesRemaining": 44,
+  "baselineUid": "5d0c...",
   "gitPush": GitPushStatus,
   "runs": [ Run ]
 }
 ```
 
 - `message`: why the test failed / was cancelled, else `null`.
-- `leagueMatchesTotal` / `leagueMatchesRemaining`: the chosen club's league matches in the
-  season and how many were still to play when the test started (season already under way
-  ⇔ remaining < total).
+- `leagueMatchesTotal` / `leagueMatchesRemaining`: the chosen club's league matches in
+  season 1; always equal now (every run plays the whole season from day 1), kept so the
+  page does not change.
+- `baselineUid`: the base world the test runs on.
 - `runs`: always 4, in this order: `CHOSEN`, `REFERENCE_TOP`, `REFERENCE_MEDIAN`,
   `REFERENCE_BOTTOM`.
 
@@ -253,6 +388,7 @@ over those tests.
 }
 ```
 
+Until the test is bound, the three reference runs have `teamId: 0` and `teamName: null`.
 `progress` = `simulatedDays / totalDays × 100`; `stats` (`basedOn: 1`) and `result` are
 `null` until the run is `DONE`. `images` lists the kinds already uploaded.
 
@@ -262,11 +398,13 @@ over those tests.
 {
   "teamId": 104,
   "teamName": "FC Example",
+  "color1": "#c00000",
+  "color2": "#ffffff",
   "leagueId": 16,
   "leagueName": "Liga 1",
-  "season": 3,
-  "startDay": 120,
-  "endDay": 352,
+  "season": 1,
+  "startDay": 1,
+  "endDay": 330,
   "engine": "classic",
   "tactic": PersonalizedTacticView,
   "squad": [ PlayerView ],
@@ -276,6 +414,7 @@ over those tests.
 }
 ```
 
+- `color1`, `color2`: the club's shirt colours (as in `clubs`).
 - `tactic`: the tactic the club used all season, `formationDataList` = the XI and bench
   actually set (for reference clubs: the game's automatic best XI for the formation, with
   the test's roles/duties/instructions on the same slots).
@@ -288,7 +427,7 @@ over those tests.
   `opponentGoals`, `resultOutcome`, `decidedBy`, `winnerTeamId`,
   `penaltyTeam1Score`, `penaltyTeam2Score`, `aggregateTeam1Score`, ... ) plus:
   - `xgFor`, `xgAgainst`: numbers with 2 decimals, `null` when the game has no stats;
-  - `inRun`: `false` for matches already played before the test started.
+  - `inRun`: always `true` now (no match is played before a run starts).
 - `competitions`: the club's competitions at season end, each item exactly as
   `GET /competition/getTeamCompetitions/{teamId}` returns it (name, typeId, tier,
   `stageReached`, `status` such as `WINNER` / `RUNNER_UP` / `ELIMINATED`, `statusLabel`,
@@ -307,7 +446,7 @@ the `TestSummary`. Finished tests are returned unchanged.
 
 ### `DELETE /tactic-arena/tests/{id}`
 
-Cancels if needed, then deletes the test, its runs and images from the database. The
+Cancels if needed (a base world being generated keeps going), then deletes the test, its runs and images from the database. The
 exported folder on disk is left alone. Response `204`.
 
 ### `PUT /tactic-arena/tests/{id}/runs/{runId}/images/{kind}`

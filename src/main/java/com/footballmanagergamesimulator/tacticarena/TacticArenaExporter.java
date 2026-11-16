@@ -74,13 +74,20 @@ public class TacticArenaExporter {
         gitPublisher.request("Tactic test " + test.getId() + ": " + test.getName() + " (images)");
     }
 
+    /** {@code <id>-<short-name>-<uid>}: the uid keeps folders of several backends apart. */
     private String folderName(Path root, TacticArenaTest test) {
         if (test.getExportFolder() != null) return test.getExportFolder();
-        String name = test.getId() + "-" + TacticArenaSupport.slug(test.getName());
-        if (Files.exists(root.resolve(name).resolve("result.json.gz"))) {
-            name = name + "-" + test.getUid().substring(0, 8);
-        }
-        return name;
+        return test.getId() + "-" + TacticArenaSupport.slug(test.getName()) + "-" + test.getUid();
+    }
+
+    private volatile long lastImport;
+
+    /** Pick up tests (and late images) exported by other backends; at most every 30 seconds. */
+    void importMissingThrottled() {
+        long now = System.currentTimeMillis();
+        if (now - lastImport < 30_000) return;
+        lastImport = now;
+        importMissing();
     }
 
     private static void writeImage(Path folder, int runIndex, String kind, String contentType, byte[] data) {
@@ -117,7 +124,12 @@ public class TacticArenaExporter {
     private void importFolder(Path folder, Path file) throws IOException {
         JsonNode node = objectMapper.readTree(TacticArenaSupport.gunzip(Files.readAllBytes(file)));
         String uid = node.path("uid").asText(null);
-        if (uid == null || testRepository.findByUid(uid).isPresent()) return;
+        if (uid == null) return;
+        TacticArenaTest existing = testRepository.findByUid(uid).orElse(null);
+        if (existing != null) {
+            importImages(folder, existing, false);
+            return;
+        }
 
         TacticArenaTest test = new TacticArenaTest();
         test.setUid(uid);
@@ -140,6 +152,8 @@ public class TacticArenaExporter {
         test.setFinishedAt(instant(node, "finishedAt"));
         test.setTacticJson(node.path("tactic").isMissingNode() ? null : objectMapper.writeValueAsString(node.path("tactic")));
         test.setExportFolder(folder.getFileName().toString());
+        test.setBaselineUid(text(node, "baselineUid"));
+        test.setAutoEleven(node.path("autoEleven").asBoolean(false));
         test = testRepository.save(test);
 
         for (JsonNode r : node.path("runs")) {
@@ -169,6 +183,12 @@ public class TacticArenaExporter {
             }
         }
 
+        importImages(folder, test, true);
+        log.info("[tactic-arena] imported test '{}' from {}", test.getName(), folder);
+    }
+
+    /** Images in the folder that the database does not have yet (all of them for a new import). */
+    private void importImages(Path folder, TacticArenaTest test, boolean fresh) throws IOException {
         List<TacticArenaRun> runs = runRepository.findAllByTestIdOrderByRunIndexAsc(test.getId());
         try (Stream<Path> files = Files.list(folder)) {
             for (Path image : files.toList()) {
@@ -177,6 +197,7 @@ public class TacticArenaExporter {
                 int index = Integer.parseInt(m.group(1));
                 TacticArenaRun run = runs.stream().filter(x -> x.getRunIndex() == index).findFirst().orElse(null);
                 if (run == null) continue;
+                if (!fresh && imageRepository.findByRunIdAndKind(run.getId(), m.group(2)).isPresent()) continue;
                 TacticArenaImage stored = new TacticArenaImage();
                 stored.setTestId(test.getId());
                 stored.setRunId(run.getId());
@@ -187,7 +208,6 @@ public class TacticArenaExporter {
                 imageRepository.save(stored);
             }
         }
-        log.info("[tactic-arena] imported test '{}' from {}", test.getName(), folder);
     }
 
     private static String text(JsonNode node, String field) {

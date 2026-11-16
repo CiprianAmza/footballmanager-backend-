@@ -47,6 +47,12 @@ public class TacticArenaTest {
     @Lob
     private String tacticJson;
 
+    /** True when the chosen club plays the assistant's automatic eleven (no eleven was sent). */
+    private Boolean autoEleven;
+
+    /** {@code uid} of the base world the test was bound to (its clubs and players). */
+    private String baselineUid;
+
     /** Folder name under {@code tactic-arena.export-dir}, once exported. */
     private String exportFolder;
 }

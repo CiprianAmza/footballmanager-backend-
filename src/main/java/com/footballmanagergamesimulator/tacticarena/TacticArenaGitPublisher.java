@@ -89,7 +89,7 @@ public class TacticArenaGitPublisher {
             } else if (staged.code != 0) {
                 check(staged, "git diff");
             }
-            check(git(dir, "push"), "git push");
+            push(dir);
             status = new GitPushStatus(true, at, true, committed ? "Pushed: " + message : "Nothing new to commit; pushed");
             log.info("[tactic-arena] git push ok ({})", message);
         } catch (Exception e) {
@@ -97,6 +97,21 @@ public class TacticArenaGitPublisher {
             status = new GitPushStatus(true, at, false, error);
             log.warn("[tactic-arena] git push failed: {}", error);
         }
+    }
+
+    /** Push; when another backend pushed first, rebase on it and try again (a few times). */
+    private static void push(Path dir) throws Exception {
+        Result result = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            result = git(dir, "push");
+            if (result.code == 0) return;
+            String out = result.output.toLowerCase();
+            boolean behind = out.contains("non-fast-forward") || out.contains("fetch first")
+                    || out.contains("rejected") || out.contains("updates were rejected");
+            if (!behind) break;
+            check(git(dir, "pull", "--rebase", "--autostash"), "git pull --rebase");
+        }
+        check(result, "git push");
     }
 
     private record Result(int code, String output) {}

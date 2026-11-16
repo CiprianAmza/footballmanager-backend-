@@ -308,27 +308,34 @@ mvn test -Dtest='Match2d*Test,MatchPlanningServicePlayed*Test'
 
 Tactic Arena tests a tactic the way fm-arena.com does: the same tactic plays whole seasons
 of the real game, and the results are averaged into a leaderboard. Everything runs on this
-computer; the career you are playing is never changed. The HTTP contract is
-[`docs/TACTIC_ARENA_API.md`](docs/TACTIC_ARENA_API.md); the code is in the
-`tacticarena` package.
+computer and on a world of its own: the career you are playing (its database, its user, its
+club) is never read or changed. The HTTP contract is
+[`docs/TACTIC_ARENA_API.md`](docs/TACTIC_ARENA_API.md); the code is in the `tacticarena`
+package.
 
 ### 1. Start a test from the interface
 
+The Tactic Arena pages and routes are public: they open without an account (a signed-in
+user is only recorded as the test's owner; a guest may type a name, else "guest").
+
 1. Open **Tactic Arena** in the menu, then **New test**.
-2. Pick any club in the world (clubs are grouped by league).
-3. Build the tactic on the normal tactics page: formation, roles, duties, player and team
-   instructions, set-piece takers and the starting eleven from that club's squad. Saving
-   there does not touch the career; it only keeps the tactic for the test.
-4. Give the test a name and press **Start**. The page shows the progress of every run and
+2. If there is no base world yet (see 3), generate it once and wait for it.
+3. Pick any club of the base world (clubs are grouped by league).
+4. Build the tactic on the normal tactics page: formation, roles, duties, player and team
+   instructions, set-piece takers and the starting eleven from that club's squad **as it is
+   at the start of season 1 of the base world**. Saving there only keeps the tactic for the
+   test.
+5. Give the test a name and press **Start**. The page shows the progress of every run and
    of the whole test, survives a page reload and has a **Cancel** button.
-5. When it finishes, the leaderboard (`/tactic-arena`) lists it and its page shows the
+6. When it finishes, the leaderboard (`/tactic-arena`) lists it and its page shows the
    results block, then for each run the tactic, the full schedule and the competition
    overview as images.
 
 ### 2. What is simulated
 
-Each test makes **4 runs**, each one a full season of the real game (every competition the
-club plays: league, cups, continental), with the tested tactic fixed all season:
+Each test makes **4 runs**, each one the whole of **season 1** of the real game, from its
+first day to the last match day (every competition the club plays: league, cups,
+continental), with the tested tactic fixed all season:
 
 | Run | Club | Starting eleven |
 |-----|------|-----------------|
@@ -342,35 +349,61 @@ instructions are copied slot by slot onto their automatic eleven.
 
 How a run works:
 
-1. When the test starts, the backend copies the current game database once
-   (`BACKUP TO`, a consistent hot copy of the H2 file; the career keeps running).
-2. Every run gets its own unpacked copy and its own Java process: the same application and
-   classpath, started with `--tactic-arena.child.run-dir=<dir>` and a random port.
-3. In that copy the tested club becomes the only human-managed club, with "always
+1. Every run unpacks its own fresh copy of the **base world** (3) and starts its own Java
+   process on it: the same application and classpath, with
+   `--tactic-arena.child.run-dir=<dir>` and a random port. So every club plays on a new,
+   untouched season 1, and all runs of all tests start from the same world.
+2. In that copy the tested club becomes the only human-managed club, with "always
    continue" on, and the test tactic is saved as its tactic. The game then plays its own
    calendar day by day, exactly as when you press Continue: injuries, suspensions,
    fatigue and the other clubs behave normally. If the game changes the club's tactic,
    it is put back before the next day; when a selected player is unavailable the game
    replaces the eleven itself, as it does for your own club.
-4. The season runs from the career's **current day** to the **last match day of the
-   current season** (no season transition). A test started mid-season says how many
-   league matches were left (`leagueMatchesRemaining` of `leagueMatchesTotal`); only
-   matches simulated by the run count.
-5. Match engine: the one the game runs with (`match2d.mode`). With `off` every match is
+3. Match engine: the one the backend runs with (`match2d.mode`). With `off` every match is
    classic; otherwise only the tested club's matches go through the 2D engine (`human`)
    and every other match stays classic, so a season does not take tens of minutes. The
    test records the engine it used (`classic` or `2d-human`).
-6. At the end the run writes what it collected (every match of the club with day,
+4. At the end the run writes what it collected (every match of the club with day,
    competition, stage, home/away, opponent, score with extra time and shoot-out, xG; the
    club's competitions with league place, points, W/D/L, goals, stage reached and
-   trophies; the final league table; the tactic, eleven and squad used) and exits.
+   trophies; the final league table; the tactic, eleven and squad used) and exits. The
+   backend stores it and deletes the run's database copy at once.
 
-Runs execute in parallel (`tactic-arena.parallel-runs`, default 2). Only one test runs at
-a time; the next ones wait in the queue. A crashed run is marked `FAILED` with its
-message and does not block the queue. If the backend restarts, unfinished tests and runs
-become `FAILED`.
+Runs of all tests share `tactic-arena.parallel-runs` simulation processes (default 4).
+Tests are served in launch order: a test stays `QUEUED` until its first run gets a slot,
+and the runs of two or more tests can run at the same time. A crashed run is marked
+`FAILED` with its message and does not block the queue. If the backend restarts,
+unfinished tests and runs become `FAILED`.
 
-### 3. How the averages are computed
+### 3. The base world
+
+The base world is a world newly generated by the game, at season 1, day 1, with its
+calendar created and no match played. It is generated **once**, in a child process on an
+empty database (the game's own world generation, as on a first start), then:
+
+1. a test user starts a career the way a player does (`CareerOnboardingService.setupManager`
+   for the lowest-reputation club that takes a manager without a licence), and the season 1
+   calendar is created;
+2. the database is backed up (`world.zip`) before any match;
+3. the club list and every club's tactics-page data (squad, formations, the club's own
+   tactic) are written next to it (`clubs.json`, `setup/<teamId>.json.gz`, `meta.json`).
+   The launch page reads these files, so you choose the eleven from the squad that will
+   really play.
+
+It lives in `tactic-arena.baseline-dir` (default `<work-dir>/baseline`). Several backends
+can share the folder: generating takes a lock file (`<baseline-dir>.lock`; a lock left by a
+dead process, or older than 2 hours, is taken over), while reading and copying need no
+lock. If it is missing, the first test generates it (the test shows `PREPARING` with an
+approximate progress, then its runs start), or generate it from the launch page
+(`POST /tactic-arena/baseline/rebuild`). `GET /tactic-arena/baseline` shows whether it
+exists, when it was made and with which build.
+
+Generate it again (**Rebuild**) when the game's world changes: new or changed nations,
+leagues or clubs, or a change in how players or squads are generated. A new world has
+different players, so tests that were created on the old one and have not started yet fail
+when their turn comes; finished tests keep their results.
+
+### 4. How the averages are computed
 
 Like fm-arena, from the **3 reference runs** ("Based on 3 test result(s)"), league matches
 only, separately for Overall / Home / Away:
@@ -382,16 +415,21 @@ only, separately for Overall / Home / Away:
 
 The run with the chosen club gets the same figures, shown separately.
 
-### 4. How long it takes
+### 5. How long it takes
 
-Measured on this computer (H2 file database of about 40 MB, 12-club league, test started
-on day 61 of 330, `parallel-runs=2`, 2D service not running so every match was classic):
-the whole test took **about 6 minutes**, about 3 minutes per run, of which about 30
-seconds is the start of the simulation process. A test started on day 1 simulates about a
-fifth more days; a bigger world, a bigger league or the 2D engine for the club's matches
-make it longer.
+Measured on this computer (182 clubs, 12-club league of 44 rounds, every match classic):
 
-### 5. Where results are kept
+- **First time only**, generating the base world: about **4.5 minutes** (new world, career
+  step, backup, the 182 club pages). It is about 7 MB on disk.
+- Then every test: each run starts its process on a fresh copy (about 40 seconds) and plays
+  the 330 days of season 1. With 4 runs at once, one test took about **6 minutes**; two
+  tests launched together took about 10 minutes, the second one's runs starting as soon as
+  the first one's finished.
+
+A bigger league, more parallel runs than processor cores, or the 2D engine for the club's
+matches make it longer.
+
+### 6. Where results are kept
 
 - Database tables (created by Hibernate): `tactic_arena_test`, `tactic_arena_run`,
   `tactic_arena_run_result` (the collected season as gzip-compressed JSON) and
@@ -399,8 +437,11 @@ make it longer.
   they are not gzipped again).
 - Images are captured by the test page from the real panels and uploaded once
   (`PUT /tactic-arena/tests/{id}/runs/{runId}/images/{kind}`).
+- Disk while a run works: its database copy and log in `<work-dir>/test-<id>/run-<n>`
+  (the copy starts at about 30 MB and grows to about 300 MB by the end of the season). The folder is deleted as soon as the result is stored; after a failed run only
+  its log stays.
 
-### 6. Export to a folder and GitHub
+### 7. Export to a folder and GitHub
 
 The database is wiped often in development, so results can also live on disk:
 
@@ -408,10 +449,11 @@ The database is wiped often in development, so results can also live on disk:
 tactic-arena.export-dir=C:/Users/me/IdeaProjects/footballmanager-tactic-arena-results/tests
 ```
 
-When a test finishes the backend writes `<dir>/<id>-<short-name>/result.json.gz` (the
-whole test as `GET /tactic-arena/tests/{id}` returns it, gzip) and the images as
-`<run>-<kind>.webp|png` as they arrive. At startup, tests found in the folder that are
-missing from the database are imported back.
+When a test finishes the backend writes `<dir>/<id>-<short-name>-<uid>/result.json.gz`
+(the whole test as `GET /tactic-arena/tests/{id}` returns it, gzip) and the images as
+`<run>-<kind>.webp|png` as they arrive. Tests found in the folder that are missing from the
+database are imported at startup and, at most every 30 seconds, when the leaderboard is
+opened (so tests finished by other backends appear too).
 
 To keep them on GitHub by hand, make the folder part of a separate repository and commit it
 yourself:
@@ -427,35 +469,71 @@ git push
 exported, and after images of an exported test arrive (grouped: at most one push every few
 seconds), the backend runs in the export folder, with the `git` on the PATH:
 `git add -A .`, `git commit -m "Tactic test <id>: <name>"` (only when something changed)
-and `git push`. It needs an export folder inside a working copy of a GitHub repository
-whose remote and git authentication are already configured on this computer (the backend
-creates no repository and stores no credentials). It never prompts (`GIT_TERMINAL_PROMPT=0`,
-no input), has a time limit and runs one git command at a time. A failure (no network, no
-authentication, a conflict) does not affect the test: the backend logs a warning with git's
-output, `GET /tactic-arena/tests/{id}` shows it in `gitPush`, and the next test tries
-again, pushing any commit that stayed local.
+and `git push`; when the push is refused because another backend pushed first, it runs
+`git pull --rebase --autostash` and pushes again (up to 3 times; every test has its own
+folder, so there is nothing to conflict). It needs an export folder inside a working copy
+of a GitHub repository whose remote and git authentication are already configured on this
+computer (the backend creates no repository and stores no credentials). It never prompts
+(`GIT_TERMINAL_PROMPT=0`, no input), has a time limit and runs one git command at a time.
+A failure (no network, no authentication) does not affect the test: the backend logs a
+warning with git's output, `GET /tactic-arena/tests/{id}` shows it in `gitPush`, and the
+next test tries again, pushing any commit that stayed local.
 
-### 7. Settings
+### 8. Running several instances
+
+To simulate more at once, start more backends (each runs its own child processes) and,
+if you want to watch them, one interface per backend.
+
+Shared between instances: the base world (`tactic-arena.baseline-dir`, same folder), the
+results folder (`tactic-arena.export-dir`) and its GitHub repository. Not shared: each
+backend's own game database, its port, its child processes and its `tactic-arena.work-dir`
+(the default already depends on the port).
+
+A second backend, e.g. on port 8293 (H2 file database; the folder can be empty, the
+backend then generates a new career world on its first start, about 8 minutes):
+
+```bash
+export DB_URL="jdbc:h2:file:C:/fm/instance2/fm;AUTO_SERVER=TRUE"
+export DB_USERNAME=sa DB_PASSWORD= DB_DRIVER=org.h2.Driver DB_DIALECT=org.hibernate.dialect.H2Dialect
+java -cp "target/classes;<dependency classpath>" com.footballmanagergamesimulator.Main \
+  --server.port=8293 --spring.flyway.locations=classpath:db/migration/h2 \
+  --cors.allowed-origins=http://localhost:4216 \
+  --tactic-arena.baseline-dir=C:/fm/tactic-arena-baseline \
+  --tactic-arena.export-dir=C:/Users/me/IdeaProjects/footballmanager-tactic-arena-results/tests \
+  --tactic-arena.git-push=true
+```
+
+Give every backend the same `baseline-dir` and `export-dir`.
+
+The interface picks its backend from the port of the page: `urlApp` in
+`src/app/app.component.ts` maps 4215 → 8291, 4201 → 8087 and every other port → 8086.
+For a new pair today you have to add the mapping there (for example
+`window.location.port === '4216' ? 'http://localhost:8293' : ...`), start
+`ng serve --port 4216` and start the backend with
+`--cors.allowed-origins=http://localhost:4216`. Then open `http://localhost:4216/tactic-arena`.
+
+### 9. Settings
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `tactic-arena.parallel-runs` | `2` | runs simulated at the same time |
+| `tactic-arena.parallel-runs` | `4` | simulation processes of this backend, shared by all tests |
+| `tactic-arena.baseline-dir` | `<work-dir>/baseline` | the base world (can be shared by several backends) |
 | `tactic-arena.export-dir` | empty (no export) | folder for exported tests |
 | `tactic-arena.git-push` | `false` | commit and push the export folder after each test |
-| `tactic-arena.work-dir` | `<temp>/fm-tactic-arena/<port>` | database copies and logs of running tests |
+| `tactic-arena.work-dir` | `<temp>/fm-tactic-arena/<port>` | database copies and logs of running runs |
 | `tactic-arena.child-jvm-args` | `-Xmx3g` | JVM options of each simulation process |
 
-### 8. Limits
+### 10. Limits
 
-- Only the H2 file database is supported. With PostgreSQL the test fails at start: the
-  copy would need `pg_dump`/`createdb` (or a template database) per run and a child
-  started with that database's URL; this is not implemented.
-- Each run needs disk space for one database copy and memory for one more JVM
-  (`child-jvm-args`); two parallel runs need roughly two extra game backends.
-- A run starts the application again on its copy (about a minute) before it simulates.
+- Child processes always use an H2 file database (their own copy). The backend itself can
+  run on any database; on PostgreSQL the result and image columns are large objects.
+- Each running run needs disk space for one database copy and memory for one more JVM
+  (`child-jvm-args`): four parallel runs are roughly four extra game backends.
+- A run starts the application again on its copy before it simulates.
 - With the 2D mode on, the tested club's matches use the 2D service; if it is down the game
   falls back to the classic engine as usual (the test still says `2d-human`).
-- A test can only start while the season still has matches to play.
+- The base world folder defaults to the temp folder; set `tactic-arena.baseline-dir` to a
+  durable place to keep it across temp clean-ups.
 
 ## Automated testing
 

@@ -8,6 +8,7 @@ package com.footballmanagergamesimulator.tacticarena;
 final class TacticArenaEntities {
 
     static final String QUEUED = "QUEUED";
+    static final String PREPARING = "PREPARING";
     static final String RUNNING = "RUNNING";
     static final String DONE = "DONE";
     static final String FAILED = "FAILED";

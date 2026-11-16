@@ -71,6 +71,44 @@ final class TacticArenaSupport {
         }
     }
 
+    /** A child process stops when the backend that started it is gone. */
+    static void startParentWatchdog(long parentPid) {
+        if (parentPid <= 0) return;
+        Thread watchdog = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                boolean alive = ProcessHandle.of(parentPid).map(ProcessHandle::isAlive).orElse(false);
+                if (!alive) {
+                    System.err.println("[tactic-arena] parent process " + parentPid + " is gone; exiting");
+                    Runtime.getRuntime().halt(4);
+                }
+            }
+        }, "tactic-arena-parent-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+    }
+
+    /** Implementation-Version of the packaged application, or the newest class file time when run from classes. */
+    static String appVersion() {
+        String version = TacticArenaSupport.class.getPackage().getImplementationVersion();
+        if (version != null) return version;
+        try {
+            var location = TacticArenaSupport.class.getProtectionDomain().getCodeSource().getLocation();
+            java.nio.file.Path path = java.nio.file.Path.of(location.toURI());
+            if (java.nio.file.Files.isRegularFile(path)) {
+                return "build " + java.nio.file.Files.getLastModifiedTime(path).toInstant();
+            }
+            return "classes " + java.nio.file.Files.getLastModifiedTime(
+                    path.resolve("com/footballmanagergamesimulator/Main.class")).toInstant();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     static void copyInstructions(PersonalizedTacticView from, PersonalizedTactic to) {
         to.setTactic(from.getTactic());
         to.setMentality(from.getMentality());

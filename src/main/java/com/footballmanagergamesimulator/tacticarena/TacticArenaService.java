@@ -1,35 +1,25 @@
 package com.footballmanagergamesimulator.tacticarena;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.footballmanagergamesimulator.frontend.FormationData;
 import com.footballmanagergamesimulator.frontend.PersonalizedTacticView;
-import com.footballmanagergamesimulator.model.*;
-import com.footballmanagergamesimulator.repository.*;
 import com.footballmanagergamesimulator.service.TacticService;
-import com.footballmanagergamesimulator.util.TypeNames;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import javax.sql.DataSource;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.sql.Connection;
-import java.sql.Statement;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,19 +33,18 @@ import java.util.zip.ZipInputStream;
 import static com.footballmanagergamesimulator.tacticarena.TacticArenaEntities.*;
 
 /**
- * Parent side of Tactic Arena: queue, database snapshot, child processes, progress,
- * results and the read models behind {@code /tactic-arena}.
+ * Parent side of Tactic Arena: queue, base world, child processes, progress, results and
+ * the read models behind {@code /tactic-arena}.
  *
- * <p>One test is active at a time. When it starts, the current game database is copied
- * once with H2's {@code BACKUP TO}; every run gets its own unpacked copy and its own JVM
- * (same classpath, same main class) started with {@code --tactic-arena.child.run-dir}.
- * The career database is never written by a run.
+ * <p>Every run starts from a fresh copy of the base world ({@link TacticArenaBaseline}: a
+ * new world at season 1, day 1) in its own JVM and plays the whole of season 1. Nothing
+ * reads or writes the career the user is playing; the backend's own database only stores
+ * the tests.
  */
 @Service
 public class TacticArenaService {
 
     private static final Logger log = LoggerFactory.getLogger(TacticArenaService.class);
-    private static final Set<String> MATCH_TYPES = Set.of("MATCH_LEAGUE", "MATCH_CUP", "MATCH_EUROPEAN");
     private static final long MAX_IMAGE_BYTES = 8L * 1024 * 1024;
 
     @Autowired private TacticArenaTestRepository testRepository;
@@ -64,32 +53,26 @@ public class TacticArenaService {
     @Autowired private TacticArenaImageRepository imageRepository;
     @Autowired private TacticArenaExporter exporter;
     @Autowired private TacticArenaGitPublisher gitPublisher;
+    @Autowired private TacticArenaBaseline baseline;
+    @Autowired private TacticArenaProcesses childProcesses;
     @Autowired private ObjectMapper objectMapper;
-    @Autowired private TeamRepository teamRepository;
-    @Autowired private CompetitionRepository competitionRepository;
-    @Autowired private HumanRepository humanRepository;
-    @Autowired private GameCalendarRepository gameCalendarRepository;
-    @Autowired private CalendarEventRepository calendarEventRepository;
-    @Autowired private CompetitionTeamInfoMatchRepository fixtureRepository;
     @Autowired private TacticService tacticService;
-    @Autowired private DataSource dataSource;
-    @Autowired private Environment environment;
-    @Autowired private ApplicationArguments applicationArguments;
 
-    @Value("${tactic-arena.parallel-runs:2}") private int parallelRuns;
-    @Value("${tactic-arena.work-dir:}") private String workDirSetting;
-    @Value("${tactic-arena.child-jvm-args:-Xmx3g}") private String childJvmArgs;
+    @Value("${tactic-arena.parallel-runs:4}") private int parallelRuns;
     @Value("${tactic-arena.child.run-dir:}") private String childRunDir;
+    @Value("${tactic-arena.child.baseline-dir:}") private String childBaselineDir;
     @Value("${match2d.mode:off}") private String match2dMode;
 
     private final Object lock = new Object();
     private final Map<Long, Process> processes = new ConcurrentHashMap<>();
     private ScheduledExecutorService scheduler;
+    /** The test whose PREPARING step started the current/last base-world build. */
+    private volatile Long buildRequestedBy;
 
     // ================================================================ lifecycle
 
     private boolean childMode() {
-        return childRunDir != null && !childRunDir.isBlank();
+        return (childRunDir != null && !childRunDir.isBlank()) || (childBaselineDir != null && !childBaselineDir.isBlank());
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -111,6 +94,7 @@ public class TacticArenaService {
                 testRepository.save(test);
                 deleteQuietly(testWorkDir(test.getId()));
             }
+            baseline.cleanupAfterRestart();
             exporter.importMissing();
         } catch (Exception e) {
             log.warn("[tactic-arena] startup recovery failed: {}", e.toString());
@@ -132,12 +116,94 @@ public class TacticArenaService {
     @PreDestroy
     void stop() {
         if (scheduler != null) scheduler.shutdownNow();
-        processes.values().forEach(TacticArenaService::kill);
+        processes.values().forEach(TacticArenaProcesses::kill);
+        baseline.stop();
+    }
+
+    // ================================================================ base world
+
+    public Map<String, Object> baselineStatus() {
+        return baseline.toJson();
+    }
+
+    public Map<String, Object> rebuildBaseline() {
+        if (childMode()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Not available in a simulation process");
+        synchronized (lock) {
+            boolean busy = testRepository.findAll().stream()
+                    .anyMatch(t -> RUNNING.equals(t.getStatus()) || PREPARING.equals(t.getStatus()));
+            if (busy) throw new ResponseStatusException(HttpStatus.CONFLICT, "A test is running; rebuild the base world after it ends");
+            if (baseline.building()) throw new ResponseStatusException(HttpStatus.CONFLICT, "The base world is already being generated");
+            buildRequestedBy = null;
+            baseline.rebuild();
+            return baseline.toJson();
+        }
+    }
+
+    /** 409 with the base world's state when the launch page cannot be served yet. */
+    public ResponseStatusException baselineMissing() {
+        String status = baseline.status();
+        String message = switch (status) {
+            case TacticArenaBaseline.BUILDING -> "The base world is being generated";
+            case TacticArenaBaseline.FAILED -> "The base world could not be generated: " + baseline.lastError();
+            default -> "There is no base world yet; generate it with POST /tactic-arena/baseline/rebuild";
+        };
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
+    }
+
+    public JsonNode clubs() {
+        if (!baseline.ready()) throw baselineMissing();
+        return baseline.clubs();
+    }
+
+    public JsonNode setup(long teamId) {
+        if (!baseline.ready()) throw baselineMissing();
+        JsonNode setup = baseline.setup(teamId);
+        if (setup == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No such club in the base world");
+        return setup;
     }
 
     // ================================================================ create
 
-    public record CreateRequest(String name, Long teamId, PersonalizedTacticView tactic) {}
+    public record CreateRequest(String name, Long teamId, PersonalizedTacticView tactic, String owner, Boolean autoEleven) {}
+
+    /** Team instructions: allowed values, the first-listed default being the game's default. */
+    static final Map<String, List<String>> INSTRUCTION_VALUES = new LinkedHashMap<>();
+    static {
+        INSTRUCTION_VALUES.put("mentality", List.of("Balanced", "Very Defensive", "Defensive", "Attacking", "Very Attacking"));
+        INSTRUCTION_VALUES.put("inPossession", List.of("Standard", "Keep Ball", "Free Ball Early"));
+        INSTRUCTION_VALUES.put("passingType", List.of("Normal", "Short", "Long"));
+        INSTRUCTION_VALUES.put("tempo", List.of("Standard", "Much Lower", "Lower", "Higher", "Much Higher"));
+        INSTRUCTION_VALUES.put("timeWasting", List.of("Sometimes", "Never", "Frequently", "Always"));
+        INSTRUCTION_VALUES.put("defensiveLine", List.of("Standard", "Deep", "High"));
+        INSTRUCTION_VALUES.put("pressing", List.of("Normal", "Very Easy", "Easy", "Aggressive", "Very Aggressive"));
+        INSTRUCTION_VALUES.put("width", List.of("Balanced", "Narrow", "Wide"));
+        INSTRUCTION_VALUES.put("dribbling", List.of("Standard", "Less", "More"));
+        INSTRUCTION_VALUES.put("foulFrequency", List.of("Normal", "Rarely", "Often"));
+        INSTRUCTION_VALUES.put("foulHardness", List.of("Medium", "Soft", "Hard"));
+        INSTRUCTION_VALUES.put("tempoFragmentation", List.of("Normal", "Flowing", "Fragment"));
+        INSTRUCTION_VALUES.put("widePlay", List.of("Shoot", "Cut Inside", "Cross"));
+        INSTRUCTION_VALUES.put("transition", List.of("Balanced", "Win Fouls", "Fast Counter"));
+        INSTRUCTION_VALUES.put("recovery", List.of("Standard", "Slow", "Very Fast", "Instantly"));
+    }
+
+    /** autoEleven: missing instructions take the game's default; given ones must be allowed values. */
+    private PersonalizedTacticView normalizeAuto(PersonalizedTacticView tactic) {
+        Map<String, Object> values = objectMapper.convertValue(tactic, new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, Object>>() {});
+        for (Map.Entry<String, List<String>> entry : INSTRUCTION_VALUES.entrySet()) {
+            Object value = values.get(entry.getKey());
+            if (value == null || value.toString().isBlank()) {
+                values.put(entry.getKey(), entry.getValue().get(0));
+            } else if (!entry.getValue().contains(value.toString())) {
+                throw bad(entry.getKey() + " must be one of " + entry.getValue());
+            }
+        }
+        values.put("formationDataList", List.of());
+        values.put("penaltyTakerId", null);
+        values.put("freeKickTakerId", null);
+        values.put("cornerTakerLeftId", null);
+        values.put("cornerTakerRightId", null);
+        return objectMapper.convertValue(values, PersonalizedTacticView.class);
+    }
 
     public long create(CreateRequest request, String owner) {
         if (childMode()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Not available in a simulation process");
@@ -146,73 +212,91 @@ public class TacticArenaService {
         if (request.teamId() == null) throw bad("teamId is required");
         PersonalizedTacticView tactic = request.tactic();
         if (tactic == null) throw bad("tactic is required");
-        Team team = teamRepository.findById(request.teamId()).orElseThrow(() -> bad("Unknown club " + request.teamId()));
-        validateTactic(team.getId(), tactic);
-        tactic.setTeamId(team.getId());
+        validateFormation(tactic);
+        boolean auto = Boolean.TRUE.equals(request.autoEleven());
+        if (auto) tactic = normalizeAuto(tactic);
+        tactic.setTeamId(request.teamId());
 
-        GameCalendar calendar = gameCalendarRepository.findTopByOrderBySeasonDesc()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "The game has no calendar yet"));
-        int season = calendar.getSeason();
-        int startDay = calendar.getCurrentDay();
-        int endDay = calendarEventRepository.findAllBySeason(season).stream()
-                .filter(e -> MATCH_TYPES.contains(e.getEventType()))
-                .mapToInt(CalendarEvent::getDay).max().orElse(startDay);
-        if (endDay < startDay || calendarEventRepository.findAllBySeasonAndStatus(season, "PENDING").stream()
-                .noneMatch(e -> MATCH_TYPES.contains(e.getEventType()))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "No matches are left this season; start the test after the new season begins");
+        synchronized (lock) {
+            TacticArenaTest test = new TacticArenaTest();
+            test.setUid(UUID.randomUUID().toString());
+            test.setName(name);
+            test.setOwner(owner);
+            test.setFormation(tactic.getTactic());
+            test.setTeamId(request.teamId());
+            test.setSeason(1);
+            test.setEngine("off".equalsIgnoreCase(match2dMode.trim()) ? "classic" : "2d-human");
+            test.setStatus(QUEUED);
+            test.setCreatedAt(Instant.now());
+            test.setTacticJson(json(tactic));
+            test.setAutoEleven(auto);
+
+            List<TacticArenaRun> runs = new ArrayList<>();
+            String[] kinds = {KIND_CHOSEN, KIND_TOP, KIND_MEDIAN, KIND_BOTTOM};
+            for (int i = 0; i < 4; i++) {
+                TacticArenaRun run = new TacticArenaRun();
+                run.setRunIndex(i);
+                run.setKind(kinds[i]);
+                run.setStatus(QUEUED);
+                runs.add(run);
+            }
+            runs.get(0).setTeamId(request.teamId());
+            // With a base world the test is bound (and validated) now; otherwise when the
+            // base world it starts with is ready.
+            if (baseline.ready()) bind(test, runs);
+            test = testRepository.save(test);
+            for (TacticArenaRun run : runs) {
+                run.setTestId(test.getId());
+                runRepository.save(run);
+            }
+            return test.getId();
         }
-
-        long leagueId = team.getCompetitionId();
-        Competition league = competitionRepository.findById(leagueId).orElse(null);
-        List<CompetitionTeamInfoMatch> leagueFixtures = fixtureRepository
-                .findAllBySeasonNumberAndTeamId(String.valueOf(season), team.getId()).stream()
-                .filter(f -> f.getCompetitionId() == leagueId).toList();
-
-        List<Team> leagueTeams = new ArrayList<>(teamRepository.findAllByCompetitionId(leagueId));
-        leagueTeams.sort(Comparator.comparingInt(Team::getReputation).reversed().thenComparingLong(Team::getId));
-        if (leagueTeams.isEmpty()) throw bad("The club's league has no clubs");
-
-        TacticArenaTest test = new TacticArenaTest();
-        test.setUid(UUID.randomUUID().toString());
-        test.setName(name);
-        test.setOwner(owner);
-        test.setFormation(tactic.getTactic());
-        test.setTeamId(team.getId());
-        test.setTeamName(team.getName());
-        test.setLeagueId(leagueId);
-        test.setLeagueName(league == null ? null : league.getName());
-        test.setSeason(season);
-        test.setStartDay(startDay);
-        test.setEndDay(endDay);
-        test.setLeagueMatchesTotal(leagueFixtures.size());
-        test.setLeagueMatchesRemaining((int) leagueFixtures.stream().filter(f -> f.getTeam1Score() < 0).count());
-        test.setEngine("off".equalsIgnoreCase(match2dMode.trim()) ? "classic" : "2d-human");
-        test.setStatus(QUEUED);
-        test.setCreatedAt(Instant.now());
-        test.setTacticJson(json(tactic));
-        test = testRepository.save(test);
-
-        Team[] clubs = {team, leagueTeams.get(0), leagueTeams.get((leagueTeams.size() - 1) / 2),
-                leagueTeams.get(leagueTeams.size() - 1)};
-        String[] kinds = {KIND_CHOSEN, KIND_TOP, KIND_MEDIAN, KIND_BOTTOM};
-        for (int i = 0; i < 4; i++) {
-            TacticArenaRun run = new TacticArenaRun();
-            run.setTestId(test.getId());
-            run.setRunIndex(i);
-            run.setKind(kinds[i]);
-            run.setTeamId(clubs[i].getId());
-            run.setTeamName(clubs[i].getName());
-            run.setTeamReputation(clubs[i].getReputation());
-            run.setStatus(QUEUED);
-            run.setTotalDays(endDay - startDay + 1);
-            run.setCurrentDay(startDay);
-            runRepository.save(run);
-        }
-        return test.getId();
     }
 
-    private void validateTactic(long teamId, PersonalizedTacticView tactic) {
+    /** Fill club, league, season span and reference clubs from the base world; validate the eleven. */
+    private void bind(TacticArenaTest test, List<TacticArenaRun> runs) {
+        JsonNode meta = baseline.meta();
+        JsonNode league = baseline.leagueOf(test.getTeamId());
+        JsonNode setup = baseline.setup(test.getTeamId());
+        if (meta == null || league == null || setup == null) throw bad("Club " + test.getTeamId() + " is not in the base world");
+        PersonalizedTacticView tactic;
+        try {
+            tactic = objectMapper.readValue(test.getTacticJson(), PersonalizedTacticView.class);
+        } catch (Exception e) {
+            throw bad("Unreadable tactic");
+        }
+        Set<Long> squad = new HashSet<>();
+        for (JsonNode p : setup.path("players")) {
+            if (!p.path("isRetired").asBoolean(false)) squad.add(p.path("id").asLong());
+        }
+        if (!Boolean.TRUE.equals(test.getAutoEleven())) validateLineup(tactic, squad);
+
+        test.setBaselineUid(meta.path("uid").asText());
+        test.setTeamName(setup.path("team").path("name").asText());
+        test.setLeagueId(league.path("competitionId").asLong());
+        test.setLeagueName(league.path("name").asText());
+        test.setSeason(meta.path("season").asInt(1));
+        test.setStartDay(meta.path("startDay").asInt(1));
+        test.setEndDay(meta.path("endDay").asInt());
+        test.setLeagueMatchesTotal(baseline.leagueMatches(test.getTeamId()));
+        test.setLeagueMatchesRemaining(test.getLeagueMatchesTotal());
+
+        List<JsonNode> teams = new ArrayList<>();
+        league.path("teams").forEach(teams::add); // highest reputation first
+        JsonNode chosen = teams.stream().filter(t -> t.path("teamId").asLong() == test.getTeamId()).findFirst().orElseThrow();
+        JsonNode[] clubs = {chosen, teams.get(0), teams.get((teams.size() - 1) / 2), teams.get(teams.size() - 1)};
+        int totalDays = test.getEndDay() - test.getStartDay() + 1;
+        for (int i = 0; i < 4; i++) {
+            TacticArenaRun run = runs.get(i);
+            run.setTeamId(clubs[i].path("teamId").asLong());
+            run.setTeamName(clubs[i].path("name").asText());
+            run.setTeamReputation(clubs[i].path("reputation").asInt());
+            run.setTotalDays(totalDays);
+            run.setCurrentDay(test.getStartDay());
+        }
+    }
+
+    private void validateFormation(PersonalizedTacticView tactic) {
         try {
             if (tactic.getTactic() == null || tacticService.getFormationGridIndices(tactic.getTactic()).length != 11) {
                 throw bad("Unknown formation " + tactic.getTactic());
@@ -221,6 +305,9 @@ public class TacticArenaService {
             if (e instanceof ResponseStatusException) throw e;
             throw bad("Unknown formation " + tactic.getTactic());
         }
+    }
+
+    private static void validateLineup(PersonalizedTacticView tactic, Set<Long> squad) {
         List<FormationData> list = tactic.getFormationDataList() == null ? List.of() : tactic.getFormationDataList();
         Set<Integer> slots = new HashSet<>();
         Set<Long> players = new HashSet<>();
@@ -233,9 +320,7 @@ public class TacticArenaService {
             if (fd.getPositionIndex() < 30) starters++;
         }
         if (starters != 11) throw bad("The starting eleven must have 11 players (has " + starters + ")");
-        Set<Long> squad = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE).stream()
-                .filter(h -> !h.isRetired()).map(Human::getId).collect(Collectors.toSet());
-        if (!squad.containsAll(players)) throw bad("Every selected player must belong to the club");
+        if (!squad.containsAll(players)) throw bad("Every selected player must belong to the club in the base world");
     }
 
     private static ResponseStatusException bad(String message) {
@@ -244,59 +329,91 @@ public class TacticArenaService {
 
     // ================================================================ scheduler
 
+    /**
+     * One scheduler step. Tests are served in launch order; the runs of all of them share
+     * {@code tactic-arena.parallel-runs} simulation processes. A test stays QUEUED until its
+     * first run gets a free slot.
+     */
     void tick() {
         synchronized (lock) {
-            TacticArenaTest active = testRepository.findAllByStatusOrderByIdAsc(RUNNING).stream().findFirst().orElse(null);
-            if (active == null) {
-                active = testRepository.findAllByStatusOrderByIdAsc(QUEUED).stream().findFirst().orElse(null);
-                if (active == null) return;
-                if (!startTest(active)) return;
-            }
-            List<TacticArenaRun> runs = runRepository.findAllByTestIdOrderByRunIndexAsc(active.getId());
+            baseline.poll();
+            // 1. Running tests: progress, finished runs, finished tests.
             int running = 0;
-            for (TacticArenaRun run : runs) {
-                if (RUNNING.equals(run.getStatus())) {
-                    pollRun(active, run);
-                    if (RUNNING.equals(run.getStatus())) running++;
+            for (TacticArenaTest test : testRepository.findAllByStatusOrderByIdAsc(RUNNING)) {
+                List<TacticArenaRun> runs = runRepository.findAllByTestIdOrderByRunIndexAsc(test.getId());
+                for (TacticArenaRun run : runs) {
+                    if (RUNNING.equals(run.getStatus())) {
+                        pollRun(test, run);
+                        if (RUNNING.equals(run.getStatus())) running++;
+                    }
                 }
+                if (runs.stream().allMatch(r -> terminal(r.getStatus()))) finishTest(test, runs);
             }
-            for (TacticArenaRun run : runs) {
-                if (running >= Math.max(1, parallelRuns)) break;
-                if (QUEUED.equals(run.getStatus())) {
-                    launchRun(active, run);
-                    if (RUNNING.equals(run.getStatus())) running++;
+            // 2. Free slots go to the waiting runs in launch order. Only the tests needed to
+            //    fill the slots are looked at, so a long queue costs one id-ordered query.
+            int limit = Math.max(1, parallelRuns);
+            if (running >= limit) return;
+            for (TacticArenaTest test : testRepository.findTop50ByStatusInOrderByIdAsc(List.of(RUNNING, PREPARING, QUEUED))) {
+                if (running >= limit) break;
+                if (!RUNNING.equals(test.getStatus()) && !prepare(test)) {
+                    if (!baseline.ready()) break; // every later test waits for the same base world
+                    continue;
                 }
+                List<TacticArenaRun> runs = runRepository.findAllByTestIdOrderByRunIndexAsc(test.getId());
+                for (TacticArenaRun run : runs) {
+                    if (running >= limit) break;
+                    if (!QUEUED.equals(run.getStatus())) continue;
+                    launchRun(test, run);
+                    if (RUNNING.equals(run.getStatus())) {
+                        running++;
+                        if (!RUNNING.equals(test.getStatus())) {
+                            test.setStatus(RUNNING);
+                            test.setMessage(null);
+                            testRepository.save(test);
+                        }
+                    }
+                }
+                if (runs.stream().allMatch(r -> terminal(r.getStatus()))) finishTest(test, runs);
             }
-            if (runs.stream().allMatch(r -> terminal(r.getStatus()))) finishTest(active, runs);
         }
     }
 
-    private boolean startTest(TacticArenaTest test) {
-        test.setStatus(RUNNING);
-        testRepository.save(test);
-        try {
-            Path dir = testWorkDir(test.getId());
-            Files.createDirectories(dir);
-            snapshot(dir.resolve("snapshot.zip"));
-            return true;
-        } catch (Exception e) {
-            failTest(test, "Could not copy the game database: " + e.getMessage());
+    /** Make sure the base world exists and the test is bound to it; true when its runs may start. */
+    private boolean prepare(TacticArenaTest test) {
+        if (!baseline.ready()) {
+            if (!PREPARING.equals(test.getStatus())) {
+                test.setStatus(PREPARING);
+                test.setMessage("Generating the base world (first time only)");
+                testRepository.save(test);
+            }
+            if (baseline.building()) return false;
+            if (TacticArenaBaseline.FAILED.equals(baseline.status()) && Objects.equals(buildRequestedBy, test.getId())) {
+                failTest(test, baseline.lastError());
+                return false;
+            }
+            buildRequestedBy = test.getId();
+            baseline.startBuild();
             return false;
         }
-    }
-
-    /** One consistent hot copy of the career database for the whole test. */
-    private void snapshot(Path zip) throws Exception {
-        try (Connection connection = dataSource.getConnection()) {
-            String url = connection.getMetaData().getURL();
-            if (url == null || !url.startsWith("jdbc:h2:") || url.startsWith("jdbc:h2:mem:")) {
-                throw new IllegalStateException("Tactic Arena needs the H2 file database (current: " + url + ")");
+        if (test.getBaselineUid() == null) {
+            List<TacticArenaRun> runs = runRepository.findAllByTestIdOrderByRunIndexAsc(test.getId());
+            try {
+                bind(test, runs);
+                runs.forEach(runRepository::save);
+            } catch (ResponseStatusException e) {
+                failTest(test, e.getReason());
+                return false;
             }
-            Files.deleteIfExists(zip);
-            try (Statement st = connection.createStatement()) {
-                st.execute("BACKUP TO '" + zip.toAbsolutePath().toString().replace("'", "''") + "'");
-            }
+        } else if (!test.getBaselineUid().equals(baseline.uid())) {
+            failTest(test, "The base world was generated again after this test was created; its players no longer exist");
+            return false;
         }
+        if (PREPARING.equals(test.getStatus())) {
+            test.setStatus(QUEUED);
+            test.setMessage(null);
+        }
+        testRepository.save(test);
+        return true;
     }
 
     private void launchRun(TacticArenaTest test, TacticArenaRun run) {
@@ -305,73 +422,29 @@ public class TacticArenaService {
             deleteQuietly(runDir);
             Path dbDir = runDir.resolve("db");
             Files.createDirectories(dbDir);
-            String dbName = unzip(testWorkDir(test.getId()).resolve("snapshot.zip"), dbDir);
+            String dbName = unzip(baseline.worldZip(), dbDir);
 
             PersonalizedTacticView tactic = objectMapper.readValue(test.getTacticJson(), PersonalizedTacticView.class);
             TacticArenaChildRunner.ChildSpec spec = new TacticArenaChildRunner.ChildSpec(run.getTeamId(), tactic,
-                    run.getRunIndex() != 0, test.getSeason(), test.getStartDay(), test.getEndDay(), test.getEngine());
+                    run.getRunIndex() != 0 || Boolean.TRUE.equals(test.getAutoEleven()), test.getSeason(), test.getStartDay(), test.getEndDay(), test.getEngine());
             Files.write(runDir.resolve("spec.json"), objectMapper.writeValueAsBytes(spec));
 
-            String dbUrl = "jdbc:h2:file:" + dbDir.toAbsolutePath().toString().replace('\\', '/') + "/" + dbName;
-            List<String> command = childCommand(runDir, dbUrl, test.getEngine());
-            File logFile = runDir.resolve("child.log").toFile();
-            ProcessBuilder pb = new ProcessBuilder(command).directory(runDir.toFile())
-                    .redirectErrorStream(true)
-                    .redirectOutput(logFile)
-                    .redirectInput(ProcessBuilder.Redirect.from(nullFile()));
-            Process process = pb.start();
+            Process process = childProcesses.start(runDir, dbDir, dbName, Map.of(
+                    "match2d.mode", "classic".equals(test.getEngine()) ? "off" : "human",
+                    "tactic-arena.child.run-dir", runDir.toAbsolutePath().toString()));
             processes.put(run.getId(), process);
             run.setStatus(RUNNING);
             run.setStartedAt(Instant.now());
             run.setMessage(null);
             runRepository.save(run);
             log.info("[tactic-arena] test {} run {} ({}) started, pid {}, log {}", test.getId(), run.getRunIndex(),
-                    run.getTeamName(), process.pid(), logFile);
+                    run.getTeamName(), process.pid(), runDir.resolve("child.log"));
         } catch (Exception e) {
             run.setStatus(FAILED);
             run.setMessage("Could not start the simulation: " + e.getMessage());
             run.setFinishedAt(Instant.now());
             runRepository.save(run);
         }
-    }
-
-    private List<String> childCommand(Path runDir, String dbUrl, String engine) {
-        String java = ProcessHandle.current().info().command()
-                .orElse(Path.of(System.getProperty("java.home"), "bin", "java").toString());
-        List<String> command = new ArrayList<>();
-        command.add(java);
-        for (String arg : childJvmArgs.trim().split("\\s+")) if (!arg.isBlank()) command.add(arg);
-        command.add("-Dfile.encoding=UTF-8");
-        String classpath = System.getProperty("java.class.path");
-        boolean singleJar = classpath != null && !classpath.contains(File.pathSeparator) && classpath.endsWith(".jar");
-        if (singleJar) {
-            command.add("-jar");
-            command.add(classpath);
-        } else {
-            command.add("-cp");
-            command.add(classpath);
-            command.add("com.footballmanagergamesimulator.Main");
-        }
-
-        Map<String, String> overrides = new LinkedHashMap<>();
-        overrides.put("server.port", "0");
-        overrides.put("spring.datasource.url", dbUrl);
-        overrides.put("spring.datasource.username", environment.getProperty("spring.datasource.username", "sa"));
-        overrides.put("spring.datasource.password", environment.getProperty("spring.datasource.password", ""));
-        overrides.put("match2d.mode", "classic".equals(engine) ? "off" : "human");
-        overrides.put("facelab.enabled", "false");
-        overrides.put("game.checkpoint.enabled", "false");
-        overrides.put("tactic-arena.export-dir", "");
-        overrides.put("tactic-arena.git-push", "false");
-        overrides.put("tactic-arena.child.run-dir", runDir.toAbsolutePath().toString());
-        overrides.put("tactic-arena.child.parent-pid", String.valueOf(ProcessHandle.current().pid()));
-        for (String arg : applicationArguments.getSourceArgs()) {
-            String key = arg.startsWith("--") ? arg.substring(2).split("=", 2)[0] : null;
-            if (key != null && overrides.containsKey(key)) continue;
-            command.add(arg);
-        }
-        overrides.forEach((key, value) -> command.add("--" + key + "=" + value));
-        return command;
     }
 
     private void pollRun(TacticArenaTest test, TacticArenaRun run) {
@@ -458,7 +531,6 @@ public class TacticArenaService {
         }
         test.setFinishedAt(Instant.now());
         testRepository.save(test);
-        deleteQuietly(testWorkDir(test.getId()).resolve("snapshot.zip"));
         if (allDone) {
             deleteQuietly(testWorkDir(test.getId()));
             try {
@@ -493,7 +565,7 @@ public class TacticArenaService {
                 for (TacticArenaRun run : runRepository.findAllByTestIdOrderByRunIndexAsc(id)) {
                     if (terminal(run.getStatus())) continue;
                     Process process = processes.remove(run.getId());
-                    if (process != null) kill(process);
+                    if (process != null) TacticArenaProcesses.kill(process);
                     run.setStatus(CANCELLED);
                     run.setMessage("Cancelled");
                     run.setFinishedAt(Instant.now());
@@ -504,6 +576,7 @@ public class TacticArenaService {
                 test.setFinishedAt(Instant.now());
                 testRepository.save(test);
                 deleteLater(testWorkDir(id));
+                // A base world being generated is kept going: the next test needs it too.
             }
             return summary(test, runRepository.findAllByTestIdOrderByRunIndexAsc(id));
         }
@@ -517,11 +590,6 @@ public class TacticArenaService {
             runRepository.deleteAllByTestId(id);
             testRepository.deleteById(id);
         }
-    }
-
-    private static void kill(Process process) {
-        process.descendants().forEach(ProcessHandle::destroyForcibly);
-        process.destroyForcibly();
     }
 
     /** Killed processes release their H2 files a moment later. */
@@ -563,8 +631,15 @@ public class TacticArenaService {
     // ================================================================ read models
 
     public Map<String, Object> list() {
+        if (!childMode()) {
+            try {
+                exporter.importMissingThrottled();
+            } catch (Exception e) {
+                log.warn("[tactic-arena] import from the export folder failed: {}", e.toString());
+            }
+        }
         List<TacticArenaTest> tests = testRepository.findAllByOrderByIdDesc();
-        Map<Long, List<TacticArenaRun>> runsByTest = runRepository
+        Map<Long, List<TacticArenaRun>> runsByTest = tests.isEmpty() ? Map.of() : runRepository
                 .findAllByTestIdIn(tests.stream().map(TacticArenaTest::getId).toList()).stream()
                 .collect(Collectors.groupingBy(TacticArenaRun::getTestId));
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -584,6 +659,7 @@ public class TacticArenaService {
         body.put("testsCount", done);
         body.put("matchesPlayed", matches);
         body.put("gitPush", gitPublisher.toJson());
+        body.put("baseline", baseline.toJson());
         body.put("tests", rows);
         return body;
     }
@@ -592,7 +668,6 @@ public class TacticArenaService {
         return detail(require(id), false);
     }
 
-    /** {@code withResults=false} is the API (results inline too); both include the run results. */
     Map<String, Object> detail(TacticArenaTest test, boolean forExport) {
         List<TacticArenaRun> runs = runRepository.findAllByTestIdOrderByRunIndexAsc(test.getId());
         Map<String, Object> body = summary(test, runs);
@@ -600,6 +675,7 @@ public class TacticArenaService {
         body.put("tactic", readTree(test.getTacticJson()));
         body.put("leagueMatchesTotal", test.getLeagueMatchesTotal());
         body.put("leagueMatchesRemaining", test.getLeagueMatchesRemaining());
+        body.put("baselineUid", test.getBaselineUid());
         if (!forExport) body.put("gitPush", gitPublisher.toJson());
         Map<Long, List<String>> images = new HashMap<>();
         for (Object[] row : imageRepository.kindsForTest(test.getId())) {
@@ -636,10 +712,12 @@ public class TacticArenaService {
         row.put("startDay", test.getStartDay());
         row.put("endDay", test.getEndDay());
         row.put("engine", test.getEngine());
+        row.put("autoEleven", Boolean.TRUE.equals(test.getAutoEleven()));
         row.put("createdAt", test.getCreatedAt() == null ? null : test.getCreatedAt().toString());
         row.put("finishedAt", test.getFinishedAt() == null ? null : test.getFinishedAt().toString());
         row.put("status", test.getStatus());
-        double progress = runs.isEmpty() ? 0 : runs.stream().mapToDouble(TacticArenaService::runProgress).average().orElse(0);
+        double progress = PREPARING.equals(test.getStatus()) ? baseline.progress()
+                : runs.isEmpty() ? 0 : runs.stream().mapToDouble(TacticArenaService::runProgress).average().orElse(0);
         row.put("progress", Math.round(progress * 10) / 10.0);
         List<TacticArenaStats.RunTotals> reference = new ArrayList<>();
         TacticArenaStats.RunTotals chosen = null;
@@ -722,14 +800,8 @@ public class TacticArenaService {
         return run;
     }
 
-    Path workDir() {
-        if (workDirSetting != null && !workDirSetting.isBlank()) return Path.of(workDirSetting);
-        return Path.of(System.getProperty("java.io.tmpdir"), "fm-tactic-arena",
-                environment.getProperty("server.port", "default"));
-    }
-
     private Path testWorkDir(long testId) {
-        return workDir().resolve("test-" + testId);
+        return childProcesses.workDir().resolve("test-" + testId);
     }
 
     private String json(Object value) {
@@ -756,8 +828,9 @@ public class TacticArenaService {
         }
     }
 
-    /** Unpack the H2 backup; returns the database name (file name without {@code .mv.db}). */
+    /** Unpack an H2 backup; returns the database name (file name without {@code .mv.db}). */
     private static String unzip(Path zip, Path target) throws IOException {
+        if (!Files.exists(zip)) throw new IOException("The base world " + zip + " is missing");
         String name = null;
         try (InputStream in = Files.newInputStream(zip); ZipInputStream zin = new ZipInputStream(in)) {
             ZipEntry entry;
@@ -770,7 +843,7 @@ public class TacticArenaService {
                 if (fileName.endsWith(".mv.db")) name = fileName.substring(0, fileName.length() - ".mv.db".length());
             }
         }
-        if (name == null) throw new IOException("The database backup has no .mv.db file");
+        if (name == null) throw new IOException("The base world backup has no .mv.db file");
         return name;
     }
 
@@ -788,11 +861,4 @@ public class TacticArenaService {
             // nothing to do
         }
     }
-
-    private static File nullFile() {
-        return new File(System.getProperty("os.name").toLowerCase(Locale.ROOT).startsWith("windows") ? "NUL" : "/dev/null");
-    }
-
-    @SuppressWarnings("unused")
-    private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {};
 }
