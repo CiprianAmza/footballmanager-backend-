@@ -208,7 +208,56 @@ public class TacticArenaService {
 
     // ================================================================ create
 
-    public record CreateRequest(String name, Long teamId, PersonalizedTacticView tactic, String owner, Boolean autoEleven, String category) {}
+    public record CreateRequest(String name, Long teamId, PersonalizedTacticView tactic, String owner, Boolean autoEleven,
+                                String category, Integer repeats, String engine) {}
+
+    static final int DEFAULT_REPEATS = 3;
+    static final int MAX_REPEATS = 10;
+
+    /** Stored engine of a new test: the request's {@code "classic"} / {@code "2d"}, else the game's {@code match2d.mode}. */
+    static String engineFor(String requested, String match2dMode) {
+        if (requested == null || requested.isBlank()) {
+            return match2dMode == null || "off".equalsIgnoreCase(match2dMode.trim()) ? "classic" : "2d-human";
+        }
+        return switch (requested.trim().toLowerCase(Locale.ROOT)) {
+            case "classic" -> "classic";
+            case "2d" -> "2d-human";
+            default -> throw bad("engine must be classic or 2d");
+        };
+    }
+
+    /** Number of season runs of a CLUB test: 1 to 10, default 3. */
+    static int repeatsFor(Integer requested) {
+        if (requested == null) return DEFAULT_REPEATS;
+        if (requested < 1 || requested > MAX_REPEATS) throw bad("repeats must be between 1 and " + MAX_REPEATS);
+        return requested;
+    }
+
+    /**
+     * Seed salt of a run's child process ({@link com.footballmanagergamesimulator.matchplan.MatchPlanService#setSeedSalt}):
+     * each REPEAT run gets its own, so the repeats are independent seasons; every other run keeps 0
+     * (the game's own seeds, unchanged).
+     */
+    static long seedSalt(String kind, int runIndex) {
+        if (!KIND_REPEAT.equals(kind)) return 0;
+        long salt = (runIndex + 1L) * 0x9E3779B97F4A7C15L ^ 0x5441435449435245L; // "TACTICRE"
+        return salt == 0 ? 1 : salt;
+    }
+
+    /** The formation and the 15 team instructions, every key present, defaults filled in. */
+    static Map<String, Object> settings(JsonNode tactic, String formation) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        JsonNode node = tactic == null ? com.fasterxml.jackson.databind.node.MissingNode.getInstance() : tactic;
+        String key = node.path("tactic").isTextual() && !node.path("tactic").asText().isBlank() ? node.path("tactic").asText()
+                : formation != null && !formation.isBlank() ? formation : "442";
+        out.put("tactic", key);
+        for (Map.Entry<String, List<String>> entry : INSTRUCTION_VALUES.entrySet()) {
+            JsonNode value = node.path(entry.getKey());
+            out.put(entry.getKey(), value.isValueNode() && !value.isNull() && !value.asText().isBlank()
+                    ? value.asText() : entry.getValue().get(0));
+        }
+        return out;
+    }
 
     /** Team instructions: allowed values, the first-listed default being the game's default. */
     static final Map<String, List<String>> INSTRUCTION_VALUES = new LinkedHashMap<>();
@@ -260,11 +309,15 @@ public class TacticArenaService {
         if (request.teamId() == null && !auto) throw bad("teamId is required (it may be left out only with autoEleven: true)");
         String category = request.category() == null || request.category().isBlank()
                 ? CATEGORY_GENERAL : request.category().trim().toUpperCase(Locale.ROOT);
-        if (!CATEGORY_GENERAL.equals(category) && !CATEGORY_DIAMOND.equals(category)) {
-            throw bad("category must be GENERAL or DIAMOND");
+        if (!CATEGORY_GENERAL.equals(category) && !CATEGORY_DIAMOND.equals(category) && !CATEGORY_CLUB.equals(category)) {
+            throw bad("category must be GENERAL, DIAMOND or CLUB");
         }
         boolean diamond = CATEGORY_DIAMOND.equals(category);
+        boolean club = CATEGORY_CLUB.equals(category);
         if (diamond && names(diamondTeamsSetting).isEmpty()) throw bad("tactic-arena.diamond-teams is empty");
+        if (club && request.teamId() == null) throw bad("teamId is required for a CLUB test");
+        int repeats = club ? repeatsFor(request.repeats()) : 0;
+        String engine = engineFor(request.engine(), match2dMode);
         if (auto) tactic = normalizeAuto(tactic);
         long chosenTeam = request.teamId() == null ? 0 : request.teamId();
         tactic.setTeamId(chosenTeam);
@@ -277,7 +330,7 @@ public class TacticArenaService {
             test.setFormation(tactic.getTactic());
             test.setTeamId(chosenTeam);
             test.setSeason(1);
-            test.setEngine("off".equalsIgnoreCase(match2dMode.trim()) ? "classic" : "2d-human");
+            test.setEngine(engine);
             test.setStatus(QUEUED);
             test.setCreatedAt(Instant.now());
             test.setTacticJson(json(tactic));
@@ -285,17 +338,29 @@ public class TacticArenaService {
             test.setCategory(category);
 
             List<TacticArenaRun> runs = new ArrayList<>();
-            String[] kinds = {KIND_CHOSEN, KIND_TOP, KIND_MEDIAN, KIND_BOTTOM};
-            int referenceRuns = diamond ? names(diamondTeamsSetting).size() : 3;
-            // Without a chosen club the test has only its reference runs.
-            for (int i = chosenTeam > 0 ? 0 : 1; i <= referenceRuns; i++) {
-                TacticArenaRun run = new TacticArenaRun();
-                run.setRunIndex(i);
-                run.setKind(i == 0 ? KIND_CHOSEN : diamond ? KIND_DIAMOND : kinds[i]);
-                run.setStatus(QUEUED);
-                runs.add(run);
+            if (club) {
+                // CLUB: the chosen club's season 1, `repeats` times, no CHOSEN and no reference run.
+                for (int i = 1; i <= repeats; i++) {
+                    TacticArenaRun run = new TacticArenaRun();
+                    run.setRunIndex(i);
+                    run.setKind(KIND_REPEAT);
+                    run.setStatus(QUEUED);
+                    run.setTeamId(chosenTeam);
+                    runs.add(run);
+                }
+            } else {
+                String[] kinds = {KIND_CHOSEN, KIND_TOP, KIND_MEDIAN, KIND_BOTTOM};
+                int referenceRuns = diamond ? names(diamondTeamsSetting).size() : 3;
+                // Without a chosen club the test has only its reference runs.
+                for (int i = chosenTeam > 0 ? 0 : 1; i <= referenceRuns; i++) {
+                    TacticArenaRun run = new TacticArenaRun();
+                    run.setRunIndex(i);
+                    run.setKind(i == 0 ? KIND_CHOSEN : diamond ? KIND_DIAMOND : kinds[i]);
+                    run.setStatus(QUEUED);
+                    runs.add(run);
+                }
+                if (chosenTeam > 0) runs.get(0).setTeamId(chosenTeam);
             }
-            if (chosenTeam > 0) runs.get(0).setTeamId(chosenTeam);
             // With a base world the test is bound (and validated) now; otherwise when the
             // base world it starts with is ready.
             if (baseline.ready()) bind(test, runs);
@@ -338,7 +403,11 @@ public class TacticArenaService {
         }
 
         boolean diamond = CATEGORY_DIAMOND.equals(test.getCategory());
-        List<JsonNode> references = diamond ? resolveTeams(names(diamondTeamsSetting), "tactic-arena.diamond-teams")
+        boolean club = CATEGORY_CLUB.equals(test.getCategory());
+        if (club && !hasChosen) throw bad("A CLUB test needs a club");
+        // CLUB: every run is the chosen club; no reference club is looked up.
+        List<JsonNode> references = club ? List.of()
+                : diamond ? resolveTeams(names(diamondTeamsSetting), "tactic-arena.diamond-teams")
                 : fixedReferenceTeams();
         if (references == null) {
             if (!hasChosen) throw bad("Without a chosen club the reference clubs must be fixed (tactic-arena.reference-teams)");
@@ -356,10 +425,10 @@ public class TacticArenaService {
 
         int totalDays = test.getEndDay() - test.getStartDay() + 1;
         for (TacticArenaRun run : runs) {
-            JsonNode club = run.getRunIndex() == 0 ? chosen : references.get(run.getRunIndex() - 1);
-            run.setTeamId(club.path("teamId").asLong());
-            run.setTeamName(club.path("name").asText());
-            run.setTeamReputation(club.path("reputation").asInt());
+            JsonNode team = run.getRunIndex() == 0 || club ? chosen : references.get(run.getRunIndex() - 1);
+            run.setTeamId(team.path("teamId").asLong());
+            run.setTeamName(team.path("name").asText());
+            run.setTeamReputation(team.path("reputation").asInt());
             run.setTotalDays(totalDays);
             run.setCurrentDay(test.getStartDay());
         }
@@ -561,8 +630,12 @@ public class TacticArenaService {
             String dbName = unzip(baseline.worldZip(), dbDir);
 
             PersonalizedTacticView tactic = objectMapper.readValue(test.getTacticJson(), PersonalizedTacticView.class);
+            // The chosen club (CHOSEN, or every REPEAT of a CLUB test) plays the sent eleven unless
+            // autoEleven; reference clubs always get the automatic one.
+            boolean ownEleven = run.getRunIndex() == 0 || KIND_REPEAT.equals(run.getKind());
             TacticArenaChildRunner.ChildSpec spec = new TacticArenaChildRunner.ChildSpec(run.getTeamId(), tactic,
-                    run.getRunIndex() != 0 || Boolean.TRUE.equals(test.getAutoEleven()), test.getSeason(), test.getStartDay(), test.getEndDay(), test.getEngine());
+                    !ownEleven || Boolean.TRUE.equals(test.getAutoEleven()), test.getSeason(), test.getStartDay(), test.getEndDay(),
+                    test.getEngine(), seedSalt(run.getKind(), run.getRunIndex()));
             Files.write(runDir.resolve("spec.json"), objectMapper.writeValueAsBytes(spec));
 
             Process process = childProcesses.start(runDir, dbDir, dbName, Map.of(
@@ -901,6 +974,9 @@ public class TacticArenaService {
         row.put("endDay", test.getEndDay());
         row.put("engine", test.getEngine());
         row.put("category", test.getCategory() == null ? CATEGORY_GENERAL : test.getCategory());
+        row.put("repeats", CATEGORY_CLUB.equals(test.getCategory())
+                ? (int) runs.stream().filter(r -> KIND_REPEAT.equals(r.getKind())).count() : null);
+        row.put("settings", settings(readTree(test.getTacticJson()), test.getFormation()));
         row.put("autoEleven", Boolean.TRUE.equals(test.getAutoEleven()));
         row.put("createdAt", test.getCreatedAt() == null ? null : test.getCreatedAt().toString());
         row.put("finishedAt", test.getFinishedAt() == null ? null : test.getFinishedAt().toString());
@@ -948,14 +1024,15 @@ public class TacticArenaService {
             entry.put("diamond", diamondJson(run));
             byTier.put(tier, entry);
         }
-        if (!CATEGORY_DIAMOND.equals(test.getCategory())) row.put("byTier", byTier);
-        // Every reference club on its own, in the order of the setting.
+        if (!CATEGORY_DIAMOND.equals(test.getCategory()) && !CATEGORY_CLUB.equals(test.getCategory())) row.put("byTier", byTier);
+        // Every reference club on its own, in the order of the setting (CLUB: every season run, by index).
         List<Map<String, Object>> byClub = new ArrayList<>();
         Map<Long, String> leagues = baseline.leagueNames();
         for (TacticArenaRun run : runs) {
             if (run.getRunIndex() == 0) continue;
             TacticArenaStats.RunTotals totals = readTotals(run);
             Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("label", runLabel(run));
             entry.put("teamId", run.getTeamId() > 0 ? run.getTeamId() : null);
             entry.put("teamName", run.getTeamName());
             Integer[] p = baseline.predictions().get(run.getTeamId());
@@ -1023,9 +1100,10 @@ public class TacticArenaService {
     }
 
     /** What the pages show for a run: the chosen club, or "Reference" when the reference clubs are fixed. */
-    private String runLabel(TacticArenaRun run) {
+    static String runLabel(TacticArenaRun run) {
         if (KIND_CHOSEN.equals(run.getKind())) return "Chosen club";
         if (KIND_DIAMOND.equals(run.getKind())) return "Diamond League club";
+        if (KIND_REPEAT.equals(run.getKind())) return "Season run " + run.getRunIndex();
         return switch (String.valueOf(tier(run))) {
             // \u00b7 = middle dot, escaped so the text does not depend on the compiler's source encoding
             case "TOP" -> "Reference \u00b7 top club";

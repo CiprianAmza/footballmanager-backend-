@@ -29,7 +29,7 @@ import java.util.stream.Stream;
 public class TacticArenaExporter {
 
     private static final Logger log = LoggerFactory.getLogger(TacticArenaExporter.class);
-    private static final Pattern IMAGE_FILE = Pattern.compile("(\\d)-(tactic|schedule|competitions)\\.(webp|png)");
+    private static final Pattern IMAGE_FILE = Pattern.compile("(\\d+)-(tactic|schedule|competitions)\\.(webp|png)");
 
     @Value("${tactic-arena.export-dir:}") private String exportDir;
 

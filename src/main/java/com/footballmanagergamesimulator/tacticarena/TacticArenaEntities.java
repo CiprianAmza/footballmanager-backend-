@@ -19,9 +19,12 @@ final class TacticArenaEntities {
     static final String KIND_MEDIAN = "REFERENCE_MEDIAN";
     static final String KIND_BOTTOM = "REFERENCE_BOTTOM";
     static final String KIND_DIAMOND = "DIAMOND";
+    /** CLUB category: season 1 of the chosen club, played again from a fresh copy (index 1..n). */
+    static final String KIND_REPEAT = "REPEAT";
 
     static final String CATEGORY_GENERAL = "GENERAL";
     static final String CATEGORY_DIAMOND = "DIAMOND";
+    static final String CATEGORY_CLUB = "CLUB";
 
     private TacticArenaEntities() {
     }

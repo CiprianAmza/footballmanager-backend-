@@ -111,7 +111,8 @@ public final class ShotVolumeModel {
                 hash *= 0x100000001b3L;
             }
         }
-        return hash;
+        // Unchanged unless a Tactic Arena run salted its seeds.
+        return com.footballmanagergamesimulator.matchplan.MatchPlanService.salted(hash);
     }
 
     private static double clamp(double value, double min, double max) {

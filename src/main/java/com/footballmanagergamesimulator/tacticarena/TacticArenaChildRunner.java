@@ -48,8 +48,12 @@ import java.util.*;
 @ConditionalOnProperty(name = "tactic-arena.child.run-dir")
 public class TacticArenaChildRunner {
 
+    /**
+     * {@code seedSalt}: mixed into every per-match seed of this process
+     * ({@link com.footballmanagergamesimulator.matchplan.MatchPlanService#setSeedSalt}); 0 = the game's own seeds.
+     */
     public record ChildSpec(long teamId, PersonalizedTacticView tactic, boolean autoXi,
-                            int season, int startDay, int endDay, String engine) {}
+                            int season, int startDay, int endDay, String engine, long seedSalt) {}
 
     private static final Set<String> MATCH_TYPES = Set.of("MATCH_LEAGUE", "MATCH_CUP", "MATCH_EUROPEAN");
 
@@ -118,6 +122,9 @@ public class TacticArenaChildRunner {
         if (season != spec.season()) {
             throw new IllegalStateException("Database copy is in season " + season + ", test expects " + spec.season());
         }
+        // Every copy of the base world has the same fixtures, so the same per-match seeds: a run's
+        // own salt makes its matches (classic score, 2D engine, line-ups) a different draw.
+        com.footballmanagergamesimulator.matchplan.MatchPlanService.setSeedSalt(spec.seedSalt());
 
         makeOnlyHumanClub(teamId);
         PersonalizedTacticView used = installTactic(team, spec);

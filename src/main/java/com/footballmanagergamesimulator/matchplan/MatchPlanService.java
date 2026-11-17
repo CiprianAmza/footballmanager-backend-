@@ -62,7 +62,32 @@ public class MatchPlanService {
         h = 31 * h + round;
         h = 31 * h + homeTeamId;
         h = 31 * h + awayTeamId;
-        return h;
+        return salted(h);
+    }
+
+    /**
+     * Process-wide salt of the per-match seeds; 0 (the default, and always in the game itself)
+     * leaves every seed exactly as it was. Set only by a Tactic Arena simulation process, so
+     * that repeated runs of the same season on identical copies of a world are independent draws.
+     */
+    private static volatile long seedSalt;
+
+    public static void setSeedSalt(long salt) {
+        seedSalt = salt;
+    }
+
+    public static long seedSalt() {
+        return seedSalt;
+    }
+
+    /** {@code seed} mixed with the process salt; unchanged while the salt is 0. */
+    public static long salted(long seed) {
+        long salt = seedSalt;
+        if (salt == 0) return seed;
+        long z = seed ^ salt;
+        z = (z ^ (z >>> 30)) * 0xbf58476d1ce4e5b9L; // splitmix64 finaliser
+        z = (z ^ (z >>> 27)) * 0x94d049bb133111ebL;
+        return z ^ (z >>> 31);
     }
 
     /** 64-bit FNV-1a hash of a string. Stable across JVMs. */

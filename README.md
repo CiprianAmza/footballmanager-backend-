@@ -350,6 +350,13 @@ tactic fixed all season. A test has two parts:
 - **Custom** (optional): the club the user picked, with the eleven they picked, shown
   separately. A test launched with `autoEleven: true` and no club is general only (three
   runs); a script can launch many of these.
+- **Club** (a separate category, `"category": "CLUB"`): one club only (`teamId` required),
+  its season 1 played `repeats` times (1–10, default 3), each run from a fresh copy of the
+  base world and with its own match seeds, so the runs are independent seasons. The results
+  are the mean of those runs (runs `REPEAT`, labelled "Season run 1" … "Season run n"); no
+  reference clubs. It answers "how does this tactic do at *my* club" with less luck in it.
+  Example body: `{"name": "4231 press", "category": "CLUB", "teamId": 104, "repeats": 3,
+  "autoEleven": true, "tactic": {"tactic": "4231", "pressing": "Aggressive"}}`.
 
 | Run | Club | Starting eleven |
 |-----|------|-----------------|
@@ -380,7 +387,9 @@ How a run works:
 3. Match engine: the one the backend runs with (`match2d.mode`). With `off` every match is
    classic; otherwise only the tested club's matches go through the 2D engine (`human`)
    and every other match stays classic, so a season does not take tens of minutes. The
-   test records the engine it used (`classic` or `2d-human`).
+   test records the engine it used (`classic` or `2d-human`). A test can also choose its
+   engine itself with `"engine": "classic"` or `"engine": "2d"` in the launch body, whatever
+   `match2d.mode` the backend runs with (no restart needed).
 4. At the end the run writes what it collected (every match of the club with day,
    competition, stage, home/away, opponent, score with extra time and shoot-out, xG; the
    club's competitions with league place, points, W/D/L, goals, stage reached and

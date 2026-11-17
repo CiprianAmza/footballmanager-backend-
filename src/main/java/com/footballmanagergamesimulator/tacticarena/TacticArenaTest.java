@@ -47,7 +47,10 @@ public class TacticArenaTest {
     @Lob
     private String tacticJson;
 
-    /** GENERAL (3 fixed reference clubs, top/mid/bottom) or DIAMOND (the Diamond League clubs); null = GENERAL. */
+    /**
+     * GENERAL (3 fixed reference clubs, top/mid/bottom), DIAMOND (the Diamond League clubs) or
+     * CLUB (the chosen club's season repeated; the number of repeats = its REPEAT runs); null = GENERAL.
+     */
     private String category;
 
     /** True when the chosen club plays the assistant's automatic eleven (no eleven was sent). */

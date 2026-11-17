@@ -312,6 +312,25 @@ median / lowest reputation of the chosen club's league.
   "tactic": { "tactic": "433" } }
 ```
 
+- `CLUB`: one club, its season 1 repeated. `teamId` is required (`400` without);
+  `"repeats"`: integer 1–10, default 3 (`400` outside). Exactly `repeats` runs, all on the
+  chosen club, `kind: "REPEAT"`, `index` 1..n, `label` `"Season run 1"` … `"Season run n"`,
+  `tier: null`; each one a full season 1 from a fresh copy of the base world, with its own
+  match seeds (so the runs are independent seasons, not replays of one). No `CHOSEN` run and
+  no reference runs. Works with `autoEleven: true` and with a full eleven (every run plays
+  it). `repeats` is ignored for the other categories.
+
+```json
+{ "name": "4231 press", "category": "CLUB", "teamId": 104, "repeats": 3, "engine": "classic",
+  "autoEleven": true, "owner": "sweep", "tactic": { "tactic": "4231", "pressing": "Aggressive" } }
+```
+
+**Engine** (`"engine"`, optional): `"classic"` (every match classic, stored engine
+`"classic"`) or `"2d"` (the tested club's matches through the 2D engine, stored
+`"2d-human"`); any other value is a `400`. Left out, the test takes the engine the backend
+runs with (`match2d.mode`: `off` → `classic`, else `2d-human`). So a backend running with
+`match2d.mode=all` can launch classic tests and the other way round, without a restart.
+
 **General-only test**: with `autoEleven: true`, `teamId` may be left out; the test then has
 only the three reference runs:
 
@@ -388,6 +407,13 @@ requested).
   "endDay": 330,
   "engine": "classic",
   "category": "GENERAL",
+  "repeats": null,
+  "settings": { "tactic": "4231", "mentality": "Balanced", "inPossession": "Standard",
+                "passingType": "Normal", "tempo": "Standard", "timeWasting": "Sometimes",
+                "defensiveLine": "Standard", "pressing": "Aggressive", "width": "Balanced",
+                "dribbling": "Standard", "foulFrequency": "Normal", "foulHardness": "Medium",
+                "tempoFragmentation": "Normal", "widePlay": "Shoot", "transition": "Balanced",
+                "recovery": "Standard" },
   "autoEleven": false,
   "createdAt": "2026-11-16T10:00:00Z",
   "finishedAt": "2026-11-16T10:40:00Z",
@@ -402,14 +428,24 @@ requested).
     "BOTTOM": null
   },
   "byClub": [
-    { "teamId": 87, "teamName": "Inazuma Japan", "predictedPosition": 1, "leagueSize": 20,
+    { "label": "Reference · top club", "teamId": 87, "teamName": "Inazuma Japan",
+      "predictedPosition": 1, "leagueSize": 20,
       "leagueName": "Eleven League", "results": { "overall": Split, "home": Split, "away": Split },
       "diamond": RunDiamond }
   ]
 }
 ```
 
-- `category`: `GENERAL` or `DIAMOND` (older tests: `GENERAL`).
+- `category`: `GENERAL`, `DIAMOND` or `CLUB` (older tests: `GENERAL`).
+- `repeats`: the number of season runs of a `CLUB` test; `null` for the other categories.
+- `settings`: the formation (`tactic`) and the 15 team instructions as a flat object, always
+  all 16 keys, a missing value replaced by its default (first value of the table under
+  `POST /tactic-arena/tests`), also for tests stored before the field existed. Use it to show
+  or filter the tactic without reading `tactic`.
+- CLUB tests: `results` = mean of the `REPEAT` runs (`basedOn` = n, `ptsMax` = the club's
+  own league maximum; `null` until all are `DONE`); `chosen` = `null`; no `byTier` (as
+  DIAMOND); `byClub` = one entry per season run, in index order; `diamond` = mean over the
+  runs when the club plays in the Diamond League, else `null`.
 - `diamond`: the **Diamond League** (competition type 7: the 8 elite clubs, each meets each
   4 times, 28 matches, max 84 points), apart from the league: `{basedOn, overall, home, away}`
   (`Results` shape) = mean of the reference runs whose club plays in it (GENERAL: usually only
@@ -419,8 +455,9 @@ requested).
   `diamond` (`RunDiamond` with `position` / `of` = Diamond League place, or `null`) too.
 - `byTier` (GENERAL only): each reference run on its own; a tier is `null` until its run is
   `DONE`. Sort the leaderboard by the result at the top / mid-table / bottom club with it.
-- `byClub` (both categories): every reference run on its own, in the order of the setting;
-  `results` is `null` until the run is `DONE`.
+- `byClub` (every category): every reference run on its own, in the order of the setting
+  (CLUB: every season run, by index); `results` is `null` until the run is `DONE`. `label`:
+  the run's label (as `Run.label`).
 
 - `status`: `QUEUED` (waiting for a free simulation slot, behind earlier tests),
   `PREPARING` (the base world is generated first; `message` says so), `RUNNING` (at least
@@ -429,10 +466,11 @@ requested).
   `PREPARING`, the approximate progress of the base world generation.
 - `teamName`, `leagueId`, `leagueName`, `startDay`, `endDay` are `null`/`0` until the test is
   bound to the base world (at creation when it exists, otherwise after `PREPARING`).
-- `engine`: `"classic"` (game runs with `match2d.mode=off`) or `"2d-human"` (only the
-  tested club's matches go through the 2D engine, the rest classic).
+- `engine`: `"classic"` (every match classic) or `"2d-human"` (only the tested club's
+  matches go through the 2D engine, the rest classic): the request's `engine`, else the
+  backend's `match2d.mode` at launch.
 - `teamId`, `teamName`, `leagueId`, `leagueName`, `predictedPosition`, `leagueSize`: the
-  CHOSEN club; all `null` for a general-only test.
+  CHOSEN club (CLUB: the tested club); all `null` for a general-only test.
 - `results`: all reference runs (3, or 8 for DIAMOND; `null` until all are `DONE`). `ptsMax` comes from
   the reference clubs' own league matches.
 - `chosen`: the run with the chosen club, with the maximum of its own league (`null` until
@@ -461,7 +499,7 @@ requested).
   `OFF` (`message` says why: off, no browser, page address unknown), `QUEUED`, `RUNNING`,
   `DONE`, `FAILED` (`message`: how many images arrived before the time limit).
   `images` / `expected`: images stored now / 3 × the test's runs (12 for a GENERAL test with a
-  chosen club, 9 without; 27 or 24 for DIAMOND).
+  chosen club, 9 without; 27 or 24 for DIAMOND; 3 × `repeats` for CLUB).
 - `message`: why the test failed / was cancelled, else `null`.
 - `leagueMatchesTotal` / `leagueMatchesRemaining`: the chosen club's league matches in
   season 1; always equal now (every run plays the whole season from day 1), kept so the
@@ -469,7 +507,8 @@ requested).
 - `baselineUid`: the base world the test runs on.
 - `runs`: in this order `CHOSEN`, then the reference runs: `REFERENCE_TOP`, `REFERENCE_MEDIAN`,
   `REFERENCE_BOTTOM` (GENERAL) or 8 × `DIAMOND` (indexes 1–8, order of the setting);
-  a general-only test has only the three reference runs (indexes 1–3). With fixed
+  a general-only test has only the three reference runs (indexes 1–3); a CLUB test has only
+  its `repeats` × `REPEAT` runs (indexes 1..n, all on the tested club). With fixed
   reference clubs the three kinds are just three positions: show `label` ("Reference") and
   the club's name, not "highest / median / lowest reputation".
 
@@ -512,9 +551,10 @@ and `byClub` entry.
 club does not play in it.
 
 `label`: the text to show for the run's role: `"Chosen club"`, `"Reference · top club"`,
-`"Reference · mid-table club"`, `"Reference · bottom club"` or `"Diamond League club"`.
+`"Reference · mid-table club"`, `"Reference · bottom club"`, `"Diamond League club"` or
+`"Season run 1"` … `"Season run n"` (CLUB).
 `tier`: `TOP` / `MID` / `BOTTOM` for the GENERAL reference runs (from their position; also for
-tests stored before the field existed), `null` for the chosen club and DIAMOND runs. With
+tests stored before the field existed), `null` for the chosen club, DIAMOND and REPEAT runs. With
 `tactic-arena.reference-teams` empty the tiers are the highest / median / lowest reputation
 of the chosen club's league. `predictedPosition` / `leagueSize`: the club's press prediction, read
 from the base world by `teamId` (so finished tests have it too; `null` without predictions).
@@ -618,7 +658,7 @@ browser, page address unknown).
 ### `POST /tactic-arena/recapture`
 
 Queues the recapture of every `DONE` test, or of one category with `?category=GENERAL` /
-`?category=DIAMOND`. Returns at once; the captures run one after the other (one browser at a
+`?category=DIAMOND` / `?category=CLUB`. Returns at once; the captures run one after the other (one browser at a
 time). Response `200`: `{"queued": 54, "category": "ALL"}`. `409` when captures are not
 possible on this backend.
 
