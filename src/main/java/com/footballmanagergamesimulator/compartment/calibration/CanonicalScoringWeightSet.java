@@ -65,6 +65,8 @@ public final class CanonicalScoringWeightSet {
                 case "role-fit-base" -> compartment.getRating().setRoleFitBase(override.value());
                 case "role-fit-range" -> compartment.getRating().setRoleFitRange(override.value());
                 case "fitness-floor" -> compartment.getRating().setFitnessFloor(override.value());
+                case "fitness-fresh" -> compartment.getRating().setFitnessFresh(override.value());
+                case "fitness-sensitivity" -> compartment.getRating().setFitnessSensitivity(override.value());
                 case "morale-neutral" -> compartment.getRating().setMoraleNeutral(override.value());
                 case "morale-slope" -> compartment.getRating().setMoraleSlope(override.value());
                 case "default-position-multiplier" -> compartment.getRating().setDefaultPositionMultiplier(override.value());
@@ -265,6 +267,8 @@ public final class CanonicalScoringWeightSet {
         target.getRating().setRoleFitBase(source.getRating().getRoleFitBase());
         target.getRating().setRoleFitRange(source.getRating().getRoleFitRange());
         target.getRating().setFitnessFloor(source.getRating().getFitnessFloor());
+        target.getRating().setFitnessFresh(source.getRating().getFitnessFresh());
+        target.getRating().setFitnessSensitivity(source.getRating().getFitnessSensitivity());
         target.getRating().setMoraleNeutral(source.getRating().getMoraleNeutral());
         target.getRating().setMoraleSlope(source.getRating().getMoraleSlope());
         target.getRating().setDefaultPositionMultiplier(source.getRating().getDefaultPositionMultiplier());

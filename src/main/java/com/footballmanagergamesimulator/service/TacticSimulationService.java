@@ -584,6 +584,12 @@ public class TacticSimulationService {
         copy.setPressing(source.getPressing());
         copy.setWidth(source.getWidth());
         copy.setRecovery(source.getRecovery());
+        // Read only by tactical combinations; null keeps the neutral value above.
+        if (source.getInPossession() != null) copy.setInPossession(source.getInPossession());
+        if (source.getTimeWasting() != null) copy.setTimeWasting(source.getTimeWasting());
+        if (source.getDribbling() != null) copy.setDribbling(source.getDribbling());
+        if (source.getWidePlay() != null) copy.setWidePlay(source.getWidePlay());
+        if (source.getTransition() != null) copy.setTransition(source.getTransition());
         return copy;
     }
 

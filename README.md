@@ -186,6 +186,77 @@ changes or whenever a portable save is needed:
 curl http://localhost:8086/game/export -o football-manager-save.json
 ```
 
+## Tactical combinations (classic engine)
+
+The team instructions decide a lot in the classic engine. Settings that work together give a
+**synergy**; settings that contradict each other give a **conflict**. A synergy or conflict
+applies to a club in a match only when **every** setting listed for it is set on its tactic
+(where two values are listed, either one counts). Nothing depends on the players: the same
+tactic gives the same effect to a weak squad and to a strong one. A club without a saved
+tactic (most AI clubs) plays the defaults, has neither, and plays exactly as before.
+
+"xG" below means expected goals; ×1.36 means "multiplied by 1.36".
+
+**Synergies** (each has a plus and a minus):
+
+| Synergy | Settings (all required) | Plus | Minus |
+|---|---|---|---|
+| Passing style | Passing `Short` + Pressing `Aggressive` + Recovery `Very Fast` / `Instantly` | erases 30% of the opponent's normal goals (27% against `Aggressive` pressing, 23% against `Very Aggressive`, 17% against `Long` passing) + 0–6 extra chances for a starting striker, 12% each | own xG ×0.92 |
+| Possession | In possession `Keep Ball` + Passing `Short` + Tempo `Lower` / `Much Lower` | midfield ×1.78 (control) | own xG ×0.75 |
+| Gegenpress | Pressing `Aggressive` / `Very Aggressive` + Line `High` + Recovery `Very Fast` / `Instantly` | own xG ×1.36 | opponent xG ×1.04, red-card chance +5 points |
+| Counter | Line `Deep` + Transition `Fast Counter` + Passing `Long` | own xG ×1.44, a further ×1.08 against an `Attacking` / `Very Attacking` opponent or a `High` line | midfield ×0.94 |
+| Wings | Width `Wide` + Wide play `Cross` | own xG ×1.40 | opponent xG ×1.04 |
+| Bus | Mentality `Very Defensive` + Line `Deep` + Time wasting `Always` | opponent xG ×0.45, own xG ×1.30 (on top of Very Defensive) | the attack stays weak: for a strong side parking the bus scores fewer points than the defaults; it pays off for an underdog |
+| All-out attack | Mentality `Very Attacking` + Tempo `Much Higher` + Line `High` + Dribbling `More` | own xG ×1.15, opponent xG ×0.56 compared with plain Very Attacking (the risky settings pay off) | still concedes clearly more than a default side |
+
+**Conflicts** (penalties):
+
+| Conflict | Settings (all required) | What goes wrong |
+|---|---|---|
+| High line, no press | Line `High` + Pressing `Easy` / `Very Easy` | opponent xG ×1.45 |
+| Deep line, hard press | Line `Deep` + Pressing `Aggressive` / `Very Aggressive` | midfield ×0.88, opponent xG ×1.15 |
+| Keep ball, long passing | In possession `Keep Ball` + Passing `Long` | own xG ×0.85, midfield ×0.88 |
+| Defend high | Mentality `Defensive` / `Very Defensive` + Line `High` | opponent xG ×1.30 |
+| Slow counter | Transition `Fast Counter` + Tempo `Lower` / `Much Lower` | own xG ×0.74 |
+| Narrow cross | Width `Narrow` + Wide play `Cross` | own xG ×0.74 |
+| Attack and waste time | Mentality `Attacking` / `Very Attacking` + Time wasting `Frequently` / `Always` | own xG ×0.88 |
+
+**How they add up.**
+- Up to `max-active` (3) synergies count. When more qualify, the three with the largest boost
+  win (the sum of their helpful deltas).
+- Synergies add their deltas on each lever rather than multiplying them: every cost counts in
+  full, the largest helpful delta in full, and each further helpful delta on the same lever
+  times `synergy-stack-share` (1.0 = a plain sum). Gegenpress + Wings, for example, gives own
+  xG ×(1 + 0.36 + 0.40) = ×1.76.
+- Every conflict counts. With *n* conflicts active, each conflict's penalty is multiplied by
+  `1 + conflict-escalation × (n − 1)` (0.2: ×1.4 with three conflicts, ×1.6 with four).
+- Synergies and conflicts multiply with each other. The costs of a build add up as well, so
+  each build has its own profile:
+  - Gegenpress + All-out attack + Wings: high-scoring and open (about 4.5–1.5 a match).
+  - Possession + Passing style + Wings: controlled, few goals against (about 2.7–0.3).
+  - Counter + Wings: direct, normal scorelines (about 3.2–0.9).
+
+**Measured effect** on a side that takes about 1.97 points per match with the defaults (a
+3rd-placed club):
+
+| Tactic | Points per match | Season of 38 matches |
+|---|---|---|
+| One synergy | 2.15–2.30 | +7 to +12 points |
+| A top build (two or three synergies) | 2.50–2.67 | 95–101 points |
+| One conflict | 1.70–1.78 | −7 to −10 points |
+| Three conflicts | about 1.08 | |
+| Four conflicts | 0.6–0.7 | relegation |
+
+Bus alone costs a strong side points (about 1.72 per match) with very few goals both ways. It
+helps an underdog: from about 0.91 to about 1.01 points per match.
+
+- Every number lives in `src/main/resources/compartment-scoring-weights-v1.yml`, section
+  `tactic-combinations` (`combinations`, `conflicts`, `max-active`, `conflict-escalation`).
+  `enabled: false` turns everything off.
+- To measure again: run `TacticCombinationCalibration.main` (in `src/test`, no Spring
+  context, no database).
+- The 2D engine does not use any of this; it changes only the classic engine's score.
+
 ## 2D match engine (optional microservice)
 
 The game can play its matches with a separate service, the 2D match engine: it

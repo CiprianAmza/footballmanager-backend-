@@ -57,6 +57,8 @@ public class MonthlyTrainingUpdateService {
     @Autowired PlayerPersonalityService personalityService;
     @Autowired TeamFacilitiesRepository facilitiesRepository;
     @Autowired MatchEngineConfig engineConfig;
+    /** The human club's training load since its last update (absent in plain unit tests: load 1). */
+    @Autowired(required = false) TrainingLoadService trainingLoadService;
 
     private final MonthlyTrainingGrowth growth = new MonthlyTrainingGrowth(MonthlyTrainingGrowth.Settings.defaults());
     private final MonthlyAttributeDecline decline = new MonthlyAttributeDecline(MonthlyAttributeDecline.Settings.defaults());
@@ -113,6 +115,9 @@ public class MonthlyTrainingUpdateService {
         Map<Long, PlayerSkills> skillsByPlayer = skillsOf(players);
         Map<TrainingType, Double> coaches = delegationService.humanCoachRatings(teamId);
         TeamFacilities facilities = facilitiesRepository.findByTeamId(teamId);
+        // Sessions trained ÷ sessions of the default schedule since the last update: rest days
+        // shrink the growth budget and raise the decline chances (1 with the default schedule).
+        double load = trainingLoadService != null ? trainingLoadService.load(teamId) : 1.0;
         List<PlayerSkills> toSave = new ArrayList<>();
         for (Human player : players) {
             PlayerSkills skills = skillsOrProvision(player, skillsByPlayer, rng);
@@ -122,12 +127,12 @@ public class MonthlyTrainingUpdateService {
             untrained.keySet().retainAll(relevantAttributes(skills.getPosition()));
 
             update(player, skills, counterService.counters(teamId, player.getId()), untrained,
-                    qByType(player, facilities, coaches), season, rng);
+                    qByType(player, facilities, coaches), season, rng, load);
             toSave.add(skills);
         }
         humanRepository.saveAll(players);
         playerSkillsRepository.saveAll(toSave);
-        counterService.resetCounts(teamId);
+        counterService.resetCounts(teamId); // also the training-load rows (TrainingLoadService)
         matchSimulationOrchestrator.invalidateSquadCaches(teamId);
     }
 
@@ -151,9 +156,10 @@ public class MonthlyTrainingUpdateService {
             for (String attribute : relevantAttributes(skills.getPosition())) {
                 untrained.put(attribute, counters.containsKey(attribute) ? 0 : NEVER_TRAINED_MONTHS);
             }
+            // AI clubs follow the default schedule: training load 1.
             update(player, skills, counters, untrained,
                     qByType(player, facilitiesByTeam.get(player.getTeamId()),
-                            coachesByTeam.getOrDefault(player.getTeamId(), Map.of())), season, rng);
+                            coachesByTeam.getOrDefault(player.getTeamId(), Map.of())), season, rng, 1.0);
         }
         // Loaded in this transaction: dirty checking saves the changes; only new rows need an insert.
         if (!created.isEmpty()) playerSkillsRepository.saveAll(created);
@@ -162,14 +168,15 @@ public class MonthlyTrainingUpdateService {
 
     private void update(Human player, PlayerSkills skills, Map<String, Integer> counters,
                         Map<String, Integer> monthsUntrained, Map<TrainingType, Double> qByType,
-                        int season, Random rng) {
+                        int season, Random rng, double load) {
         java.util.function.ToDoubleFunction<String> q = name -> {
             TrainingType type = TrainingType.of(name);
             return type == null ? 1.0 : qByType.getOrDefault(type, 1.0);
         };
-        growth.apply(skills, player.getAge(), counters, rng, q);
+        growth.apply(skills, player.getAge(), counters, rng, q, load);
+        double declineLoad = FitnessEconomy.declineMultiplier(load); // 1.0 at full load: unchanged
         decline.apply(skills, player.getAge(), monthsUntrained, rng,
-                name -> trainingQuality.declineMultiplier(q.applyAsDouble(name)));
+                name -> trainingQuality.declineMultiplier(q.applyAsDouble(name)) * declineLoad);
         PlayerRatingSync.refresh(player, skills, season);
     }
 

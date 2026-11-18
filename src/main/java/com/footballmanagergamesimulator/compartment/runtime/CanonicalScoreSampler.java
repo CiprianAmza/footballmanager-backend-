@@ -2,8 +2,10 @@ package com.footballmanagergamesimulator.compartment.runtime;
 
 import com.footballmanagergamesimulator.compartment.GoalProbabilityFormula;
 import com.footballmanagergamesimulator.compartment.PlayerPosition;
+import com.footballmanagergamesimulator.compartment.TacticCombinations;
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator;
 import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
+import com.footballmanagergamesimulator.compartment.match.ExpectedPoints;
 import com.footballmanagergamesimulator.compartment.match.MatchVenue;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 
@@ -48,17 +50,22 @@ public final class CanonicalScoreSampler {
         ShooterGoals awayShooter = sampleShooterGoals(evaluation.away().team(), awayRed,
                 evaluation.home().team().pressing(), mechanic, random);
 
-        PassingStyleMatchMechanic passingMechanic = new PassingStyleMatchMechanic(config);
-        double homeControl = passingMechanic.suppression(evaluation.home().team().passingStyle(),
-                homeRed.playerId(), evaluation.away().team());
-        double awayControl = passingMechanic.suppression(evaluation.away().team().passingStyle(),
-                awayRed.playerId(), evaluation.home().team());
+        // PASSING_STYLE (a tactical combination): share of the opponent's normal goals erased.
+        double homeControl = passingSuppression(evaluation.home().team(), evaluation.away().team());
+        double awayControl = passingSuppression(evaluation.away().team(), evaluation.home().team());
 
         EffectivePower homePower = effectivePower(evaluation.home().team(), homeRed);
         EffectivePower awayPower = effectivePower(evaluation.away().team(), awayRed);
-        GoalProbabilityFormula.MatchProbability probability = new GoalProbabilityFormula(config).expectedGoals(
+        GoalProbabilityFormula formula = new GoalProbabilityFormula(config);
+        GoalProbabilityFormula.MatchProbability probability = formula.expectedGoals(
                 homePower.attack(), awayPower.protection(), awayPower.attack(), homePower.protection(),
                 evaluation.combinedOpenness(), evaluation.venue() == MatchVenue.HOME);
+        // Tactical combinations: skipped entirely (null) when neither side has one active.
+        TacticCombinations.XgFactors combinationFactors = TacticCombinations.xgFactors(
+                evaluation.home().team(), evaluation.away().team());
+        if (combinationFactors != null) {
+            probability = formula.withXgFactors(probability, combinationFactors.home(), combinationFactors.away());
+        }
 
         GoalProbabilityFormula.GoalDistribution home = probability.homeGoals();
         GoalProbabilityFormula.GoalDistribution away = probability.awayGoals();
@@ -67,10 +74,8 @@ public final class CanonicalScoreSampler {
         int homeCollective = retainedGoals(sample(home, random.nextDouble()), awayControl, random);
         int awayCollective = retainedGoals(sample(away, random.nextDouble()), homeControl, random);
 
-        PassingGoals homePassing = samplePassingGoals(evaluation.home().team(), evaluation.away().team(),
-                homeRed, awayRed, homeControl, passingMechanic, random);
-        PassingGoals awayPassing = samplePassingGoals(evaluation.away().team(), evaluation.home().team(),
-                awayRed, homeRed, awayControl, passingMechanic, random);
+        PassingGoals homePassing = samplePassingGoals(evaluation.home().team(), homeRed, random);
+        PassingGoals awayPassing = samplePassingGoals(evaluation.away().team(), awayRed, random);
         double homeEffectiveAttack = homePower.attack() * (1.0 - awayControl);
         double awayEffectiveAttack = awayPower.attack() * (1.0 - homeControl);
         double homeXg = probability.homeXg() * (1.0 - awayControl) + homePassing.expectedGoals();
@@ -88,6 +93,131 @@ public final class CanonicalScoreSampler {
                 homePassing.goals(), awayPassing.goals(),
                 homePassing.opportunities(), awayPassing.opportunities(),
                 homeControl, awayControl);
+    }
+
+    /**
+     * The engine's own expectation for this match, BEFORE any score is sampled: the exact goal
+     * distribution of each side as {@link #sample} draws it, so xG = its mean and P(win/draw/loss)
+     * follow by convolution. Deterministic and random-free; {@link #sample} is untouched.
+     *
+     * <p>Each side's goals = collective goals (formula with every modifier: mentality, combinations,
+     * conflicts) thinned by the opponent's PASSING_STYLE erasure + SHOOTER goals (shot-count
+     * distribution x goal chance against the opponent's pressing) + PASSING_STYLE striker goals.
+     * Red cards are included exactly: every red-card outcome of both sides (none, or one eligible
+     * player sent off, each with its sampling probability) is weighted, and the powers, SHOOTER and
+     * striker availability follow it, as in the sampler.
+     */
+    public MatchExpectation expect(CanonicalMatchEvaluation evaluation) {
+        Objects.requireNonNull(evaluation, "evaluation");
+        if (config == null) {
+            return MatchExpectation.of(evaluation.probability().homeGoals().probabilities(),
+                    evaluation.probability().awayGoals().probabilities(), 1.0, null);
+        }
+        TeamCompartmentAggregator.TeamAggregationResult homeTeam = evaluation.home().team();
+        TeamCompartmentAggregator.TeamAggregationResult awayTeam = evaluation.away().team();
+        ShooterMatchMechanic mechanic = new ShooterMatchMechanic(config);
+        List<WeightedRed> homeReds = redCardOutcomes(homeTeam, mechanic);
+        List<WeightedRed> awayReds = redCardOutcomes(awayTeam, mechanic);
+        double homeControl = passingSuppression(homeTeam, awayTeam);
+        double awayControl = passingSuppression(awayTeam, homeTeam);
+        GoalProbabilityFormula formula = new GoalProbabilityFormula(config);
+        TacticCombinations.XgFactors combinationFactors = TacticCombinations.xgFactors(homeTeam, awayTeam);
+
+        MatchExpectation total = null;
+        for (WeightedRed homeRed : homeReds) {
+            double[] homeExtra = ExpectedPoints.convolve(
+                    shooterPmf(homeTeam, homeRed.red(), awayTeam.pressing(), mechanic),
+                    passingPmf(homeTeam, homeRed.red()));
+            for (WeightedRed awayRed : awayReds) {
+                double weight = homeRed.weight() * awayRed.weight();
+                if (weight == 0.0) continue;
+                double[] awayExtra = ExpectedPoints.convolve(
+                        shooterPmf(awayTeam, awayRed.red(), homeTeam.pressing(), mechanic),
+                        passingPmf(awayTeam, awayRed.red()));
+                EffectivePower homePower = effectivePower(homeTeam, homeRed.red());
+                EffectivePower awayPower = effectivePower(awayTeam, awayRed.red());
+                GoalProbabilityFormula.MatchProbability probability = formula.expectedGoals(
+                        homePower.attack(), awayPower.protection(), awayPower.attack(), homePower.protection(),
+                        evaluation.combinedOpenness(), evaluation.venue() == MatchVenue.HOME);
+                if (combinationFactors != null) {
+                    probability = formula.withXgFactors(probability, combinationFactors.home(),
+                            combinationFactors.away());
+                }
+                double[] home = ExpectedPoints.convolve(
+                        ExpectedPoints.thin(probability.homeGoals().probabilities(), 1.0 - awayControl), homeExtra);
+                double[] away = ExpectedPoints.convolve(
+                        ExpectedPoints.thin(probability.awayGoals().probabilities(), 1.0 - homeControl), awayExtra);
+                total = MatchExpectation.of(home, away, weight, total);
+            }
+        }
+        return total;
+    }
+
+    /** Red-card outcomes of one side with their sampling probabilities (they sum to 1). */
+    private static List<WeightedRed> redCardOutcomes(TeamCompartmentAggregator.TeamAggregationResult team,
+                                                     ShooterMatchMechanic mechanic) {
+        TacticCombinations.Profile combinations = team.combinations();
+        double chance = mechanic.redCardChance(team.pressing());
+        if (combinations != null && combinations.isActive() && combinations.redCardChanceAdd() > 0.0) {
+            chance = Math.min(1.0, chance + combinations.redCardChanceAdd());
+        }
+        List<TeamCompartmentAggregator.PlayerBreakdown> eligible = redCardEligiblePlayers(team);
+        List<WeightedRed> outcomes = new java.util.ArrayList<>();
+        if (eligible.isEmpty() || chance <= 0.0) {
+            outcomes.add(new WeightedRed(RedCard.none(), 1.0));
+            return outcomes;
+        }
+        outcomes.add(new WeightedRed(RedCard.none(), 1.0 - chance));
+        for (TeamCompartmentAggregator.PlayerBreakdown player : eligible) {
+            outcomes.add(new WeightedRed(redCardOf(team, player), chance / eligible.size()));
+        }
+        return outcomes;
+    }
+
+    private double[] shooterPmf(TeamCompartmentAggregator.TeamAggregationResult team, RedCard ownRed,
+                                String opponentPressing, ShooterMatchMechanic mechanic) {
+        TeamCompartmentAggregator.ShooterProfile shooter = team.shooter();
+        if (shooter == null || Objects.equals(ownRed.playerId(), shooter.playerId())) return new double[]{1.0};
+        return ExpectedPoints.compound(mechanic.shotDistribution(shooter.positioning()),
+                mechanic.goalChance(shooter.longShots(), opponentPressing));
+    }
+
+    private static double[] passingPmf(TeamCompartmentAggregator.TeamAggregationResult team, RedCard ownRed) {
+        CompartmentEngineConfig.PassingMechanic rules = passingRules(team);
+        if (rules == null) return new double[]{1.0};
+        boolean striker = team.passingStyle().strikers().stream()
+                .anyMatch(player -> !Objects.equals(player.playerId(), ownRed.playerId()));
+        if (!striker) return new double[]{1.0};
+        return ExpectedPoints.compound(rules.getStrikerOpportunityDistribution(),
+                Math.max(0.0, Math.min(1.0, rules.getStrikerGoalChance())));
+    }
+
+    private record WeightedRed(RedCard red, double weight) {}
+
+    /** Exact pre-sampling expectation of one match: goal distributions, xG, outcome, xPts. */
+    public record MatchExpectation(double[] homeGoals, double[] awayGoals, double homeXg, double awayXg,
+                                   double homeWin, double draw, double awayWin) {
+        public double homeXpts() { return 3.0 * homeWin + draw; }
+        public double awayXpts() { return 3.0 * awayWin + draw; }
+
+        /** Adds one weighted conditional outcome (independent home and away goals) to {@code sum}. */
+        static MatchExpectation of(double[] home, double[] away, double weight, MatchExpectation sum) {
+            ExpectedPoints.Outcome outcome = ExpectedPoints.fromDistributions(home, away);
+            double[] homeMix = sum == null ? new double[home.length] : grow(sum.homeGoals, home.length);
+            double[] awayMix = sum == null ? new double[away.length] : grow(sum.awayGoals, away.length);
+            for (int k = 0; k < home.length; k++) homeMix[k] += weight * home[k];
+            for (int k = 0; k < away.length; k++) awayMix[k] += weight * away[k];
+            return new MatchExpectation(homeMix, awayMix,
+                    (sum == null ? 0.0 : sum.homeXg) + weight * ExpectedPoints.mean(home),
+                    (sum == null ? 0.0 : sum.awayXg) + weight * ExpectedPoints.mean(away),
+                    (sum == null ? 0.0 : sum.homeWin) + weight * outcome.homeWin(),
+                    (sum == null ? 0.0 : sum.draw) + weight * outcome.draw(),
+                    (sum == null ? 0.0 : sum.awayWin) + weight * outcome.awayWin());
+        }
+
+        private static double[] grow(double[] values, int length) {
+            return java.util.Arrays.copyOf(values, Math.max(values.length, length));
+        }
     }
 
     private GoalSample sampleAnalytical(CanonicalMatchEvaluation evaluation, long seed) {
@@ -145,16 +275,31 @@ public final class CanonicalScoreSampler {
     private static RedCard sampleRedCard(TeamCompartmentAggregator.TeamAggregationResult team,
                                          ShooterMatchMechanic mechanic,
                                          SplittableRandom random) {
-        if (!mechanic.redCard(team.pressing(), random.nextDouble())) return RedCard.none();
-        List<TeamCompartmentAggregator.PlayerBreakdown> eligible = team.players().stream()
+        double roll = random.nextDouble();
+        TacticCombinations.Profile combinations = team.combinations();
+        boolean red = combinations != null && combinations.isActive() && combinations.redCardChanceAdd() > 0.0
+                ? roll < Math.min(1.0, mechanic.redCardChance(team.pressing()) + combinations.redCardChanceAdd())
+                : mechanic.redCard(team.pressing(), roll);
+        if (!red) return RedCard.none();
+        List<TeamCompartmentAggregator.PlayerBreakdown> eligible = redCardEligiblePlayers(team);
+        if (eligible.isEmpty()) return RedCard.none();
+        TeamCompartmentAggregator.PlayerBreakdown removed = eligible.get(random.nextInt(eligible.size()));
+        return redCardOf(team, removed);
+    }
+
+    private static List<TeamCompartmentAggregator.PlayerBreakdown> redCardEligiblePlayers(
+            TeamCompartmentAggregator.TeamAggregationResult team) {
+        return team.players().stream()
                 .filter(player -> redCardEligible(player.slot().position()))
                 .sorted(Comparator.comparing((TeamCompartmentAggregator.PlayerBreakdown player) ->
                                 player.slot().position())
                         .thenComparingInt(player -> player.slot().occurrence())
                         .thenComparingLong(TeamCompartmentAggregator.PlayerBreakdown::playerId))
                 .toList();
-        if (eligible.isEmpty()) return RedCard.none();
-        TeamCompartmentAggregator.PlayerBreakdown removed = eligible.get(random.nextInt(eligible.size()));
+    }
+
+    private static RedCard redCardOf(TeamCompartmentAggregator.TeamAggregationResult team,
+                                     TeamCompartmentAggregator.PlayerBreakdown removed) {
         return new RedCard(removed.playerId(), removed.finalAttackContribution(),
                 removed.finalProtectionContribution() * team.exposure().protectionMultiplier());
     }
@@ -197,27 +342,48 @@ public final class CanonicalScoreSampler {
         return retained;
     }
 
-    private static PassingGoals samplePassingGoals(
-            TeamCompartmentAggregator.TeamAggregationResult team,
-            TeamCompartmentAggregator.TeamAggregationResult opponent,
-            RedCard ownRed, RedCard opponentRed, double controlChance,
-            PassingStyleMatchMechanic mechanic, SplittableRandom random) {
+    private static CompartmentEngineConfig.PassingMechanic passingRules(
+            TeamCompartmentAggregator.TeamAggregationResult team) {
+        TacticCombinations.Profile combinations = team.combinations();
         TeamCompartmentAggregator.PassingStyleProfile profile = team.passingStyle();
-        if (profile == null || !profile.active()) return PassingGoals.none();
-        List<TeamCompartmentAggregator.PassingStriker> strikers = profile.strikers().stream()
+        if (combinations == null || profile == null || !profile.active()) return null;
+        return combinations.passingStyle();
+    }
+
+    private static double passingSuppression(TeamCompartmentAggregator.TeamAggregationResult team,
+                                             TeamCompartmentAggregator.TeamAggregationResult opponent) {
+        CompartmentEngineConfig.PassingMechanic rules = passingRules(team);
+        if (rules == null) return 0.0;
+        return Math.max(0.0, Math.min(1.0, rules.suppressionAgainst(opponent.passingType(), opponent.pressing())));
+    }
+
+    /** Extra chances of one starting striker (not sent off); a fixed chance each, no attribute read. */
+    private static PassingGoals samplePassingGoals(TeamCompartmentAggregator.TeamAggregationResult team,
+                                                   RedCard ownRed, SplittableRandom random) {
+        CompartmentEngineConfig.PassingMechanic rules = passingRules(team);
+        if (rules == null) return PassingGoals.none();
+        List<TeamCompartmentAggregator.PassingStriker> strikers = team.passingStyle().strikers().stream()
                 .filter(player -> !Objects.equals(player.playerId(), ownRed.playerId()))
                 .sorted(Comparator.comparingLong(TeamCompartmentAggregator.PassingStriker::playerId))
                 .toList();
         if (strikers.isEmpty()) return PassingGoals.none();
         TeamCompartmentAggregator.PassingStriker striker = strikers.get(random.nextInt(strikers.size()));
-        int opportunities = mechanic.sampleOpportunityCount(random.nextDouble());
-        double opponentPace20Penalty = mechanic.opponentPace20Penalty(opponent.passingStyle(), opponentRed.playerId());
-        double chance = mechanic.strikerGoalChance(controlChance, striker.finishing(), striker.pace(), opponentPace20Penalty);
+        int opportunities = opportunityCount(rules.getStrikerOpportunityDistribution(), random.nextDouble());
+        double chance = Math.max(0.0, Math.min(1.0, rules.getStrikerGoalChance()));
         int goals = 0;
         for (int opportunity = 0; opportunity < opportunities; opportunity++) {
             if (random.nextDouble() < chance) goals++;
         }
         return new PassingGoals(striker.playerId(), opportunities, goals, opportunities * chance);
+    }
+
+    private static int opportunityCount(List<Double> distribution, double draw) {
+        double cumulative = 0.0;
+        for (int count = 0; count < distribution.size(); count++) {
+            cumulative += distribution.get(count);
+            if (draw < cumulative) return count;
+        }
+        return distribution.size() - 1;
     }
 
     private static void validate(GoalProbabilityFormula.GoalDistribution distribution) {

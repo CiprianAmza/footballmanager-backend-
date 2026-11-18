@@ -28,7 +28,9 @@ class CompartmentEngineConfigTest {
         assertThat(config.getPositionCompartmentOverrides().get("GK").get(Compartment.DEFENSE)
                 .getAttributes().values().stream().mapToDouble(Double::doubleValue).sum())
                 .isCloseTo(1.0, within(1e-12));
-        assertThat(config.getRating().getFitnessFloor()).isEqualTo(1.0);
+        assertThat(config.getRating().getFitnessFresh()).isEqualTo(80.0);
+        assertThat(config.getRating().getFitnessSensitivity()).isEqualTo(0.75);
+        assertThat(config.getRating().getFitnessFloor()).isEqualTo(0.60);
         assertThat(config.getRating().getMoraleSlope()).isZero();
         assertThat(config.getRating().getAttributeMax()).isEqualTo(19);
         assertThat(config.getRating().getExceptionalAttributeValue()).isEqualTo(20);
@@ -38,6 +40,8 @@ class CompartmentEngineConfigTest {
                 0.05, 0.50, 0.225, 0.10, 0.075, 0.05);
         assertThat(config.getShooter().getPressing()).containsOnlyKeys(
                 "VeryEasy", "Easy", "Normal", "Aggressive", "VeryAggressive");
+        // Legacy rating-gated PASSING STYLE numbers: no longer read by the engine and no longer in the
+        // YAML; their Java defaults are pinned because they still feed the config fingerprint.
         assertThat(config.getPassingStyle().getMidfieldThreshold()).isEqualTo(19.0);
         assertThat(config.getPassingStyle().getBaseSuppression()).isEqualTo(0.99);
         assertThat(config.getPassingStyle().getAggressiveSuppression()).isEqualTo(0.97);
@@ -45,6 +49,21 @@ class CompartmentEngineConfigTest {
         assertThat(config.getPassingStyle().getLongPassingSuppression()).isEqualTo(0.85);
         assertThat(config.getPassingStyle().getFinishing19Factor()).isEqualTo(0.60);
         assertThat(config.getPassingStyle().getStrikerOpportunityDistribution()).containsExactly(
+                0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05);
+        // PASSING STYLE as the rating-free tactical combination PASSING_STYLE.
+        var passing = config.getTacticCombinations().getCombinations().get("PASSING_STYLE");
+        assertThat(passing.getSettings()).hasSize(3);
+        assertThat(passing.getOwnXg()).isEqualTo(-0.08);
+        assertThat(config.getTacticCombinations().getMaxActive()).isEqualTo(3);
+        assertThat(config.getTacticCombinations().getConflictEscalation()).isEqualTo(0.2);
+        assertThat(config.getTacticCombinations().getSynergyStackShare()).isEqualTo(1.0);
+        assertThat(config.getTacticCombinations().getConflicts()).hasSize(7);
+        assertThat(passing.getPassingStyle().getSuppression()).isEqualTo(0.30);
+        assertThat(passing.getPassingStyle().getAggressiveSuppression()).isEqualTo(0.27);
+        assertThat(passing.getPassingStyle().getVeryAggressiveSuppression()).isEqualTo(0.23);
+        assertThat(passing.getPassingStyle().getLongPassingSuppression()).isEqualTo(0.17);
+        assertThat(passing.getPassingStyle().getStrikerGoalChance()).isEqualTo(0.12);
+        assertThat(passing.getPassingStyle().getStrikerOpportunityDistribution()).containsExactly(
                 0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05);
     }
 

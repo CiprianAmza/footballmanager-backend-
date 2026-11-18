@@ -56,7 +56,7 @@ Set-piece taker ids may be `null`.
 
 ```json
 { "pld": 114, "pts": 73, "ptsMax": 114, "ptsPct": 64.0, "w": 22, "d": 7, "l": 9,
-  "gf": 68, "ga": 35, "gd": 33, "xgf": 61, "xga": 38, "xgd": 23 }
+  "gf": 68, "ga": 35, "gd": 33, "xgf": 61, "xga": 38, "xgd": 23, "xpts": 70.4 }
 ```
 
 - `pld`: total league matches over the runs it is based on (sum, not average).
@@ -67,6 +67,13 @@ Set-piece taker ids may be `null`.
 - `w`, `d`, `l`, `gf`, `ga`, `gd`, `xgf`, `xga`, `xgd`: averages per season, rounded to
   integers (`gd` and `xgd` are signed; the UI prints `+`).
 - `xgf`, `xga`, `xgd` are `null` when no match of the split has xG.
+- `xpts`: expected points per season, built exactly like `pts` (the same matches, the same
+  averaging over runs), with one decimal; `null` when no match of the split has a value.
+  Per match it uses the stored `matches[].xptsFor`; when that is missing (tests stored before
+  `xptsFor` existed) it falls back to independent Poisson goals from that match's `xgFor` and
+  `xgAgainst` (goals 0..10 each side, the tail folded into 10): `3·P(win) + P(draw)`. A match
+  with neither has no value. `xpts` appears in every `Split` (results, chosen, byTier, byClub,
+  diamond, a run's stats) and therefore in the exported JSON too.
 
 ### `Results` (the fm-arena results block)
 
@@ -595,7 +602,15 @@ from the base world by `teamId` (so finished tests have it too; `null` without p
   `homeOrAway`, `opponentTeam`, `opponentTeamId`, `score`, `teamGoals`,
   `opponentGoals`, `resultOutcome`, `decidedBy`, `winnerTeamId`,
   `penaltyTeam1Score`, `penaltyTeam2Score`, `aggregateTeam1Score`, ... ) plus:
-  - `xgFor`, `xgAgainst`: numbers with 2 decimals, `null` when the game has no stats;
+  - `xgFor`, `xgAgainst`: numbers with 2 decimals, `null` when the game has no stats. For the
+    classic engine xG is the engine's own pre-match expectation of goals (collective goals after
+    every tactical modifier + SHOOTER + passing-style chances, the opponent's passing-style
+    erasure and red cards included), independent of the sampled score; the 2D engine keeps its
+    own xG;
+  - `xptsFor`: expected points of the club in that match, 0..3 with 2 decimals, `null` when
+    unavailable. Classic engine: `3·P(win) + P(draw)` from the same pre-match goal
+    distributions as xG (exact convolution). 2D engine and older matches: independent Poisson
+    from the two xG values (goals 0..10);
   - `inRun`: always `true` now (no match is played before a run starts);
   - `competitionKind`: `LEAGUE` (the club's own league), `DIAMOND`, `CUP`, `CONTINENTAL` or
     `OTHER` (the schedule's `competitionType` says `"League"` for the Diamond League too).

@@ -183,8 +183,15 @@ class TeamCompartmentAggregatorTest {
         assertThat(result.pressing()).isEqualTo("Normal");
     }
 
+    /** PASSING STYLE is a tactical combination: its activation comes from the resolved tactic settings. */
+    private TacticCombinations.Profile combinations(String passing, String pressing, String recovery) {
+        return new TacticCombinations(config).resolve(new TacticCombinations.TeamSettings(
+                "Balanced", "Standard", passing, "Standard", pressing, "Balanced", recovery,
+                "Standard", "Sometimes", "Standard", "Shoot", "Balanced"));
+    }
+
     @Test
-    void passingStyleActivatesOnlyForExactTacticAndMidfieldAverageAtLeast19() {
+    void passingStyleActivatesOnlyForExactTactic() {
         List<PlayerCompartmentInput> lineup = List.of(
                 passingPlayer(1, PlayerPosition.GK, 1, 10, 10, 10),
                 passingPlayer(2, PlayerPosition.DM, 1, 19, 19, 20),
@@ -195,58 +202,56 @@ class TeamCompartmentAggregatorTest {
                 passingPlayer(7, PlayerPosition.ST, 1, 10, 10, 20));
 
         TeamAggregationResult active = aggregator.aggregate(Mentality.BALANCED,
-                "Short", "Aggressive", "Instantly", lineup);
+                "Short", "Aggressive", "Instantly", lineup, combinations("Short", "Aggressive", "Instantly"));
         TeamAggregationResult wrongRecovery = aggregator.aggregate(Mentality.BALANCED,
-                "Short", "Aggressive", "Standard", lineup);
+                "Short", "Aggressive", "Standard", lineup, combinations("Short", "Aggressive", "Standard"));
+        TeamAggregationResult wrongPressing = aggregator.aggregate(Mentality.BALANCED,
+                "Short", "Very Aggressive", "Instantly", lineup, combinations("Short", "Very Aggressive", "Instantly"));
 
         assertThat(active.passingStyle().active()).isTrue();
+        assertThat(active.combinations().passingStyle()).isNotNull();
         assertThat(active.passingStyle().midfieldAverage()).isEqualTo(19.3);
         assertThat(active.passingStyle().midfielders()).hasSize(5);
         assertThat(active.passingStyle().strikers()).extracting(TeamCompartmentAggregator.PassingStriker::playerId)
                 .containsExactly(7L);
         assertThat(wrongRecovery.passingStyle().active()).isFalse();
+        assertThat(wrongPressing.passingStyle().active()).isFalse();
     }
 
     @Test
-    void passingStyleDoesNotActivateForExactTacticWhenMidfieldAverageIsBelow19() {
+    void passingStyleNoLongerHasAMidfieldRatingGate() {
+        // Midfield (recovery + tackling) average far below the old 19 gate, and no pace-20 player.
         List<PlayerCompartmentInput> lineup = List.of(
                 passingPlayer(1, PlayerPosition.GK, 1, 10, 10, 10),
-                passingPlayer(2, PlayerPosition.DM, 1, 19, 19, 20),
-                passingPlayer(3, PlayerPosition.MC, 1, 19, 19, 20),
-                passingPlayer(4, PlayerPosition.AMC, 1, 19, 19, 20),
-                passingPlayer(5, PlayerPosition.ML, 1, 19, 19, 20),
-                passingPlayer(6, PlayerPosition.AMR, 1, 18, 19, 20),
-                passingPlayer(7, PlayerPosition.ST, 1, 10, 10, 20));
+                passingPlayer(2, PlayerPosition.DM, 1, 5, 5, 6),
+                passingPlayer(3, PlayerPosition.MC, 1, 5, 5, 6),
+                passingPlayer(4, PlayerPosition.AMC, 1, 5, 5, 6),
+                passingPlayer(5, PlayerPosition.ML, 1, 5, 5, 6),
+                passingPlayer(6, PlayerPosition.AMR, 1, 4, 5, 6),
+                passingPlayer(7, PlayerPosition.ST, 1, 10, 10, 6));
 
         TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED,
-                "Short", "Aggressive", "Instantly", lineup);
+                "Short", "Aggressive", "Instantly", lineup, combinations("Short", "Aggressive", "Instantly"));
 
-        assertThat(result.passingStyle().midfieldAverage()).isEqualTo(18.9);
-        assertThat(result.passingStyle().midfielders()).hasSize(5);
+        assertThat(result.passingStyle().midfieldAverage()).isEqualTo(4.9);
         assertThat(result.passingStyle().strikers()).extracting(TeamCompartmentAggregator.PassingStriker::playerId)
                 .containsExactly(7L);
-        assertThat(result.passingStyle().active()).isFalse();
+        assertThat(result.passingStyle().active()).isTrue();
     }
 
     @Test
-    void passingStyleActivatesAtAttributeAverage19EvenWhenEveryMidfielderHasOnlyPace19() {
+    void passingStyleIsInactiveWithoutResolvedCombinations() {
         List<PlayerCompartmentInput> lineup = List.of(
                 passingPlayer(1, PlayerPosition.GK, 1, 10, 10, 10),
                 passingPlayer(2, PlayerPosition.DM, 1, 19, 19, 19),
                 passingPlayer(3, PlayerPosition.MC, 1, 19, 19, 19),
-                passingPlayer(4, PlayerPosition.MC, 2, 19, 19, 19),
-                passingPlayer(5, PlayerPosition.AMC, 1, 19, 19, 19),
-                passingPlayer(6, PlayerPosition.ML, 1, 19, 19, 19),
-                passingPlayer(7, PlayerPosition.MR, 1, 19, 19, 19),
-                passingPlayer(8, PlayerPosition.ST, 1, 10, 10, 19));
+                passingPlayer(4, PlayerPosition.ST, 1, 10, 10, 19));
 
         TeamAggregationResult result = aggregator.aggregate(Mentality.BALANCED,
                 "Short", "Aggressive", "Instantly", lineup);
 
         assertThat(result.passingStyle().midfieldAverage()).isEqualTo(19.0);
-        assertThat(result.passingStyle().midfielders()).hasSize(6)
-                .allSatisfy(player -> assertThat(player.pace()).isEqualTo(19));
-        assertThat(result.passingStyle().active()).isTrue();
+        assertThat(result.passingStyle().active()).isFalse();
     }
 
     private PlayerCompartmentInput passingPlayer(long id, PlayerPosition position, int occurrence,

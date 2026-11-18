@@ -306,6 +306,23 @@ public class MatchStatsService {
             double homeExpectedGoals, double awayExpectedGoals,
             int homeShooterShots, int awayShooterShots,
             int homeShooterGoals, int awayShooterGoals) {
+        return generateAndSaveCanonicalRuntimeMatchStats(competitionId, season, round, team1Id, team2Id,
+                homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic,
+                homeExpectedGoals, awayExpectedGoals, homeShooterShots, awayShooterShots,
+                homeShooterGoals, awayShooterGoals, null, null);
+    }
+
+    /** As above, with the engine's pre-sampling expected points (null: Poisson fallback from xG). */
+    public MatchStats generateAndSaveCanonicalRuntimeMatchStats(
+            long competitionId, int season, int round,
+            long team1Id, long team2Id,
+            int homeGoals, int awayGoals,
+            double homePower, double awayPower,
+            PersonalizedTactic homeTactic, PersonalizedTactic awayTactic,
+            double homeExpectedGoals, double awayExpectedGoals,
+            int homeShooterShots, int awayShooterShots,
+            int homeShooterGoals, int awayShooterGoals,
+            Double homeExpectedPoints, Double awayExpectedPoints) {
         MatchStats stats = generateMatchStats(
                 competitionId, season, round, team1Id, team2Id,
                 homeGoals, awayGoals, homePower, awayPower, homeTactic, awayTactic,
@@ -314,6 +331,7 @@ public class MatchStatsService {
                 homeShooterGoals, awayShooterGoals, this.random);
         stats.setHomeXg(toHundredths(homeExpectedGoals));
         stats.setAwayXg(toHundredths(awayExpectedGoals));
+        applyExpectedPoints(stats, homeExpectedPoints, awayExpectedPoints);
         return saveWithShotEvents(stats);
     }
 
@@ -335,6 +353,7 @@ public class MatchStatsService {
                 && input.decision().homeXg() != null) {
             stats.setHomeXg(toHundredths(input.decision().homeXg()));
             stats.setAwayXg(toHundredths(input.decision().awayXg()));
+            applyExpectedPoints(stats, input.decision().homeXpts(), input.decision().awayXpts());
         }
         validateGeneratedCanonicalStats(stats);
         return stats;
@@ -566,6 +585,25 @@ public class MatchStatsService {
         return Math.min(count - 1, max);
     }
 
+    private void applyExpectedPoints(MatchStats stats, Double homeXpts, Double awayXpts) {
+        if (homeXpts == null || awayXpts == null) return;
+        stats.setHomeXpts(toHundredths(homeXpts));
+        stats.setAwayXpts(toHundredths(awayXpts));
+    }
+
+    /**
+     * Matches without the engine's own expectation (2D engine, legacy/admin paths, plans stored before
+     * xPts) get xPts from their two xG values: independent Poisson goals, 0..10 per side.
+     */
+    static void fillMissingExpectedPoints(MatchStats stats) {
+        if (stats.getHomeXpts() != null && stats.getAwayXpts() != null) return;
+        com.footballmanagergamesimulator.compartment.match.ExpectedPoints.Outcome outcome =
+                com.footballmanagergamesimulator.compartment.match.ExpectedPoints.poisson(
+                        Math.max(0, stats.getHomeXg()) / 100.0, Math.max(0, stats.getAwayXg()) / 100.0);
+        stats.setHomeXpts((int) Math.round(outcome.homeXpts() * 100.0));
+        stats.setAwayXpts((int) Math.round(outcome.awayXpts() * 100.0));
+    }
+
     private int toHundredths(double xg) {
         double scaled = Math.round(xg * 100.0);
         if (scaled <= 0) return 0;
@@ -608,6 +646,20 @@ public class MatchStatsService {
             double homePower, double awayPower,
             int homeShooterShots, int awayShooterShots,
             int homeShooterGoals, int awayShooterGoals) {
+        return persistLiveMatchStats(competitionId, season, round, team1Id, team2Id, liveData,
+                homePower, awayPower, homeShooterShots, awayShooterShots, homeShooterGoals, awayShooterGoals,
+                null, null);
+    }
+
+    /** As above, with the engine's pre-sampling expected points (null: Poisson fallback from xG). */
+    public MatchStats persistLiveMatchStats(
+            long competitionId, int season, int round,
+            long team1Id, long team2Id,
+            LiveMatchData liveData,
+            double homePower, double awayPower,
+            int homeShooterShots, int awayShooterShots,
+            int homeShooterGoals, int awayShooterGoals,
+            Double homeExpectedPoints, Double awayExpectedPoints) {
 
         Random rng = this.random;
         double totalPower = homePower + awayPower;
@@ -716,11 +768,13 @@ public class MatchStatsService {
 
         includeShooterAttempts(stats, homeShooterShots, awayShooterShots,
                 homeShooterGoals, awayShooterGoals, rng);
+        applyExpectedPoints(stats, homeExpectedPoints, awayExpectedPoints);
 
         return saveWithShotEvents(stats);
     }
 
     private MatchStats saveWithShotEvents(MatchStats stats) {
+        fillMissingExpectedPoints(stats);
         MatchStats saved = matchStatsRepository.save(stats);
         if (shotEventService != null) shotEventService.replaceForMatch(saved);
         if (possessionProgressionLedgerService != null) possessionProgressionLedgerService.replaceForMatch(saved);

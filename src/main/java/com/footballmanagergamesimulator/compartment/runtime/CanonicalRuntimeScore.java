@@ -36,7 +36,32 @@ public record CanonicalRuntimeScore(
         int homePassingOpportunities,
         int awayPassingOpportunities,
         double homePassingControl,
-        double awayPassingControl) {
+        double awayPassingControl,
+        Double homeXpts,
+        Double awayXpts) {
+    /** Compatibility constructor for scores without expected points. */
+    public CanonicalRuntimeScore(int homeGoals, int awayGoals, double homePower, double awayPower,
+                                 CanonicalMatchEvaluation evaluation, String configFingerprint,
+                                 String inputFingerprint, int homeCollectiveGoals, int awayCollectiveGoals,
+                                 Long homeShooterPlayerId, Long awayShooterPlayerId,
+                                 int homeShooterGoals, int awayShooterGoals,
+                                 Long homeRedCardPlayerId, Long awayRedCardPlayerId,
+                                 double homeEffectiveAttack, double homeEffectiveProtection,
+                                 double awayEffectiveAttack, double awayEffectiveProtection,
+                                 double homeXg, double awayXg, int homeShooterShots, int awayShooterShots,
+                                 Long homePassingPlayerId, Long awayPassingPlayerId,
+                                 int homePassingGoals, int awayPassingGoals,
+                                 int homePassingOpportunities, int awayPassingOpportunities,
+                                 double homePassingControl, double awayPassingControl) {
+        this(homeGoals, awayGoals, homePower, awayPower, evaluation, configFingerprint, inputFingerprint,
+                homeCollectiveGoals, awayCollectiveGoals, homeShooterPlayerId, awayShooterPlayerId,
+                homeShooterGoals, awayShooterGoals, homeRedCardPlayerId, awayRedCardPlayerId,
+                homeEffectiveAttack, homeEffectiveProtection, awayEffectiveAttack, awayEffectiveProtection,
+                homeXg, awayXg, homeShooterShots, awayShooterShots, homePassingPlayerId, awayPassingPlayerId,
+                homePassingGoals, awayPassingGoals, homePassingOpportunities, awayPassingOpportunities,
+                homePassingControl, awayPassingControl, null, null);
+    }
+
     public CanonicalRuntimeScore(int homeGoals, int awayGoals, double homePower, double awayPower,
                                  CanonicalMatchEvaluation evaluation) {
         this(homeGoals, awayGoals, homePower, awayPower, evaluation, "", "");
@@ -101,6 +126,10 @@ public record CanonicalRuntimeScore(
         if (Math.abs(homePower - homeEffectiveAttack - homeEffectiveProtection) > 1e-9
                 || Math.abs(awayPower - awayEffectiveAttack - awayEffectiveProtection) > 1e-9) {
             throw new IllegalArgumentException("team power must equal effective attack plus protection");
+        }
+        if ((homeXpts != null && !(homeXpts >= 0.0 && homeXpts <= 3.0))
+                || (awayXpts != null && !(awayXpts >= 0.0 && awayXpts <= 3.0))) {
+            throw new IllegalArgumentException("expected points must be in [0,3]");
         }
         if (configFingerprint == null || inputFingerprint == null) {
             throw new IllegalArgumentException("fingerprints must not be null");

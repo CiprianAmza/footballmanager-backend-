@@ -84,6 +84,13 @@ public class MatchStats {
     // xG (stored as int * 100 for precision, e.g. 1.52 xG = 152)
     private int homeXg;
     private int awayXg;
+    /**
+     * Expected points (0..300, hundredths). Nullable on purpose: Hibernate's ddl-auto=update adds
+     * nullable columns to an existing match_stats table without a default, so databases and base
+     * world backups created before xPts keep starting; their old rows simply have no value.
+     */
+    private Integer homeXpts;
+    private Integer awayXpts;
 
     // Crosses
     private int homeCrosses;

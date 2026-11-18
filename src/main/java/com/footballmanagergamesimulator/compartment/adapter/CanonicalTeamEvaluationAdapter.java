@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.compartment.adapter;
 
 import com.footballmanagergamesimulator.compartment.Mentality;
+import com.footballmanagergamesimulator.compartment.TacticCombinations;
 import com.footballmanagergamesimulator.compartment.TacticalContextInput;
 import com.footballmanagergamesimulator.compartment.TeamCompartmentAggregator;
 import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
@@ -19,12 +20,14 @@ import java.util.Set;
 public final class CanonicalTeamEvaluationAdapter {
     private final CanonicalPlayerContextAdapter playerAdapter;
     private final TeamCompartmentAggregator aggregator;
+    private final TacticCombinations combinations;
 
     public CanonicalTeamEvaluationAdapter(CompartmentEngineConfig compartmentConfig,
                                           MatchEngineConfig matchEngineConfig) {
         this.playerAdapter = new CanonicalPlayerContextAdapter(compartmentConfig, matchEngineConfig);
         this.aggregator = new TeamCompartmentAggregator(Objects.requireNonNull(
                 compartmentConfig, "compartmentConfig"));
+        this.combinations = new TacticCombinations(compartmentConfig);
     }
 
     public CanonicalTeamEvaluation evaluate(Mentality mentality,
@@ -80,9 +83,12 @@ public final class CanonicalTeamEvaluationAdapter {
         if (passingValues.size() != 1 || pressingValues.size() != 1 || recoveryValues.size() != 1) {
             throw new IllegalArgumentException("all players must share the same team tactic axes");
         }
+        TacticCombinations.TeamSettings settings = TacticCombinations.TeamSettings.shared(
+                orderedLineup.stream().map(player -> tacticalContextByPlayerId.get(player.playerId())).toList());
+        TacticCombinations.Profile combinationProfile = combinations.resolve(settings);
         TeamCompartmentAggregator.TeamAggregationResult team = aggregator.aggregate(
                 mentality, passingValues.iterator().next(), pressingValues.iterator().next(),
-                recoveryValues.iterator().next(), inputs);
+                recoveryValues.iterator().next(), inputs, combinationProfile);
         return new CanonicalTeamEvaluation(new ArrayList<>(evaluationsById.values()), team);
     }
 

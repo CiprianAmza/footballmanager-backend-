@@ -88,6 +88,34 @@ public interface HumanRepository extends JpaRepository<Human, Long>, JpaSpecific
     List<TeamValueTotal> sumActiveTransferValueByTeamIdsAndTypeId(
             @Param("teamIds") Collection<Long> teamIds, @Param("typeId") long typeId);
 
+    /**
+     * Daily fitness recovery in bulk: every active player whose natural fitness is
+     * {@code naturalFitness}, not at 100 and not in an excluded club (clubs that played today and
+     * human-managed clubs, which recover by their own schedule), gains {@code gain}, capped at 100.
+     */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Human h
+               set h.fitness = case when h.fitness + :gain >= 100.0 then 100.0 else h.fitness + :gain end
+             where h.typeId = 1 and h.retired = false and h.fitness < 100.0
+               and (h.teamId is null or h.teamId not in :excluded)
+               and h.id in (select s.playerId from PlayerSkills s where s.naturalFitness = :naturalFitness)
+            """)
+    int recoverFitnessByNaturalFitness(@Param("gain") double gain,
+                                       @Param("excluded") Collection<Long> excluded,
+                                       @Param("naturalFitness") int naturalFitness);
+
+    /** As {@link #recoverFitnessByNaturalFitness} for active players without attributes (natural fitness 10). */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Human h
+               set h.fitness = case when h.fitness + :gain >= 100.0 then 100.0 else h.fitness + :gain end
+             where h.typeId = 1 and h.retired = false and h.fitness < 100.0
+               and (h.teamId is null or h.teamId not in :excluded)
+               and h.id not in (select s.playerId from PlayerSkills s)
+            """)
+    int recoverFitnessWithoutSkills(@Param("gain") double gain, @Param("excluded") Collection<Long> excluded);
+
     /** One bounded query for all coaching roles belonging to the requested teams. */
     List<Human> findAllByTeamIdInAndTypeIdIn(Collection<Long> teamIds, Collection<Long> typeIds);
 

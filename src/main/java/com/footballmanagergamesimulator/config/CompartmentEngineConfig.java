@@ -38,6 +38,7 @@ public class CompartmentEngineConfig {
     private Aggregation aggregation = new Aggregation();
     private Shooter shooter = new Shooter();
     private PassingStyle passingStyle = new PassingStyle();
+    private TacticCombinations tacticCombinations = new TacticCombinations();
     private Map<String, Map<PlayerAttribute, Double>> contextRules = defaultContextRules();
 
     public Rating getRating() { return rating; }
@@ -71,6 +72,10 @@ public class CompartmentEngineConfig {
     public void setShooter(Shooter shooter) { this.shooter = shooter; }
     public PassingStyle getPassingStyle() { return passingStyle; }
     public void setPassingStyle(PassingStyle passingStyle) { this.passingStyle = passingStyle; }
+    public TacticCombinations getTacticCombinations() { return tacticCombinations; }
+    public void setTacticCombinations(TacticCombinations tacticCombinations) {
+        this.tacticCombinations = tacticCombinations;
+    }
     public Map<String, Map<PlayerAttribute, Double>> getContextRules() { return contextRules; }
     public void setContextRules(Map<String, Map<PlayerAttribute, Double>> contextRules) {
         this.contextRules = contextRules;
@@ -138,7 +143,10 @@ public class CompartmentEngineConfig {
         private double contextCoefficientMax = 1.0;
         private double roleFitBase = 0.85;
         private double roleFitRange = 0.30;
-        private double fitnessFloor = 0.70;
+        /** Fitness factor {@code max(floor, 1 - sensitivity × max(0, fresh - fitness) / 100)}. */
+        private double fitnessFresh = 80.0;
+        private double fitnessSensitivity = 0.75;
+        private double fitnessFloor = 0.60;
         private double moraleNeutral = 70.0;
         private double moraleSlope = 0.0004;
         private double defaultPositionMultiplier = 1.0;
@@ -168,6 +176,10 @@ public class CompartmentEngineConfig {
         public void setRoleFitBase(double v) { this.roleFitBase = v; }
         public double getRoleFitRange() { return roleFitRange; }
         public void setRoleFitRange(double v) { this.roleFitRange = v; }
+        public double getFitnessFresh() { return fitnessFresh; }
+        public void setFitnessFresh(double v) { this.fitnessFresh = v; }
+        public double getFitnessSensitivity() { return fitnessSensitivity; }
+        public void setFitnessSensitivity(double v) { this.fitnessSensitivity = v; }
         public double getFitnessFloor() { return fitnessFloor; }
         public void setFitnessFloor(double v) { this.fitnessFloor = v; }
         public double getMoraleNeutral() { return moraleNeutral; }
@@ -384,7 +396,12 @@ public class CompartmentEngineConfig {
         public void setRedCardChance(double v) { this.redCardChance = v; }
     }
 
-    /** Explicit high-recovery short-passing mechanic; every percentage is YAML-controlled. */
+    /**
+     * Legacy rating-gated PASSING STYLE numbers. The engine no longer reads them: PASSING STYLE is
+     * now the tactical combination {@code PASSING_STYLE} (see {@link PassingMechanic}). The values
+     * stay only because they are part of the persisted config fingerprint (and therefore of every
+     * match-statistics seed); changing them would alter the statistics of every match.
+     */
     public static class PassingStyle {
         private double midfieldThreshold = 19.0;
         private double baseSuppression = 0.99;
@@ -430,5 +447,120 @@ public class CompartmentEngineConfig {
         public void setPace19Chance(double v) { pace19Chance = v; }
         public List<Double> getStrikerOpportunityDistribution() { return strikerOpportunityDistribution; }
         public void setStrikerOpportunityDistribution(List<Double> v) { strikerOpportunityDistribution = v; }
+    }
+
+    /**
+     * Tactical combinations (style bonuses). Java defaults are inert: without the YAML section no
+     * combination exists, so fixtures built from an empty config keep their historical results.
+     */
+    public static class TacticCombinations {
+        private boolean enabled = false;
+        private int maxActive = 2;
+        private Map<String, Combination> combinations = new LinkedHashMap<>();
+        /** Contradictory settings: same activation rules, every active one applies (no cap). */
+        private Map<String, Combination> conflicts = new LinkedHashMap<>();
+        /**
+         * Conflicts compound: with n active conflicts every conflict delta is multiplied by
+         * {@code 1 + conflictEscalation * (n - 1)} (one conflict is unchanged).
+         */
+        private double conflictEscalation = 0.0;
+        /**
+         * Synergies add their deltas per lever: costs in full, the largest helpful delta in full,
+         * every further helpful delta on the same lever times this share (1 = plain sum).
+         */
+        private double synergyStackShare = 1.0;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { enabled = v; }
+        public int getMaxActive() { return maxActive; }
+        public void setMaxActive(int v) { maxActive = v; }
+        public Map<String, Combination> getCombinations() { return combinations; }
+        public void setCombinations(Map<String, Combination> v) { combinations = v; }
+        public double getSynergyStackShare() { return synergyStackShare; }
+        public void setSynergyStackShare(double v) { synergyStackShare = v; }
+        public double getConflictEscalation() { return conflictEscalation; }
+        public void setConflictEscalation(double v) { conflictEscalation = v; }
+        public Map<String, Combination> getConflicts() { return conflicts; }
+        public void setConflicts(Map<String, Combination> v) { conflicts = v; }
+    }
+
+    /**
+     * One combination: every listed setting must match (any of its values counts). Each effect is a
+     * fractional delta turned into a multiplier {@code 1 + delta}; 0 means "not used".
+     */
+    public static class Combination {
+        /** Tactic axis → accepted values (e.g. {@code tempo: [Lower, Much Lower]}). */
+        private Map<String, List<String>> settings = new LinkedHashMap<>();
+        /** Scales every starter's midfield mass before the mentality split ("control of midfield"). */
+        private double midfield = 0.0;
+        /** Scales this team's expected goals ("own chances"). */
+        private double ownXg = 0.0;
+        /** Scales the opponent's expected goals ("goals conceded"). */
+        private double opponentXg = 0.0;
+        /** Added to this team's per-match red-card chance. */
+        private double redCard = 0.0;
+        /** Extra own-xG delta when the opponent plays Attacking/Very Attacking or a High line. */
+        private double exposedOpponentOwnXg = 0.0;
+        /** PASSING STYLE only: erase a share of opponent goals and create extra striker chances. */
+        private PassingMechanic passingStyle;
+
+        public Map<String, List<String>> getSettings() { return settings; }
+        public void setSettings(Map<String, List<String>> v) { settings = v; }
+        public double getMidfield() { return midfield; }
+        public void setMidfield(double v) { midfield = v; }
+        public double getOwnXg() { return ownXg; }
+        public void setOwnXg(double v) { ownXg = v; }
+        public double getOpponentXg() { return opponentXg; }
+        public void setOpponentXg(double v) { opponentXg = v; }
+        public double getRedCard() { return redCard; }
+        public void setRedCard(double v) { redCard = v; }
+        public double getExposedOpponentOwnXg() { return exposedOpponentOwnXg; }
+        public void setExposedOpponentOwnXg(double v) { exposedOpponentOwnXg = v; }
+        public PassingMechanic getPassingStyle() { return passingStyle; }
+        public void setPassingStyle(PassingMechanic v) { passingStyle = v; }
+    }
+
+    /**
+     * PASSING STYLE as a tactical combination: no player attribute is read. The suppression is the
+     * probability that each normal opponent goal is erased; it depends only on the opponent's tactic.
+     * Each special opportunity of a starting striker scores with a fixed chance.
+     */
+    public static class PassingMechanic {
+        private double suppression = 0.0;
+        private double aggressiveSuppression = 0.0;
+        private double veryAggressiveSuppression = 0.0;
+        private double longPassingSuppression = 0.0;
+        private double strikerGoalChance = 0.0;
+        private List<Double> strikerOpportunityDistribution =
+                List.of(0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05);
+
+        public double getSuppression() { return suppression; }
+        public void setSuppression(double v) { suppression = v; }
+        public double getAggressiveSuppression() { return aggressiveSuppression; }
+        public void setAggressiveSuppression(double v) { aggressiveSuppression = v; }
+        public double getVeryAggressiveSuppression() { return veryAggressiveSuppression; }
+        public void setVeryAggressiveSuppression(double v) { veryAggressiveSuppression = v; }
+        public double getLongPassingSuppression() { return longPassingSuppression; }
+        public void setLongPassingSuppression(double v) { longPassingSuppression = v; }
+        public double getStrikerGoalChance() { return strikerGoalChance; }
+        public void setStrikerGoalChance(double v) { strikerGoalChance = v; }
+        public List<Double> getStrikerOpportunityDistribution() { return strikerOpportunityDistribution; }
+        public void setStrikerOpportunityDistribution(List<Double> v) { strikerOpportunityDistribution = v; }
+
+        /** Erase chance against an opponent with the given passing and pressing settings. */
+        public double suppressionAgainst(String opponentPassing, String opponentPressing) {
+            if ("Long".equalsIgnoreCase(opponentPassing)) return longPassingSuppression;
+            if ("Very Aggressive".equalsIgnoreCase(opponentPressing)) return veryAggressiveSuppression;
+            if ("Aggressive".equalsIgnoreCase(opponentPressing)) return aggressiveSuppression;
+            return suppression;
+        }
+
+        public double meanOpportunities() {
+            double mean = 0.0;
+            for (int i = 0; i < strikerOpportunityDistribution.size(); i++) {
+                mean += i * strikerOpportunityDistribution.get(i);
+            }
+            return mean;
+        }
     }
 }

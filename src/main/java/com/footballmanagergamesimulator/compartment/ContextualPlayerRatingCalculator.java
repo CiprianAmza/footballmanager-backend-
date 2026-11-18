@@ -85,7 +85,8 @@ public final class ContextualPlayerRatingCalculator {
         double roleMultiplier = roleMultiplier(input.role(), compartment);
         double dutyMultiplier = dutyMultiplier(input.duty(), compartment);
         double familiarity = clamp(input.positionFamiliarity(), 0.0, 1.0);
-        double fitness = Math.max(rating.getFitnessFloor(), clamp(input.fitness(), 0.0, 100.0) / 100.0);
+        // 1.0 at or above the fresh level (80), so a squad at the season-start level is unchanged.
+        double fitness = FitnessFactor.of(input.fitness(), rating);
         double morale = 1.0 + (clamp(input.morale(), 0.0, 100.0) - rating.getMoraleNeutral())
                 * rating.getMoraleSlope();
         double roleFit = roleFit(input.roleSuitability(), rating.getRoleFitBase(), rating.getRoleFitRange());

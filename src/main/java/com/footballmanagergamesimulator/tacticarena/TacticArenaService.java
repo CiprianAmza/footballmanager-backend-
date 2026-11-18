@@ -1170,8 +1170,11 @@ public class TacticArenaService {
             boolean home = m.path("teamId1").asLong() == teamId;
             Double xgFor = m.path("xgFor").isNumber() ? m.path("xgFor").asDouble() : null;
             Double xgAgainst = m.path("xgAgainst").isNumber() ? m.path("xgAgainst").asDouble() : null;
+            // Tests stored before xptsFor existed fall back to Poisson from their xG.
+            Double xpts = TacticArenaStats.expectedPoints(
+                    m.path("xptsFor").isNumber() ? m.path("xptsFor").asDouble() : null, xgFor, xgAgainst);
             lines.add(new TacticArenaStats.MatchLine(home, m.path("teamGoals").asInt(), m.path("opponentGoals").asInt(),
-                    xgFor, xgAgainst));
+                    xgFor, xgAgainst, xpts));
         }
         return TacticArenaStats.totals(lines);
     }
@@ -1179,11 +1182,33 @@ public class TacticArenaService {
     private TacticArenaStats.RunTotals readDiamondTotals(TacticArenaRun run) {
         if (!DONE.equals(run.getStatus()) || run.getDiamondJson() == null) return null;
         try {
-            return objectMapper.treeToValue(objectMapper.readTree(run.getDiamondJson()).path("totals"),
-                    TacticArenaStats.RunTotals.class);
+            TacticArenaStats.RunTotals stored = objectMapper.treeToValue(
+                    objectMapper.readTree(run.getDiamondJson()).path("totals"), TacticArenaStats.RunTotals.class);
+            if (!lacksExpectedPoints(stored)) return stored;
+            return recomputedTotals.computeIfAbsent("D" + run.getId(), key -> storedResult(run)
+                    .map(result -> {
+                        Map<String, Object> diamond = diamondTotals(result);
+                        return diamond == null ? stored : (TacticArenaStats.RunTotals) diamond.get("totals");
+                    }).orElse(stored));
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** Totals of runs finished before xPts existed, recomputed once from their stored result. */
+    private final Map<String, TacticArenaStats.RunTotals> recomputedTotals = new ConcurrentHashMap<>();
+
+    /**
+     * Totals stored before xPts have xG but no xPts: they are recomputed from the run's stored result,
+     * whose matches carry xgFor/xgAgainst, so the Poisson fallback can fill xPts match by match.
+     */
+    private static boolean lacksExpectedPoints(TacticArenaStats.RunTotals totals) {
+        return totals != null && totals.overall() != null
+                && totals.overall().xptsMatches() == 0 && totals.overall().xgMatches() > 0;
+    }
+
+    private Optional<JsonNode> storedResult(TacticArenaRun run) {
+        return resultRepository.findById(run.getId()).map(res -> readTree(TacticArenaSupport.gunzip(res.getGzJson())));
     }
 
     /** {overall, home, away, position, of} of the run's Diamond League; null when its club does not play in it. */
@@ -1209,7 +1234,10 @@ public class TacticArenaService {
     private TacticArenaStats.RunTotals readTotals(TacticArenaRun run) {
         if (!DONE.equals(run.getStatus()) || run.getTotalsJson() == null) return null;
         try {
-            return objectMapper.readValue(run.getTotalsJson(), TacticArenaStats.RunTotals.class);
+            TacticArenaStats.RunTotals stored = objectMapper.readValue(run.getTotalsJson(), TacticArenaStats.RunTotals.class);
+            if (!lacksExpectedPoints(stored)) return stored;
+            return recomputedTotals.computeIfAbsent("L" + run.getId(),
+                    key -> storedResult(run).map(this::totals).orElse(stored));
         } catch (Exception e) {
             return null;
         }

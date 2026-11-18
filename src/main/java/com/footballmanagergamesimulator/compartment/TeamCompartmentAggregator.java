@@ -51,6 +51,16 @@ public final class TeamCompartmentAggregator {
 
     public TeamAggregationResult aggregate(Mentality mentality, String passingType, String pressing,
                                            String recovery, Collection<PlayerCompartmentInput> lineup) {
+        return aggregate(mentality, passingType, pressing, recovery, lineup, null);
+    }
+
+    /**
+     * @param combinations tactical combinations resolved for this team; {@code null} or inactive
+     *                     leaves the aggregation exactly as without combinations
+     */
+    public TeamAggregationResult aggregate(Mentality mentality, String passingType, String pressing,
+                                           String recovery, Collection<PlayerCompartmentInput> lineup,
+                                           TacticCombinations.Profile combinations) {
         Objects.requireNonNull(mentality, "mentality");
         if (passingType == null || passingType.isBlank() || pressing == null || pressing.isBlank()
                 || recovery == null || recovery.isBlank()) {
@@ -64,6 +74,10 @@ public final class TeamCompartmentAggregator {
         List<PlayerAggregation> players = ordered.stream()
                 .map(this::toPlayerAggregation)
                 .toList();
+        if (combinations != null && combinations.isActive() && combinations.midfieldMultiplier() != 1.0) {
+            double factor = combinations.midfieldMultiplier();
+            players = players.stream().map(player -> player.withMidfield(player.midfield() * factor)).toList();
+        }
 
         double rawAttack = players.stream().mapToDouble(PlayerAggregation::adjustedAttack).sum();
         double rawMidfield = players.stream().mapToDouble(PlayerAggregation::midfield).sum();
@@ -96,7 +110,7 @@ public final class TeamCompartmentAggregator {
                 .map(player -> new ShooterProfile(player.playerId(), player.longShots(), player.positioning()))
                 .findFirst().orElse(null);
 
-        PassingStyleProfile passingStyle = passingStyle(passingType, pressing, recovery, ordered);
+        PassingStyleProfile passingStyle = passingStyle(ordered, combinations);
 
         return new TeamAggregationResult(
                 mentality,
@@ -134,11 +148,16 @@ public final class TeamCompartmentAggregator {
                 pressing,
                 recovery,
                 shooter,
-                passingStyle);
+                passingStyle,
+                combinations);
     }
 
-    private PassingStyleProfile passingStyle(String passingType, String pressing, String recovery,
-                                             List<PlayerCompartmentInput> ordered) {
+    /**
+     * PASSING STYLE is a tactical combination: it is active exactly when the resolved combinations
+     * selected it (settings only, no rating gate). The midfield average is kept for display only.
+     */
+    private PassingStyleProfile passingStyle(List<PlayerCompartmentInput> ordered,
+                                             TacticCombinations.Profile combinations) {
         List<PassingMidfielder> midfielders = ordered.stream()
                 .filter(player -> isPassingMidfielder(player.slot().position()))
                 .map(player -> new PassingMidfielder(player.playerId(), player.pace(),
@@ -151,11 +170,7 @@ public final class TeamCompartmentAggregator {
                 .filter(player -> player.slot().position() == PlayerPosition.ST)
                 .map(player -> new PassingStriker(player.playerId(), player.finishing(), player.pace()))
                 .toList();
-        boolean active = "Short".equalsIgnoreCase(passingType)
-                && "Aggressive".equalsIgnoreCase(pressing)
-                && ("Very Fast".equalsIgnoreCase(recovery) || "Instantly".equalsIgnoreCase(recovery))
-                && average >= config.getPassingStyle().getMidfieldThreshold()
-                && !strikers.isEmpty();
+        boolean active = combinations != null && combinations.isActive() && combinations.passingStyle() != null;
         return new PassingStyleProfile(active, average, midfielders, strikers);
     }
 
@@ -621,7 +636,21 @@ public final class TeamCompartmentAggregator {
             String pressing,
             String recovery,
             ShooterProfile shooter,
-            PassingStyleProfile passingStyle) {
+            PassingStyleProfile passingStyle,
+            TacticCombinations.Profile combinations) {
+        /** Compatibility constructor for results built before tactical combinations. */
+        public TeamAggregationResult(Mentality mentality, double openness, RawTotals rawTotals,
+                                     MentalityRedistribution mentalityRedistribution,
+                                     Map<WideChannel, ChannelBreakdown> channelBreakdown,
+                                     CoverageBreakdown coverage, ExposureBreakdown exposure,
+                                     List<PlayerBreakdown> players, double attack, double attackProtection,
+                                     String passingType, String pressing, String recovery,
+                                     ShooterProfile shooter, PassingStyleProfile passingStyle) {
+            this(mentality, openness, rawTotals, mentalityRedistribution, channelBreakdown, coverage,
+                    exposure, players, attack, attackProtection, passingType, pressing, recovery,
+                    shooter, passingStyle, null);
+        }
+
         public TeamAggregationResult(Mentality mentality, double openness, RawTotals rawTotals,
                                      MentalityRedistribution mentalityRedistribution,
                                      Map<WideChannel, ChannelBreakdown> channelBreakdown,
@@ -749,5 +778,10 @@ public final class TeamCompartmentAggregator {
             double normalizedDefense,
             double cbRecoveryPace,
             DefensiveExposureFormula.WorkBehavior behavior,
-            ZoneEngagementBreakdown zoneEngagement) {}
+            ZoneEngagementBreakdown zoneEngagement) {
+        PlayerAggregation withMidfield(double scaledMidfield) {
+            return new PlayerAggregation(input, attackBase, adjustedAttack, scaledMidfield, defense,
+                    normalizedDefense, cbRecoveryPace, behavior, zoneEngagement);
+        }
+    }
 }

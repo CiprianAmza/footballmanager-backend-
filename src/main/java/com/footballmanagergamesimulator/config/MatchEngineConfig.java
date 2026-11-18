@@ -38,6 +38,7 @@ public class MatchEngineConfig {
     private Morale morale = new Morale();
     private Tactic tactic = new Tactic();
     private Stamina stamina = new Stamina();
+    private Fitness fitness = new Fitness();
     private Injuries injuries = new Injuries();
     private Fouls fouls = new Fouls();
     private Live live = new Live();
@@ -70,6 +71,8 @@ public class MatchEngineConfig {
     public void setTactic(Tactic tactic) { this.tactic = tactic; }
     public Stamina getStamina() { return stamina; }
     public void setStamina(Stamina stamina) { this.stamina = stamina; }
+    public Fitness getFitness() { return fitness; }
+    public void setFitness(Fitness fitness) { this.fitness = fitness; }
     public Injuries getInjuries() { return injuries; }
     public void setInjuries(Injuries injuries) { this.injuries = injuries; }
     public Fouls getFouls() { return fouls; }
@@ -389,6 +392,70 @@ public class MatchEngineConfig {
         public void setStartStaminaMax(double v) { this.startStaminaMax = v; }
         public double getBatchMatchFitnessDrain() { return batchMatchFitnessDrain; }
         public void setBatchMatchFitnessDrain(double v) { this.batchMatchFitnessDrain = v; }
+    }
+
+    // ==================== FITNESS ECONOMY (classic matches + daily recovery) ====================
+    /**
+     * What a classic (batch) match costs and what a day gives back, for human and AI clubs alike.
+     *
+     * <p>Match: each player of the eleven loses
+     * {@code stamina.batch-match-fitness-drain × tempoDrain[his team's tempo] × (staminaBase - staminaSlope × stamina/20)},
+     * never below {@code stamina.post-match-floor}. Day without a match: each player gains
+     * {@code gain × (naturalFitnessBase + naturalFitnessRange × naturalFitness/20)}, capped at 100, where
+     * {@code gain} is {@code restDaily} on a rest day and {@code daily × (1 - intensityCut × intensity)} on a
+     * training day ({@code intensity} = the day's session intensities / 300, 0..1). AI clubs follow the
+     * default weekly schedule.
+     */
+    public static class Fitness {
+        private Map<String, Double> tempoDrain = defaultTempoDrain();
+        private double staminaBase = 1.15;
+        private double staminaSlope = 0.30;
+        private double daily = 2.4;
+        private double restDaily = 4.8;
+        private double intensityCut = 0.5;
+        private double naturalFitnessBase = 0.75;
+        private double naturalFitnessRange = 0.5;
+        /**
+         * In-match side of tempo: a match played above Standard costs, during the match itself,
+         * the extra drain {@code E = drain(tempo) - drain(Standard)}; the scoring sees
+         * {@code base - inMatchShare × E}, where {@code base} is the pre-match fitness, capped at
+         * the fresh level when {@code inMatchFromFresh} (the reserve above it protects against
+         * accumulated tiredness, not against the pace of the match). Standard and slower: E = 0,
+         * the pre-match fitness unchanged.
+         */
+        private double inMatchShare = 0.5;
+        private boolean inMatchFromFresh = true;
+
+        private static Map<String, Double> defaultTempoDrain() {
+            Map<String, Double> m = new java.util.LinkedHashMap<>();
+            m.put("Much Lower", 0.65);
+            m.put("Lower", 0.80);
+            m.put("Standard", 1.00);
+            m.put("Higher", 2.05);
+            m.put("Much Higher", 2.75);
+            return m;
+        }
+
+        public Map<String, Double> getTempoDrain() { return tempoDrain; }
+        public void setTempoDrain(Map<String, Double> v) { this.tempoDrain = v; }
+        public double getStaminaBase() { return staminaBase; }
+        public void setStaminaBase(double v) { this.staminaBase = v; }
+        public double getStaminaSlope() { return staminaSlope; }
+        public void setStaminaSlope(double v) { this.staminaSlope = v; }
+        public double getDaily() { return daily; }
+        public void setDaily(double v) { this.daily = v; }
+        public double getRestDaily() { return restDaily; }
+        public void setRestDaily(double v) { this.restDaily = v; }
+        public double getIntensityCut() { return intensityCut; }
+        public void setIntensityCut(double v) { this.intensityCut = v; }
+        public double getNaturalFitnessBase() { return naturalFitnessBase; }
+        public void setNaturalFitnessBase(double v) { this.naturalFitnessBase = v; }
+        public double getNaturalFitnessRange() { return naturalFitnessRange; }
+        public void setNaturalFitnessRange(double v) { this.naturalFitnessRange = v; }
+        public double getInMatchShare() { return inMatchShare; }
+        public void setInMatchShare(double v) { this.inMatchShare = v; }
+        public boolean isInMatchFromFresh() { return inMatchFromFresh; }
+        public void setInMatchFromFresh(boolean v) { this.inMatchFromFresh = v; }
     }
 
     // ==================== INJURIES ====================

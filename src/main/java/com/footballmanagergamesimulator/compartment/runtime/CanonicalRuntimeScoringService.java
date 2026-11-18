@@ -128,25 +128,28 @@ public final class CanonicalRuntimeScoringService {
             long seed = MatchPlanService.seedFor(request.fixtureKey(), request.competitionId(), request.season(),
                     request.round(), request.homeTeamId(), request.awayTeamId());
             CanonicalScoreSampler.GoalSample goals = sampler.sample(evaluation, seed);
+            // xG and xPts are the engine's pre-sampling expectation, independent of the sampled score.
+            CanonicalScoreSampler.MatchExpectation expectation = sampler.expect(evaluation);
             CanonicalRuntimeScore score = new CanonicalRuntimeScore(
                     goals.homeGoals(), goals.awayGoals(),
                     goals.homeEffectiveAttack() + goals.homeEffectiveProtection(),
                     goals.awayEffectiveAttack() + goals.awayEffectiveProtection(),
                     evaluation,
                     configFingerprint,
-                    fingerprintService.inputFingerprint(request, home, away),
+                    fingerprintService.inputFingerprint(request, home, away, evaluation, compartmentConfig),
                     goals.homeCollectiveGoals(), goals.awayCollectiveGoals(),
                     goals.homeShooterPlayerId(), goals.awayShooterPlayerId(),
                     goals.homeShooterGoals(), goals.awayShooterGoals(),
                     goals.homeRedCardPlayerId(), goals.awayRedCardPlayerId(),
                     goals.homeEffectiveAttack(), goals.homeEffectiveProtection(),
                     goals.awayEffectiveAttack(), goals.awayEffectiveProtection(),
-                    goals.homeXg(), goals.awayXg(),
+                    expectation.homeXg(), expectation.awayXg(),
                     goals.homeShooterShots(), goals.awayShooterShots(),
                     goals.homePassingPlayerId(), goals.awayPassingPlayerId(),
                     goals.homePassingGoals(), goals.awayPassingGoals(),
                     goals.homePassingOpportunities(), goals.awayPassingOpportunities(),
-                    goals.homePassingControl(), goals.awayPassingControl());
+                    goals.homePassingControl(), goals.awayPassingControl(),
+                    expectation.homeXpts(), expectation.awayXpts());
             telemetry.markSucceeded();
             return score;
         } catch (RuntimeException ex) {

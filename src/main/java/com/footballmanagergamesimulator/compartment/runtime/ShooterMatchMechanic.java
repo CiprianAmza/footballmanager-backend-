@@ -21,6 +21,10 @@ final class ShooterMatchMechanic {
         return roll < pressingRule(pressing).getRedCardChance();
     }
 
+    double redCardChance(String pressing) {
+        return pressingRule(pressing).getRedCardChance();
+    }
+
     double goalChance(int longShots, String opponentPressing) {
         validateAttribute(longShots, "Long Shots");
         int exceptional = config.getRating().getExceptionalAttributeValue();
@@ -38,19 +42,25 @@ final class ShooterMatchMechanic {
     }
 
     int sampleShotCount(int positioning, double roll) {
-        validateAttribute(positioning, "Positioning");
         requireRoll(roll);
-        int exceptional = config.getRating().getExceptionalAttributeValue();
-        List<Double> distribution = positioning >= exceptional
-                ? exceptionalPositioningDistribution(positioning - exceptional)
-                : config.getShooter().getStandardShotDistribution();
-        validateDistribution(distribution);
+        List<Double> distribution = shotDistribution(positioning);
         double cumulative = 0.0;
         for (int shots = 0; shots < distribution.size(); shots++) {
             cumulative += distribution.get(shots);
             if (roll < cumulative) return shots;
         }
         return distribution.size() - 1;
+    }
+
+    /** Probability of exactly 0, 1, 2, ... special shots for this Positioning. */
+    List<Double> shotDistribution(int positioning) {
+        validateAttribute(positioning, "Positioning");
+        int exceptional = config.getRating().getExceptionalAttributeValue();
+        List<Double> distribution = positioning >= exceptional
+                ? exceptionalPositioningDistribution(positioning - exceptional)
+                : config.getShooter().getStandardShotDistribution();
+        validateDistribution(distribution);
+        return distribution;
     }
 
     private CompartmentEngineConfig.PressingRule pressingRule(String pressing) {

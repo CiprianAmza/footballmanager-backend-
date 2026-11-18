@@ -11,12 +11,16 @@ import java.util.Objects;
 public final class CanonicalPlayerContextAdapter {
     private final CompartmentDomainAdapter domainAdapter;
     private final PlayerCapabilityResolver capabilityResolver;
+    private final MatchEngineConfig matchEngineConfig;
+    private final double freshFitness;
 
     public CanonicalPlayerContextAdapter(CompartmentEngineConfig compartmentConfig,
                                          MatchEngineConfig matchEngineConfig) {
         this.domainAdapter = new CompartmentDomainAdapter(Objects.requireNonNull(
                 compartmentConfig, "compartmentConfig"));
         this.capabilityResolver = new PlayerCapabilityResolver(matchEngineConfig);
+        this.matchEngineConfig = matchEngineConfig;
+        this.freshFitness = compartmentConfig.getRating().getFitnessFresh();
     }
 
     public CanonicalPlayerEvaluation evaluate(CanonicalLineupPlayer player,
@@ -33,6 +37,12 @@ public final class CanonicalPlayerContextAdapter {
                 .map(position -> position.code())
                 .orElse(null);
         String roleDisplayName = player.role() == null ? "" : player.role().displayName();
+        // The pace of the match itself: above Standard tempo the player cannot carry it for 90
+        // minutes; Standard and slower leave the pre-match fitness exactly as it is.
+        double matchFitness = com.footballmanagergamesimulator.compartment.FitnessFactor.inMatch(
+                matchEngineConfig, player.fitness(), tacticalContext.tempo(),
+                player.attributes().getOrDefault(com.footballmanagergamesimulator.compartment.PlayerAttribute.STAMINA, 10),
+                freshFitness);
         DomainPlayerSnapshot snapshot = new DomainPlayerSnapshot(
                 player.playerId(),
                 player.usedPosition().code(),
@@ -40,7 +50,7 @@ public final class CanonicalPlayerContextAdapter {
                 roleDisplayName,
                 player.duty().name(),
                 player.attributes(),
-                player.fitness(),
+                matchFitness,
                 player.morale(),
                 positionFactor,
                 player.roleSuitability());

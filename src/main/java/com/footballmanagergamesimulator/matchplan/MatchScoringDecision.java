@@ -33,9 +33,34 @@ public record MatchScoringDecision(
         int homePassingOpportunities,
         int awayPassingOpportunities,
         double homePassingControl,
-        double awayPassingControl) {
+        double awayPassingControl,
+        Double homeXpts,
+        Double awayXpts) {
     public static final String ALGORITHM_VERSION = ScoreEngineKind.COMPARTMENT_V1.algorithmVersion();
     private static final String FINGERPRINT_PATTERN = "[0-9a-f]{64}";
+
+    /** Decisions without expected points (2D engine, admin overrides, plans stored before xPts). */
+    public MatchScoringDecision(
+            String fixtureKey, long seed, ScoreEngineKind scoreEngine,
+            String scoreAlgorithmVersion, String configFingerprint, String inputFingerprint,
+            int homeScore90, int awayScore90, double homePower, double awayPower,
+            Double homeXg, Double awayXg, int homeCollectiveGoals, int awayCollectiveGoals,
+            Long homeShooterPlayerId, Long awayShooterPlayerId,
+            int homeShooterGoals, int awayShooterGoals,
+            Long homeRedCardPlayerId, Long awayRedCardPlayerId,
+            int homeShooterShots, int awayShooterShots,
+            Long homePassingPlayerId, Long awayPassingPlayerId,
+            int homePassingGoals, int awayPassingGoals,
+            int homePassingOpportunities, int awayPassingOpportunities,
+            double homePassingControl, double awayPassingControl) {
+        this(fixtureKey, seed, scoreEngine, scoreAlgorithmVersion, configFingerprint, inputFingerprint,
+                homeScore90, awayScore90, homePower, awayPower, homeXg, awayXg,
+                homeCollectiveGoals, awayCollectiveGoals, homeShooterPlayerId, awayShooterPlayerId,
+                homeShooterGoals, awayShooterGoals, homeRedCardPlayerId, awayRedCardPlayerId,
+                homeShooterShots, awayShooterShots, homePassingPlayerId, awayPassingPlayerId,
+                homePassingGoals, awayPassingGoals, homePassingOpportunities, awayPassingOpportunities,
+                homePassingControl, awayPassingControl, null, null);
+    }
 
     /** Score decisions without match-only SHOOTER/red-card metadata (notably admin overrides). */
     public MatchScoringDecision(String fixtureKey, long seed, ScoreEngineKind scoreEngine,
@@ -138,6 +163,10 @@ public record MatchScoringDecision(
         }
         if (!finiteProbability(homePassingControl) || !finiteProbability(awayPassingControl)) {
             throw new IllegalArgumentException("PASSING STYLE control must be in [0,1]");
+        }
+        if ((homeXpts == null) != (awayXpts == null)) throw new IllegalArgumentException("xPts must be paired");
+        if (homeXpts != null && !(homeXpts >= 0.0 && homeXpts <= 3.0 && awayXpts >= 0.0 && awayXpts <= 3.0)) {
+            throw new IllegalArgumentException("xPts must be in [0,3]");
         }
     }
 

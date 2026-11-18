@@ -75,7 +75,11 @@ public final class CalibrationScenarioFactory {
                     .withAttributeValue(PlayerAttribute.OFF_THE_BALL, 1)
                     .withAttributeValue(PlayerAttribute.COMPOSURE, 1);
         } else if (path.endsWith("fitness-floor")) {
-            team = team.withFitness(75.0);
+            // The floor (0.60) binds below 26.7: 1 - 0.75 × (80 - 20)/100 = 0.55.
+            team = team.withFitness(20.0);
+        } else if (path.endsWith("fitness-fresh") || path.endsWith("fitness-sensitivity")) {
+            // Below the fresh level and above the floor, where both shape the factor.
+            team = team.withFitness(60.0);
         } else if (path.endsWith("morale-neutral") || path.endsWith("morale-slope")) {
             team = team.withMorale(100.0);
         } else if (path.equals("compartment.exposure.cb-recovery-pace-cap")) {

@@ -98,6 +98,7 @@ public class CalendarEventDispatcher {
     @Autowired private com.footballmanagergamesimulator.config.MatchEngineConfig engineConfig;
     @Autowired private InjuryTimelineService injuryTimelineService;
     @Autowired private MonthlyTrainingUpdateService monthlyTrainingUpdateService;
+    @Autowired private TrainingLoadService trainingLoadService;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired(required = false)
     private org.springframework.beans.factory.ObjectProvider<com.footballmanagergamesimulator.service.board.StaffLoyaltyService> staffLoyalty;
@@ -461,7 +462,12 @@ public class CalendarEventDispatcher {
 
         Set<Long> humanTeams = new HashSet<>(userContext.getAllHumanTeamIds());
         for (long teamId : humanTeams) {
-            trainingService.processTrainingSession(teamId, season, day);
+            // The club's own schedule decides: a Rest day trains nothing (no counters; the day's
+            // larger recovery comes from FitnessRecoveryService), a training day trains as before.
+            // Either way the day counts against the default schedule for the monthly training load.
+            FitnessEconomy.DayPlan plan = trainingLoadService.planFor(teamId, day);
+            if (!plan.rest()) trainingService.processTrainingSession(teamId, season, day);
+            trainingLoadService.recordTrainingDay(teamId, day, plan);
             if (dueLeagues.contains(leagueByTeam.get(teamId))) {
                 monthlyTrainingUpdateService.updateHumanTeam(teamId, season, day, random);
             }

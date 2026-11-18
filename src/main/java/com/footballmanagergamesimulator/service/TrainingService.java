@@ -91,10 +91,6 @@ public class TrainingService {
         String trainingFocus = getTrainingFocus(teamId);
         Set<String> focusAttrs = TRAINING_FOCUS_ATTRS.getOrDefault(trainingFocus, TRAINING_FOCUS_ATTRS.get("General"));
 
-        // Club training facilities scale how fast players develop / recover (single
-        // source: config + FacilityTraining, age-based youth vs senior level).
-        TeamFacilities facilities = teamFacilitiesRepository.findByTeamId(teamId);
-        MatchEngineConfig.Training trainingCfg = engineConfig.getTraining();
         // Attributes only change on the league's monthly update day
         // (MonthlyTrainingUpdateService); a session just counts what it trained.
         Map<Long, Set<String>> trainedByPlayer = new HashMap<>();
@@ -108,14 +104,8 @@ public class TrainingService {
                 continue;
             }
 
-            double facilityFactor = FacilityTraining.developmentFactor(trainingCfg, facilities, player.getAge());
-
-            // Increase fitness by random(0.5, 1.5), cap at 100. Better facilities
-            // recover condition faster when scale-fitness-gain is enabled.
-            double fitnessGain = random.nextDouble(0.5, 1.5);
-            if (trainingCfg.isScaleFitnessGain()) fitnessGain *= facilityFactor;
-            player.setFitness(Math.min(100.0, player.getFitness() + fitnessGain));
-
+            // Fitness no longer moves here: every club recovers every day without a match,
+            // by its schedule (FitnessRecoveryService); a session only counts what it trained.
             Set<String> relevant = MonthlyTrainingUpdateService.relevantAttributes(player.getPosition());
             Set<String> trained = new HashSet<>(getEffectiveFocusAttrs(player, focusAttrs));
             trained.retainAll(relevant);

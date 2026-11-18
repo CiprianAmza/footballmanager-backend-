@@ -21,7 +21,8 @@ class CanonicalScoringWeightCatalogTest {
     void catalogIsStableAndContainsContextAndRoleWeights() {
         var config = CalibrationConfigFixture.load();
         var catalog = CanonicalScoringWeightCatalog.from(config.compartment(), config.match());
-        assertThat(catalog.size()).isEqualTo(727);
+        // 727 + fitness-fresh and fitness-sensitivity of the fitness factor.
+        assertThat(catalog.size()).isEqualTo(729);
         assertThat(catalog.leafWeights()).isSortedAccordingTo(java.util.Comparator.comparing(CanonicalScoringWeightKey::path));
         assertThat(catalog.get("compartment.context-rules.linehigh.PACE")).isNotNull();
         assertThat(catalog.get("match.role-weights.suitability-scale")).isNotNull();
@@ -137,6 +138,11 @@ class CanonicalScoringWeightCatalogTest {
                 // Discontinuous SHOOTER events are verified by their dedicated probability
                 // tests and runtime fingerprint, not by the collective continuous sweep.
                 || normalized.startsWith("compartment.shooter.")
+                // Tactical combinations (settings lists, switches, synergy / conflict deltas) are a
+                // discrete rule set covered by TacticCombinationsTest and the calibration harness,
+                // not by the continuous per-leaf sweep; the runtime config fingerprint does not
+                // carry them either, so a catalog leaf could not show an override effect.
+                || normalized.startsWith("compartment.tactic-combinations.")
                 || normalized.equals("compartment.rating.exceptional-attribute-value")
                 || normalized.equals("compartment.probability.extra-time-scale");
         if (normalized.matches("compartment\\.mentalities\\.[^.]+\\.midfield-to-defense")) return;

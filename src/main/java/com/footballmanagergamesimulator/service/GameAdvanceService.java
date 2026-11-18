@@ -60,6 +60,7 @@ public class GameAdvanceService {
     @Autowired private CompetitionExpectationService competitionExpectationService;
     @Autowired(required = false) @org.springframework.context.annotation.Lazy
     private com.footballmanagergamesimulator.service.odds.TitleOddsService titleOdds;
+    @Autowired(required = false) private FitnessRecoveryService fitnessRecoveryService;
 
     private final Random random = new Random();
 
@@ -426,6 +427,9 @@ public class GameAdvanceService {
         // AI transfers planned for the window happen one day at a time (design §3.6).
         if (calendar.getCurrentDay() != startDay) {
             plannedTransferService.executeDue();
+            // The day that just ended: everyone whose club did not play on it recovers (once per
+            // day, since the calendar has already been saved on the next day).
+            if (fitnessRecoveryService != null) fitnessRecoveryService.recoverDay(season, startDay);
         }
 
         // Safety net: if we're past day 355 with no pending events, trigger season transition

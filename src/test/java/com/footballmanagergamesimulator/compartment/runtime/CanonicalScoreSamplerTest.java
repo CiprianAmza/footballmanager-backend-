@@ -120,25 +120,35 @@ class CanonicalScoreSamplerTest {
 
     @Test
     void passingStyleFiltersCollectiveGoalsAndAddsItsChosenStrikerSeparately() {
+        // PASSING STYLE is the rating-free tactical combination PASSING_STYLE: the erase share depends
+        // only on the opponent's tactic (Long passing here), the striker chance is fixed.
+        CompartmentEngineConfig.PassingMechanic rules = new CompartmentEngineConfig.PassingMechanic();
+        rules.setSuppression(0.085);
+        rules.setAggressiveSuppression(0.075);
+        rules.setVeryAggressiveSuppression(0.06);
+        rules.setLongPassingSuppression(0.045);
+        rules.setStrikerGoalChance(0.35);
+        com.footballmanagergamesimulator.compartment.TacticCombinations.Profile combinations =
+                new com.footballmanagergamesimulator.compartment.TacticCombinations.Profile(
+                        java.util.List.of("PASSING_STYLE"), java.util.List.of("PASSING_STYLE"),
+                        1.0, 1.0, 1.0, 0.0, 1.0, rules, "Standard");
+        // Ordinary midfielders (no pace 20, average far below the old 19 gate) and an ordinary striker.
         TeamCompartmentAggregator.PassingStyleProfile profile = new TeamCompartmentAggregator.PassingStyleProfile(
-                true, 19.0,
+                true, 8.0,
                 java.util.List.of(
-                        new TeamCompartmentAggregator.PassingMidfielder(1, 20, 19, 19),
-                        new TeamCompartmentAggregator.PassingMidfielder(2, 19, 19, 19),
-                        new TeamCompartmentAggregator.PassingMidfielder(3, 19, 19, 19),
-                        new TeamCompartmentAggregator.PassingMidfielder(4, 20, 19, 19),
-                        new TeamCompartmentAggregator.PassingMidfielder(5, 20, 19, 19)),
-                java.util.List.of(new TeamCompartmentAggregator.PassingStriker(88, 20, 20)));
+                        new TeamCompartmentAggregator.PassingMidfielder(1, 8, 8, 8),
+                        new TeamCompartmentAggregator.PassingMidfielder(2, 8, 8, 8)),
+                java.util.List.of(new TeamCompartmentAggregator.PassingStriker(88, 6, 6)));
         TeamCompartmentAggregator.TeamAggregationResult homeTeam = aggregation(
-                10, 5, "Short", "Aggressive", "Instantly", profile);
+                10, 5, "Short", "Aggressive", "Instantly", profile, combinations);
         TeamCompartmentAggregator.TeamAggregationResult awayTeam = aggregation(
-                10, 5, "Long", "Normal", "Standard", null);
+                10, 5, "Long", "Normal", "Standard", null, null);
         CanonicalScoreSampler sampler = new CanonicalScoreSampler(new CompartmentEngineConfig());
 
         CanonicalScoreSampler.GoalSample withPassingGoal = null;
         for (long seed = 0; seed < 10_000; seed++) {
             CanonicalScoreSampler.GoalSample candidate = sampler.sample(evaluation(homeTeam, awayTeam), seed);
-            assertThat(candidate.homePassingControl()).isCloseTo(0.80,
+            assertThat(candidate.homePassingControl()).isCloseTo(0.045,
                     org.assertj.core.api.Assertions.within(1e-12));
             assertThat(candidate.awayPassingControl()).isZero();
             assertThat(candidate.homeGoals()).isEqualTo(candidate.homeCollectiveGoals()
@@ -156,8 +166,25 @@ class CanonicalScoreSamplerTest {
         assertThat(withPassingGoal.homePassingOpportunities()).isGreaterThanOrEqualTo(
                 withPassingGoal.homePassingGoals());
         assertThat(withPassingGoal.homeEffectiveAttack()).isEqualTo(homeTeam.attack());
-        assertThat(withPassingGoal.awayEffectiveAttack()).isCloseTo(awayTeam.attack() * 0.20,
+        assertThat(withPassingGoal.awayEffectiveAttack()).isCloseTo(awayTeam.attack() * (1.0 - 0.045),
                 org.assertj.core.api.Assertions.within(1e-12));
+    }
+
+    @Test
+    void passingStyleProfileWithoutResolvedCombinationHasNoEffect() {
+        TeamCompartmentAggregator.PassingStyleProfile profile = new TeamCompartmentAggregator.PassingStyleProfile(
+                true, 19.0, java.util.List.of(),
+                java.util.List.of(new TeamCompartmentAggregator.PassingStriker(88, 20, 20)));
+        TeamCompartmentAggregator.TeamAggregationResult homeTeam = aggregation(
+                10, 5, "Short", "Aggressive", "Instantly", profile, null);
+        TeamCompartmentAggregator.TeamAggregationResult awayTeam = aggregation(
+                10, 5, "Normal", "Normal", "Standard", null, null);
+        CanonicalScoreSampler sampler = new CanonicalScoreSampler(new CompartmentEngineConfig());
+        for (long seed = 0; seed < 200; seed++) {
+            CanonicalScoreSampler.GoalSample sample = sampler.sample(evaluation(homeTeam, awayTeam), seed);
+            assertThat(sample.homePassingControl()).isZero();
+            assertThat(sample.homePassingOpportunities()).isZero();
+        }
     }
 
     @Test
@@ -225,14 +252,16 @@ class CanonicalScoreSamplerTest {
 
     private static TeamCompartmentAggregator.TeamAggregationResult aggregation(
             double attack, double protection, String passing, String pressing, String recovery,
-            TeamCompartmentAggregator.PassingStyleProfile passingStyle) {
+            TeamCompartmentAggregator.PassingStyleProfile passingStyle,
+            com.footballmanagergamesimulator.compartment.TacticCombinations.Profile combinations) {
         return new TeamCompartmentAggregator.TeamAggregationResult(Mentality.BALANCED, 1.0,
                 new TeamCompartmentAggregator.RawTotals(0, 0, 0),
                 new TeamCompartmentAggregator.MentalityRedistribution(0, 0, null, null, 0,
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
                 java.util.Map.of(), null,
                 new TeamCompartmentAggregator.ExposureBreakdown(0, 0, 0, 1, protection, protection),
-                java.util.List.of(), attack, protection, passing, pressing, recovery, null, passingStyle);
+                java.util.List.of(), attack, protection, passing, pressing, recovery, null, passingStyle,
+                combinations);
     }
 
     private static CanonicalMatchEvaluation evaluation(

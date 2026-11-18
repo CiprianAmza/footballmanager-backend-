@@ -13,9 +13,14 @@ match:
         context-coefficient-max: 1.0
         role-fit-base: 0.85
         role-fit-range: 0.30
-        # Temporarily neutral while rating/tactic calibration is in progress.
-        # max(1.0, fitness / 100) is always 1.0 for the domain's 0..100 values.
-        fitness-floor: 1.0
+        # Fitness factor on every compartment of a player:
+        #   max(fitness-floor, 1 - fitness-sensitivity * max(0, fitness-fresh - fitness) / 100)
+        # 80 and above (the season-start level) = 1.0 exactly: a reserve, not a bonus.
+        # 60 -> 0.85, 40 -> 0.70, floor reached at 26.7. The same factor ranks players when an
+        # eleven is picked (AI, assistant), so rotation follows from it.
+        fitness-fresh: 80.0
+        fitness-sensitivity: 0.75
+        fitness-floor: 0.60
         morale-neutral: 70.0
         # Preserve morale as game state/UI data, but keep it out of match strength.
         morale-slope: 0.0
@@ -224,26 +229,99 @@ match:
           "Normal":          { shot-reduction: 0.50, red-card-chance: 0.10 }
           "Aggressive":      { shot-reduction: 0.85, red-card-chance: 0.30 }
           "Very Aggressive": { shot-reduction: 0.99, red-card-chance: 0.40 }
-      passing-style:
-        midfield-threshold: 19.0
-        base-suppression: 0.99
-        aggressive-suppression: 0.97
-        very-aggressive-suppression: 0.90
-        long-passing-suppression: 0.85
-        # Pace 20 bonus/penalty; every further level adds pace20-step to both.
-        pace20-bonus: 0.05
-        non-pace20-penalty: 0.10
-        opponent-pace20-penalty: 0.10
-        pace20-step: 0.01
-        # Share of the control percentage converted: 60% x Finishing/19 below 20,
-        # 80% at 20, +4 points per further level.
-        finishing19-factor: 0.60
-        finishing20-factor: 0.80
-        finishing-step: 0.04
-        # A striker with pace 19 is capped at 25%; lower pace scales proportionally.
-        pace19-chance: 0.25
-        # Probability for exactly 0,1,2,3,4,5,6 special striker opportunities.
-        striker-opportunity-distribution: [0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05]
+      # The old rating-gated "passing-style" section is gone: PASSING STYLE is now the tactical
+      # combination PASSING_STYLE below. (Its legacy Java defaults still feed the config fingerprint.)
+      # Tactical combinations (classic engine). Nothing here reads player ratings or attributes: a
+      # combination is active from the tactic settings alone, whatever the squad. Activation: EVERY
+      # listed setting must match the team tactic (any listed value counts). Effects are deltas
+      # d -> multiplier (1 + d):
+      #   midfield              every starter's midfield mass, before the mentality split
+      #   own-xg                this team's expected goals
+      #   opponent-xg           the opponent's expected goals
+      #   exposed-opponent-own-xg  extra own-xg when the opponent is Attacking/Very Attacking or plays a High line
+      #   red-card              added to this team's per-match red-card chance
+      #   passing-style         PASSING_STYLE only: share of the opponent's normal goals erased
+      #                         (by the opponent's passing/pressing) + extra striker chances
+      # Synergies ("combinations"): at most max-active count, the ones with the largest boost (sum of
+      # the helpful deltas). Their deltas add up per lever (synergy-stack-share), costs included.
+      # Conflicts: every active one applies (no cap), on top of the synergies. With n active conflicts
+      # every conflict delta is multiplied by (1 + conflict-escalation * (n - 1)), so bad tactics
+      # compound. A tactic with no synergy and no conflict plays exactly as with enabled: false.
+      # Magnitudes are calibrated by TacticCombinationCalibration (src/test) on a "Zero-like" side
+      # (about 1.97 points per match on defaults): one synergy ~2.15-2.30, a top build ~2.45-2.75,
+      # one conflict ~1.70-1.80, four conflicts ~0.60-0.80.
+      tactic-combinations:
+        enabled: true
+        max-active: 3
+        conflict-escalation: 0.2
+        # Synergies add their deltas per lever (costs in full, the largest helpful delta in full,
+        # further helpful deltas on the same lever times this share; 1.0 = plain sum).
+        synergy-stack-share: 1.0
+        combinations:
+          PASSING_STYLE:
+            settings: { passing-type: [Short], pressing: [Aggressive], recovery: [Very Fast, Instantly] }
+            own-xg: -0.08
+            passing-style:
+              suppression: 0.30
+              aggressive-suppression: 0.27
+              very-aggressive-suppression: 0.23
+              long-passing-suppression: 0.17
+              striker-goal-chance: 0.12
+              # Probability for exactly 0,1,2,3,4,5,6 special striker opportunities.
+              striker-opportunity-distribution: [0.15, 0.25, 0.175, 0.15, 0.125, 0.10, 0.05]
+          POSSESSION:
+            settings: { in-possession: [Keep Ball], passing-type: [Short], tempo: [Lower, Much Lower] }
+            midfield: 0.78
+            own-xg: -0.25
+          GEGENPRESS:
+            settings: { pressing: [Aggressive, Very Aggressive], defensive-line: [High], recovery: [Very Fast, Instantly] }
+            own-xg: 0.36
+            opponent-xg: 0.04
+            red-card: 0.05
+          COUNTER:
+            settings: { defensive-line: [Deep], transition: [Fast Counter], passing-type: [Long] }
+            own-xg: 0.44
+            exposed-opponent-own-xg: 0.08
+            midfield: -0.06
+          WINGS:
+            settings: { width: [Wide], wide-play: [Cross] }
+            own-xg: 0.40
+            opponent-xg: 0.04
+          BUS:
+            settings: { mentality: [Very Defensive], defensive-line: [Deep], time-wasting: [Always] }
+            # Capped at own x1.30 / opponent x0.45: for a strong side parking the bus stays a poor idea.
+            opponent-xg: -0.55
+            own-xg: 0.30
+          ALL_OUT_ATTACK:
+            settings: { mentality: [Very Attacking], tempo: [Much Higher], defensive-line: [High], dribbling: [More] }
+            # Makes the risky settings pay off: moderate own boost, fewer chances given away than naive
+            # Very Attacking (still clearly more than a default side).
+            own-xg: 0.15
+            opponent-xg: -0.44
+        conflicts:
+          HIGH_LINE_NO_PRESS:
+            settings: { defensive-line: [High], pressing: [Easy, Very Easy] }
+            opponent-xg: 0.45
+          DEEP_LINE_HARD_PRESS:
+            settings: { defensive-line: [Deep], pressing: [Aggressive, Very Aggressive] }
+            midfield: -0.12
+            opponent-xg: 0.15
+          KEEP_BALL_LONG:
+            settings: { in-possession: [Keep Ball], passing-type: [Long] }
+            own-xg: -0.15
+            midfield: -0.12
+          DEFEND_HIGH:
+            settings: { mentality: [Defensive, Very Defensive], defensive-line: [High] }
+            opponent-xg: 0.30
+          SLOW_COUNTER:
+            settings: { transition: [Fast Counter], tempo: [Lower, Much Lower] }
+            own-xg: -0.26
+          NARROW_CROSS:
+            settings: { width: [Narrow], wide-play: [Cross] }
+            own-xg: -0.26
+          ATTACK_TIME_WASTE:
+            settings: { mentality: [Attacking, Very Attacking], time-wasting: [Frequently, Always] }
+            own-xg: -0.12
       context-rules:
         mentality:attacking: { OFF_THE_BALL: 0.15, COMPOSURE: 0.10 }
         mentality:very attacking: { OFF_THE_BALL: 0.30, COMPOSURE: 0.20 }

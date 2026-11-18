@@ -249,7 +249,38 @@ match:
       post-match-floor: 20.0
       start-stamina-min: 20.0
       start-stamina-max: 100.0
+      # Base drain of a classic (batch) match for each player of the eleven; see fitness below.
       batch-match-fitness-drain: 8.0
+
+    # Fitness economy of classic matches and of the days between them (human and AI clubs alike).
+    # Match: drain = batch-match-fitness-drain x tempo-drain[team tempo] x (stamina-base - stamina-slope x stamina/20),
+    #        never below stamina.post-match-floor. A club without a tactic plays Standard.
+    # In the match itself (scoring): above Standard the extra drain E = drain(tempo) - drain(Standard)
+    #        is felt during the match; the player plays at base - in-match-share x E, base = pre-match
+    #        fitness capped at the fresh level (in-match-from-fresh). Standard and slower: unchanged.
+    # Day without a match: gain x (natural-fitness-base + natural-fitness-range x naturalFitness/20), capped at 100;
+    #        gain = rest-daily on a rest day (every session Rest / intensity 0), otherwise
+    #        daily x (1 - intensity-cut x intensity), intensity = the day's session intensities / 300 (0..1).
+    #        AI clubs follow the default weekly schedule (its days average 0.86 x daily).
+    # Calibrated with FitnessSeasonCalibration (src/test) on the real Tactic Arena world: Zero, base 4-4-2,
+    # rotation on: Higher ~-2.7 xPts a season vs Standard, Much Higher ~-5.2; Inazuma's 69-match calendar
+    # on Standard ~-0.7 vs no fitness; a 42-match club on Standard ~0.
+    fitness:
+      tempo-drain:
+        "[Much Lower]": 0.65
+        "[Lower]": 0.80
+        "[Standard]": 1.00
+        "[Higher]": 2.05
+        "[Much Higher]": 2.75
+      stamina-base: 1.15
+      stamina-slope: 0.30
+      daily: 2.4
+      rest-daily: 4.8
+      intensity-cut: 0.5
+      natural-fitness-base: 0.75
+      natural-fitness-range: 0.5
+      in-match-share: 0.5
+      in-match-from-fresh: true
 
     training:
       facility-base: 0.5

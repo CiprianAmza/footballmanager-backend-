@@ -64,6 +64,9 @@ public class TacticController {
     PlayerSkillsRepository playerSkillsRepository;
     @Autowired
     PlayerValueService playerValueService;
+    /** Source of the fitness factor that ranks players when an eleven is picked (null in plain unit tests). */
+    @Autowired(required = false)
+    com.footballmanagergamesimulator.config.CompartmentEngineConfig compartmentEngineConfig;
     @Autowired
     com.footballmanagergamesimulator.service.CoachPermissionService coachPermissionService;
     @Autowired
@@ -1185,9 +1188,17 @@ public class TacticController {
         return slots;
     }
 
-    /** Squad-selection "aptness": generic skill weighted by fitness (an unfit star may be benched). */
+    /**
+     * Squad-selection "aptness": generic skill × the match's own fitness factor (1.0 at or above the
+     * fresh level, so only a genuinely tired star is benched — the same factor the classic engine
+     * applies to his contribution).
+     */
     private double aptness(PlayerView player) {
-        return player.getRating() * playerValueService.fitnessFactor(player.getFitness());
+        return player.getRating() * fitnessFactor(player.getFitness());
+    }
+
+    private double fitnessFactor(double fitness) {
+        return com.footballmanagergamesimulator.compartment.FitnessFactor.of(fitness, compartmentEngineConfig);
     }
 
     private List<PlayerView> getBestSubstitutions(Team team, Map<String, Integer> substitutionFormat, List<PlayerView> playersInFirstEleven) {
@@ -1440,7 +1451,10 @@ public class TacticController {
         List<Human> availablePlayers = humanRepository.findAllByTeamIdAndTypeId(teamId, TypeNames.PLAYER_TYPE)
                 .stream()
                 .filter(p -> !p.isRetired() && (!runtime || unavailableIds == null || !unavailableIds.contains(p.getId())))
-                .sorted((a, b) -> Double.compare(b.getRating(), a.getRating()))
+                // Fatigue-aware: rating × fitness factor, so a tired starter makes way for a fresher
+                // squad player when that is the better choice. A fresh squad sorts exactly by rating.
+                .sorted((a, b) -> Double.compare(b.getRating() * fitnessFactor(b.getFitness()),
+                        a.getRating() * fitnessFactor(a.getFitness())))
                 .collect(Collectors.toList());
 
         // Group players by base position

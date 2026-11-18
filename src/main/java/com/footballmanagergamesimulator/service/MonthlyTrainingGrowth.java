@@ -105,10 +105,22 @@ public final class MonthlyTrainingGrowth {
      */
     public Result apply(PlayerSkills skills, int age, Map<String, Integer> counters, Random rng,
                         java.util.function.ToDoubleFunction<String> qByAttribute) {
+        return apply(skills, age, counters, rng, qByAttribute, 1.0);
+    }
+
+    /**
+     * As above, with the month's budget multiplied by the club's training {@code load} (sessions
+     * trained ÷ sessions of the default schedule, 0..1). The scaled budget is rounded up or down at
+     * random so that its mean is exactly {@code budget × load}. At load 1 nothing extra is drawn:
+     * the month is the same as without a load.
+     */
+    public Result apply(PlayerSkills skills, int age, Map<String, Integer> counters, Random rng,
+                        java.util.function.ToDoubleFunction<String> qByAttribute, double load) {
         boolean incredible = rng.nextDouble() < settings.incredibleMonthChance();
         int budget = incredible
                 ? settings.incredibleMin() + rng.nextInt(settings.incredibleMax() - settings.incredibleMin() + 1)
                 : settings.budgetFor(age, rng);
+        if (load < 1.0) budget = scaled(budget, load, rng);
         int perAttribute = incredible ? settings.incredibleRisesPerAttribute() : 1;
 
         List<String> rises = new ArrayList<>();
@@ -145,6 +157,13 @@ public final class MonthlyTrainingGrowth {
             rises.add(chosen);
         }
         return new Result(rises, incredible);
+    }
+
+    /** {@code budget × load}, its fraction rounded up with that probability (mean exact). */
+    static int scaled(int budget, double load, Random rng) {
+        double exact = budget * Math.max(0.0, load);
+        int whole = (int) Math.floor(exact);
+        return rng.nextDouble() < exact - whole ? whole + 1 : whole;
     }
 
     static double weight(int counter, int value) {

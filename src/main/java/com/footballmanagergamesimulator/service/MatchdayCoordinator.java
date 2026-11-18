@@ -677,7 +677,8 @@ public class MatchdayCoordinator {
                 scoringDecision.homeShooterShots() + scoringDecision.homePassingOpportunities(),
                 scoringDecision.awayShooterShots() + scoringDecision.awayPassingOpportunities(),
                 scoringDecision.homeShooterGoals() + scoringDecision.homePassingGoals(),
-                scoringDecision.awayShooterGoals() + scoringDecision.awayPassingGoals());
+                scoringDecision.awayShooterGoals() + scoringDecision.awayPassingGoals(),
+                scoringDecision.homeXpts(), scoringDecision.awayXpts());
 
         // Finalize the canonical plan to COMPLETED (derives appearances/minutes from the
         // actual kickoff snapshot + recorded subs; never regenerates the schedule). The

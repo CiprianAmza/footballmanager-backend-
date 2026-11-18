@@ -1,6 +1,7 @@
 package com.footballmanagergamesimulator.compartment.match;
 
 import com.footballmanagergamesimulator.compartment.GoalProbabilityFormula;
+import com.footballmanagergamesimulator.compartment.TacticCombinations;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalTeamEvaluation;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalTeamEvaluationAdapter;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalRuntimeTeamInput;
@@ -57,6 +58,11 @@ public final class CanonicalMatchEvaluationAdapter {
                 homeEvaluation.team().attack(), awayEvaluation.team().attackProtection(),
                 awayEvaluation.team().attack(), homeEvaluation.team().attackProtection(),
                 combinedOpenness, venue == MatchVenue.HOME);
+        TacticCombinations.XgFactors factors = TacticCombinations.xgFactors(
+                homeEvaluation.team(), awayEvaluation.team());
+        if (factors != null) {
+            probability = probabilityFormula.withXgFactors(probability, factors.home(), factors.away());
+        }
         OutcomeProbability outcome = outcomeProbability(probability);
         return new CanonicalMatchEvaluation(homeEvaluation, awayEvaluation, venue,
                 combinedOpenness, probability, outcome);

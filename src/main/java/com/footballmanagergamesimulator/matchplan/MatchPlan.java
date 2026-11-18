@@ -41,6 +41,9 @@ public class MatchPlan {
     private String scoreInputFingerprint;
     private Double homeXg;
     private Double awayXg;
+    /** Pre-sampling expected points; nullable so plans stored before xPts keep loading. */
+    private Double homeXpts;
+    private Double awayXpts;
     private Double homePower;
     private Double awayPower;
     private int homeCollectiveGoals;
@@ -116,6 +119,8 @@ public class MatchPlan {
     public String getScoreInputFingerprint() { return scoreInputFingerprint; }
     public Double getHomeXg() { return homeXg; }
     public Double getAwayXg() { return awayXg; }
+    public Double getHomeXpts() { return homeXpts; }
+    public Double getAwayXpts() { return awayXpts; }
     public Double getHomePower() { return homePower; }
     public Double getAwayPower() { return awayPower; }
     public int getHomeCollectiveGoals() { return homeCollectiveGoals; }
@@ -169,6 +174,8 @@ public class MatchPlan {
         this.scoreInputFingerprint = decision.inputFingerprint();
         this.homeXg = decision.homeXg();
         this.awayXg = decision.awayXg();
+        this.homeXpts = decision.homeXpts();
+        this.awayXpts = decision.awayXpts();
         this.homePower = decision.homePower();
         this.awayPower = decision.awayPower();
         this.homeCollectiveGoals = decision.homeCollectiveGoals();
@@ -207,7 +214,7 @@ public class MatchPlan {
                 homePassingPlayerId, awayPassingPlayerId,
                 homePassingGoals, awayPassingGoals,
                 homePassingOpportunities, awayPassingOpportunities,
-                homePassingControl, awayPassingControl);
+                homePassingControl, awayPassingControl, homeXpts, awayXpts);
     }
 
     private void assignShooterGoalSlots(long teamId, Long shooterPlayerId, int shooterGoals) {

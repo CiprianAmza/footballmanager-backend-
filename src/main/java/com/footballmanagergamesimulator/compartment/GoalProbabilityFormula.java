@@ -41,6 +41,16 @@ public final class GoalProbabilityFormula {
                 predictiveGoals(homeXg), predictiveGoals(awayXg));
     }
 
+    /** Same matchup with both expected-goal means scaled (tactical combinations). */
+    public MatchProbability withXgFactors(MatchProbability probability, double homeFactor, double awayFactor) {
+        requireNonNegative(homeFactor, "homeFactor");
+        requireNonNegative(awayFactor, "awayFactor");
+        double homeXg = probability.homeXg() * homeFactor;
+        double awayXg = probability.awayXg() * awayFactor;
+        return new MatchProbability(probability.homeMatchupShare(), probability.awayMatchupShare(),
+                homeXg, awayXg, predictiveGoals(homeXg), predictiveGoals(awayXg));
+    }
+
     public GoalDistribution predictiveGoals(double mean) {
         requireNonNegative(mean, "mean");
         double shape = config.getGammaShape();

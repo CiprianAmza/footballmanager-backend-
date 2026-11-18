@@ -5,6 +5,7 @@ import com.footballmanagergamesimulator.config.CompartmentEngineConfig;
 import com.footballmanagergamesimulator.config.GameplayFeatureConfig;
 import com.footballmanagergamesimulator.chairman.mandate.ChairmanTacticalMandateEnforcementService;
 import com.footballmanagergamesimulator.chairman.mandate.EffectiveChairmanMandate;
+import com.footballmanagergamesimulator.compartment.FitnessFactor;
 import com.footballmanagergamesimulator.compartment.runtime.CanonicalLineupSlotSource;
 import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectEvent;
 import com.footballmanagergamesimulator.compartment.effects.CanonicalMatchEffectsInput;
@@ -576,8 +577,7 @@ public class MatchRoundSimulator {
                             match.getId(), tactic1, tactic2,
                             etHome, etAway, shootoutHome, shootoutAway);
                     liveSession.setCanonicalExpectedGoals(
-                            humanCanonicalScore.evaluation().probability().homeXg(),
-                            humanCanonicalScore.evaluation().probability().awayXg());
+                            humanCanonicalScore.homeXg(), humanCanonicalScore.awayXg());
                     // Placeholder score — /commit overwrites with the real one
                     // after the user finishes the live playback.
                     teamScore1 = 0;
@@ -733,7 +733,8 @@ public class MatchRoundSimulator {
                                 canonical.homeShooterShots() + canonical.homePassingOpportunities(),
                                 canonical.awayShooterShots() + canonical.awayPassingOpportunities(),
                                 canonical.homeShooterGoals() + canonical.homePassingGoals(),
-                                canonical.awayShooterGoals() + canonical.awayPassingGoals());
+                                canonical.awayShooterGoals() + canonical.awayPassingGoals(),
+                                canonical.homeXpts(), canonical.awayXpts());
                     } else {
                         matchStatsService.generateAndSaveMatchStats(
                                 _competitionId, Integer.parseInt(getCurrentSeason()), (int) _roundId,
@@ -760,6 +761,8 @@ public class MatchRoundSimulator {
 
                     teamPostMatchService.updateTeam(teamId1, _competitionId, teamScore1, teamScore2, teamPower1 - teamPower2, teamId2);
                     teamPostMatchService.updateTeam(teamId2, _competitionId, teamScore2, teamScore1, teamPower2 - teamPower1, teamId1);
+                    drainElevenAfterMatch(teamId1);
+                    drainElevenAfterMatch(teamId2);
 
                     if (competitionTypeId == 4 || competitionTypeId == 5) {
                         europeanCoefficientService.awardCoefficientPoints(
@@ -956,7 +959,9 @@ public class MatchRoundSimulator {
                             canonicalScore == null ? 0 : canonicalScore.homePassingOpportunities(),
                             canonicalScore == null ? 0 : canonicalScore.awayPassingOpportunities(),
                             canonicalScore == null ? 0.0 : canonicalScore.homePassingControl(),
-                            canonicalScore == null ? 0.0 : canonicalScore.awayPassingControl());
+                            canonicalScore == null ? 0.0 : canonicalScore.awayPassingControl(),
+                            canonicalScore == null ? null : canonicalScore.homeXpts(),
+                            canonicalScore == null ? null : canonicalScore.awayXpts());
                     com.footballmanagergamesimulator.matchplan.PersistedScoringPlan adopted =
                             selectedScoreEngine == ScoreEngineKind.MATCH2D_V1
                                     ? matchPlanService.persistOrLoadScoreDecision(decision, teamId1, teamId2,
@@ -1353,8 +1358,8 @@ public class MatchRoundSimulator {
         double demand7 = moraleCfg.getTransferDemandChance7Plus();
         double demand5 = moraleCfg.getTransferDemandChance5Plus();
         double demand3 = moraleCfg.getTransferDemandChance3Plus();
-        double fitnessDrain = engineConfig.getStamina().getBatchMatchFitnessDrain();
-        double fitnessFloor = engineConfig.getStamina().getPostMatchFloor();
+        String tempo = teamTempo(teamId);
+        Map<Long, PlayerSkills> skillsForDrain = squadSkills(teamId);
 
         for (Human player : allPlayers) {
             if (player.isRetired()) continue;
@@ -1366,9 +1371,10 @@ public class MatchRoundSimulator {
                 player.setSeasonMatchesPlayed(player.getSeasonMatchesPlayed() + 1);
                 player.setConsecutiveBenched(0);
 
-                // Fatigue: a played (instant/batch) match drains fitness, recovered
-                // later via training. Live matches use the per-minute stamina model.
-                player.setFitness(Math.max(fitnessFloor, player.getFitness() - fitnessDrain));
+                // Fatigue: a played (instant/batch) match drains fitness by his team's tempo
+                // and his stamina; every day without a match gives some back
+                // (FitnessRecoveryService). Live matches use the per-minute stamina model.
+                drainAfterMatch(player, tempo, skillsForDrain);
 
                 // AI player calms down if getting regular game time
                 if (player.isWantsTransfer() && player.getSeasonMatchesPlayed() > contentMinMatches) {
@@ -1401,6 +1407,40 @@ public class MatchRoundSimulator {
             player.setMorale(Math.min(100D, Math.max(0D, player.getMorale() + moraleChange)));
         }
         // allPlayers are managed entities loaded at the start of this transaction.
+    }
+
+    /** The tempo of the club's saved tactic; a club without one plays Standard. */
+    private String teamTempo(long teamId) {
+        RoundContext context = roundContext.get();
+        PersonalizedTactic tactic = context != null ? context.tacticsByTeam().get(teamId) : null;
+        return tactic != null ? tactic.getTempo() : null;
+    }
+
+    private Map<Long, PlayerSkills> squadSkills(long teamId) {
+        FormationEvaluationSquad squad = formationSquadCache.get(teamId);
+        return squad != null ? squad.skillsByPlayerId() : Map.of();
+    }
+
+    /** One classic match: base drain × tempo × stamina, never below the post-match floor. */
+    private void drainAfterMatch(Human player, String tempo, Map<Long, PlayerSkills> skills) {
+        PlayerSkills s = skills.get(player.getId());
+        int stamina = s != null && s.getStamina() > 0 ? s.getStamina() : 10;
+        player.setFitness(FitnessEconomy.afterMatch(engineConfig, player.getFitness(), tempo, stamina));
+    }
+
+    /**
+     * The eleven of a non-interactive human fixture pays for the match like an AI eleven does
+     * ({@link #updateTeamWithSimpleMorale}); before, only the live engine drained a human club. The
+     * eleven is the one the classic score was computed with.
+     */
+    private void drainElevenAfterMatch(long teamId) {
+        String tempo = teamTempo(teamId);
+        Map<Long, PlayerSkills> skills = squadSkills(teamId);
+        Set<Long> played = new HashSet<>();
+        for (PlayerView pv : bestElevenCache.getOrDefault(teamId, List.of())) played.add(pv.getId());
+        for (Human player : roundPlayers(teamId)) {
+            if (!player.isRetired() && played.contains(player.getId())) drainAfterMatch(player, tempo, skills);
+        }
     }
 
     /**
@@ -1570,7 +1610,7 @@ public class MatchRoundSimulator {
         FormationEvaluationSquad evaluationSquad = formationSquadCache.computeIfAbsent(
                 teamId, this::loadFormationEvaluationSquad);
         List<FormationEvaluationStarter> selected =
-                selectFormationStarters(evaluationSquad, tactic);
+                selectFormationStarters(evaluationSquad, tactic, true);
         List<TacticController.StarterSlot> starters = selected.stream()
                 .map(starter -> new TacticController.StarterSlot(
                         toMatchPlayerView(starter.player()), starter.usedPosition()))
@@ -2122,14 +2162,22 @@ public class MatchRoundSimulator {
         if (squad.players().isEmpty()) return 0;
 
         double total = 0;
-        for (FormationEvaluationStarter starter : selectFormationStarters(squad, formation)) {
+        for (FormationEvaluationStarter starter : selectFormationStarters(squad, formation, false)) {
             total += starter.player().getRating();
         }
         return total;
     }
 
+    /**
+     * @param fatigueAware the matchday eleven: inside a round each slot ranks players by
+     *        {@code slotAptness × fitness factor} on today's fitness, so a tired starter makes way
+     *        for a fresher squad player when that is the better choice. Everyone at or above the
+     *        fresh level has factor 1.0, so a fresh squad is picked exactly as before. Formation
+     *        ranking and anything outside a round (the transfer market) stay on rating alone.
+     */
     private List<FormationEvaluationStarter> selectFormationStarters(
-            FormationEvaluationSquad squad, String formation) {
+            FormationEvaluationSquad squad, String formation, boolean fatigueAware) {
+        Map<Long, Double> todaysFitness = fatigueAware ? matchdayFitness(squad.teamId()) : Map.of();
         String effectiveFormation = mandateEnforcement.effectiveFormation(squad.teamId(), formation);
         List<String> requiredSlots = new ArrayList<>();
         tacticService.getRoomInTeamByTactic(effectiveFormation).entrySet().stream()
@@ -2223,7 +2271,8 @@ public class MatchRoundSimulator {
         for (String slot : requiredSlots) {
             Human best = remaining.stream()
                     .filter(player -> automaticSlotSupportsSavedRole(player, slot, savedRoles))
-                    .max(Comparator.comparingDouble(player -> slotAptness(player, slot)))
+                    .max(Comparator.comparingDouble(player ->
+                            slotAptness(player, slot) * fatigueFactor(player, todaysFitness)))
                     .orElse(null);
             if (best == null) break; // squad exhausted
             remaining.remove(best);
@@ -2330,12 +2379,32 @@ public class MatchRoundSimulator {
      * on 20 fitness lost his place to a 212 — both to the market planning against that
      * XI, and to anyone reading it.
      *
-     * <p>Fitness still shapes what a player is worth once the match is running
-     * ({@link PlayerValueService}); it no longer decides whether he takes the field.
-     * Availability (injuries, bans) is filtered separately by the caller.
+     * <p>Used for the bench. The matchday eleven itself is fatigue-aware
+     * ({@link #fatigueFactor}): the compartment fitness factor, which is 1.0 at or above the
+     * fresh level, so the season-boundary problem above cannot come back for a fresh squad,
+     * and the market and formation ranking never see it. Availability (injuries, bans) is
+     * filtered separately by the caller.
      */
     private double formationAptness(Human player) {
         return player.getRating();
+    }
+
+    /** Today's fitness of the club's players, from this round's freshly loaded rows; empty outside a round. */
+    private Map<Long, Double> matchdayFitness(long teamId) {
+        RoundContext context = roundContext.get();
+        if (context == null) return Map.of();
+        Map<Long, Double> fitness = new HashMap<>();
+        for (Human player : context.playersByTeam().getOrDefault(teamId, List.of())) {
+            fitness.put(player.getId(), player.getFitness());
+        }
+        return fitness;
+    }
+
+    /** The compartment fitness factor of the player on today's fitness; 1.0 when there is none. */
+    private double fatigueFactor(Human player, Map<Long, Double> todaysFitness) {
+        if (todaysFitness.isEmpty()) return 1.0;
+        Double fitness = todaysFitness.get(player.getId());
+        return FitnessFactor.of(fitness != null ? fitness : player.getFitness(), compartmentEngineConfig);
     }
 
     /**
@@ -2566,7 +2635,8 @@ public class MatchRoundSimulator {
                 score.homePassingPlayerId(), score.awayPassingPlayerId(),
                 score.homePassingGoals(), score.awayPassingGoals(),
                 score.homePassingOpportunities(), score.awayPassingOpportunities(),
-                score.homePassingControl(), score.awayPassingControl());
+                score.homePassingControl(), score.awayPassingControl(),
+                score.homeXpts(), score.awayXpts());
     }
 
     private List<CanonicalLineupSlotSource> canonicalLineupSlotSources(long teamId) {
@@ -2597,11 +2667,20 @@ public class MatchRoundSimulator {
         return result;
     }
 
+    /**
+     * The team-instruction axes the classic engine reads: the seven rating/aggregation axes plus
+     * the ones only tactical combinations use. Recovery used to be dropped here, so PASSING STYLE
+     * could never switch on in a real round.
+     */
     private record ShadowTacticAxes(String mentality, String tempo, String passingType,
-                                    String defensiveLine, String pressing, String width) {
+                                    String defensiveLine, String pressing, String width,
+                                    String recovery, String inPossession, String timeWasting,
+                                    String dribbling, String widePlay, String transition) {
         static ShadowTacticAxes from(PersonalizedTactic tactic) {
             return new ShadowTacticAxes(tactic.getMentality(), tactic.getTempo(), tactic.getPassingType(),
-                    tactic.getDefensiveLine(), tactic.getPressing(), tactic.getWidth());
+                    tactic.getDefensiveLine(), tactic.getPressing(), tactic.getWidth(),
+                    tactic.getRecovery(), tactic.getInPossession(), tactic.getTimeWasting(),
+                    tactic.getDribbling(), tactic.getWidePlay(), tactic.getTransition());
         }
 
         PersonalizedTactic toTactic() {
@@ -2612,6 +2691,12 @@ public class MatchRoundSimulator {
             tactic.setDefensiveLine(defensiveLine);
             tactic.setPressing(pressing);
             tactic.setWidth(width);
+            tactic.setRecovery(recovery);
+            tactic.setInPossession(inPossession);
+            tactic.setTimeWasting(timeWasting);
+            tactic.setDribbling(dribbling);
+            tactic.setWidePlay(widePlay);
+            tactic.setTransition(transition);
             return tactic;
         }
     }

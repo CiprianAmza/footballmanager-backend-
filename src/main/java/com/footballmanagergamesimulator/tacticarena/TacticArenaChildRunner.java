@@ -142,6 +142,13 @@ public class TacticArenaChildRunner {
             calendar = calendar();
             if (calendar.getSeason() != season || calendar.getCurrentDay() > spec.endDay()) break;
             if (!matchesPending(season)) break;
+            if (spec.autoXi()) {
+                // The automatic eleven is picked again before every step by the fatigue-aware
+                // assistant (same formation, same team instructions, the roles of each slot), so a
+                // tired starter is rotated out instead of the day-1 eleven being saved all season.
+                used.setFormationDataList(assistantEleven(teamId, spec.tactic()));
+                first11 = objectMapper.writeValueAsString(used.getFormationDataList());
+            }
             restoreTactic(teamId, used, first11);
             String before = calendar.getCurrentDay() + "/" + calendar.getCurrentPhase();
             Map<String, Object> step = gameAdvanceService.advance(season);
@@ -217,27 +224,9 @@ public class TacticArenaChildRunner {
     /** Save the test tactic as the club's tactic; reference clubs get the assistant's XI. */
     private PersonalizedTacticView installTactic(Team team, ChildSpec spec) throws Exception {
         PersonalizedTacticView source = spec.tactic();
-        List<FormationData> xi;
-        if (spec.autoXi()) {
-            Map<Integer, FormationData> bySlot = new HashMap<>();
-            for (FormationData fd : Optional.ofNullable(source.getFormationDataList()).orElse(List.of())) {
-                if (fd != null) bySlot.put(fd.getPositionIndex(), fd);
-            }
-            xi = new ArrayList<>();
-            for (FormationData pick : tacticController.askAssistant(team.getId(), source.getTactic())) {
-                FormationData slot = bySlot.get(pick.getPositionIndex());
-                if (pick.getPositionIndex() < 30 && slot != null) {
-                    pick.setRole(slot.getRole());
-                    pick.setDuty(slot.getDuty());
-                    pick.setInstructions(slot.getInstructions());
-                    pick.setSpecialRole(slot.getSpecialRole());
-                    pick.setShadow(slot.isShadow());
-                }
-                xi.add(pick);
-            }
-        } else {
-            xi = new ArrayList<>(Optional.ofNullable(source.getFormationDataList()).orElse(List.of()));
-        }
+        List<FormationData> xi = spec.autoXi()
+                ? assistantEleven(team.getId(), source)
+                : new ArrayList<>(Optional.ofNullable(source.getFormationDataList()).orElse(List.of()));
 
         PersonalizedTacticView used = objectMapper.convertValue(source, PersonalizedTacticView.class);
         used.setTeamId(team.getId());
@@ -251,6 +240,31 @@ public class TacticArenaChildRunner {
         }
         restoreTactic(team.getId(), used, objectMapper.writeValueAsString(xi));
         return used;
+    }
+
+    /**
+     * The assistant's eleven and bench for the test formation (fatigue-aware: rating × fitness
+     * factor), each starter taking the role, duty, instructions and special role of the test
+     * tactic's slot he fills.
+     */
+    private List<FormationData> assistantEleven(long teamId, PersonalizedTacticView source) {
+        Map<Integer, FormationData> bySlot = new HashMap<>();
+        for (FormationData fd : Optional.ofNullable(source.getFormationDataList()).orElse(List.of())) {
+            if (fd != null) bySlot.put(fd.getPositionIndex(), fd);
+        }
+        List<FormationData> xi = new ArrayList<>();
+        for (FormationData pick : tacticController.askAssistant(teamId, source.getTactic())) {
+            FormationData slot = bySlot.get(pick.getPositionIndex());
+            if (pick.getPositionIndex() < 30 && slot != null) {
+                pick.setRole(slot.getRole());
+                pick.setDuty(slot.getDuty());
+                pick.setInstructions(slot.getInstructions());
+                pick.setSpecialRole(slot.getSpecialRole());
+                pick.setShadow(slot.isShadow());
+            }
+            xi.add(pick);
+        }
+        return xi;
     }
 
     /** Re-apply the test tactic when anything in the game changed it during the season. */
@@ -321,7 +335,7 @@ public class TacticArenaChildRunner {
             String kind = kinds.computeIfAbsent(v.getCompetitionId(), id -> competitionKind(id, leagueId));
             row.put("competitionKind", kind);
             if ("DIAMOND".equals(kind)) diamondId = v.getCompetitionId();
-            Double xgFor = null, xgAgainst = null;
+            Double xgFor = null, xgAgainst = null, xptsFor = null;
             Optional<MatchStats> stats = matchStatsRepository.findByCompetitionIdAndSeasonNumberAndRoundNumberAndTeam1IdAndTeam2Id(
                     v.getCompetitionId(), season, v.getRoundNumber(), v.getTeamId1(), v.getTeamId2());
             if (stats.isPresent() && "played".equals(v.getStatus())) {
@@ -329,9 +343,12 @@ public class TacticArenaChildRunner {
                 MatchStats s = stats.get();
                 xgFor = (home ? s.getHomeXg() : s.getAwayXg()) / 100.0;
                 xgAgainst = (home ? s.getAwayXg() : s.getHomeXg()) / 100.0;
+                Integer xpts = home ? s.getHomeXpts() : s.getAwayXpts();
+                xptsFor = xpts == null ? null : xpts / 100.0;
             }
             row.put("xgFor", xgFor);
             row.put("xgAgainst", xgAgainst);
+            row.put("xptsFor", xptsFor);
             row.put("inRun", !playedBefore.contains(key(v)));
             matches.add(row);
         }

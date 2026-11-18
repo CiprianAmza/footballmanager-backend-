@@ -1,6 +1,8 @@
 package com.footballmanagergamesimulator.compartment.runtime;
 
+import com.footballmanagergamesimulator.compartment.TacticCombinations;
 import com.footballmanagergamesimulator.compartment.TacticalContextInput;
+import com.footballmanagergamesimulator.compartment.match.CanonicalMatchEvaluation;
 import com.footballmanagergamesimulator.compartment.ContextRuleNormalizer;
 import com.footballmanagergamesimulator.compartment.adapter.CanonicalLineupPlayer;
 import com.footballmanagergamesimulator.compartment.adapter.PlayerCapabilitySnapshot;
@@ -30,6 +32,12 @@ public final class CanonicalScoringFingerprintService {
                 + ',' + compartment.getRating().getMoraleSlope() + ',' + compartment.getRating().getDefaultPositionMultiplier()
                 + ',' + compartment.getRating().getDefaultRoleMultiplier() + ','
                 + compartment.getRating().getExceptionalAttributeValue()
+                + ",fitness=" + compartment.getRating().getFitnessFresh() + ','
+                + compartment.getRating().getFitnessSensitivity()
+                + "|inMatchFitness=" + match.getFitness().getInMatchShare() + ','
+                + match.getFitness().isInMatchFromFresh() + ',' + ordered(match.getFitness().getTempoDrain()) + ','
+                + match.getStamina().getBatchMatchFitnessDrain() + ',' + match.getFitness().getStaminaBase() + ','
+                + match.getFitness().getStaminaSlope()
                 + "|contextRules=" + ordered(ContextRuleNormalizer.effective(compartment.getContextRules()))
                 + "|roleWeights=" + roleWeights(match.getRoleWeights())
                 + "|compartments=" + ordered(compartment.getCompartments())
@@ -55,10 +63,55 @@ public final class CanonicalScoringFingerprintService {
 
     public String inputFingerprint(CanonicalRuntimeScoringService.RuntimeScoringRequest request,
                                    CanonicalRuntimeTeamInput home, CanonicalRuntimeTeamInput away) {
-        return sha256("input|fixture=" + request.fixtureKey() + "|competition=" + request.competitionId()
+        return sha256(inputMaterial(request, home, away));
+    }
+
+    /**
+     * Input fingerprint including tactical combinations. The material is extended only when a
+     * combination is active on either side, so every other match keeps its historical fingerprint
+     * (and therefore its derived statistics seed).
+     */
+    public String inputFingerprint(CanonicalRuntimeScoringService.RuntimeScoringRequest request,
+                                   CanonicalRuntimeTeamInput home, CanonicalRuntimeTeamInput away,
+                                   CanonicalMatchEvaluation evaluation, CompartmentEngineConfig config) {
+        String material = inputMaterial(request, home, away);
+        TacticCombinations.Profile homeCombinations = evaluation.home().team().combinations();
+        TacticCombinations.Profile awayCombinations = evaluation.away().team().combinations();
+        boolean homeActive = homeCombinations != null && homeCombinations.isActive();
+        boolean awayActive = awayCombinations != null && awayCombinations.isActive();
+        if (homeActive || awayActive) {
+            material += "|combinations=home:" + (homeActive ? homeCombinations.active() : "[]")
+                    + ",away:" + (awayActive ? awayCombinations.active() : "[]")
+                    + "|conflicts=home:" + (homeActive ? homeCombinations.conflicts() : "[]")
+                    + ",away:" + (awayActive ? awayCombinations.conflicts() : "[]")
+                    + "|combinationRules=" + combinationRules(config.getTacticCombinations());
+        }
+        return sha256(material);
+    }
+
+    private static String inputMaterial(CanonicalRuntimeScoringService.RuntimeScoringRequest request,
+                                        CanonicalRuntimeTeamInput home, CanonicalRuntimeTeamInput away) {
+        return "input|fixture=" + request.fixtureKey() + "|competition=" + request.competitionId()
                 + "|season=" + request.season() + "|round=" + request.round() + "|home=" + request.homeTeamId()
                 + "|away=" + request.awayTeamId() + "|home=" + team(home)
-                + "|away=" + team(away));
+                + "|away=" + team(away);
+    }
+
+    private static String combinationRules(CompartmentEngineConfig.TacticCombinations rules) {
+        if (rules == null) return "none";
+        return rules.isEnabled() + "," + rules.getMaxActive() + "," + rules.getSynergyStackShare() + ","
+                + rulesOf(rules.getCombinations())
+                + "|conflicts=" + rules.getConflictEscalation() + ":" + rulesOf(rules.getConflicts());
+    }
+
+    private static String rulesOf(Map<String, CompartmentEngineConfig.Combination> combinations) {
+        if (combinations == null) return "none";
+        return combinations.entrySet().stream()
+                .map(e -> e.getKey() + "=" + ordered(e.getValue().getSettings()) + ':'
+                        + e.getValue().getMidfield() + ':' + e.getValue().getOwnXg() + ':'
+                        + e.getValue().getOpponentXg() + ':' + e.getValue().getRedCard() + ':'
+                        + e.getValue().getExposedOpponentOwnXg() + ':' + passingMechanic(e.getValue().getPassingStyle()))
+                .collect(Collectors.joining(";"));
     }
 
     public String legacyInputFingerprint(String fixtureKey, long competitionId, int season, int round,
@@ -105,6 +158,13 @@ public final class CanonicalScoringFingerprintService {
                 .sorted().collect(Collectors.joining(",", "[", "]"));
     }
 
+    private static String passingMechanic(CompartmentEngineConfig.PassingMechanic m) {
+        if (m == null) return "-";
+        return m.getSuppression() + "," + m.getAggressiveSuppression() + "," + m.getVeryAggressiveSuppression()
+                + "," + m.getLongPassingSuppression() + "," + m.getStrikerGoalChance() + ","
+                + m.getStrikerOpportunityDistribution();
+    }
+
     private static String roleWeights(MatchEngineConfig.RoleWeights weights) {
         return weights.getOverallBlend() + "," + weights.getRoleBlend() + ","
                 + weights.getSuitabilityScale() + "|attributes=" + ordered(weights.getAttributes());
@@ -136,6 +196,10 @@ public final class CanonicalScoringFingerprintService {
     private static String canonical(Object value) {
         if (value == null) return "null";
         if (value instanceof Map<?, ?> map) return ordered(map);
+        if (value instanceof java.util.List<?> list) {
+            return list.stream().map(CanonicalScoringFingerprintService::canonical)
+                    .collect(Collectors.joining(",", "[", "]"));
+        }
         if (value instanceof CompartmentEngineConfig.CompartmentWeights w) return ordered(w.getAttributes());
         if (value instanceof CompartmentEngineConfig.CompartmentMultipliers m) {
             return m.getAttack() + "," + m.getMidfield() + "," + m.getDefense();

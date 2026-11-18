@@ -73,7 +73,7 @@ class ContextualPlayerRatingCalculatorTest {
     }
 
     @Test
-    void fitnessAndMoraleAreNeutralWhileFamiliarityAndRoleSuitabilityRemainActive() {
+    void moraleIsNeutralWhileFitnessFamiliarityAndRoleSuitabilityRemainActive() {
         Map<PlayerAttribute, Integer> attributes = CompartmentConfigFixture.attributes(config, 15);
         var healthy = calculator.rate(new PlayerRatingInput("DC", "Central Defender", Duty.DEFEND,
                 attributes, Map.of(), 1.0, 100, 70, 100))
@@ -83,7 +83,9 @@ class ContextualPlayerRatingCalculatorTest {
                 .compartments().get(Compartment.DEFENSE);
 
         assertThat(limited.familiarityFactor()).isEqualTo(0.5);
-        assertThat(limited.fitnessFactor()).isEqualTo(1.0);
+        // Fitness 10 is far below the fresh level (80): 1 - 0.75 × 70/100 = 0.475, held at the 0.60 floor.
+        assertThat(limited.fitnessFactor()).isEqualTo(0.60);
+        assertThat(healthy.fitnessFactor()).isEqualTo(1.0);
         assertThat(limited.moraleFactor()).isEqualTo(1.0);
         assertThat(limited.roleFit()).isEqualTo(0.85);
         assertThat(limited.finalScore()).isLessThan(healthy.finalScore());

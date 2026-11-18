@@ -128,9 +128,7 @@ public final class CanonicalRuntimeInputFactory {
         Map<Long, TacticalContextInput> contexts = new LinkedHashMap<>();
         for (CanonicalLineupPlayer player : baseline.lineup()) {
             TacticalContextInput previous = baseline.tacticalContexts().get(player.playerId());
-            contexts.put(player.playerId(), new TacticalContextInput(
-                    axes.mentalityText(), axes.tempo(), axes.passingType(), axes.defensiveLine(),
-                    axes.pressing(), axes.width(), previous.playerInstructions()));
+            contexts.put(player.playerId(), tacticalContext(axes, previous.playerInstructions()));
         }
         return new CanonicalRuntimeTeamInput(axes.mentality(), baseline.lineup(), contexts);
     }
@@ -181,11 +179,15 @@ public final class CanonicalRuntimeInputFactory {
     }
 
     private static TacticalContextInput tacticalContext(CanonicalAxes axes, FormationData formation) {
+        return tacticalContext(axes, formation == null || formation.getInstructions() == null
+                ? List.of() : List.copyOf(formation.getInstructions()));
+    }
+
+    private static TacticalContextInput tacticalContext(CanonicalAxes axes, List<String> playerInstructions) {
         return new TacticalContextInput(
                 axes.mentalityText(), axes.tempo(), axes.passingType(), axes.defensiveLine(), axes.pressing(), axes.width(),
-                axes.recovery(),
-                formation == null || formation.getInstructions() == null
-                        ? List.of() : List.copyOf(formation.getInstructions()));
+                axes.recovery(), axes.inPossession(), axes.timeWasting(), axes.dribbling(), axes.widePlay(),
+                axes.transition(), playerInstructions);
     }
 
     private static CanonicalAxes canonicalAxes(PersonalizedTactic tactic) {
@@ -198,7 +200,27 @@ public final class CanonicalRuntimeInputFactory {
                 canonicalAxis("defensiveLine", tactic.getDefensiveLine(), "Standard", MatchEngineConfig.TacticalModel.DEFENSIVE_LINE_OPTIONS),
                 canonicalPressing(tactic.getPressing()),
                 canonicalAxis("width", tactic.getWidth(), "Balanced", MatchEngineConfig.TacticalModel.WIDTH_OPTIONS),
-                canonicalAxis("recovery", tactic.getRecovery(), "Standard", MatchEngineConfig.TacticalModel.RECOVERY_OPTIONS));
+                canonicalAxis("recovery", tactic.getRecovery(), "Standard", MatchEngineConfig.TacticalModel.RECOVERY_OPTIONS),
+                lenientAxis(tactic.getInPossession(), TacticalContextInput.DEFAULT_IN_POSSESSION,
+                        MatchEngineConfig.TacticalModel.IN_POSSESSION_OPTIONS),
+                lenientAxis(tactic.getTimeWasting(), TacticalContextInput.DEFAULT_TIME_WASTING,
+                        MatchEngineConfig.TacticalModel.TIME_WASTING_OPTIONS),
+                lenientAxis(tactic.getDribbling(), TacticalContextInput.DEFAULT_DRIBBLING,
+                        MatchEngineConfig.TacticalModel.DRIBBLING_OPTIONS),
+                lenientAxis(tactic.getWidePlay(), TacticalContextInput.DEFAULT_WIDE_PLAY,
+                        MatchEngineConfig.TacticalModel.WIDE_PLAY_OPTIONS),
+                lenientAxis(tactic.getTransition(), TacticalContextInput.DEFAULT_TRANSITION,
+                        MatchEngineConfig.TacticalModel.TRANSITION_OPTIONS));
+    }
+
+    /**
+     * The axes read only by tactical combinations never fail a fixture: a blank or unknown stored
+     * value is read as the default, which can never activate a combination.
+     */
+    private static String lenientAxis(String raw, String fallback, List<String> options) {
+        if (raw == null || raw.isBlank()) return fallback;
+        String value = raw.trim();
+        return options.stream().filter(option -> option.equalsIgnoreCase(value)).findFirst().orElse(fallback);
     }
 
     private static String canonicalAxis(String axis, String raw, String fallback, List<String> options) {
@@ -231,6 +253,8 @@ public final class CanonicalRuntimeInputFactory {
     }
 
     private record CanonicalAxes(Mentality mentality, String mentalityText, String tempo, String passingType,
-                                 String defensiveLine, String pressing, String width, String recovery) {
+                                 String defensiveLine, String pressing, String width, String recovery,
+                                 String inPossession, String timeWasting, String dribbling, String widePlay,
+                                 String transition) {
     }
 }

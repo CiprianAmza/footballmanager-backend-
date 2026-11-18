@@ -34,6 +34,8 @@ public final class CanonicalScoringWeightCatalog {
         add(leaves, "compartment.rating.role-fit-base", CanonicalScoringWeightKey.Category.ROLE_FIT, compartment.getRating().getRoleFitBase(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fit");
         add(leaves, "compartment.rating.role-fit-range", CanonicalScoringWeightKey.Category.ROLE_FIT, compartment.getRating().getRoleFitRange(), CanonicalScoringWeightKey.Type.CONTINUOUS, "role fit");
         add(leaves, "compartment.rating.fitness-floor", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getFitnessFloor(), CanonicalScoringWeightKey.Type.CONTINUOUS, "fitness");
+        add(leaves, "compartment.rating.fitness-fresh", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getFitnessFresh(), CanonicalScoringWeightKey.Type.CONTINUOUS, "fitness");
+        add(leaves, "compartment.rating.fitness-sensitivity", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getFitnessSensitivity(), CanonicalScoringWeightKey.Type.CONTINUOUS, "fitness");
         add(leaves, "compartment.rating.morale-neutral", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getMoraleNeutral(), CanonicalScoringWeightKey.Type.CONTINUOUS, "morale");
         add(leaves, "compartment.rating.morale-slope", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getMoraleSlope(), CanonicalScoringWeightKey.Type.CONTINUOUS, "morale");
         add(leaves, "compartment.rating.default-position-multiplier", CanonicalScoringWeightKey.Category.RATING, compartment.getRating().getDefaultPositionMultiplier(), CanonicalScoringWeightKey.Type.CONTINUOUS, "position fallback");
